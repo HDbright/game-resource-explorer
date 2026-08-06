@@ -1,0 +1,180 @@
+// ============ 通用弹窗 ============
+
+const modalRoot = () => document.getElementById('modal-root');
+
+export function openModal({ title, body, foot, wide = false }) {
+  const mask = document.createElement('div');
+  mask.className = 'modal-mask';
+  const modal = document.createElement('div');
+  modal.className = 'modal' + (wide ? ' wide' : '');
+
+  const head = document.createElement('div');
+  head.className = 'modal-head';
+  head.innerHTML = `<span class="modal-title"></span>`;
+  head.querySelector('.modal-title').textContent = title;
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'icon-btn';
+  closeBtn.textContent = '✕';
+  closeBtn.title = '关闭';
+  head.appendChild(closeBtn);
+
+  modal.appendChild(head);
+  if (body) modal.appendChild(body);
+  if (foot) modal.appendChild(foot);
+  mask.appendChild(modal);
+  modalRoot().appendChild(mask);
+
+  const close = () => mask.remove();
+  closeBtn.addEventListener('click', close);
+  mask.addEventListener('mousedown', (e) => { if (e.target === mask) close(); });
+  return { modal, mask, close };
+}
+
+export function footButtons(buttons) {
+  // buttons: [{text, cls, onClick}]
+  const foot = document.createElement('div');
+  foot.className = 'modal-foot';
+  for (const b of buttons) {
+    const btn = document.createElement('button');
+    btn.className = 'btn' + (b.cls ? ' ' + b.cls : '');
+    btn.textContent = b.text;
+    btn.addEventListener('click', () => b.onClick(btn));
+    foot.appendChild(btn);
+  }
+  return foot;
+}
+
+export function confirmDialog({ title, message, okText = '确定', danger = false, onOk }) {
+  const body = document.createElement('div');
+  body.className = 'modal-body';
+  const p = document.createElement('p');
+  p.className = 'hint';
+  p.innerHTML = message;
+  body.appendChild(p);
+
+  const { close } = openModal({
+    title,
+    body,
+    foot: footButtons([
+      { text: '取消', cls: '', onClick: () => close() },
+      { text: okText, cls: danger ? 'danger' : 'primary', onClick: () => { close(); onOk && onOk(); } },
+    ]),
+  });
+}
+
+/**
+ * 右键上下文菜单(浮层,点击外部/失焦关闭)
+ * items: [{label, danger?, onClick}]
+ */
+export function showContextMenu(x, y, items) {
+  const old = document.querySelector('.ctx-menu');
+  if (old) old.remove();
+
+  const menu = document.createElement('div');
+  menu.className = 'ctx-menu';
+  menu.style.cssText = `left:${x}px;top:${y}px;`;
+  for (const it of items) {
+    const item = document.createElement('div');
+    item.className = 'ctx-item' + (it.danger ? ' danger' : '');
+    item.textContent = it.label;
+    item.addEventListener('click', () => {
+      menu.remove();
+      it.onClick && it.onClick();
+    });
+    menu.appendChild(item);
+  }
+  // 阻止 mousedown 冒泡,避免外部关闭监听先移除菜单导致 click 丢失
+  menu.addEventListener('mousedown', (e) => e.stopPropagation());
+  document.body.appendChild(menu);
+
+  // 边界钳制(不超出视口)
+  const r = menu.getBoundingClientRect();
+  const mw = Math.min(r.width, window.innerWidth - 8);
+  const mh = Math.min(r.height, window.innerHeight - 8);
+  menu.style.left = Math.min(x, window.innerWidth - mw) + 'px';
+  menu.style.top = Math.min(y, window.innerHeight - mh) + 'px';
+
+  const close = () => menu.remove();
+  setTimeout(() => {
+    window.addEventListener('mousedown', close, { once: true });
+    window.addEventListener('blur', close, { once: true });
+  }, 0);
+  return { menu, close };
+}
+
+/** 轻量提示条 */
+export function toast(message, type = 'ok') {  const el = document.createElement('div');
+  el.style.cssText =
+    'position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:200;' +
+    'background:var(--bg4);color:var(--text);border:1px solid var(--border);' +
+    'border-radius:8px;padding:8px 18px;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,.4);' +
+    'transition:opacity .3s;max-width:70vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+  if (type === 'error') el.style.borderColor = 'var(--danger)';
+  if (type === 'ok') el.style.borderColor = 'var(--ok)';
+  el.textContent = message;
+  document.body.appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; }, 2600);
+  setTimeout(() => el.remove(), 3000);
+}
+
+export function promptDialog({ title, fields, onOk, onCancel }) {
+  // fields: [{key, label, type: 'text'|'textarea'|'select', options?:[{value,label}], value}]
+  const body = document.createElement('div');
+  body.className = 'modal-body';
+  const inputs = {};
+  for (const f of fields) {
+    const row = document.createElement('div');
+    row.className = 'form-row';
+    const label = document.createElement('label');
+    label.className = 'f-label';
+    label.textContent = f.label;
+    row.appendChild(label);
+    let input;
+    if (f.type === 'select') {
+      input = document.createElement('select');
+      for (const o of f.options) {
+        const op = document.createElement('option');
+        op.value = o.value;
+        op.textContent = o.label;
+        input.appendChild(op);
+      }
+      input.value = f.value;
+    } else if (f.type === 'textarea') {
+      input = document.createElement('textarea');
+      input.value = f.value;
+    } else {
+      input = document.createElement('input');
+      input.type = 'text';
+      input.value = f.value;
+    }
+    inputs[f.key] = input;
+    row.appendChild(input);
+    body.appendChild(row);
+  }
+
+  let okClicked = false;
+  const { close } = openModal({
+    title,
+    body,
+    foot: footButtons([
+      { text: '取消', cls: '', onClick: () => { close(); onCancel && onCancel(); } },
+      {
+        text: '确定',
+        cls: 'primary',
+        onClick: (btn) => {
+          if (okClicked) return;
+          okClicked = true;
+          const values = {};
+          for (const f of fields) values[f.key] = inputs[f.key].value.trim();
+          close();
+          onOk && onOk(values);
+        },
+      },
+    ]),
+  });
+  // 回车提交
+  const first = Object.values(inputs)[0];
+  if (first && first.tagName === 'INPUT') {
+    first.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.stopPropagation(); e.preventDefault(); } });
+  }
+}

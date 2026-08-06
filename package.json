@@ -1,0 +1,61 @@
+{
+  "name": "game-resource-explorer",
+  "version": "1.4.6",
+  "private": true,
+  "description": "游戏资源管理器:管理并预览 Spine / DragonBones 骨骼动画、图片、音频、3D 模型游戏资源",
+  "author": "game-resource-explorer",
+  "license": "MIT",
+  "main": "electron/main.js",
+  "scripts": {
+    "build": "vite build",
+    "start": "npm run build && node scripts/launch-electron.js",
+    "smoke": "npm run build && node scripts/launch-electron.js --smoke",
+    "dist": "npm run build && electron-builder --win portable"
+  },
+  "build": {
+    "appId": "com.gameresourceexplorer.app",
+    "productName": "游戏资源管理器",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**",
+      "electron/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "samples",
+        "to": "samples"
+      }
+    ],
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "游戏资源管理器-${version}-portable.exe"
+    },
+    "asar": true
+  },
+  "dependencies": {
+    "@pixi/spine-pixi": "^2.1.1",
+    "agent-base": "^9.0.0",
+    "http-proxy-agent": "^9.1.0",
+    "https-proxy-agent": "^9.1.0",
+    "pixi.js": "^8.9.2"
+  },
+  "devDependencies": {
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.3",
+    "vite": "^8.2.0"
+  }
+}

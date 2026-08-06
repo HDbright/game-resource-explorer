@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' data: blob:; font-src 'self' data:; worker-src 'self' blob:" />
+  <title>游戏资源管理器</title>
+</head>
+<body>
+  <div id="app">
+    <header class="toolbar">
+      <!-- 资源树显示/隐藏切换按钮:图标变化表示状态(☰ 显示 / ▤ 隐藏),不高亮 -->
+      <button class="btn sm tree-toggle" id="btn-toggle-side" title="显示资源树">☰ 资源树</button>
+      <div class="brand">游戏资源管理器</div>
+      <!-- 面包屑导航:主页 / 分类路径 -->
+      <nav class="breadcrumb" id="breadcrumb"></nav>
+      <div class="toolbar-actions">
+        <div class="search-box">
+          <input id="search" type="text" placeholder="搜索名称 / 备注…" />
+        </div>
+        <button class="btn" id="btn-add">+ 添加资源</button>
+        <button class="btn" id="btn-add-batch">+ 批量添加</button>
+        <button class="btn" id="btn-new-cat">新建分类</button>
+      </div>
+    </header>
+
+    <div class="main">
+      <aside class="sidebar" id="sidebar">
+        <!-- 资源类型标签:动画 / 图片 / 音频 / 3D(点击品牌名或面包屑「主页」回到统计主页) -->
+        <div class="resource-tabs" id="resource-tabs">
+          <button class="tab" data-tab="anim">动画</button>
+          <button class="tab" data-tab="image">图片</button>
+          <button class="tab" data-tab="audio">音频</button>
+          <button class="tab" data-tab="3d">3D</button>
+        </div>
+        <div class="cat-tree" id="cat-tree"></div>
+      </aside>
+
+      <section class="content-panel" id="content-panel">
+        <!-- 主页:各类资源统计与目录快捷入口 -->
+        <div class="page page-home" id="page-home"></div>
+
+        <!-- 目录列表页:某目录下的资源总列表 + 统计 + 视图切换 + 排序 -->
+        <div class="page page-folder" id="page-folder" hidden></div>
+
+        <!-- 预览页:动画播放器 / 图片查看器 / 音频播放器 -->
+        <div class="page page-preview" id="page-preview" hidden>
+          <div class="preview-panel">
+            <div class="preview-head">
+              <div class="ph-left">
+                <button class="btn sm" id="pv-back" title="返回目录列表">← 返回</button>
+                <span class="type-badge" id="pv-type"></span>
+                <span class="pv-name" id="pv-name"></span>
+                <span class="pv-version" id="pv-version"></span>
+                <span class="pv-path" id="pv-path" title=""></span>
+              </div>
+              <div class="ph-right">
+                <button class="btn sm" id="pv-open-dir">打开目录</button>
+                <button class="btn sm" id="pv-reload">重新加载</button>
+              </div>
+            </div>
+
+            <!-- 动画预览(保留全部原控件 id) -->
+            <div id="pv-anim-view">
+              <div class="preview-body" id="preview-body">
+                <div class="pv-canvas-wrap" id="pv-canvas-wrap">
+                  <canvas id="pv-canvas"></canvas>
+                  <div class="pv-error" id="pv-error" hidden></div>
+                </div>
+                <div class="preview-controls">
+                  <div class="ctrl-row">
+                    <label class="ctrl-label">播放模式</label>
+                    <div class="seg" id="mode-seg">
+                      <button data-mode="loop" class="seg-btn active">循环</button>
+                      <button data-mode="once" class="seg-btn">单次</button>
+                      <button data-mode="single" class="seg-btn">单帧</button>
+                    </div>
+                    <button class="icon-btn" id="btn-play" title="播放/暂停">⏸</button>
+                    <button class="icon-btn" id="btn-restart" title="重新播放">↺</button>
+                    <label class="ctrl-label" style="margin-left:14px">倍速</label>
+                    <input type="range" id="speed-range" min="0.1" max="3" step="0.05" value="1" />
+                    <span class="speed-val" id="speed-val">1.0x</span>
+                    <label class="ctrl-label" style="margin-left:12px">缩放</label>
+                    <input type="range" id="zoom-range" min="5" max="400" step="1" value="100" title="缩放(也可用滚轮)" />
+                    <span class="zoom-val" id="zoom-val">100%</span>
+                    <select id="zoom-mode" title="打开动画时的默认缩放方式">
+                      <option value="fit">适配窗口</option>
+                      <option value="100">100%</option>
+                      <option value="fixed">固定缩放比例</option>
+                      <option value="dynamic">动态缩放</option>
+                    </select>
+                  </div>
+                  <div class="ctrl-row single-row" id="single-row" hidden>
+                    <button class="icon-btn" id="frame-home" title="开头">⏮</button>
+                    <button class="icon-btn" id="frame-prev" title="上一帧">◀</button>
+                    <input type="range" id="frame-slider" min="0" max="100" step="0.1" value="0" />
+                    <button class="icon-btn" id="frame-next" title="下一帧">▶</button>
+                    <button class="icon-btn" id="frame-end" title="末尾">⏭</button>
+                    <span class="frame-val" id="frame-val">0.00s / 0.00s</span>
+                  </div>
+                  <div class="ctrl-row">
+                    <label class="ctrl-label">动作</label>
+                    <button class="icon-btn" id="anim-prev" title="上一个动作">◀</button>
+                    <select id="anim-select"></select>
+                    <button class="icon-btn" id="anim-next" title="下一个动作">▶</button>
+                    <span class="anim-dur" id="anim-dur"></span>
+                    <label class="ctrl-label" style="margin-left:14px">背景</label>
+                    <input type="color" id="bg-color" value="#22242b" />
+                    <button class="btn sm" id="bg-dark">深</button>
+                    <button class="btn sm" id="bg-light">浅</button>
+                    <label class="chk"><input type="checkbox" id="show-bones" /> 骨骼</label>
+                    <label class="chk"><input type="checkbox" id="flip-x" /> 镜像</label>
+                    <button class="icon-btn" id="btn-rotate" title="旋转 90°">↻</button>
+                    <div class="ctrl-spacer"></div>
+                    <span class="status" id="pv-status"></span>
+                  </div>
+                  <div class="ctrl-row slot-row" id="slot-row" hidden>
+                    <label class="ctrl-label">插槽</label>
+                    <button class="btn sm" id="slot-all">全部显示</button>
+                    <button class="btn sm" id="slot-none">全部隐藏</button>
+                    <div class="slot-list" id="slot-list"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 图片预览 -->
+            <div id="pv-image-view" hidden>
+              <div class="img-canvas-wrap" id="img-canvas-wrap">
+                <img id="img-display" draggable="false" alt="" />
+                <div class="pv-error" id="img-error" hidden></div>
+              </div>
+              <div class="preview-controls">
+                <div class="ctrl-row">
+                  <label class="ctrl-label">缩放</label>
+                  <input type="range" id="img-zoom-range" min="5" max="400" step="1" value="100" title="缩放(也可用滚轮)" />
+                  <span class="zoom-val" id="img-zoom-val">100%</span>
+                  <button class="btn sm" id="img-fit">适配窗口</button>
+                  <button class="btn sm" id="img-actual">100%</button>
+                  <div class="ctrl-spacer"></div>
+                  <span class="status" id="img-status"></span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 音频预览 -->
+            <div id="pv-audio-view" hidden>
+              <div class="audio-wrap" id="audio-wrap">
+                <div class="audio-art" id="audio-art">♪</div>
+                <div class="audio-meta">
+                  <div class="pv-name" id="audio-name"></div>
+                  <div class="pv-path" id="audio-path"></div>
+                </div>
+                <audio id="audio-el" preload="metadata"></audio>
+                <div class="audio-controls">
+                  <button class="icon-btn" id="audio-play" title="播放/暂停">▶</button>
+                  <span class="frame-val" id="audio-time">0:00 / 0:00</span>
+                  <input type="range" id="audio-progress" min="0" max="1000" step="1" value="0" title="进度" />
+                  <label class="ctrl-label">音量</label>
+                  <input type="range" id="audio-volume" min="0" max="100" step="1" value="100" title="音量" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div id="modal-root"></div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

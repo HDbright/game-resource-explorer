@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+release/
+
+# Electron / runtime data
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# Temporary files
+.tmp*/
+.tmp-*
+_tmp-*
+_test_*
+*.tar.gz
+*.tgz
+*.tmp
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Editor memory
+.workbuddy/
