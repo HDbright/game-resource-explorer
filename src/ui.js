@@ -4,38 +4,58 @@ import {
   state, setSetting, itemById, categoryById,
   addCategory, updateCategory, removeCategory, removeCategoryAdvanced,
   getCategoryChildren, isCategoryDescendant, getCategoryDescendants, categoryPath,
-  updateItem, removeItem,
+  updateItem, removeItem, addItem, findOrCreateCategoryByName,
   reorderCategory,
   addFavCategory, updateFavCategory, removeFavCategory,
-  addFavItem, removeFavItem, moveFavItem,
+  addFavItem, removeFavItem, moveFavItem, favCategoryById,
   reorderFavCategory,
   favLocations, isFavored,
   TYPE_LABEL, typeGroup, formatSize,
-  getCategoryPathList, getFolderData,
+  CAT_TYPE_TAG_LABELS, CAT_TYPE_TAGS, categoryTypeTags, categoryTypeTagNames, catVisibleInGroup,
+  getCategoryPathList, getFolderData, sortItems,
   setResourceTab, setListViewMode, setListSort,
+  itemTags, allTags, cleanTags,
+  addSceneCategory, updateSceneCategory, removeSceneCategory, sceneCategoryById,
+  getSceneCategoryChildren, reorderSceneCategory,
+  addScene, updateScene, removeScene, scenesInCategory,
 } from './state.js';
 import { openModal, footButtons, confirmDialog, promptDialog, toast, showContextMenu } from './dialogs.js';
 import { runAddFlow } from './addFlow.js';
-import { renderHomePage } from './pages/homePage.js';
-import { renderFolderPage } from './pages/folderPage.js';
+import { renderHomePage, renderFavHome } from './pages/homePage.js';
+import { renderFolderPage, renderFavFolderPage } from './pages/folderPage.js';
+import { renderToolboxPage } from './pages/toolboxPage.js';
+import { renderSceneHome, renderSceneFolderPage } from './pages/scenePage.js';
+import { renderSettingsPage } from './pages/settingsPage.js';
 import { ImageViewerController } from './viewers/imageViewer.js';
-import { AudioViewerController } from './viewers/audioViewer.js';
+import { AudioPlayerController } from './viewers/audioViewer.js';
 import { thumbnailService } from './thumbnails.js';
+import { makeCopyablePath, setCopyablePath } from './clipboard.js';
 
 let currentCategoryId = 'all';
 let searchText = '';
 let preview = null;
 let imageViewer = null;
-let audioViewer = null;
+let audioPlayer = null;
 let lastFolderTab = 'anim'; // 进入预览前所在 tab,返回时恢复
 let editModeActive = false; // 目录列表页编辑模式开关
 const editSelected = new Set(); // 编辑模式下选中的资源 id
+let editAnchorId = null; // Shift 范围选择的锚点(最后一个 Ctrl/普通点击的条目 id)
+let folderTagFilter = ''; // 目录列表页标签过滤(空 = 全部)
+let folderSearchText = ''; // 目录列表页搜索(名称/属性/标签)
+let favHomeShown = false; // 右侧是否显示收藏夹主页
+let currentFavCategoryId = null; // 当前收藏夹目录列表页的收藏分类 id(null = 不在收藏夹目录页)
+let previewReturnFav = null; // 从收藏夹页面进入预览时记录返回目标 {home, catId}
+// ---- 工具箱 / 场景管理 导航状态 ----
+let currentTool = null; // null | 'astc2png' | 'skel2json' | 'spinefix' | 'imageedit'
+let toolboxHomeShown = false; // 右侧是否显示资源工具箱主页(汇总视图,含所有子菜单入口)
+let sceneHomeShown = false; // 右侧是否显示场景主页
+let currentSceneCatId = null; // 当前场景目录列表页的场景分类 id(null = 不在场景目录页;'' = 未分类)
+let settingsShown = false; // 右侧是否显示系统设置页
+let settingsReturn = null; // 打开设置前的主区状态快照,关闭后恢复
 
 export function initUI(pv) {
   preview = pv;
-  // 需求:默认不展开任何分类/子目录(仅展开收藏夹根,以显示收藏分类)
-  expandedCats.add('__fav__');
-  state.favCategories.forEach((c) => expandedCats.add('fav:' + c.id));
+  // 需求:默认不展开任何分类/子目录(收藏夹根与收藏分类均默认折叠,点击箭头才展开)
   // 侧栏隐藏状态记忆(同步顶栏「资源树」按钮图标)
   if (localStorage.getItem('sidebarHidden') === '1') {
     const sb = document.getElementById('sidebar');
@@ -46,23 +66,43 @@ export function initUI(pv) {
   imageViewer = new ImageViewerController();
   const imgWrap = document.getElementById('pv-image-view');
   if (imgWrap) imageViewer.init(imgWrap);
-  audioViewer = new AudioViewerController();
+  audioPlayer = new AudioPlayerController();
   const audioWrap = document.getElementById('pv-audio-view');
-  if (audioWrap) audioViewer.init({
+  if (audioWrap) audioPlayer.init({
     audio: document.getElementById('audio-el'),
     playBtn: document.getElementById('audio-play'),
+    prevBtn: document.getElementById('audio-prev'),
+    nextBtn: document.getElementById('audio-next'),
     progress: document.getElementById('audio-progress'),
     volume: document.getElementById('audio-volume'),
+    rate: document.getElementById('audio-rate'),
+    mode: document.getElementById('audio-mode'),
     timeEl: document.getElementById('audio-time'),
     nameEl: document.getElementById('audio-name'),
     pathEl: document.getElementById('audio-path'),
+    statusEl: document.getElementById('audio-status'),
+    queueEl: document.getElementById('audio-queue'),
+    miniBar: document.getElementById('audio-mini'),
+    miniName: document.getElementById('audio-mini-name'),
+    miniPlay: document.getElementById('audio-mini-play'),
+  });
+  bindAudioPlayerExtras();
+  // 设置页修改播放列表显示字段后,立即刷新队列显示
+  document.addEventListener('audio:fieldsChanged', () => {
+    if (audioPlayer) audioPlayer.refreshUI();
   });
   bindToolbar();
   bindList();
   bindPreviewControls();
   bindTabs();
+  // 工具箱主页卡片 → 导航到对应子工具(用事件解耦,避免跨模块传递函数)
+  document.addEventListener('toolbox:navigate', (e) => {
+    const id = e.detail && e.detail.id;
+    if (id) openTool(id);
+  });
   bindBrandHome();
   bindBreadcrumb();
+  bindBackSpecial();
   bindFolderToolbar();
   bindPreviewPageNav();
   renderCategories();
@@ -71,7 +111,7 @@ export function initUI(pv) {
 
 // ---------------- 资源树(分类 + 条目合并) ----------------
 
-const expandedCats = new Set(); // 展开的分类 id('all' / '' / 分类id)
+const expandedCats = new Set(['all']); // 展开的分类 id('all' / '' / 分类id);默认展开类型根节点以便分类目录可见
 
 let dragCatId = null;    // 当前拖拽中的分类 id
 let dragItemId = null;   // 当前拖拽中的条目 id
@@ -99,7 +139,7 @@ function filteredItems() {
   if (searchText) {
     const q = searchText.toLowerCase();
     items = items.filter(
-      (i) => i.displayName.toLowerCase().includes(q) || (i.remark || '').toLowerCase().includes(q)
+      (i) => i.displayName.toLowerCase().includes(q) || (i.remark || '').toLowerCase().includes(q) || itemTags(i).some((t) => t.toLowerCase().includes(q))
     );
   }
   return items.sort((a, b) => a.displayName.localeCompare(b.displayName, 'zh-Hans-CN'));
@@ -127,7 +167,7 @@ function renderTree() {
   if (!tree) return;
   tree.innerHTML = '';
 
-  // 搜索时自动展开所有分类
+  // 搜索时自动展开所有分类(含类型根节点)
   if (searchText) {
     expandedCats.add('all');
     state.categories.forEach((c) => expandedCats.add(c.id));
@@ -136,24 +176,454 @@ function renderTree() {
   // 收藏夹区块(置顶)
   renderFavSection(tree);
 
-  // 「全部 XX」伪节点(含未分类等历史条目;名称随 tab 变化,是当前类型主页链接)
-  const allName = { anim: '全部动画', image: '全部图片', audio: '全部音频', '3d': '全部3D', home: '全部资源' }[currentGroup() || 'home'];
+  // 收藏夹区域与资源分类目录区域之间的分格线
+  const sep = document.createElement('div');
+  sep.className = 'tree-section-sep';
+  tree.appendChild(sep);
+
+  // 「XX资源」类型根节点(名称随 tab 变化):既是类型主页链接,又可展开/折叠该类型的分类目录
+  const allName = { anim: '动画资源', image: '图片资源', audio: '音频资源', '3d': '3D资源', home: '资源' }[currentGroup() || 'home'];
   renderPseudoNode(tree, { id: 'all', icon: '▦', name: allName });
 
-  // 「未分类」节点按需显示:存在未分类动画时才展示
-  const uncatCount = filteredItems().filter((i) => !i.categoryId).length;
-  if (uncatCount > 0) {
-    renderPseudoNode(tree, { id: '', icon: '○', name: '未分类' });
+  // 分格线:资源目录与工具箱之间
+  const sep2 = document.createElement('div');
+  sep2.className = 'tree-section-sep';
+  tree.appendChild(sep2);
+
+  // 「资源工具箱」根菜单(展开后显示文件格式转换 / 图片编辑 等子菜单)
+  renderToolboxSection(tree);
+
+  // 分格线:工具箱与场景管理之间
+  const sep3 = document.createElement('div');
+  sep3.className = 'tree-section-sep';
+  tree.appendChild(sep3);
+
+  // 「游戏场景管理」根菜单(展开后显示场景分类树 + 未分类场景)
+  renderSceneSection(tree);
+}
+
+/** 资源工具箱侧栏根节点 + 子菜单 */
+function renderToolboxSection(parent) {
+  const rootOpen = expandedCats.has('__tools__');
+  const root = makeTreeNode({
+    icon: '🧰',
+    name: '资源工具箱',
+    nodeId: '__tools__',
+    active: !!currentTool || toolboxHomeShown,
+    paddingLeft: 8,
+    hasChildren: true,
+    isOpen: rootOpen,
+  });
+  parent.appendChild(root);
+
+  // 箭头点击:展开/折叠工具箱
+  root.querySelector('.cat-arrow').addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleExpand('__tools__');
+    renderTree();
+  });
+  // 名称点击:进入工具箱主页(汇总视图,列出所有子菜单入口)
+  root.addEventListener('click', () => {
+    clearOverlays();
+    toolboxHomeShown = true; // 工具箱主页(汇总视图)
+    currentTool = null;
+    renderTree();
+    renderMainArea();
+  });
+
+  if (!rootOpen) return;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'tree-items';
+  parent.appendChild(wrap);
+
+  // 「文件格式转换」父菜单
+  const convOpen = expandedCats.has('__tools_conv__');
+  const convHas = true;
+  const convNode = makeTreeNode({
+    icon: '🔁',
+    name: '文件格式转换',
+    nodeId: '__tools_conv__',
+    active: ['astc2png', 'skel2json', 'spinefix'].includes(currentTool || ''),
+    paddingLeft: 22,
+    hasChildren: convHas,
+    isOpen: convOpen,
+  });
+  wrap.appendChild(convNode);
+  convNode.querySelector('.cat-arrow').addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleExpand('__tools_conv__');
+    renderTree();
+  });
+  convNode.addEventListener('click', () => {
+    // 父菜单点名称:进入首个工具(astc2png),也作为默认入口
+    openTool('astc2png');
+  });
+
+  if (convOpen) {
+    const subWrap = document.createElement('div');
+    subWrap.className = 'tree-items';
+    wrap.appendChild(subWrap);
+    const leaves = [
+      { id: 'astc2png', icon: '🖼', name: 'astc 转 png' },
+      { id: 'skel2json', icon: '📦', name: 'skel 转 json' },
+      { id: 'spinefix', icon: '🛠', name: 'spine 文件修复' },
+    ];
+    for (const l of leaves) {
+      const n = makeTreeNode({
+        icon: l.icon,
+        name: l.name,
+        nodeId: '__tool:' + l.id,
+        active: currentTool === l.id,
+        paddingLeft: 36,
+        hasChildren: false,
+        isOpen: false,
+      });
+      n.addEventListener('click', () => openTool(l.id));
+      subWrap.appendChild(n);
+    }
   }
 
-  // 分类树(递归,顶级分类按数组顺序)
-  for (const c of getCategoryChildren('')) {
-    renderCatNode(tree, c, 0);
+  // 「图片编辑」叶子节点
+  const imgNode = makeTreeNode({
+    icon: '🎨',
+    name: '图片编辑',
+    nodeId: '__tool:imageedit',
+    active: currentTool === 'imageedit',
+    paddingLeft: 22,
+    hasChildren: false,
+    isOpen: false,
+  });
+  wrap.appendChild(imgNode);
+  imgNode.addEventListener('click', () => openTool('imageedit'));
+}
+
+/** 游戏场景管理侧栏根节点 + 场景分类树 */
+function renderSceneSection(parent) {
+  const rootOpen = expandedCats.has('__scene__');
+  const root = makeTreeNode({
+    icon: '🎬',
+    name: '游戏场景管理',
+    nodeId: '__scene__',
+    active: sceneHomeShown || currentSceneCatId !== null,
+    paddingLeft: 8,
+    hasChildren: true,
+    isOpen: rootOpen,
+  });
+  parent.appendChild(root);
+
+  root.querySelector('.cat-arrow').addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleExpand('__scene__');
+    renderTree();
+  });
+  root.addEventListener('click', () => {
+    // 根名称点击:进入场景主页
+    clearOverlays();
+    sceneHomeShown = true;
+    currentSceneCatId = null;
+    renderTree();
+    renderMainArea();
+  });
+
+  if (!rootOpen) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'tree-items';
+  parent.appendChild(wrap);
+
+  // 未分类场景:若有场景条目显示
+  const uncatScenes = scenesInCategory('');
+  if (uncatScenes.length > 0) {
+    const unc = makeTreeNode({
+      icon: '○',
+      name: '未分类',
+      nodeId: '__scene_uncat__',
+      active: currentSceneCatId === '',
+      paddingLeft: 22,
+      hasChildren: false,
+      isOpen: false,
+      count: uncatScenes.length,
+    });
+    unc.addEventListener('click', () => {
+      clearOverlays();
+      sceneHomeShown = false;
+      currentSceneCatId = '';
+      renderTree();
+      renderMainArea();
+    });
+    wrap.appendChild(unc);
+  }
+
+  // 场景分类树(递归)
+  for (const c of getSceneCategoryChildren('')) {
+    renderSceneCatNode(wrap, c, 1);
   }
 }
 
-/** 伪节点(全部XX = 当前类型主页链接;未分类 = 可展开) */
-function renderPseudoNode(tree, n) {
+/** 场景分类树递归节点 */
+function renderSceneCatNode(parent, cat, depth) {
+  const scenes = scenesInCategory(cat.id);
+  const children = getSceneCategoryChildren(cat.id);
+  const hasChildren = children.length > 0 || scenes.length > 0;
+  const isOpen = expandedCats.has('scene:' + cat.id);
+  const node = makeTreeNode({
+    icon: '▣',
+    name: cat.name,
+    nodeId: 'scene:' + cat.id,
+    active: currentSceneCatId === cat.id,
+    paddingLeft: 8 + 14 + depth * 14,
+    hasChildren,
+    isOpen,
+    count: scenes.length,
+  });
+  parent.appendChild(node);
+
+  node.querySelector('.cat-arrow').addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!hasChildren) return;
+    toggleExpand('scene:' + cat.id);
+    renderTree();
+  });
+  node.addEventListener('click', () => {
+    clearOverlays();
+    sceneHomeShown = false;
+    currentSceneCatId = cat.id;
+    renderTree();
+    renderMainArea();
+  });
+
+  // 右键菜单:新建子分类 / 编辑 / 删除
+  node.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    showContextMenu(e.clientX, e.clientY, [
+      { label: '新建子分类', onClick: () => addSceneCategoryDialog(cat.id) },
+      { label: '编辑分类', onClick: () => editSceneCategoryDialog(cat.id) },
+      { label: '移动到顶级', onClick: () => { updateSceneCategory(cat.id, { parentId: '' }); renderTree(); } },
+      { label: '删除分类', danger: true, onClick: () => deleteSceneCategoryDialog(cat.id) },
+    ]);
+  });
+
+  if (!isOpen || !hasChildren) return;
+  const sub = document.createElement('div');
+  sub.className = 'tree-items';
+  parent.appendChild(sub);
+  // 子分类在前
+  for (const ch of children) renderSceneCatNode(sub, ch, depth + 1);
+  // 直属场景条目(只显示数量,详情在右侧)
+  for (const s of scenes) sub.appendChild(makeSceneItemNode(s));
+}
+
+/** 侧栏场景条目(只读,显示名称 + 类型图标) */
+function makeSceneItemNode(s) {
+  const el = document.createElement('div');
+  el.className = 'cat-node';
+  el.style.paddingLeft = '8px';
+  el.innerHTML = `
+    <span class="cat-arrow">·</span>
+    <span class="cat-icon">${s.type === 'folder' ? '📁' : '📄'}</span>
+    <span class="cat-name" title="${esc(s.filePath || s.name)}">${esc(s.name)}</span>
+  `;
+  el.addEventListener('click', () => {
+    // 在分类页内点击条目:弹出该场景的操作菜单
+    showContextMenu(window.innerWidth - 240, 120, [
+      { label: '查看路径', onClick: () => toast(s.filePath || '(无路径)', 'info', 4000) },
+      { label: '在文件管理器中显示', onClick: () => window.api.showItem(s.filePath) },
+      { label: '编辑场景信息', onClick: () => editSceneDialog(s.id) },
+      { label: '删除', danger: true, onClick: () => confirmAndRemoveScene(s.id) },
+    ]);
+  });
+  return el;
+}
+
+/** 通用树节点构造器(避免在 renderToolboxSection/renderSceneSection 中重复 DOM 代码) */
+function makeTreeNode({ icon, name, nodeId, active, paddingLeft, hasChildren, isOpen, count }) {
+  const node = document.createElement('div');
+  node.className = 'cat-node' + (active ? ' active' : '');
+  node.dataset.id = nodeId;
+  node.style.paddingLeft = paddingLeft + 'px';
+  const arrow = document.createElement('span');
+  arrow.className = 'cat-arrow';
+  arrow.textContent = hasChildren ? (isOpen ? '▼' : '▶') : '·';
+  node.appendChild(arrow);
+  const ic = document.createElement('span');
+  ic.className = 'cat-icon';
+  ic.textContent = icon;
+  node.appendChild(ic);
+  const nm = document.createElement('span');
+  nm.className = 'cat-name';
+  nm.textContent = name;
+  node.appendChild(nm);
+  if (typeof count === 'number') {
+    const ct = document.createElement('span');
+    ct.className = 'cat-count';
+    ct.textContent = count;
+    node.appendChild(ct);
+  }
+  return node;
+}
+
+function toggleExpand(key) {
+  if (expandedCats.has(key)) expandedCats.delete(key);
+  else expandedCats.add(key);
+}
+
+function openTool(id) {
+  clearOverlays();
+  currentTool = id;
+  toolboxHomeShown = false;
+  // 进入工具箱时默认展开工具箱节点,折叠其它分支
+  if (!expandedCats.has('__tools__')) expandedCats.add('__tools__');
+  renderTree();
+  renderMainArea();
+}
+
+/**
+ * 进入主区任意(资源 / 收藏夹)页面前,清掉所有"覆盖式"页面状态。
+ * renderMainArea 按优先级分发:currentTool → 场景 → 设置 → 收藏夹 → 资源。
+ * 若这些状态残留,从工具箱 / 场景管理 / 设置页点击左侧资源分类节点时,
+ * 会被旧状态拦截而"看起来无法切换页面"。统一在此清掉,导航才会真正生效。
+ */
+function clearOverlays() {
+  currentTool = null;
+  toolboxHomeShown = false;
+  sceneHomeShown = false;
+  currentSceneCatId = null;
+  settingsShown = false;
+  favHomeShown = false;
+  currentFavCategoryId = null;
+}
+
+// ---- 场景分类/场景条目 操作对话框 ----
+
+function addSceneCategoryDialog(parentId = '') {
+  promptDialog({
+    title: parentId ? '新建子分类' : '新建场景分类',
+    placeholder: '分类名称',
+    onOk: (name) => {
+      if (!name) return;
+      addSceneCategory({ name, parentId });
+      renderTree();
+      toast('已创建场景分类');
+    },
+  });
+}
+function editSceneCategoryDialog(id) {
+  const cat = sceneCategoryById(id);
+  if (!cat) return;
+  promptDialog({
+    title: '编辑场景分类',
+    placeholder: '分类名称',
+    defaultValue: cat.name,
+    onOk: (name) => {
+      if (!name) return;
+      updateSceneCategory(id, { name });
+      renderTree();
+    },
+  });
+}
+function deleteSceneCategoryDialog(id) {
+  const cat = sceneCategoryById(id);
+  if (!cat) return;
+  const subs = getSceneCategoryChildren(id);
+  const scenes = scenesInCategory(id);
+  confirmDialog({
+    title: `删除分类「${cat.name}」?`,
+    message: `子分类 ${subs.length} 个、场景 ${scenes.length} 个将被一并处理(子分类提升到被删分类的父级;场景条目移到「未分类」)。`,
+    onOk: () => {
+      removeSceneCategory(id);
+      if (currentSceneCatId === id) currentSceneCatId = null;
+      renderTree(); renderMainArea();
+      toast('已删除分类');
+    },
+  });
+}
+function editSceneDialog(id) {
+  const s = state.scenes.find((x) => x.id === id);
+  if (!s) return;
+  promptDialog({
+    title: '编辑场景',
+    placeholder: '场景名称',
+    defaultValue: s.name,
+    onOk: (name) => {
+      if (!name) return;
+      updateScene(id, { name });
+      renderMainArea();
+      renderTree();
+    },
+  });
+}
+function confirmAndRemoveScene(id) {
+  const s = state.scenes.find((x) => x.id === id);
+  if (!s) return;
+  confirmDialog({
+    title: `删除场景「${s.name}」?`,
+    message: `将仅从列表中移除,不会删除磁盘上的文件夹或文件。\n路径:${s.filePath}`,
+    onOk: () => { removeScene(id); renderMainArea(); renderTree(); toast('已删除'); },
+  });
+}
+
+/** 添加场景条目:先选文件或目录(支持两种类型),再录入名称/备注 */
+async function addSceneDialog(catId) {
+  const r = await window.api.pickFiles({ directory: false, title: '选择场景文件或目录(可多选)' });
+  if (r.canceled || !r.filePaths || !r.filePaths.length) return;
+  // 区分文件/目录(用第一个判断)—— 多选时按用户实际选择走,但 fs:stat 一下
+  for (const p of r.filePaths) {
+    let stat;
+    try { stat = await window.api.statFile(p); } catch (e) { stat = null; }
+    const isDir = !!(stat && (stat.size === undefined || stat.isDirectory));
+    // statFile 返回 {size, mtime},没有 isDirectory。这里简化为:扩展名判断 / 后续可改 IPC。
+    const isProbablyDir = !pathLooksLikeFile(p);
+    const type = isProbablyDir ? 'folder' : 'file';
+    addScene({
+      categoryId: catId || '',
+      name: deriveName(p),
+      filePath: p,
+      type,
+      size: stat ? stat.size : null,
+      mtime: stat ? stat.mtime : null,
+    });
+  }
+  renderMainArea();
+  renderTree();
+  toast(`已添加 ${r.filePaths.length} 个场景`);
+}
+
+/** 简易文件/目录判断(无扩展名 + 非已知资源扩展名 → 当作目录) */
+function pathLooksLikeFile(p) {
+  const base = p.split(/[\\/]/).pop() || '';
+  const ext = base.toLowerCase().match(/\.[^.]+$/);
+  if (!ext) return false; // 无扩展名视作目录(常见:文件夹)
+  const known = ['png','jpg','jpeg','gif','webp','bmp','svg','json','skel','atlas','mp3','wav','ogg','flac','m4a','wma','mp4','webm','glb','gltf','bin'];
+  return known.includes(ext[0].slice(1));
+}
+function deriveName(p) {
+  return (p.split(/[\\/]/).pop() || '').replace(/\.[^.]+$/, '') || '未命名';
+}
+
+/** 移动场景到其它分类 */
+function moveSceneDialog(id) {
+  const s = state.scenes.find((x) => x.id === id);
+  if (!s) return;
+  const options = [{ label: '未分类', onClick: () => { updateScene(id, { categoryId: '' }); renderMainArea(); renderTree(); } }];
+  for (const c of state.sceneCategories) {
+    const label = categoryScenePath(c.id) + ' / ' + c.name;
+    options.push({ label, onClick: () => { updateScene(id, { categoryId: c.id }); renderMainArea(); renderTree(); } });
+  }
+  showContextMenu(window.innerWidth - 240, 120, [
+    { label: '移动到 →', disabled: true, onClick: () => {} },
+    ...options,
+  ]);
+}
+function categoryScenePath(id) {
+  const parts = [];
+  let cur = sceneCategoryById(id);
+  while (cur) { parts.unshift(cur.name); cur = cur.parentId ? sceneCategoryById(cur.parentId) : null; }
+  return parts.join(' / ');
+}
+
+/** 伪节点(类型根节点「XX资源」/ 未分类):均可展开/折叠;类型根节点展开后显示该类型的分类目录 */
+function renderPseudoNode(parent, n) {
   const items = itemsForCat(n.id);
   const isOpen = expandedCats.has(n.id);
   const hasItems = items.length > 0;
@@ -165,8 +635,8 @@ function renderPseudoNode(tree, n) {
 
   const arrow = document.createElement('span');
   arrow.className = 'cat-arrow';
-  // 「全部XX」作为类型主页链接,不展示展开箭头
-  arrow.textContent = isAll ? '→' : (hasItems ? (isOpen ? '▼' : '▶') : '·');
+  // 有子内容时显示展开/折叠箭头(▶/▼);类型根节点与未分类同样支持展开折叠
+  arrow.textContent = hasItems ? (isOpen ? '▼' : '▶') : '·';
   node.appendChild(arrow);
 
   const icon = document.createElement('span');
@@ -184,25 +654,24 @@ function renderPseudoNode(tree, n) {
   count.textContent = items.length;
   node.appendChild(count);
 
-  // 箭头:点击切换展开/折叠(不触发选中);「全部XX」无展开箭头
-  if (!isAll) {
-    arrow.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (Date.now() - lastDragAt < 300) return;
-      if (hasItems) {
-        if (expandedCats.has(n.id)) expandedCats.delete(n.id);
-        else expandedCats.add(n.id);
-        renderTree();
-      }
-    });
-  }
+  // 箭头:点击切换展开/折叠(不触发选中)
+  arrow.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (Date.now() - lastDragAt < 300) return;
+    if (hasItems) {
+      if (expandedCats.has(n.id)) expandedCats.delete(n.id);
+      else expandedCats.add(n.id);
+      renderTree();
+    }
+  });
 
   node.addEventListener('click', () => {
     if (Date.now() - lastDragAt < 300) return;
+    clearOverlays();
     currentCategoryId = n.id;
     setSetting('lastCategoryId', n.id);
     if (isAll) {
-      // 类型主页链接:不展开树内条目,右侧切到当前类型主页(全部资源列表页)
+      // 类型主页链接:右侧切到当前类型主页(全部资源列表页)
       const tab = (state.settings && state.settings.resourceTab) || 'home';
       if (tab === 'home') setResourceTab(lastFolderTab || 'anim');
       else setResourceTab(tab);
@@ -221,20 +690,34 @@ function renderPseudoNode(tree, n) {
     syncTabs();
   });
 
-  tree.appendChild(node);
+  parent.appendChild(node);
 
-  if (!isAll && isOpen && hasItems) {
+  if (isOpen && hasItems) {
     const wrap = document.createElement('div');
     wrap.className = 'tree-items';
-    for (const it of items) wrap.appendChild(renderItemNode(it));
-    tree.appendChild(wrap);
+    if (isAll) {
+      // 该类型的分类目录:未分类在前(若有),顶级分类在后
+      // 目录按资源类型标签过滤:无标签 → 所有类型显示;有标签 → 仅标签命中当前类型的目录显示
+      const uncatItems = items.filter((i) => !i.categoryId);
+      if (uncatItems.length > 0) {
+        renderPseudoNode(wrap, { id: '', icon: '○', name: '未分类' });
+      }
+      for (const c of getCategoryChildren('')) {
+        if (catVisibleInGroup(c, currentGroup())) renderCatNode(wrap, c, 0);
+      }
+    } else {
+      // 未分类:展开后显示其直属条目
+      for (const it of items) wrap.appendChild(renderItemNode(it));
+    }
+    parent.appendChild(wrap);
   }
 }
 
 /** 递归渲染分类节点(子分类 + 直属条目) */
 function renderCatNode(parent, cat, depth) {
   const items = itemsForCat(cat.id);
-  const children = getCategoryChildren(cat.id);
+  // 子分类按资源类型标签过滤(无标签 → 所有类型显示;有标签 → 仅标签命中当前类型的显示)
+  const children = getCategoryChildren(cat.id).filter((c) => catVisibleInGroup(c, currentGroup()));
   const hasChildren = children.length > 0;
   const isOpen = expandedCats.has(cat.id);
 
@@ -256,7 +739,9 @@ function renderCatNode(parent, cat, depth) {
   const name = document.createElement('span');
   name.className = 'cat-name';
   name.textContent = cat.name;
-  name.title = cat.remark || cat.name;
+  // 悬停提示:资源类型标签(备注字段已改为标签勾选)
+  const tagNames = categoryTypeTagNames(cat);
+  name.title = tagNames.length ? `资源类型: ${tagNames.join(' / ')}` : '所有资源类型';
   node.appendChild(name);
 
   const count = document.createElement('span');
@@ -403,6 +888,7 @@ function renderCatNode(parent, cat, depth) {
   node.addEventListener('click', () => {
     if (Date.now() - lastDragAt < 300) return; // 拖拽刚结束时忽略误触点击
     // 需求:点目录名只选中,右侧切换为目录列表页(不展开/折叠)
+    clearOverlays();
     currentCategoryId = cat.id;
     setSetting('lastCategoryId', cat.id);
     if ((state.settings.resourceTab || 'home') === 'home') {
@@ -436,14 +922,29 @@ function openCategoryMenu(x, y, cat) {
   ]);
 }
 
+/** 目录的资源类型标签勾选字段(新建/编辑分类对话框复用;不勾选 = 在所有资源类型中显示) */
+function typeTagField(value) {
+  return {
+    key: 'typeTags',
+    label: '资源类型标签',
+    type: 'checkboxes',
+    options: CAT_TYPE_TAGS.map((t) => ({ value: t, label: CAT_TYPE_TAG_LABELS[t] })),
+    value: Array.isArray(value) ? value : [],
+    hint: '不勾选 = 在所有资源类型中显示;勾选后仅在该类型(可多选)的资源树中显示',
+  };
+}
+
 /** 新建子类别 */
 function newSubCategoryDialog(parent) {
   promptDialog({
     title: '新建子类别',
-    fields: [{ key: 'name', label: '子类别名称', type: 'text', value: '' }],
-    onOk: ({ name }) => {
+    fields: [
+      { key: 'name', label: '子类别名称', type: 'text', value: '' },
+      typeTagField([]),
+    ],
+    onOk: ({ name, typeTags }) => {
       if (!name) return toast('子类别名称不能为空', 'error');
-      addCategory({ name, remark: '', parentId: parent.id });
+      addCategory({ name, typeTags, parentId: parent.id });
       expandedCats.add(parent.id);
       renderCategories();
       renderMainArea();
@@ -519,7 +1020,7 @@ function renderFavSection(tree) {
   const total = favItems.length;
 
   const node = document.createElement('div');
-  node.className = 'cat-node fav-root';
+  node.className = 'cat-node fav-root' + (favHomeShown ? ' active' : '');
   node.dataset.id = '__fav__';
   const arrow = document.createElement('span');
   arrow.className = 'cat-arrow';
@@ -546,10 +1047,30 @@ function renderFavSection(tree) {
   addBtn.addEventListener('click', (e) => { e.stopPropagation(); newFavCategoryDialog(); });
   ops.appendChild(addBtn);
   node.appendChild(ops);
-  node.addEventListener('click', () => {
+  // 箭头:点击切换展开/折叠(不触发选中)
+  arrow.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (total === 0) return;
     if (expandedCats.has('__fav__')) expandedCats.delete('__fav__');
     else expandedCats.add('__fav__');
     renderTree();
+  });
+  // 节点点击:右侧切换到收藏夹主页
+  node.addEventListener('click', () => {
+    clearOverlays();
+    favHomeShown = true;
+    currentFavCategoryId = null;
+    renderTree();
+    renderMainArea();
+  });
+  // 右键:收藏夹主页 / 新建收藏分类
+  node.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    showContextMenu(e.clientX, e.clientY, [
+      { label: '收藏夹主页', onClick: () => { favHomeShown = true; currentFavCategoryId = null; renderTree(); renderMainArea(); } },
+      { label: '新建收藏分类', onClick: () => newFavCategoryDialog() },
+    ]);
   });
   tree.appendChild(node);
 
@@ -560,7 +1081,7 @@ function renderFavSection(tree) {
     const fcOpen = expandedCats.has('fav:' + fc.id);
     const fItems = favItems.filter((f) => f.favCategoryId === fc.id);
     const fcNode = document.createElement('div');
-    fcNode.className = 'cat-node fav-cat';
+    fcNode.className = 'cat-node fav-cat' + (currentFavCategoryId === fc.id ? ' active' : '');
     fcNode.dataset.id = 'fav:' + fc.id;
     const fcArrow = document.createElement('span');
     fcArrow.className = 'cat-arrow';
@@ -636,11 +1157,30 @@ function renderFavSection(tree) {
       toast('收藏分类顺序已更新');
     });
 
+    // 箭头:点击切换展开/折叠(不触发选中)
+    fcArrow.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (Date.now() - lastDragAt < 300) return;
+      if (fItems.length) {
+        if (expandedCats.has('fav:' + fc.id)) expandedCats.delete('fav:' + fc.id);
+        else expandedCats.add('fav:' + fc.id);
+        renderTree();
+      }
+    });
+    // 节点点击:右侧切换到收藏夹目录列表页(不展开树内条目)
     fcNode.addEventListener('click', () => {
-      if (Date.now() - lastDragAt < 300) return; // 拖拽刚结束时忽略误触点击
-      if (expandedCats.has('fav:' + fc.id)) expandedCats.delete('fav:' + fc.id);
-      else expandedCats.add('fav:' + fc.id);
+      if (Date.now() - lastDragAt < 300) return;
+      clearOverlays();
+      currentFavCategoryId = fc.id;
+      favHomeShown = false;
       renderTree();
+      renderMainArea();
+    });
+    // 右键:编辑收藏分类 / 删除收藏分类
+    fcNode.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openFavCategoryMenu(e.clientX, e.clientY, fc);
     });
     tree.appendChild(fcNode);
     if (fcOpen) {
@@ -651,6 +1191,19 @@ function renderFavSection(tree) {
     }
   }
   // 注:「未分类收藏」节点已隐藏(收藏目标选择也移除了该选项)
+}
+
+/** 资源悬停提示(多行):名称/类型/分类/标签/备注/文件(树内条目/收藏夹条目共用) */
+function itemTooltipText(it) {
+  if (!it) return '';
+  const tags = itemTags(it);
+  const typeName = it.type === 'spine' ? 'Spine' : it.type === 'dragonbones' ? 'DragonBones' : TYPE_LABEL[it.type] || it.type;
+  const catName = it.categoryId ? (categoryById(it.categoryId)?.name || '未分类') : '未分类';
+  const lines = [`名称: ${it.displayName || ''}`, `类型: ${typeName}`, `分类: ${catName}`];
+  if (tags.length) lines.push(`标签: ${tags.join('、')}`);
+  if (it.remark) lines.push(`备注: ${it.remark}`);
+  lines.push(`文件: ${it.filePath || ''}`);
+  return lines.join('\n');
 }
 
 /** 渲染普通条目节点(含收藏标记) */
@@ -667,7 +1220,7 @@ function renderItemNode(it) {
   const nm = document.createElement('span');
   nm.className = 'ic-name';
   nm.textContent = it.displayName;
-  nm.title = it.displayName;
+  nm.title = itemTooltipText(it);
   row.appendChild(nm);
 
   // 已收藏:常显 ★ 标记 + hover 提示位置
@@ -743,16 +1296,82 @@ function renderItemNode(it) {
   return row;
 }
 
-/** 条目右键菜单(按资源类型分支) */
+/** 条目右键菜单;编辑模式多选时 → 批量操作菜单(标签/移动/收藏/删除) */
 function openItemMenu(x, y, it) {
+  // 编辑模式:右键作用于选中集(右键未选中项 → 先单选它)
+  if (editModeActive) {
+    if (!editSelected.has(it.id)) {
+      editSelected.clear();
+      editSelected.add(it.id);
+      renderMainArea(); // 刷新选中态(菜单浮层尚未创建,不受影响)
+    }
+    const ids = [...editSelected];
+    showContextMenu(x, y, [
+      { label: `编辑标签 (${ids.length} 项)`, onClick: () => batchEditTagsDialog(ids) },
+      { label: '移动到...', onClick: () => batchMoveItems(ids) },
+      { label: '收藏', onClick: () => collectTargetDialog(ids) },
+      { label: '删除', danger: true, onClick: () => batchDeleteItems(ids) },
+      { label: '取消选择', onClick: () => { editSelected.clear(); renderMainArea(); } },
+    ]);
+    return;
+  }
+  // 单条目菜单
   const firstLabel = it.type === 'image' ? '预览' : '播放';
-  showContextMenu(x, y, [
+  const items = [
     { label: firstLabel, onClick: () => selectItem(it.id) },
     { label: '打开目录', onClick: () => window.api.showItem(it.filePath) },
     { label: '编辑', onClick: () => editItemDialog(it.id) },
+    { label: '重命名', onClick: () => renameItemDialog(it) },
     { label: '移动到...', onClick: () => moveItemDialog(it) },
+  ];
+  // 音频资源:可添加到指定播放列表
+  if (it.type === 'audio') {
+    items.push({ label: '添加到播放列表...', onClick: () => addToPlaylistDialog([it.filePath]) });
+  }
+  items.push(
+    { label: '收藏', onClick: () => collectTargetDialog([it.id]) },
     { label: '删除', danger: true, onClick: () => deleteItemDialog(it.id) },
     { label: '属性', onClick: () => itemPropertiesDialog(it) },
+  );
+  showContextMenu(x, y, items);
+}
+
+/** 收藏夹上下文条目右键菜单(预览/打开目录/编辑/移动收藏分类/取消收藏/属性) */
+function openFavItemMenu(x, y, it) {
+  const favId = it && it._favId;
+  const firstLabel = it.type === 'image' ? '预览' : '播放';
+  const items = [
+    { label: firstLabel, onClick: () => selectItem(it.id) },
+    { label: '打开目录', onClick: () => window.api.showItem(it.filePath) },
+    { label: '编辑', onClick: () => editItemDialog(it.id) },
+  ];
+  if (favId) {
+    items.push({
+      label: '移动到其他收藏分类',
+      onClick: () => {
+        const fav = state.favItems.find((f) => f.id === favId);
+        collectTargetDialog([it.id], { move: fav });
+      },
+    });
+    items.push({
+      label: '取消收藏',
+      onClick: () => {
+        const fav = state.favItems.find((f) => f.id === favId);
+        removeFavItem(it.id, fav ? fav.favCategoryId : undefined);
+        renderMainArea(); renderCategories();
+        toast('已取消收藏');
+      },
+    });
+  }
+  items.push({ label: '属性', onClick: () => itemPropertiesDialog(it) });
+  showContextMenu(x, y, items);
+}
+
+/** 收藏分类右键菜单(编辑/删除) */
+function openFavCategoryMenu(x, y, fc) {
+  showContextMenu(x, y, [
+    { label: '编辑分类', onClick: () => editFavCategoryDialog(fc.id) },
+    { label: '删除分类', danger: true, onClick: () => deleteFavCategoryDialog(fc.id) },
   ]);
 }
 
@@ -825,6 +1444,7 @@ function itemPropertiesDialog(it) {
   const catName = it.categoryId ? (categoryById(it.categoryId)?.name || '未分类') : '未分类';
   const body = document.createElement('div');
   body.className = 'modal-body';
+  const tagHtml = itemTags(it).map((t) => `<span class="tag-chip">${esc(t)}</span>`).join(' ');
   const rows = [
     ['名称', it.displayName],
     ['类型', TYPE_LABEL[it.type] || it.type],
@@ -834,13 +1454,27 @@ function itemPropertiesDialog(it) {
     ['修改时间', it.mtime ? fmt(it.mtime) : '—'],
     ['贴图集', it.atlasPath || '—'],
     ['备注', it.remark || '—'],
+    ['标签', tagHtml || '—', true],
     ['创建时间', fmt(it.createdAt)],
     ['更新时间', fmt(it.updatedAt)],
   ];
-  for (const [k, v] of rows) {
+  for (const [k, v, isHtml] of rows) {
     const row = document.createElement('div');
     row.className = 'form-row';
-    row.innerHTML = `<label class="f-label">${k}</label><span class="ro" style="flex:1;white-space:normal;word-break:break-all">${esc(v)}</span>`;
+    if (k === '文件') {
+      const label = document.createElement('label');
+      label.className = 'f-label';
+      label.textContent = k;
+      row.appendChild(label);
+      row.appendChild(makeCopyablePath(v, { mono: true, wrap: true }));
+      body.appendChild(row);
+      continue;
+    }
+    if (isHtml) {
+      row.innerHTML = `<label class="f-label">${k}</label><span class="ro-tags" style="flex:1;white-space:normal;word-break:break-all">${v}</span>`;
+    } else {
+      row.innerHTML = `<label class="f-label">${k}</label><span class="ro" style="flex:1;white-space:normal;word-break:break-all">${esc(v)}</span>`;
+    }
     body.appendChild(row);
   }
   const title = it.type === 'image' ? '图片属性' : it.type === 'audio' ? '音频属性' : '动画属性';
@@ -862,7 +1496,7 @@ function renderFavItemNode(f) {
   const nm = document.createElement('span');
   nm.className = 'ic-name';
   nm.textContent = it ? it.displayName : '(条目已删除)';
-  nm.title = it ? it.displayName : '';
+  nm.title = it ? itemTooltipText(it) : '';
   row.appendChild(nm);
 
   const ops = document.createElement('span');
@@ -889,7 +1523,15 @@ function renderFavItemNode(f) {
   ops.appendChild(delBtn);
   row.appendChild(ops);
 
-  if (it) row.addEventListener('click', () => selectItem(it.id));
+  if (it) {
+    row.addEventListener('click', () => selectItem(it.id));
+    // 右键:预览/打开目录/编辑/移动到其他收藏分类/取消收藏/属性(与收藏夹目录页一致)
+    row.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openFavItemMenu(e.clientX, e.clientY, { ...it, _favId: f.id });
+    });
+  }
   return row;
 }
 
@@ -935,7 +1577,13 @@ function deleteFavCategoryDialog(id) {
     danger: true,
     onOk: () => {
       removeFavCategory(id);
+      // 删除的是当前展示的收藏分类/主页 → 回到收藏夹主页
+      if (currentFavCategoryId === id || favHomeShown) {
+        currentFavCategoryId = null;
+        favHomeShown = true;
+      }
       renderTree();
+      renderMainArea();
       toast('收藏分类已删除');
     },
   });
@@ -1040,11 +1688,11 @@ export function newCategoryDialog() {
     title: '新建分类',
     fields: [
       { key: 'name', label: '分类名称', type: 'text', value: '' },
-      { key: 'remark', label: '备注', type: 'text', value: '' },
+      typeTagField([]),
     ],
-    onOk: ({ name, remark }) => {
+    onOk: ({ name, typeTags }) => {
       if (!name) return toast('分类名称不能为空', 'error');
-      addCategory({ name, remark });
+      addCategory({ name, typeTags });
       renderCategories();
       renderMainArea();
       toast('分类已创建');
@@ -1059,11 +1707,11 @@ function editCategoryDialog(id) {
     title: '编辑分类',
     fields: [
       { key: 'name', label: '分类名称', type: 'text', value: cat.name },
-      { key: 'remark', label: '备注', type: 'text', value: cat.remark || '' },
+      typeTagField(cat.typeTags),
     ],
-    onOk: ({ name, remark }) => {
+    onOk: ({ name, typeTags }) => {
       if (!name) return toast('分类名称不能为空', 'error');
-      updateCategory(id, { name, remark });
+      updateCategory(id, { name, typeTags });
       renderCategories();
       renderItems();
       renderMainArea();
@@ -1198,12 +1846,16 @@ function esc(s) {
 
 // ---------------- 主区域页面切换 ----------------
 
-/** 切换主显示区域页面(home / folder / preview) */
+/** 切换主显示区域页面(home / folder / preview / toolbox / scene / audio-home) */
 function showPage(pageId) {
   const pages = {
     home: document.getElementById('page-home'),
     folder: document.getElementById('page-folder'),
     preview: document.getElementById('page-preview'),
+    toolbox: document.getElementById('page-toolbox'),
+    scene: document.getElementById('page-scene'),
+    settings: document.getElementById('page-settings'),
+    'audio-home': document.getElementById('page-audio-home'),
   };
   for (const [k, el] of Object.entries(pages)) {
     if (el) el.hidden = k !== pageId;
@@ -1216,8 +1868,166 @@ function showPage(pageId) {
   }
 }
 
-/** 渲染主区域(按 tab + 当前分类分发) */
+/** 打开系统设置页(保存当前主区状态,关闭后恢复) */
+export function openSettings() {
+  settingsReturn = {
+    currentTool,
+    sceneHomeShown,
+    currentSceneCatId,
+    favHomeShown,
+    currentFavCategoryId,
+    lastFolderTab,
+  };
+  currentTool = null;
+  sceneHomeShown = false;
+  currentSceneCatId = null;
+  favHomeShown = false;
+  currentFavCategoryId = null;
+  settingsShown = true;
+  renderMainArea();
+  renderCategories();
+}
+
+/** 关闭系统设置页,恢复到打开前的状态 */
+export function closeSettings() {
+  settingsShown = false;
+  if (settingsReturn) {
+    currentTool = settingsReturn.currentTool;
+    sceneHomeShown = settingsReturn.sceneHomeShown;
+    currentSceneCatId = settingsReturn.currentSceneCatId;
+    favHomeShown = settingsReturn.favHomeShown;
+    currentFavCategoryId = settingsReturn.currentFavCategoryId;
+    lastFolderTab = settingsReturn.lastFolderTab;
+    settingsReturn = null;
+  }
+  renderMainArea();
+  renderCategories();
+}
+
+/** 渲染主区域(工具箱 / 场景管理 / 收藏夹页面 / 按 tab + 当前分类分发) */
 export function renderMainArea() {
+  updateBackSpecial(); // 同步顶栏"返回"按钮的显隐
+  // ---- 资源工具箱主页(汇总视图:列出所有子菜单入口) ----
+  if (toolboxHomeShown) {
+    showPage('toolbox');
+    renderToolboxPage(document.getElementById('page-toolbox'), '__home__');
+    renderBreadcrumb();
+    return;
+  }
+  // ---- 资源工具箱子页面 ----
+  if (currentTool) {
+    showPage('toolbox');
+    renderToolboxPage(document.getElementById('page-toolbox'), currentTool);
+    renderBreadcrumb();
+    return;
+  }
+
+  // ---- 场景管理 ----
+  if (sceneHomeShown || currentSceneCatId !== null) {
+    showPage('scene');
+    if (sceneHomeShown) {
+      renderSceneHome(document.getElementById('page-scene'), {
+        onOpenCat: (catId) => {
+          sceneHomeShown = false;
+          currentSceneCatId = catId;
+          expandedCats.add('scene:' + (catId || '__scene_uncat__'));
+          renderMainArea(); renderCategories();
+        },
+        onAddScene: (catId) => addSceneDialog(catId || ''),
+        onAddCategory: (parentId) => addSceneCategoryDialog(parentId || ''),
+        onRefresh: () => renderMainArea(),
+      });
+    } else {
+      renderSceneFolderPage(document.getElementById('page-scene'), {
+        catId: currentSceneCatId,
+        actions: {
+          onAddScene: (catId) => addSceneDialog(catId),
+          onAddCategory: (parentId) => addSceneCategoryDialog(parentId),
+          onEditScene: (id) => editSceneDialog(id),
+          onRemoveScene: (id) => confirmAndRemoveScene(id),
+          onMoveScene: (id) => moveSceneDialog(id),
+          onShowInFolder: (filePath) => window.api.showItem(filePath),
+          onOpenPath: (filePath) => window.api.openPath(filePath),
+          onBackHome: () => {
+            sceneHomeShown = true;
+            currentSceneCatId = null;
+            renderMainArea(); renderCategories();
+          },
+          onCatMenu: (cat, e) => showContextMenu(e.clientX, e.clientY, [
+            { label: '新建子分类', onClick: () => addSceneCategoryDialog(cat.id) },
+            { label: '编辑分类', onClick: () => editSceneCategoryDialog(cat.id) },
+            { label: '提升到顶级', onClick: () => { updateSceneCategory(cat.id, { parentId: '' }); renderTree(); renderMainArea(); } },
+            { label: '删除分类', danger: true, onClick: () => deleteSceneCategoryDialog(cat.id) },
+          ]),
+          onRefresh: () => renderMainArea(),
+        },
+      });
+    }
+    renderBreadcrumb();
+    return;
+  }
+
+  // ---- 系统设置 ----
+  if (settingsShown) {
+    showPage('settings');
+    renderSettingsPage(document.getElementById('page-settings'), {
+      onClose: () => closeSettings(),
+    });
+    renderBreadcrumb();
+    return;
+  }
+
+  // 收藏夹主页
+  if (favHomeShown) {
+    showPage('home');
+    renderFavHome(document.getElementById('page-home'), {
+      onOpenFavCat: (fcId) => {
+        currentFavCategoryId = fcId;
+        favHomeShown = false;
+        expandedCats.add('fav:' + fcId);
+        renderMainArea(); renderCategories();
+      },
+      onOpenItem: (itemId) => selectItem(itemId),
+      onItemMenu: (it, e) => openFavItemMenu(e.clientX, e.clientY, it),
+      onFavCatMenu: (fc, e) => openFavCategoryMenu(e.clientX, e.clientY, fc),
+      onEditFavCat: (fcId) => editFavCategoryDialog(fcId),
+      onDeleteFavCat: (fcId) => deleteFavCategoryDialog(fcId),
+      onRefresh: () => renderMainArea(),
+    });
+    renderBreadcrumb();
+    return;
+  }
+  // 收藏夹目录列表页
+  if (currentFavCategoryId) {
+    showPage('folder');
+    renderFavFolderPage(document.getElementById('page-folder'), {
+      favCategoryId: currentFavCategoryId,
+      viewMode: (state.settings && state.settings.listViewMode) || 'list',
+      sortBy: (state.settings && state.settings.listSortBy) || 'name',
+      sortDir: (state.settings && state.settings.listSortDir) || 'asc',
+      actions: {
+        onOpenItem: (itemId) => selectItem(itemId),
+        onItemMenu: (it, e) => openFavItemMenu(e.clientX, e.clientY, it),
+        onViewMode: (mode) => { setListViewMode(mode); renderMainArea(); },
+        onSort: (by, dir) => { setListSort(by, dir); renderMainArea(); },
+        onUnfav: (favId, itemId) => {
+          const fav = state.favItems.find((f) => f.id === favId);
+          removeFavItem(itemId, fav ? fav.favCategoryId : undefined);
+          renderMainArea(); renderCategories();
+          toast('已取消收藏');
+        },
+        onMoveFav: (favId, itemId) => {
+          const fav = state.favItems.find((f) => f.id === favId);
+          collectTargetDialog([itemId], { move: fav });
+        },
+        onEditFavCat: (fcId) => editFavCategoryDialog(fcId),
+        onDeleteFavCat: (fcId) => deleteFavCategoryDialog(fcId),
+      },
+    });
+    renderBreadcrumb();
+    return;
+  }
+
   const tab = (state.settings && state.settings.resourceTab) || 'home';
   if (tab === 'home' || tab === 'all') {
     // 全局主页(统计全部类型)
@@ -1244,6 +2054,13 @@ export function renderMainArea() {
       onRefresh: () => renderMainArea(),
     });
   } else if (currentCategoryId === 'all' || currentCategoryId === '') {
+    if (tab === 'audio') {
+      // 音频类型主页 = 音频播放器主页(分类目录作为播放列表 + 自建播放列表标签页切换)
+      showPage('audio-home');
+      renderAudioHomePage(document.getElementById('page-audio-home'));
+      renderBreadcrumb();
+      return;
+    }
     // 类型主页:当前类型的统计 + 分类目录树(需求:点类型标签 → 类型主页)
     showPage('home');
     renderHomePage(document.getElementById('page-home'), {
@@ -1279,11 +2096,15 @@ export function renderMainArea() {
       sortDir: (state.settings && state.settings.listSortDir) || 'asc',
       editMode: editModeActive,
       selectedIds: [...editSelected],
+      tagFilter: folderTagFilter,
+      searchText: folderSearchText,
       actions: {
         onOpenCat: (catId) => {
           currentCategoryId = catId;
           setSetting('lastCategoryId', catId);
           expandedCats.add(catId);
+          folderTagFilter = '';
+          folderSearchText = '';
           renderMainArea(); renderCategories();
         },
         onOpenItem: (itemId) => selectItem(itemId),
@@ -1298,16 +2119,69 @@ export function renderMainArea() {
         onCatMenu: (cat, e) => openCategoryMenu(e.clientX, e.clientY, cat),
         onViewMode: (mode) => { setListViewMode(mode); renderMainArea(); },
         onSort: (by, dir) => { setListSort(by, dir); renderMainArea(); },
+        onTagFilter: (tag) => { folderTagFilter = tag; renderMainArea(); },
+        onSearch: (q) => {
+          folderSearchText = q;
+          renderMainArea();
+          // 重渲染后恢复焦点与光标(输入过程不中断)
+          const inp = document.getElementById('folder-search');
+          if (inp) {
+            inp.focus();
+            const len = inp.value.length;
+            inp.setSelectionRange(len, len);
+          }
+        },
+        onClearFilter: () => { folderTagFilter = ''; folderSearchText = ''; renderMainArea(); },
         onAdd: () => runAddFlow(false, currentCategoryId === 'all' || currentCategoryId === '' ? '' : currentCategoryId),
         // ---- 编辑模式 ----
         onToggleEditMode: () => {
           editModeActive = !editModeActive;
           editSelected.clear();
+          editAnchorId = null;
           renderMainArea();
         },
         onEditToggleItem: (itemId) => {
           if (editSelected.has(itemId)) editSelected.delete(itemId);
           else editSelected.add(itemId);
+          editAnchorId = itemId; // 普通点击更新 Shift 范围锚点
+          renderMainArea();
+        },
+        onEditCtrlSelect: (itemId) => {
+          // Ctrl+点击:进入编辑选择模式并切换该条目选中
+          if (!editModeActive) { editModeActive = true; editSelected.clear(); }
+          if (editSelected.has(itemId)) editSelected.delete(itemId);
+          else editSelected.add(itemId);
+          editAnchorId = itemId;
+          renderMainArea();
+        },
+        onEditShiftSelect: (itemId) => {
+          // Shift+点击:进入编辑选择模式;已有锚点则按目录渲染顺序范围选中 anchor..itemId
+          if (!editModeActive) { editModeActive = true; editSelected.clear(); }
+          if (!editAnchorId || !state.items.some((i) => i.id === editAnchorId)) {
+            editAnchorId = itemId; // 首次 Shift:锚点 = 点击项
+            editSelected.clear();
+            editSelected.add(itemId);
+          } else {
+            const grp = currentGroup();
+            const data = getFolderData(currentCategoryId, grp);
+            const sorted = sortItems(
+              data.direct,
+              (state.settings && state.settings.listSortBy) || 'name',
+              (state.settings && state.settings.listSortDir) || 'asc'
+            );
+            const ids = sorted.map((i) => i.id);
+            const a = ids.indexOf(editAnchorId);
+            const b = ids.indexOf(itemId);
+            if (a >= 0 && b >= 0) {
+              const [lo, hi] = a <= b ? [a, b] : [b, a];
+              editSelected.clear();
+              for (let i = lo; i <= hi; i++) editSelected.add(ids[i]);
+            } else {
+              editAnchorId = itemId;
+              editSelected.clear();
+              editSelected.add(itemId);
+            }
+          }
           renderMainArea();
         },
         onEditModeAction: (act) => {
@@ -1351,6 +2225,12 @@ function bindTabs() {
     // 切类型标签:右侧打开该类型的资源主页(全部资源列表页)
     currentCategoryId = 'all';
     setSetting('lastCategoryId', 'all');
+    favHomeShown = false;
+    currentFavCategoryId = null;
+    currentTool = null;
+    toolboxHomeShown = false;
+    sceneHomeShown = false;
+    currentSceneCatId = null;
     renderMainArea();
     renderCategories();
     syncTabs();
@@ -1369,15 +2249,42 @@ function syncTabs() {
 function bindBrandHome() {
   const brand = document.querySelector('.brand');
   if (brand) {
-    brand.title = '回到主页';
+    brand.title = '回到全部资源首页';
     brand.style.cursor = 'pointer';
     brand.addEventListener('click', () => {
       setResourceTab('home');
+      favHomeShown = false;
+      currentFavCategoryId = null;
+      currentTool = null;
+      toolboxHomeShown = false;
+      sceneHomeShown = false;
+      currentSceneCatId = null;
       renderMainArea();
       renderCategories();
       syncTabs();
     });
   }
+}
+
+/** 覆盖式页面的"返回"按钮(资源工具箱 / 游戏场景管理):点击回到资源浏览区 */
+function bindBackSpecial() {
+  const btn = document.getElementById('btn-back-special');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    if (settingsShown) { closeSettings(); return; }
+    clearOverlays(); // 清掉工具箱/场景等覆盖状态,回到进入前的资源区(resourceTab/currentCategoryId 不变)
+    renderMainArea();
+    renderCategories();
+    syncTabs();
+  });
+}
+
+/** 根据当前页面状态显示/隐藏"返回"按钮(仅在资源工具箱 / 场景管理页显示) */
+function updateBackSpecial() {
+  const btn = document.getElementById('btn-back-special');
+  if (!btn) return;
+  const show = !!currentTool || toolboxHomeShown || sceneHomeShown || currentSceneCatId !== null;
+  btn.hidden = !show;
 }
 
 /** 面包屑绑定(事件委托) */
@@ -1387,13 +2294,39 @@ function bindBreadcrumb() {
   nav.addEventListener('click', (e) => {
     const crumb = e.target.closest('.crumb');
     if (!crumb || crumb.classList.contains('current')) return;
+    clearOverlays(); // 先清掉覆盖式页面状态(工具箱/场景/设置),导航才会真正切换
     if (crumb.dataset.crumb === 'home') {
       setResourceTab('home');
       renderMainArea(); renderCategories(); syncTabs();
+    } else if (crumb.dataset.crumb === 'favhome') {
+      // 回到收藏夹主页
+      favHomeShown = true;
+      currentFavCategoryId = null;
+      currentTool = null;
+      sceneHomeShown = false;
+      currentSceneCatId = null;
+      renderMainArea(); renderCategories();
     } else if (crumb.dataset.crumb === 'typehome') {
       // 回到当前类型的类型主页
       currentCategoryId = 'all';
       setSetting('lastCategoryId', 'all');
+      renderMainArea(); renderCategories();
+    } else if (crumb.dataset.toolRoot !== undefined) {
+      // 回到工具箱主页(汇总视图,列出所有子菜单入口)
+      clearOverlays();
+      toolboxHomeShown = true;
+      currentTool = null;
+      renderMainArea(); renderCategories();
+    } else if (crumb.dataset.sceneRoot !== undefined) {
+      // 回到场景管理主页
+      sceneHomeShown = true;
+      currentSceneCatId = null;
+      renderMainArea(); renderCategories();
+    } else if (crumb.dataset.scene !== undefined) {
+      // 进入该场景分类
+      sceneHomeShown = false;
+      currentSceneCatId = crumb.dataset.scene;
+      expandedCats.add('scene:' + crumb.dataset.scene);
       renderMainArea(); renderCategories();
     } else {
       currentCategoryId = crumb.dataset.crumb;
@@ -1408,6 +2341,65 @@ function bindBreadcrumb() {
 function renderBreadcrumb() {
   const nav = document.getElementById('breadcrumb');
   if (!nav) return;
+  // 工具箱
+  if (currentTool) {
+    const labels = {
+      astc2png: 'ASTC → PNG',
+      skel2json: 'SKEL → JSON',
+      spinefix: 'Spine 文件修复',
+      imageedit: '图片编辑',
+    };
+    nav.innerHTML = '<span class="crumb" data-crumb="home">主页</span>'
+      + '<span class="crumb-sep">/</span>'
+      + '<span class="crumb" data-tool-root>资源工具箱</span>'
+      + '<span class="crumb-sep">/</span>'
+      + `<span class="crumb current">${labels[currentTool] || currentTool}</span>`;
+    return;
+  }
+  // 工具箱主页(汇总视图)
+  if (toolboxHomeShown) {
+    nav.innerHTML = '<span class="crumb" data-crumb="home">主页</span>'
+      + '<span class="crumb-sep">/</span>'
+      + '<span class="crumb current">资源工具箱</span>';
+    return;
+  }
+  // 场景管理
+  if (sceneHomeShown || currentSceneCatId !== null) {
+    if (sceneHomeShown) {
+      nav.innerHTML = '<span class="crumb" data-crumb="home">主页</span>'
+        + '<span class="crumb-sep">/</span>'
+        + '<span class="crumb current">游戏场景管理</span>';
+      return;
+    }
+    const cat = currentSceneCatId ? sceneCategoryById(currentSceneCatId) : null;
+    const path = currentSceneCatId ? getSceneCatPathList(currentSceneCatId) : [];
+    let html = '<span class="crumb" data-crumb="home">主页</span>';
+    html += '<span class="crumb-sep">/</span>';
+    html += '<span class="crumb" data-scene-root>游戏场景管理</span>';
+    if (currentSceneCatId === '') {
+      html += '<span class="crumb-sep">/</span><span class="crumb current">未分类</span>';
+    } else {
+      for (const p of path) {
+        html += '<span class="crumb-sep">/</span>';
+        const isLast = p.id === currentSceneCatId;
+        html += `<span class="crumb${isLast ? ' current' : ''}" data-scene="${p.id}">${esc(p.name)}</span>`;
+      }
+    }
+    nav.innerHTML = html;
+    return;
+  }
+  // 收藏夹页面:主页 / 收藏夹主页 [/ 分类名]
+  if (favHomeShown) {
+    nav.innerHTML = '<span class="crumb" data-crumb="home">主页</span><span class="crumb-sep">/</span><span class="crumb current" data-crumb="favhome">收藏夹主页</span>';
+    return;
+  }
+  if (currentFavCategoryId) {
+    const fc = favCategoryById(currentFavCategoryId);
+    nav.innerHTML = '<span class="crumb" data-crumb="home">主页</span><span class="crumb-sep">/</span>'
+      + '<span class="crumb" data-crumb="favhome">收藏夹主页</span><span class="crumb-sep">/</span>'
+      + `<span class="crumb current">${esc(fc ? fc.name : '收藏夹')}</span>`;
+    return;
+  }
   const tab = (state.settings && state.settings.resourceTab) || 'home';
   if (tab === 'home' || tab === 'all') {
     nav.innerHTML = '<span class="crumb current" data-crumb="home">主页</span>';
@@ -1432,6 +2424,13 @@ function renderBreadcrumb() {
   nav.innerHTML = html;
 }
 
+function getSceneCatPathList(catId) {
+  const out = [];
+  let cur = sceneCategoryById(catId);
+  while (cur) { out.unshift({ id: cur.id, name: cur.name }); cur = cur.parentId ? sceneCategoryById(cur.parentId) : null; }
+  return out;
+}
+
 /** 目录列表页工具栏(视图/排序控件)由 folderPage 内部渲染,这里只同步标签状态 */
 function bindFolderToolbar() {
   // 无额外绑定(事件全部由 folderPage 委托处理)
@@ -1442,7 +2441,16 @@ function bindPreviewPageNav() {
   const back = document.getElementById('pv-back');
   if (back) {
     back.addEventListener('click', () => {
-      audioViewer && audioViewer.dispose();
+      // 后台播放:返回时不停音频播放器,音频在后台继续(迷你条可见)
+      // 从收藏夹页面进入预览 → 返回收藏夹页面
+      if (previewReturnFav) {
+        favHomeShown = previewReturnFav.home;
+        currentFavCategoryId = previewReturnFav.catId || null;
+        previewReturnFav = null;
+        renderMainArea();
+        renderCategories();
+        return;
+      }
       setResourceTab(lastFolderTab || 'anim');
       renderMainArea();
       renderCategories();
@@ -1467,8 +2475,7 @@ function showPreviewPage(item) {
   document.getElementById('pv-type').textContent = TYPE_LABEL[item.type] || item.type;
   document.getElementById('pv-type').className = 'type-badge ' + item.type;
   const pathEl = document.getElementById('pv-path');
-  pathEl.textContent = item.filePath;
-  pathEl.title = item.filePath;
+  setCopyablePath(pathEl, item.filePath);
   document.getElementById('pv-version').textContent = '';
 }
 
@@ -1478,6 +2485,10 @@ export async function selectItem(id) {
   setSetting('lastItemId', id);
   preview.currentItemId = id;
   renderItems();
+  // 记录预览返回目标:从收藏夹页面进入 → 返回收藏夹;否则普通类型页面
+  if (favHomeShown) previewReturnFav = { home: true, catId: null };
+  else if (currentFavCategoryId) previewReturnFav = { home: false, catId: currentFavCategoryId };
+  else previewReturnFav = null;
   lastFolderTab = (state.settings && state.settings.resourceTab) || 'anim';
   if (lastFolderTab === 'home') lastFolderTab = 'anim';
 
@@ -1543,6 +2554,10 @@ async function showImageViewer(item) {
   showPreviewPage(item);
   const errEl = document.getElementById('img-error');
   if (errEl) errEl.hidden = true;
+  // 同步图片预览背景(与动画预览共用 bgColor 设置)
+  const bgInput = document.getElementById('img-bg-color');
+  if (bgInput) bgInput.value = state.settings.bgColor || '#22242b';
+  if (imageViewer) imageViewer.setBgColor(state.settings.bgColor || '#22242b');
   const url = `${location.origin}/a/${item.id}/${encodeURIComponent(basename(item.filePath))}`;
   try {
     await imageViewer.load(url);
@@ -1555,15 +2570,763 @@ async function showImageViewer(item) {
   }
 }
 
-/** 音频预览 */
+/** 音频预览:按播放模式进入队列播放 */
 async function showAudioPlayer(item) {
   showPreviewPage(item);
-  const url = `${location.origin}/a/${item.id}/${encodeURIComponent(basename(item.filePath))}`;
-  audioViewer.load(url, item.displayName, item.filePath);
+  const mode = state.settings.audioMode || 'single';
+  try {
+    if (mode === 'dirOrder' || mode === 'dirLoop') {
+      // 当前目录顺序/循环:收集同目录音频,从当前文件开始
+      const dir = item.filePath.replace(/[\\/][^\\/]*$/, '');
+      const ok = await audioPlayer.openDir(dir, item.filePath);
+      if (!ok) audioPlayer.openSingle(item);
+    } else if (mode === 'listOrder' || mode === 'listLoop') {
+      // 播放列表顺序/循环:从当前播放列表播放;列表为空则回退单曲
+      const list = getCurrentAudioList();
+      if (list && list.paths.length) audioPlayer.openList(list.paths);
+      else audioPlayer.openSingle(item);
+    } else {
+      audioPlayer.openSingle(item);
+    }
+  } catch (err) {
+    console.warn('[audio] 进入播放失败,回退单曲播放', err);
+    audioPlayer.openSingle(item);
+  }
+  syncAudioListUI();
 }
 
 function basename(p) {
   return String(p).split(/[\\/]/).pop();
+}
+
+// ---------------- 音频播放器:播放列表 / 后台播放 / 元信息 ----------------
+
+function getAudioPlaylists() {
+  return Array.isArray(state.settings.audioPlaylists) ? state.settings.audioPlaylists : [];
+}
+function getCurrentAudioList() {
+  const id = state.settings.audioCurrentListId;
+  return getAudioPlaylists().find((l) => l.id === id) || null;
+}
+function saveAudioPlaylists(list) {
+  setSetting('audioPlaylists', list);
+}
+
+/** 同步播放列表下拉 / 模式 / 倍速控件与设置 */
+function syncAudioListUI() {
+  const sel = document.getElementById('audio-list-select');
+  if (sel) {
+    const lists = getAudioPlaylists();
+    const curId = state.settings.audioCurrentListId;
+    sel.innerHTML = '<option value="">(无)</option>' + lists.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('');
+    sel.value = curId || '';
+  }
+  const modeSel = document.getElementById('audio-mode');
+  if (modeSel) modeSel.value = state.settings.audioMode || 'single';
+  const rateSel = document.getElementById('audio-rate');
+  if (rateSel) rateSel.value = String(state.settings.audioRate == null ? 1 : state.settings.audioRate);
+  if (audioPlayer) {
+    audioPlayer.setMode(state.settings.audioMode || 'single');
+    audioPlayer.setRate(state.settings.audioRate == null ? 1 : state.settings.audioRate);
+  }
+}
+
+/** 打开音频预览面板(后台播放时点击迷你条曲名返回) */
+function openAudioPreviewPanel() {
+  showPage('preview');
+  document.getElementById('pv-anim-view').hidden = true;
+  document.getElementById('pv-image-view').hidden = true;
+  const audioView = document.getElementById('pv-audio-view');
+  if (audioView) audioView.hidden = false;
+  if (audioPlayer) audioPlayer.refreshUI();
+  syncAudioListUI();
+}
+
+/** 绑定音频播放器扩展控件(迷你条 / 播放列表 / 元信息) */
+function bindAudioPlayerExtras() {
+  if (!audioPlayer) return;
+  const miniPlay = document.getElementById('audio-mini-play');
+  if (miniPlay) miniPlay.addEventListener('click', () => audioPlayer.toggle());
+  const miniPrev = document.getElementById('audio-mini-prev');
+  if (miniPrev) miniPrev.addEventListener('click', () => audioPlayer.prev());
+  const miniNext = document.getElementById('audio-mini-next');
+  if (miniNext) miniNext.addEventListener('click', () => audioPlayer.next());
+  const miniClose = document.getElementById('audio-mini-close');
+  if (miniClose) miniClose.addEventListener('click', () => { audioPlayer.stop(); syncAudioListUI(); });
+  const miniName = document.getElementById('audio-mini-name');
+  if (miniName) miniName.addEventListener('click', openAudioPreviewPanel);
+
+  // 播放模式 / 倍速:播放器已处理,这里持久化设置
+  const modeSel = document.getElementById('audio-mode');
+  if (modeSel) modeSel.addEventListener('change', (e) => setSetting('audioMode', e.target.value));
+  const rateSel = document.getElementById('audio-rate');
+  if (rateSel) rateSel.addEventListener('change', (e) => setSetting('audioRate', Number(e.target.value)));
+
+  // 播放列表下拉:切换当前列表
+  const listSel = document.getElementById('audio-list-select');
+  if (listSel) listSel.addEventListener('change', () => setSetting('audioCurrentListId', listSel.value || null));
+  const btnNew = document.getElementById('audio-list-new');
+  if (btnNew) btnNew.addEventListener('click', createAudioListDialog);
+  const btnMgr = document.getElementById('audio-list-manage');
+  if (btnMgr) btnMgr.addEventListener('click', () => renderAudioPlaylistManager());
+  // 添加音频到当前播放列表(单个|多个)
+  const listAdd = document.getElementById('audio-list-add');
+  if (listAdd) listAdd.addEventListener('click', addAudioToListDialog);
+}
+
+/** 新建播放列表 */
+function createAudioListDialog() {
+  promptDialog({
+    title: '新建播放列表',
+    fields: [{ key: 'name', label: '列表名称', type: 'text', value: '' }],
+    onOk: (v) => {
+      const name = (v.name || '').trim();
+      if (!name) { toast('请输入列表名称', 'error'); return; }
+      const id = 'pl_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      const list = getAudioPlaylists();
+      list.push({ id, name, paths: [] });
+      saveAudioPlaylists(list);
+      setSetting('audioCurrentListId', id);
+      syncAudioListUI();
+      toast(`已创建播放列表「${name}」`);
+    },
+  });
+}
+
+/** 把若干音频文件路径追加到指定播放列表(选择目标列表;无列表时提示先新建) */
+function addToPlaylistDialog(paths) {
+  const lists = getAudioPlaylists();
+  if (!lists.length) {
+    confirmDialog({
+      title: '添加到播放列表',
+      message: '还没有播放列表,先新建一个?',
+      okText: '新建',
+      onOk: () => {
+        promptDialog({
+          title: '新建播放列表',
+          fields: [{ key: 'name', label: '列表名称', type: 'text', value: '' }],
+          onOk: (v) => {
+            const name = (v.name || '').trim();
+            if (!name) { toast('请输入列表名称', 'error'); return; }
+            const id = 'pl_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+            const list = getAudioPlaylists();
+            list.push({ id, name, paths: [] });
+            saveAudioPlaylists(list);
+            setSetting('audioCurrentListId', id);
+            syncAudioListUI();
+            renderAhTabs();
+            addToPlaylistDialog(paths); // 已有列表,继续弹目标选择
+          },
+        });
+      },
+    });
+    return;
+  }
+  promptDialog({
+    title: `添加到播放列表(${paths.length} 个音频)`,
+    fields: [{
+      key: 'listId',
+      label: '目标播放列表',
+      type: 'select',
+      options: lists.map((l) => ({ value: l.id, label: l.name })),
+      value: state.settings.audioCurrentListId && lists.some((l) => l.id === state.settings.audioCurrentListId)
+        ? state.settings.audioCurrentListId
+        : lists[0].id,
+    }],
+    onOk: (v) => {
+      const list = getAudioPlaylists().find((l) => l.id === v.listId);
+      if (!list) return;
+      const existing = new Set(list.paths.map((p) => p.toLowerCase()));
+      let added = 0;
+      for (const p of paths) {
+        const k = p.toLowerCase();
+        if (existing.has(k)) continue;
+        existing.add(k);
+        list.paths.push(p);
+        added++;
+      }
+      saveAudioPlaylists(getAudioPlaylists());
+      syncAudioListUI();
+      renderAhTabs();
+      toast(added ? `已添加 ${added} 个音频到「${list.name}」` : '这些音频已在目标列表中');
+    },
+  });
+}
+
+/** 音频播放器主页:自建播放列表标签页 + 分类目录(可播放列表) + 播放器 */
+function renderAudioHomePage(container) {
+  container.innerHTML = `
+    <div class="audio-home">
+      <div class="ah-playlist-bar">
+        <span class="ah-label">自建播放列表</span>
+        <div class="ah-tabs" id="ah-tabs"></div>
+        <button class="btn sm" id="ah-list-new">+ 新建</button>
+        <button class="btn sm" id="ah-list-mgr">管理</button>
+      </div>
+      <div class="ah-cats">
+        <span class="ah-label">分类目录(点击播放该分类下所有音频)</span>
+        <div class="ah-cat-chips" id="ah-cat-chips"></div>
+      </div>
+      <div class="ah-player">
+        <div class="ah-info">
+          <div class="pv-name" id="ah-name">—</div>
+          <div class="pv-path" id="ah-path"></div>
+        </div>
+        <div class="audio-controls">
+          <button class="icon-btn" id="ah-prev" title="上一首">⏮</button>
+          <button class="icon-btn" id="ah-play" title="播放/暂停">▶</button>
+          <button class="icon-btn" id="ah-next" title="下一首">⏭</button>
+          <span class="frame-val" id="ah-time">0:00 / 0:00</span>
+          <input type="range" id="ah-progress" min="0" max="1000" step="1" value="0" title="进度" />
+          <label class="ctrl-label">音量</label>
+          <input type="range" id="ah-volume" min="0" max="100" step="1" value="100" title="音量" />
+          <label class="ctrl-label">倍速</label>
+          <select id="ah-rate" title="变速播放">
+            <option value="0.5">0.5x</option>
+            <option value="0.75">0.75x</option>
+            <option value="1" selected>1x</option>
+            <option value="1.25">1.25x</option>
+            <option value="1.5">1.5x</option>
+            <option value="2">2x</option>
+          </select>
+          <label class="ctrl-label">模式</label>
+          <select id="ah-mode" title="播放模式">
+            <option value="single">单次播放</option>
+            <option value="loop">单曲循环</option>
+            <option value="dirOrder">当前目录顺序</option>
+            <option value="dirLoop">当前目录循环</option>
+            <option value="listOrder">列表顺序</option>
+            <option value="listLoop">列表循环</option>
+          </select>
+          <button class="btn sm" id="ah-add" title="把音频文件添加到当前播放列表(可多选)">+ 添加音频</button>
+        </div>
+        <div class="audio-queue" id="ah-queue"></div>
+      </div>
+    </div>
+  `;
+  const g = (id) => document.getElementById(id);
+  // 主页播放器与预览页播放器共用同一实例(audio 元素不变)
+  audioPlayer.attachEls({
+    playBtn: g('ah-play'),
+    prevBtn: g('ah-prev'),
+    nextBtn: g('ah-next'),
+    progress: g('ah-progress'),
+    volume: g('ah-volume'),
+    rate: g('ah-rate'),
+    mode: g('ah-mode'),
+    timeEl: g('ah-time'),
+    nameEl: g('ah-name'),
+    pathEl: g('ah-path'),
+    queueEl: g('ah-queue'),
+  }, 'home');
+
+  g('ah-list-new').addEventListener('click', () => {
+    createAudioListDialog();
+    renderAhTabs();
+  });
+  g('ah-list-mgr').addEventListener('click', () => {
+    renderAudioPlaylistManager();
+    renderAhTabs();
+  });
+  g('ah-add').addEventListener('click', addAudioToListDialog);
+
+  renderAhTabs();
+  renderAhCats();
+}
+
+/** 自建播放列表标签页:点击标签 = 切换并播放该列表 */
+function renderAhTabs() {
+  const tabsEl = document.getElementById('ah-tabs');
+  if (!tabsEl) return;
+  const lists = getAudioPlaylists();
+  const curId = state.settings.audioCurrentListId;
+  if (!lists.length) {
+    tabsEl.innerHTML = '<span class="ah-empty">暂无播放列表,点击「+ 新建」创建</span>';
+    return;
+  }
+  tabsEl.innerHTML = lists.map((l) =>
+    `<button class="ah-tab${l.id === curId ? ' active' : ''}" data-id="${esc(l.id)}" title="${esc(l.name)}">${esc(l.name)}</button>`
+  ).join('');
+  tabsEl.querySelectorAll('.ah-tab').forEach((b) => {
+    b.addEventListener('click', () => {
+      const id = b.dataset.id;
+      setSetting('audioCurrentListId', id);
+      const list = getAudioPlaylists().find((x) => x.id === id);
+      if (list) audioPlayer.openList(list.paths);
+      renderAhTabs();
+    });
+  });
+}
+
+/** 分类目录 chips:点击 = 把该分类(含子分类)下所有音频作为播放列表播放 */
+function renderAhCats() {
+  const chipsEl = document.getElementById('ah-cat-chips');
+  if (!chipsEl) return;
+  const audioItems = state.items.filter((it) => it.type === 'audio');
+  const hasAudio = (catId) => {
+    const ids = [catId, ...getCategoryDescendants(catId)];
+    return audioItems.some((it) => ids.includes(it.categoryId || ''));
+  };
+  const entries = [];
+  if (audioItems.some((it) => !it.categoryId)) entries.push({ id: '', name: '未分类' });
+  // 音频视图下仅显示无标签或含「音频」标签的顶级分类
+  for (const c of state.categories) {
+    if (!c.parentId && hasAudio(c.id) && catVisibleInGroup(c, 'audio')) entries.push({ id: c.id, name: c.name });
+  }
+  if (!entries.length) {
+    chipsEl.innerHTML = '<span class="ah-empty">暂无音频分类目录</span>';
+    return;
+  }
+  chipsEl.innerHTML = entries.map((e) => `<span class="ah-cat-chip" data-id="${esc(e.id)}">${esc(e.name)}</span>`).join('');
+  chipsEl.querySelectorAll('.ah-cat-chip').forEach((el) => {
+    el.addEventListener('click', () => {
+      const catId = el.dataset.id;
+      const ids = [catId, ...getCategoryDescendants(catId)];
+      const paths = state.items
+        .filter((it) => it.type === 'audio' && ids.includes(it.categoryId || ''))
+        .map((it) => it.filePath);
+      if (!paths.length) { toast('该分类下没有音频', 'warn'); return; }
+      audioPlayer.openList(paths);
+      toast(`正在播放分类「${el.textContent}」的 ${paths.length} 个音频`);
+    });
+  });
+}
+
+/** 播放列表管理对话框:列表增删改 + 条目增删改查(单个/批量) */
+function renderAudioPlaylistManager() {
+  const { mask, close } = openModal({
+    title: '播放列表管理',
+    wide: true,
+    body: (() => {
+      const b = document.createElement('div');
+      b.className = 'modal-body plm-body';
+      b.innerHTML = `
+        <div class="plm">
+          <div class="plm-left">
+            <div class="plm-title">播放列表</div>
+            <select id="plm-list" class="plm-select"></select>
+            <div class="plm-btns">
+              <button class="btn sm" id="plm-new">新建</button>
+              <button class="btn sm" id="plm-rename">重命名</button>
+              <button class="btn sm danger" id="plm-del">删除</button>
+            </div>
+            <div class="plm-hint">切换列表后,右侧显示该列表的音频条目。</div>
+          </div>
+          <div class="plm-right">
+            <div class="plm-tools">
+              <span class="plm-count" id="plm-count"></span>
+              <button class="btn sm" id="plm-add">+ 添加音频</button>
+              <button class="btn sm" id="plm-remove-batch">移除选中</button>
+              <button class="btn sm" id="plm-move">移动到...</button>
+              <button class="btn sm" id="plm-up">上移</button>
+              <button class="btn sm" id="plm-down">下移</button>
+              <button class="btn sm" id="plm-clear">清空</button>
+            </div>
+            <div class="plm-list" id="plm-items"></div>
+          </div>
+        </div>
+      `;
+      return b;
+    })(),
+    foot: footButtons([{ text: '关闭', cls: '', onClick: () => { close(); renderAhTabs(); } }]),
+  });
+
+  const listSel = bEl(mask, '#plm-list');
+  const listEl = bEl(mask, '#plm-items');
+  const countEl = bEl(mask, '#plm-count');
+  let editingListId = state.settings.audioCurrentListId;
+
+  function currentList() {
+    return getAudioPlaylists().find((l) => l.id === editingListId) || null;
+  }
+  function fillListSel() {
+    const lists = getAudioPlaylists();
+    listSel.innerHTML = '<option value="">(无)</option>' + lists.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('');
+    listSel.value = editingListId || '';
+  }
+  function save() {
+    saveAudioPlaylists(getAudioPlaylists());
+    syncAudioListUI();
+    renderAhTabs();
+    renderItemsList();
+  }
+  function renderItemsList() {
+    const list = currentList();
+    const items = list ? list.paths : [];
+    countEl.textContent = list ? `共 ${items.length} 个音频` : '请选择列表';
+    if (!list) { listEl.innerHTML = ''; return; }
+    listEl.innerHTML = items.map((p, i) => `
+      <div class="plm-item" data-i="${i}" data-path="${esc(p)}" draggable="true" title="左键拖拽排序 · 右键更多操作">
+        <label class="chk"><input type="checkbox" class="plm-chk" data-i="${i}" /></label>
+        <span class="plm-idx">${i + 1}</span>
+        <span class="plm-name" title="${esc(p)}">${esc(basename(p))}</span>
+        <span class="plm-path" title="${esc(p)}">${esc(p)}</span>
+        <button class="btn sm plm-del-one" data-i="${i}" title="移除该条">✕</button>
+      </div>`).join('');
+    listEl.querySelectorAll('.plm-del-one').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const i = Number(btn.dataset.i);
+        const l = currentList();
+        if (!l) return;
+        l.paths.splice(i, 1);
+        save();
+      });
+    });
+  }
+
+  // ---- 条目右键菜单(修改元信息 / 编辑文件信息 / 从列表删除 / 移动到其它列表) ----
+  listEl.addEventListener('contextmenu', (e) => {
+    const item = e.target.closest('.plm-item');
+    if (!item) return;
+    e.preventDefault();
+    const i = Number(item.dataset.i);
+    const l = currentList();
+    if (!l) return;
+    const p = l.paths[i];
+    if (!p) return;
+    const others = getAudioPlaylists().filter((x) => x.id !== l.id);
+    const menu = [
+      { label: '修改元信息', onClick: () => editAudioMetaDialog(p) },
+      { label: '编辑文件信息', onClick: () => renameAudioFileDialog(p) },
+      { label: '从列表删除', danger: true, onClick: () => { l.paths.splice(i, 1); save(); } },
+    ];
+    if (others.length) {
+      menu.push({ label: '移动到其它列表...', onClick: () => moveSingleToOtherList(l, i) });
+    }
+    showContextMenu(e.clientX, e.clientY, menu);
+  });
+
+  // ---- 条目拖拽排序(改变播放顺序) ----
+  let dragFrom = -1;
+  const reindexItems = () => {
+    [...listEl.querySelectorAll('.plm-item')].forEach((el, idx) => {
+      el.dataset.i = String(idx);
+      el.querySelector('.plm-idx').textContent = String(idx + 1);
+      el.querySelectorAll('[data-i]').forEach((c) => { c.dataset.i = String(idx); });
+    });
+  };
+  listEl.addEventListener('dragstart', (e) => {
+    const item = e.target.closest('.plm-item');
+    if (!item) return;
+    dragFrom = Number(item.dataset.i);
+    e.dataTransfer.effectAllowed = 'move';
+    item.classList.add('dragging');
+  });
+  listEl.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    const target = e.target.closest('.plm-item');
+    if (!target || dragFrom < 0) return;
+    const over = Number(target.dataset.i);
+    if (over === dragFrom) return;
+    const l = currentList();
+    if (!l) return;
+    const [moved] = l.paths.splice(dragFrom, 1);
+    l.paths.splice(over, 0, moved);
+    dragFrom = over;
+    const el = listEl.querySelector(`.plm-item[data-i="${over}"]`);
+    const ref = listEl.querySelector(`.plm-item[data-i="${over + 1}"]`);
+    listEl.insertBefore(el, ref);
+    reindexItems();
+  });
+  const endDrag = () => {
+    if (dragFrom < 0) return;
+    dragFrom = -1;
+    listEl.querySelectorAll('.plm-item').forEach((el) => el.classList.remove('dragging'));
+    save(); // 拖拽结束保存新顺序
+  };
+  listEl.addEventListener('dragend', endDrag);
+  listEl.addEventListener('drop', (e) => { e.preventDefault(); endDrag(); });
+
+  /** 把当前列表第 i 个条目移动到其它播放列表 */
+  function moveSingleToOtherList(l, i) {
+    const others = getAudioPlaylists().filter((x) => x.id !== l.id);
+    if (!others.length) { toast('没有其它播放列表可供移动', 'warn'); return; }
+    const p = l.paths[i];
+    promptDialog({
+      title: `移动「${basename(p)}」到`,
+      fields: [{
+        key: 'toId', label: '目标播放列表', type: 'select',
+        options: others.map((x) => ({ value: x.id, label: x.name })),
+        value: others[0].id,
+      }],
+      onOk: (v) => {
+        const target = getAudioPlaylists().find((x) => x.id === v.toId);
+        if (!target) return;
+        const existing = new Set(target.paths.map((x) => x.toLowerCase()));
+        if (!existing.has(p.toLowerCase())) target.paths.push(p);
+        l.paths.splice(i, 1);
+        saveAudioPlaylists(getAudioPlaylists());
+        syncAudioListUI();
+        renderAhTabs();
+        renderItemsList();
+        toast(`已移动到「${target.name}」`);
+      },
+    });
+  }
+
+  listSel.addEventListener('change', () => {
+    editingListId = listSel.value || null;
+    setSetting('audioCurrentListId', editingListId);
+    renderItemsList();
+  });
+  bEl(mask, '#plm-new').addEventListener('click', () => {
+    promptDialog({
+      title: '新建播放列表',
+      fields: [{ key: 'name', label: '列表名称', type: 'text', value: '' }],
+      onOk: (v) => {
+        const name = (v.name || '').trim();
+        if (!name) return;
+        const id = 'pl_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        const list = getAudioPlaylists();
+        list.push({ id, name, paths: [] });
+        saveAudioPlaylists(list);
+        editingListId = id;
+        setSetting('audioCurrentListId', id);
+        fillListSel();
+        syncAudioListUI();
+        renderItemsList();
+      },
+    });
+  });
+  bEl(mask, '#plm-rename').addEventListener('click', () => {
+    const l = currentList();
+    if (!l) { toast('请先选择播放列表', 'error'); return; }
+    promptDialog({
+      title: '重命名播放列表',
+      fields: [{ key: 'name', label: '列表名称', type: 'text', value: l.name }],
+      onOk: (v) => {
+        const name = (v.name || '').trim();
+        if (!name) return;
+        l.name = name;
+        saveAudioPlaylists(getAudioPlaylists());
+        fillListSel();
+        syncAudioListUI();
+        renderItemsList();
+      },
+    });
+  });
+  bEl(mask, '#plm-del').addEventListener('click', () => {
+    const l = currentList();
+    if (!l) { toast('请先选择播放列表', 'error'); return; }
+    confirmDialog({
+      title: '删除播放列表',
+      message: `确定删除播放列表「<strong>${esc(l.name)}</strong>」吗?仅移除列表,不删除音频文件。`,
+      okText: '删除',
+      danger: true,
+      onOk: () => {
+        const list = getAudioPlaylists().filter((x) => x.id !== l.id);
+        saveAudioPlaylists(list);
+        editingListId = null;
+        setSetting('audioCurrentListId', null);
+        fillListSel();
+        syncAudioListUI();
+        renderItemsList();
+      },
+    });
+  });
+  bEl(mask, '#plm-add').addEventListener('click', async () => {
+    const l = currentList();
+    if (!l) { toast('请先选择播放列表', 'error'); return; }
+    const r = await window.api.pickFiles({
+      title: '选择音频文件(可多选)',
+      filters: [{ name: '音频', extensions: ['mp3', 'wav', 'ogg', 'flac', 'wma', 'm4a', 'aac', 'opus'] }],
+      multiSelections: true,
+    });
+    if (r.canceled || !r.filePaths.length) return;
+    const existing = new Set(l.paths.map((p) => p.toLowerCase()));
+    let added = 0;
+    for (const p of r.filePaths) {
+      const k = p.toLowerCase();
+      if (existing.has(k)) continue;
+      existing.add(k);
+      l.paths.push(p);
+      added++;
+    }
+    if (added) { save(); toast(`已添加 ${added} 个音频(重复项已忽略)`); }
+    else toast('所选音频均已存在', 'warn');
+  });
+  bEl(mask, '#plm-remove-batch').addEventListener('click', () => {
+    const l = currentList();
+    if (!l) return;
+    const checked = [...listEl.querySelectorAll('.plm-chk:checked')].map((c) => Number(c.dataset.i)).sort((a, b) => b - a);
+    if (!checked.length) { toast('请先勾选要移除的条目', 'warn'); return; }
+    for (const i of checked) l.paths.splice(i, 1);
+    save();
+    toast(`已移除 ${checked.length} 个音频`);
+  });
+  // 移动勾选条目到其它播放列表
+  bEl(mask, '#plm-move').addEventListener('click', () => {
+    const l = currentList();
+    if (!l) return;
+    const checked = [...listEl.querySelectorAll('.plm-chk:checked')].map((c) => Number(c.dataset.i)).sort((a, b) => b - a);
+    if (!checked.length) { toast('请先勾选要移动的条目', 'warn'); return; }
+    const others = getAudioPlaylists().filter((x) => x.id !== l.id);
+    if (!others.length) { toast('没有其它播放列表可供移动', 'error'); return; }
+    promptDialog({
+      title: `移动 ${checked.length} 个音频到`,
+      fields: [{
+        key: 'toId', label: '目标播放列表', type: 'select',
+        options: others.map((x) => ({ value: x.id, label: x.name })),
+        value: others[0].id,
+      }],
+      onOk: (v) => {
+        const target = getAudioPlaylists().find((x) => x.id === v.toId);
+        if (!target) return;
+        const moved = checked.map((i) => l.paths[i]);
+        // 追加到目标列表(去重)
+        const existing = new Set(target.paths.map((p) => p.toLowerCase()));
+        const added = moved.filter((p) => {
+          const k = p.toLowerCase();
+          if (existing.has(k)) return false;
+          existing.add(k);
+          return true;
+        });
+        target.paths.push(...added);
+        // 从当前列表移除(按下标降序)
+        for (const i of checked) l.paths.splice(i, 1);
+        saveAudioPlaylists(getAudioPlaylists());
+        syncAudioListUI();
+        renderAhTabs();
+        renderItemsList();
+        toast(`已移动 ${moved.length} 个音频到「${target.name}」${added.length !== moved.length ? '(目标列表已有部分条目被跳过)' : ''}`);
+      },
+    });
+  });
+  bEl(mask, '#plm-up').addEventListener('click', () => {
+    const l = currentList();
+    if (!l) return;
+    const checked = [...listEl.querySelectorAll('.plm-chk:checked')].map((c) => Number(c.dataset.i)).sort((a, b) => a - b);
+    if (!checked.length) return;
+    for (const i of checked) {
+      if (i > 0) { const t = l.paths[i - 1]; l.paths[i - 1] = l.paths[i]; l.paths[i] = t; }
+    }
+    save();
+  });
+  bEl(mask, '#plm-down').addEventListener('click', () => {
+    const l = currentList();
+    if (!l) return;
+    const checked = [...listEl.querySelectorAll('.plm-chk:checked')].map((c) => Number(c.dataset.i)).sort((a, b) => b - a);
+    if (!checked.length) return;
+    for (const i of checked) {
+      if (i < l.paths.length - 1) { const t = l.paths[i + 1]; l.paths[i + 1] = l.paths[i]; l.paths[i] = t; }
+    }
+    save();
+  });
+  bEl(mask, '#plm-clear').addEventListener('click', () => {
+    const l = currentList();
+    if (!l) return;
+    confirmDialog({
+      title: '清空播放列表',
+      message: `确定清空播放列表「<strong>${esc(l.name)}</strong>」的全部 ${l.paths.length} 个音频吗?`,
+      okText: '清空',
+      danger: true,
+      onOk: () => { l.paths = []; save(); },
+    });
+  });
+
+  fillListSel();
+  renderItemsList();
+}
+
+/** 编辑当前播放音频的 ID3 内置信息 */
+/** 编辑音频文件内置信息(ID3);targetPath 缺省时用当前播放曲目 */
+async function editAudioMetaDialog(targetPath) {
+  let path = targetPath;
+  if (!path) {
+    if (!audioPlayer || audioPlayer.index < 0 || !audioPlayer.queue[audioPlayer.index]) {
+      toast('请先选择要编辑的音频', 'error');
+      return;
+    }
+    path = audioPlayer.queue[audioPlayer.index].path;
+  }
+  const r = await window.api.readAudioMeta(path);
+  const tags = (r && r.ok && r.tags) ? r.tags : { title: '', artist: '', album: '', year: '', track: '', comment: '' };
+  promptDialog({
+    title: `编辑音频信息 · ${basename(path)}`,
+    fields: [
+      { key: 'title', label: '标题', type: 'text', value: tags.title || '' },
+      { key: 'artist', label: '艺术家', type: 'text', value: tags.artist || '' },
+      { key: 'album', label: '专辑', type: 'text', value: tags.album || '' },
+      { key: 'year', label: '年份', type: 'text', value: tags.year || '' },
+      { key: 'track', label: '音轨', type: 'text', value: tags.track || '' },
+      { key: 'comment', label: '注释', type: 'textarea', value: tags.comment || '' },
+    ],
+    onOk: async (v) => {
+      const w = await window.api.writeAudioMeta(path, {
+        title: v.title, artist: v.artist, album: v.album, year: v.year, track: v.track, comment: v.comment,
+      });
+      if (w && w.ok) {
+        toast('音频信息已保存');
+        // 刷新会话内缓存与队列显示
+        if (audioPlayer) audioPlayer.invalidateMeta(path);
+      } else {
+        toast('保存失败:' + ((w && w.error) || '未知错误'), 'error');
+      }
+    },
+  });
+}
+
+/** 重命名音频文件(仅改文件名,不跨目录) */
+function renameAudioFileDialog(path) {
+  const old = basename(path);
+  const dir = path.replace(/[\\/][^\\/]*$/, '');
+  promptDialog({
+    title: '重命名音频文件',
+    fields: [{ key: 'name', label: '新文件名(保留扩展名)', type: 'text', value: old }],
+    onOk: async (v) => {
+      let name = (v.name || '').trim();
+      if (!name) return;
+      // 若未保留扩展名则自动补回
+      const extMatch = old.match(/\.[^.]+$/);
+      if (extMatch && !name.toLowerCase().endsWith(extMatch[0].toLowerCase())) name += extMatch[0];
+      const newPath = dir + (dir.endsWith('\\') || dir.endsWith('/') ? '' : (dir.includes('\\') ? '\\' : '/')) + name;
+      const r = await window.api.renameFile(path, newPath);
+      if (r && r.ok) {
+        toast('已重命名为 ' + name);
+        if (audioPlayer) audioPlayer.renamePath(path, newPath);
+      } else {
+        toast('重命名失败:' + ((r && r.error) || '未知错误'), 'error');
+      }
+    },
+  });
+}
+
+/** 选择音频文件(单个|多个)追加到当前播放列表;若列表正在播放则同步追加到队列尾部 */
+async function addAudioToListDialog() {
+  const lists = getAudioPlaylists();
+  if (!lists.length) {
+    toast('请先新建播放列表', 'warn');
+    return;
+  }
+  const cur = getCurrentAudioList() || lists[0];
+  const r = await window.api.pickFiles({
+    title: '选择音频文件(可多选)',
+    filters: [{ name: '音频', extensions: ['mp3', 'wav', 'ogg', 'flac', 'wma', 'm4a', 'aac', 'opus'] }],
+  });
+  if (r.canceled || !r.filePaths.length) return;
+  const existing = new Set(cur.paths.map((p) => p.toLowerCase()));
+  let added = 0;
+  for (const p of r.filePaths) {
+    const k = p.toLowerCase();
+    if (existing.has(k)) continue;
+    existing.add(k);
+    cur.paths.push(p);
+    added++;
+  }
+  saveAudioPlaylists(getAudioPlaylists());
+  syncAudioListUI();
+  renderAhTabs();
+  // 列表模式且正在播放该列表 → 追加到队列尾部(不打断播放)
+  const mode = state.settings.audioMode || 'single';
+  if (audioPlayer && (mode === 'listOrder' || mode === 'listLoop')
+    && state.settings.audioCurrentListId === cur.id) {
+    audioPlayer.appendPaths(r.filePaths);
+  }
+  toast(added ? `已添加 ${added} 个音频到「${cur.name}」` : '所选音频均已在该列表中', added ? '' : 'warn');
+}
+
+function bEl(root, sel) {
+  return root.querySelector(sel);
 }
 
 // ---------------- 插槽面板 ----------------
@@ -1613,6 +3376,154 @@ function renderVersion() {
 
 // ---------------- 编辑/删除 条目 ----------------
 
+/**
+ * 标签编辑器:已有标签 chip(✕ 删除) + 输入框(空格/回车/逗号添加,退格删除最后一个)
+ * + 标签库建议下拉(可点击直接添加)。
+ * @param {string[]} initialTags 初始标签
+ * @param {(tags: string[]) => void} [onChange] 每次标签变化回调
+ * @returns {{ el: HTMLElement, getTags: () => string[] }}
+ */
+function createTagEditor(initialTags = [], onChange) {
+  const wrap = document.createElement('div');
+  wrap.className = 'tag-editor';
+
+  const chips = document.createElement('div');
+  chips.className = 'tag-chips';
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'tag-input';
+  input.placeholder = '输入后回车 / 空格添加,或从下面标签库选择…';
+
+  const suggest = document.createElement('div');
+  suggest.className = 'tag-suggest';
+
+  const tags = cleanTags(initialTags);
+
+  function emit() {
+    onChange && onChange([...tags]);
+  }
+
+  function addTag(text) {
+    const t = String(text || '').trim();
+    if (!t || tags.includes(t)) return false;
+    tags.push(t);
+    renderChips();
+    emit();
+    return true;
+  }
+
+  function removeTag(t) {
+    const idx = tags.indexOf(t);
+    if (idx < 0) return;
+    tags.splice(idx, 1);
+    renderChips();
+    emit();
+  }
+
+  function renderChips() {
+    chips.innerHTML = '';
+    for (const t of tags) {
+      const chip = document.createElement('span');
+      chip.className = 'tag-chip';
+      const label = document.createElement('span');
+      label.textContent = t;
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'tag-chip-x';
+      del.textContent = '×';
+      del.title = '删除标签';
+      del.addEventListener('click', (e) => {
+        e.stopPropagation();
+        removeTag(t);
+        input.focus();
+        showSuggest(input.value);
+      });
+      chip.appendChild(label);
+      chip.appendChild(del);
+      chips.appendChild(chip);
+    }
+  }
+
+  function showSuggest(query) {
+    const q = String(query || '').trim().toLowerCase();
+    let lib = allTags().filter((t) => !tags.includes(t));
+    if (q) lib = lib.filter((t) => t.toLowerCase().includes(q));
+    if (!lib.length) {
+      suggest.innerHTML = '';
+      suggest.classList.remove('open');
+      return;
+    }
+    suggest.innerHTML = '';
+    for (const t of lib) {
+      const item = document.createElement('div');
+      item.className = 'tag-suggest-item';
+      item.textContent = t;
+      item.addEventListener('mousedown', (e) => e.preventDefault()); // 保持输入框焦点
+      item.addEventListener('click', () => {
+        addTag(t);
+        input.value = '';
+        input.focus();
+        showSuggest('');
+      });
+      suggest.appendChild(item);
+    }
+    suggest.classList.add('open');
+  }
+
+  input.addEventListener('focus', () => showSuggest(input.value));
+  input.addEventListener('input', () => showSuggest(input.value));
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ' || e.key === ',') {
+      e.preventDefault();
+      addTag(input.value);
+      input.value = '';
+      showSuggest('');
+    } else if (e.key === 'Backspace' && !input.value && tags.length) {
+      removeTag(tags[tags.length - 1]);
+    } else if (e.key === 'Escape') {
+      suggest.classList.remove('open');
+    }
+  });
+  input.addEventListener('blur', () => {
+    if (input.value.trim()) {
+      addTag(input.value);
+      input.value = '';
+    }
+    setTimeout(() => suggest.classList.remove('open'), 120);
+  });
+
+  // 点击编辑器外部立即关闭建议下拉(避免遮挡下方「保存」等按钮导致点不到/误点)
+  // 编辑器随对话框销毁后,首次 mousedown 自动移除自身监听(自清理,避免累积)
+  const onDocDown = (e) => {
+    if (!wrap.isConnected) {
+      document.removeEventListener('mousedown', onDocDown);
+      return;
+    }
+    if (!wrap.contains(e.target)) suggest.classList.remove('open');
+  };
+  document.addEventListener('mousedown', onDocDown);
+
+  renderChips();
+  wrap.appendChild(chips);
+  wrap.appendChild(input);
+  wrap.appendChild(suggest);
+  return {
+    el: wrap,
+    getTags: () => [...tags],
+    /** 提交输入框中未确认的文本并关闭下拉,返回最终标签(保存前调用,不依赖 blur 时序) */
+    commit: () => {
+      if (input.value.trim()) {
+        addTag(input.value);
+        input.value = '';
+      }
+      suggest.classList.remove('open');
+      return [...tags];
+    },
+    destroy: () => document.removeEventListener('mousedown', onDocDown),
+  };
+}
+
 function editItemDialog(id) {
   const it = itemById(id);
   if (!it) return;
@@ -1628,11 +3539,38 @@ function editItemDialog(id) {
   nameRow.appendChild(nameInput);
   body.appendChild(nameRow);
 
+  // 文件名(仅图片类型:修改磁盘文件名,扩展名保持不变)
+  let fileBase = null, fileExt = '', fileDir = '';
+  if (it.type === 'image' && it.filePath) {
+    const nm = it.filePath.split(/[\\/]/).pop();
+    const dot = nm.lastIndexOf('.');
+    fileExt = dot > 0 ? nm.slice(dot) : '';
+    fileBase = dot > 0 ? nm.slice(0, dot) : nm;
+    fileDir = it.filePath.slice(0, it.filePath.length - nm.length);
+    const fileRow = document.createElement('div');
+    fileRow.className = 'form-row';
+    fileRow.innerHTML = '<label class="f-label">文件名</label>';
+    const fileWrap = document.createElement('div');
+    fileWrap.className = 'file-name-wrap';
+    const fileInput = document.createElement('input');
+    fileInput.type = 'text';
+    fileInput.value = fileBase;
+    fileInput.className = 'file-name-input';
+    fileInput.setAttribute('data-ext', fileExt);
+    const extSpan = document.createElement('span');
+    extSpan.className = 'file-ext';
+    extSpan.textContent = fileExt;
+    fileWrap.appendChild(fileInput);
+    fileWrap.appendChild(extSpan);
+    fileRow.appendChild(fileWrap);
+    body.appendChild(fileRow);
+  }
+
   const catRow = document.createElement('div');
   catRow.className = 'form-row';
   catRow.innerHTML = '<label class="f-label">所属分类</label>';
   const catSelect = document.createElement('select');
-  const opts = [{ value: '', label: '未分类' }].concat(state.categories.map((c) => ({ value: c.id, label: c.name })));
+  const opts = [{ value: '', label: '未分类' }].concat(state.categories.map((c) => ({ value: c.id, label: categoryPath(c.id) })));
   for (const o of opts) {
     const op = document.createElement('option');
     op.value = o.value;
@@ -1652,13 +3590,18 @@ function editItemDialog(id) {
   remarkRow.appendChild(remarkInput);
   body.appendChild(remarkRow);
 
+  // 标签:chip ✕ 删除 / 空格回车新增 / 标签库建议选择
+  const tagRow = document.createElement('div');
+  tagRow.className = 'form-row';
+  tagRow.innerHTML = '<label class="f-label">标签</label>';
+  const tagEditor = createTagEditor(itemTags(it));
+  tagRow.appendChild(tagEditor.el);
+  body.appendChild(tagRow);
+
   const pathRow = document.createElement('div');
   pathRow.className = 'form-row';
   pathRow.innerHTML = '<label class="f-label">文件</label>';
-  const ro = document.createElement('span');
-  ro.className = 'ro';
-  ro.textContent = `${TYPE_LABEL[it.type] || it.type} · ${it.filePath}`;
-  pathRow.appendChild(ro);
+  pathRow.appendChild(makeCopyablePath(`${TYPE_LABEL[it.type] || it.type} · ${it.filePath}`, { mono: true, wrap: true }));
   body.appendChild(pathRow);
 
   const title = it.type === 'image' ? '编辑图片' : it.type === 'audio' ? '编辑音频' : '编辑动画';
@@ -1671,13 +3614,36 @@ function editItemDialog(id) {
       {
         text: '保存',
         cls: 'primary',
-        onClick: () => {
+        onClick: async () => {
           if (!nameInput.value.trim()) return toast('显示名称不能为空', 'error');
+          // 图片类型:若文件名被改动,先重命名磁盘文件
+          let newFilePath = it.filePath;
+          if (it.type === 'image' && fileBase !== null) {
+            const want = fileInput.value.trim();
+            if (!want) return toast('文件名不能为空', 'error');
+            if (/[\\/]/.test(want)) return toast('文件名不能包含路径分隔符', 'error');
+            const target = fileDir + want + fileExt;
+            if (target !== it.filePath) {
+              try {
+                const r = await window.api.renameFile(it.filePath, target);
+                if (!r || !r.ok) {
+                  toast('重命名失败: ' + ((r && r.error) || '未知错误'), 'error', 4000);
+                  return; // 不关闭,让用户修正文件名
+                }
+                newFilePath = r.path;
+              } catch (err) {
+                toast('重命名异常: ' + err.message, 'error', 4000);
+                return;
+              }
+            }
+          }
           const moved = catSelect.value !== it.categoryId;
           updateItem(id, {
             displayName: nameInput.value.trim(),
             remark: remarkInput.value.trim(),
+            tags: tagEditor.commit(), // 提交未确认输入(不依赖 blur 时序)
             categoryId: catSelect.value,
+            filePath: newFilePath,
           });
           thumbnailService.invalidate(id); // 编辑后失效缩略图缓存(重新生成)
           close();
@@ -1695,6 +3661,96 @@ function editItemDialog(id) {
       },
     ]),
   });
+}
+
+/**
+ * 右键菜单「重命名」:
+ * - 图片:重命名磁盘文件(扩展名不变),成功后更新 item.filePath
+ * - 其它类型:重命名显示名称(纯元数据,避免破坏多文件资源的配套文件)
+ */
+function renameItemDialog(it) {
+  const isImage = it.type === 'image' && it.filePath;
+  const body = document.createElement('div');
+  body.className = 'modal-body';
+
+  let fileBase = null, fileExt = '', fileDir = '';
+  if (isImage) {
+    const nm = it.filePath.split(/[\\/]/).pop();
+    const dot = nm.lastIndexOf('.');
+    fileExt = dot > 0 ? nm.slice(dot) : '';
+    fileBase = dot > 0 ? nm.slice(0, dot) : nm;
+    fileDir = it.filePath.slice(0, it.filePath.length - nm.length);
+  }
+
+  const row = document.createElement('div');
+  row.className = 'form-row';
+  row.innerHTML = `<label class="f-label">${isImage ? '文件名' : '显示名称'}</label>`;
+  let input;
+  if (isImage) {
+    const wrap = document.createElement('div');
+    wrap.className = 'file-name-wrap';
+    input = document.createElement('input');
+    input.type = 'text';
+    input.value = fileBase;
+    input.className = 'file-name-input';
+    const extSpan = document.createElement('span');
+    extSpan.className = 'file-ext';
+    extSpan.textContent = fileExt;
+    wrap.appendChild(input);
+    wrap.appendChild(extSpan);
+    row.appendChild(wrap);
+  } else {
+    input = document.createElement('input');
+    input.type = 'text';
+    input.value = it.displayName;
+    row.appendChild(input);
+  }
+  body.appendChild(row);
+
+  const title = isImage ? '重命名图片文件' : `重命名${it.type === 'audio' ? '音频' : it.type === 'model' ? '3D 资源' : '动画'}`;
+  const { close } = openModal({
+    title,
+    body,
+    foot: footButtons([
+      { text: '取消', cls: '', onClick: () => close() },
+      {
+        text: '确定',
+        cls: 'primary',
+        onClick: async () => {
+          const want = input.value.trim();
+          if (!want) return toast(isImage ? '文件名不能为空' : '显示名称不能为空', 'error');
+          if (isImage) {
+            if (/[\\/]/.test(want)) return toast('文件名不能包含路径分隔符', 'error');
+            const target = fileDir + want + fileExt;
+            if (target !== it.filePath) {
+              try {
+                const r = await window.api.renameFile(it.filePath, target);
+                if (!r || !r.ok) {
+                  toast('重命名失败: ' + ((r && r.error) || '未知错误'), 'error', 4000);
+                  return; // 不关闭,让用户修正
+                }
+                updateItem(it.id, { filePath: r.path });
+                thumbnailService.invalidate(it.id);
+              } catch (err) {
+                toast('重命名异常: ' + err.message, 'error', 4000);
+                return;
+              }
+            }
+          } else {
+            if (want === it.displayName) { close(); return; }
+            updateItem(it.id, { displayName: want });
+          }
+          close();
+          renderItems();
+          renderMainArea();
+          const ph = document.getElementById('pv-name');
+          if (ph && preview.currentItemId === it.id) ph.textContent = isImage ? it.displayName : want;
+          toast('已重命名');
+        },
+      },
+    ]),
+  });
+  setTimeout(() => { input.focus(); input.select && input.select(); }, 0);
 }
 
 function deleteItemDialog(id) {
@@ -1818,6 +3874,138 @@ function batchMoveItems(ids) {
   });
 }
 
+/**
+ * 批量编辑标签(编辑模式多选右键「编辑」):
+ * - 「添加标签」:输入/标签库选择新标签,追加到全部选中资源
+ * - 「共有标签」:所有选中资源共同含有的标签,点 ✕ 从全部移除
+ * - 「部分标签」:仅部分资源含有的标签,只读提示,保存时保留不变
+ */
+function batchEditTagsDialog(ids) {
+  const valid = ids.map((id) => itemById(id)).filter(Boolean);
+  if (!valid.length) {
+    toast('请先选择要编辑的资源', 'error');
+    return;
+  }
+
+  // 共有标签(交集) / 部分标签(并集-交集)
+  const tagSets = valid.map((it) => new Set(itemTags(it)));
+  const common = new Set(tagSets[0]);
+  for (const s of tagSets.slice(1)) {
+    for (const t of [...common]) if (!s.has(t)) common.delete(t);
+  }
+  const union = new Set();
+  for (const s of tagSets) for (const t of s) union.add(t);
+  const partial = new Set([...union].filter((t) => !common.has(t)));
+  const removed = new Set(); // 待从全部移除的共有标签
+
+  const body = document.createElement('div');
+  body.className = 'modal-body';
+
+  // 提示
+  const tip = document.createElement('div');
+  tip.className = 'hint';
+  tip.style.marginBottom = '12px';
+  tip.textContent = `已选择 ${valid.length} 项资源:新标签会添加到全部选中资源,点击共有标签的 × 可将其从全部移除。`;
+  body.appendChild(tip);
+
+  // 区域1:添加标签
+  const addRow = document.createElement('div');
+  addRow.style.cssText = 'margin-bottom:12px';
+  const addLabel = document.createElement('div');
+  addLabel.className = 'f-label';
+  addLabel.style.cssText = 'width:auto;text-align:left;margin-bottom:6px';
+  addLabel.textContent = '添加标签到全部选中资源';
+  const addEditor = createTagEditor([]);
+  addRow.appendChild(addLabel);
+  addRow.appendChild(addEditor.el);
+  body.appendChild(addRow);
+
+  // 区域2:共有标签(✕ 删除)
+  const commonRow = document.createElement('div');
+  commonRow.style.cssText = 'margin-bottom:12px';
+  const commonLabel = document.createElement('div');
+  commonLabel.className = 'f-label';
+  commonLabel.style.cssText = 'width:auto;text-align:left;margin-bottom:6px';
+  commonLabel.textContent = '共有标签(全部选中资源都有)';
+  const commonWrap = document.createElement('div');
+  commonWrap.className = 'ro-tags';
+  const renderCommon = () => {
+    commonWrap.innerHTML = '';
+    const remaining = [...common].filter((t) => !removed.has(t));
+    if (!remaining.length) {
+      const hint = document.createElement('span');
+      hint.className = 'hint';
+      hint.textContent = removed.size ? '已全部移除' : '无(这些资源没有共同的标签)';
+      commonWrap.appendChild(hint);
+      return;
+    }
+    for (const t of remaining) {
+      const chip = document.createElement('span');
+      chip.className = 'tag-chip';
+      const label = document.createElement('span');
+      label.textContent = t;
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'tag-chip-x';
+      del.textContent = '×';
+      del.title = '从全部选中资源移除';
+      del.addEventListener('click', () => {
+        removed.add(t);
+        renderCommon();
+      });
+      chip.appendChild(label);
+      chip.appendChild(del);
+      commonWrap.appendChild(chip);
+    }
+  };
+  renderCommon();
+  commonRow.appendChild(commonLabel);
+  commonRow.appendChild(commonWrap);
+  body.appendChild(commonRow);
+
+  // 区域3:部分标签(只读提示)
+  if (partial.size) {
+    const partRow = document.createElement('div');
+    const partLabel = document.createElement('div');
+    partLabel.className = 'f-label';
+    partLabel.style.cssText = 'width:auto;text-align:left;margin-bottom:6px';
+    partLabel.textContent = '部分标签(仅部分资源含有,保存时保留)';
+    const partWrap = document.createElement('div');
+    partWrap.className = 'ro-tags';
+    partWrap.innerHTML = [...partial].map((t) => `<span class="tag-chip tag-chip-more">${esc(t)}</span>`).join(' ');
+    partRow.appendChild(partLabel);
+    partRow.appendChild(partWrap);
+    body.appendChild(partRow);
+  }
+
+  const { close } = openModal({
+    title: `批量编辑标签 (${valid.length} 项)`,
+    body,
+    foot: footButtons([
+      { text: '取消', cls: '', onClick: () => close() },
+      {
+        text: '保存',
+        cls: 'primary',
+        onClick: () => {
+          const addTags = addEditor.commit(); // 提交未确认输入(不依赖 blur 时序)
+          for (const it of valid) {
+            let tags = itemTags(it);
+            for (const t of addTags) if (!tags.includes(t)) tags.push(t);
+            tags = tags.filter((t) => !removed.has(t));
+            updateItem(it.id, { tags });
+            thumbnailService.invalidate(it.id);
+          }
+          close();
+          renderCategories();
+          renderItems();
+          renderMainArea();
+          toast(`已为 ${valid.length} 项资源更新标签`);
+        },
+      },
+    ]),
+  });
+}
+
 // ---------------- 预览面板 ----------------
 
 function showPreviewLoading(item) {
@@ -1902,6 +4090,10 @@ function bindToolbar() {
 
   document.getElementById('btn-new-cat').addEventListener('click', newCategoryDialog);
 
+  // 系统设置
+  const btnSettings = document.getElementById('btn-settings');
+  if (btnSettings) btnSettings.addEventListener('click', () => openSettings());
+
   // 顶栏左侧「资源树」按钮:切换侧栏显示/隐藏(active 状态反映当前可见性)
   const toggleSide = document.getElementById('btn-toggle-side');
   if (toggleSide) {
@@ -1922,10 +4114,23 @@ function bindToolbar() {
   });
 
   const search = document.getElementById('search');
+  const searchClear = document.getElementById('search-clear');
+  const updateSearchClear = () => { if (searchClear) searchClear.hidden = !search.value; };
   search.addEventListener('input', () => {
     searchText = search.value.trim();
+    updateSearchClear();
     renderItems();
   });
+  if (searchClear) {
+    searchClear.addEventListener('click', () => {
+      search.value = '';
+      searchText = '';
+      updateSearchClear();
+      renderItems();
+      search.focus();
+    });
+  }
+  updateSearchClear();
 }
 
 function bindList() {
@@ -2014,6 +4219,21 @@ function bindPreviewControls() {
     preview.setBgColor('#eef0f5');
   });
 
+  // 图片预览背景(与动画预览共用 bgColor 设置)
+  const imgBgInput = document.getElementById('img-bg-color');
+  if (imgBgInput) {
+    const applyImgBg = (c) => {
+      imgBgInput.value = c;
+      setSetting('bgColor', c);
+      if (imageViewer) imageViewer.setBgColor(c);
+    };
+    imgBgInput.addEventListener('input', () => applyImgBg(imgBgInput.value));
+    const imgBgDark = document.getElementById('img-bg-dark');
+    if (imgBgDark) imgBgDark.addEventListener('click', () => applyImgBg('#22242b'));
+    const imgBgLight = document.getElementById('img-bg-light');
+    if (imgBgLight) imgBgLight.addEventListener('click', () => applyImgBg('#eef0f5'));
+  }
+
   // 骨骼显示
   document.getElementById('show-bones').addEventListener('change', (e) => {
     setSetting('showBones', e.target.checked);
@@ -2029,6 +4249,10 @@ function bindPreviewControls() {
   document.getElementById('btn-rotate').addEventListener('click', () => {
     preview.rotateClockwise();
   });
+
+  // 截图当前帧(透明背景 PNG/WebP)
+  const btnCapture = document.getElementById('pv-capture');
+  if (btnCapture) btnCapture.addEventListener('click', () => doCaptureScreenshot());
 
   // 缩放条
   const zoomRange = document.getElementById('zoom-range');
@@ -2054,6 +4278,50 @@ function bindPreviewControls() {
     renderSlots();
   });
   // 注:侧栏切换(pv-open-dir / pv-reload)已移至顶栏 bindToolbar
+}
+
+/** 截图当前动画帧为透明背景 PNG/WebP 并保存到默认路径 */
+function doCaptureScreenshot() {
+  if (!preview || !preview.currentItemId) return toast('当前没有可截图的动画', 'error');
+  const item = itemById(preview.currentItemId);
+  if (!item) return toast('未找到当前资源', 'error');
+
+  const format = state.settings.screenshotFormat === 'webp' ? 'webp' : 'png';
+  const quality = format === 'webp' ? (Number(state.settings.screenshotQuality) || 0.92) : undefined;
+  const dataUrl = preview.captureFrame({ type: format, quality });
+  if (!dataUrl) return toast('截图失败(无法提取画面)', 'error');
+
+  const dir = (state.settings.screenshotPath || '').trim();
+  const base = String(item.filePath || '').split(/[\\/]/).pop().replace(/\.[^.]+$/, '') || 'capture';
+  const action = (preview.currentAction && preview.currentAction.name) || 'frame';
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const ts = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+  const fileName = `${base}_${action}_${ts}.${format}`;
+  const full = dir ? (dir.replace(/[\\/]$/, '') + '/' + fileName) : fileName;
+
+  window.api.writeFileBase64(full, dataUrl).then((r) => {
+    if (r && r.ok) {
+      toast(`已保存截图: ${r.path}`, 'ok', 4000);
+      // 截图后自动加入「图片资源」指定分类(默认:spine截图)
+      if (state.settings.screenshotAddToLibrary) {
+        const catName = state.settings.screenshotCategory || 'spine截图';
+        const cat = findOrCreateCategoryByName(catName, '');
+        if (cat) {
+          const dup = state.items.some((it) => it.filePath === r.path);
+          if (!dup) {
+            addItem({ categoryId: cat.id, type: 'image', filePath: r.path, displayName: base, mtime: Date.now(), tags: [] });
+            renderTree();
+            toast(`已加入图片资源「${cat.name}」`, 'ok', 3000);
+          }
+        }
+      }
+    } else {
+      toast('截图保存失败: ' + ((r && r.error) || '未知错误'), 'error', 4000);
+    }
+  }).catch((err) => {
+    toast('截图保存异常: ' + err.message, 'error', 4000);
+  });
 }
 
 // 侧栏整体隐藏/显示

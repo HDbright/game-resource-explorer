@@ -3,6 +3,7 @@ node_modules/
 
 # Build output
 dist/
+dist_locked_*/
 release/
 
 # Electron / runtime data
@@ -13,11 +14,12 @@ data/*.db-wal
 # Temporary files
 .tmp*/
 .tmp-*
-_tmp-*
+_tmp*
 _test_*
 *.tar.gz
 *.tgz
 *.tmp
+electron/_tmp/
 
 # IDE / OS
 .idea/

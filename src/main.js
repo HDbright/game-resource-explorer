@@ -12,6 +12,7 @@ import {
 } from './state.js';
 import { PreviewController } from './preview/index.js';
 import { initUI, renderCategories, renderItems, renderMainArea, selectItem, updatePlaybackUI, updateStatusBar } from './ui.js';
+import { thumbnailService } from './thumbnails.js';
 
 // 供 DragonBones UMD 运行时在全局访问 PIXI
 window.PIXI = PIXI;
@@ -28,6 +29,17 @@ async function main() {
 
   // 应用已保存的设置
   preview.setBgColor(state.settings.bgColor || '#22242b');
+
+  // 截图默认保存路径:未设置时使用图片库目录/Spine截图
+  if (!state.settings.screenshotPath) {
+    try {
+      const info = await window.api.appInfo();
+      const pics = (info && info.pictures) || (info && info.userData) || '';
+      if (pics) state.settings.screenshotPath = pics.replace(/[\\/]$/, '') + '/Spine截图';
+    } catch (err) {
+      console.error('获取图片库目录失败:', err);
+    }
+  }
 
   // 需求1:打开软件时默认显示主页(不持久化,避免覆盖用户上次的标签选择)
   state.settings.resourceTab = 'home';
@@ -891,7 +903,7 @@ function installSmoke() {
           } else {
             out.propShown = false;
           }
-          out.ok = out.menuItems.join() === ['播放', '打开目录', '编辑', '移动到...', '删除', '属性'].join()
+          out.ok = out.menuItems.join() === ['播放', '打开目录', '编辑', '重命名', '移动到...', '收藏', '删除', '属性'].join()
             && out.movedToUncat && out.propShown;
         } else {
           out.ok = false;
@@ -1178,6 +1190,437 @@ function installSmoke() {
         out.hasBreadcrumb = (document.getElementById('breadcrumb').textContent || '').includes('主页');
         return out;
       }
+      case 'navfix': {
+        // 回归:在资源工具箱 / 游戏场景管理 / 设置 页点击左侧资源分类节点,必须能切回资源区;
+        // 且工具箱 / 场景页应显示顶栏"返回"按钮。
+        const out = {};
+        const clickNodeByName = (nm) => {
+          const n = [...document.querySelectorAll('.cat-node')]
+            .find((el) => (el.querySelector('.cat-name') || {}).textContent === nm);
+          if (n) { n.click(); return true; }
+          return false;
+        };
+        const vis = (id) => { const el = document.getElementById(id); return !!(el && !el.hidden); };
+        const backBtn = () => document.getElementById('btn-back-special');
+        const clickAll = () => {
+          const all = document.querySelector('.cat-node[data-id="all"]');
+          if (all) all.click();
+          return !!all;
+        };
+
+        // 1) 打开资源工具箱子页面(astc 转 png):展开工具箱根 → 点"文件格式转换"名称直接打开该工具
+        const tbRoot = [...document.querySelectorAll('.cat-node')]
+          .find((el) => (el.querySelector('.cat-name') || {}).textContent === '资源工具箱');
+        if (tbRoot) { const ar = tbRoot.querySelector('.cat-arrow'); if (ar) ar.click(); } // 展开工具箱(名称点击不展开)
+        await sleep(200);
+        out.openedTool = clickNodeByName('文件格式转换'); // 名称点击 → openTool('astc2png')
+        await sleep(250);
+        out.toolboxVisible = vis('page-toolbox');
+        out.backShownOnTool = !backBtn().hidden;
+
+        // 2) 工具箱页点资源分类节点('all') → 必须切回资源区
+        out.clickedAll1 = clickAll();
+        await sleep(250);
+        out.toolboxHidden = !vis('page-toolbox');
+        out.resAfterTool = vis('page-home') || vis('page-folder');
+        out.backHiddenAfterRes = backBtn().hidden;
+
+        // 3) 打开游戏场景管理(主页)
+        out.openedScene = clickNodeByName('游戏场景管理');
+        await sleep(250);
+        out.sceneVisible = vis('page-scene');
+        out.backShownOnScene = !backBtn().hidden;
+
+        // 4) 场景主页点资源分类节点('all') → 必须切回资源区
+        out.clickedAll2 = clickAll();
+        await sleep(250);
+        out.sceneHidden = !vis('page-scene');
+        out.resAfterScene = vis('page-home') || vis('page-folder');
+
+        // 5) 打开设置页
+        const setBtn = document.getElementById('btn-settings');
+        if (setBtn) setBtn.click();
+        await sleep(250);
+        out.settingsVisible = vis('page-settings');
+        out.backHiddenOnSettings = backBtn().hidden; // 设置页用自身返回按钮
+
+        // 6) 设置页点资源分类节点('all') → 必须切回资源区
+        out.clickedAll3 = clickAll();
+        await sleep(250);
+        out.settingsHidden = !vis('page-settings');
+        out.resAfterSettings = vis('page-home') || vis('page-folder');
+
+        out.ok = out.toolboxVisible && out.toolboxHidden && out.resAfterTool
+          && out.sceneVisible && out.sceneHidden && out.resAfterScene
+          && out.settingsVisible && out.settingsHidden && out.resAfterSettings
+          && out.backShownOnTool && out.backShownOnScene && out.backHiddenAfterRes
+          && out.backHiddenOnSettings;
+        return out;
+      }
+      case 'toolhome': {
+        // 回归:点击"资源工具箱"根名称 → 右侧进入工具箱主页(汇总视图),且含全部子菜单入口卡片
+        const out = {};
+        const tbRoot = [...document.querySelectorAll('.cat-node')]
+          .find((el) => (el.querySelector('.cat-name') || {}).textContent === '资源工具箱');
+        if (!tbRoot) return { err: 'no-toolbox-root' };
+        tbRoot.click(); // 名称点击 → 进入工具箱主页
+        await sleep(250);
+        out.toolboxVisible = !document.getElementById('page-toolbox').hidden;
+        out.homeGrid = document.querySelectorAll('.tool-grid').length;
+        out.entries = document.querySelectorAll('.tool-entry').length;
+        out.entryTitles = [...document.querySelectorAll('.tool-entry-title')].map((el) => el.textContent).join('|');
+        // 点击第一个入口卡片 → 应进入对应子工具页面
+        const firstCard = document.querySelector('.tool-entry');
+        out.hasFirstCard = !!firstCard;
+        if (firstCard) firstCard.click();
+        await sleep(250);
+        out.afterGrid = document.querySelectorAll('.tool-grid').length;
+        out.afterToolboxHidden = document.getElementById('page-toolbox').hidden;
+        out.breadcrumb = (document.getElementById('breadcrumb').textContent || '').trim();
+        out.enteredSub = document.querySelectorAll('.tool-grid').length === 0 && !document.getElementById('page-toolbox').hidden;
+        out.ok = out.toolboxVisible && out.homeGrid === 1 && out.entries === 4 && out.enteredSub;
+        return out;
+      }
+      case 'batchui': {
+        // 回归:ASTC/SKEL 工具面板升级为批量(可多选文件/文件夹),关键控件存在
+        const out = {};
+        // 进入工具箱主页 → 打开 astc 子工具
+        const tbRoot = [...document.querySelectorAll('.cat-node')]
+          .find((el) => (el.querySelector('.cat-name') || {}).textContent === '资源工具箱');
+        if (!tbRoot) return { err: 'no-toolbox-root' };
+        tbRoot.click();
+        await sleep(250);
+        const astcCard = [...document.querySelectorAll('.tool-entry')]
+          .find((el) => (el.querySelector('.tool-entry-title') || {}).textContent === 'ASTC → PNG');
+        if (!astcCard) return { err: 'no-astc-card' };
+        astcCard.click();
+        await sleep(250);
+        const q = (id) => document.getElementById(id);
+        out.hasPick = !!q('astc-pick');
+        out.hasList = !!q('astc-list');
+        out.hasOutToggle = !!q('astc-outdir-toggle');
+        out.hasPreserve = !!q('astc-preserve');
+        out.hasRun = !!q('astc-run');
+        out.hasClear = !!q('astc-clear');
+        out.runDisabled = q('astc-run') ? q('astc-run').disabled : true;
+        out.listEmpty = q('astc-list') ? (q('astc-list').innerHTML.trim() === '') : false;
+        out.ok = out.hasPick && out.hasList && out.hasOutToggle && out.hasPreserve && out.hasRun && out.hasClear && out.runDisabled && out.listEmpty;
+        // 打开 outdir 开关 → 输出目录行 + 保持结构行应显示
+        if (q('astc-outdir-toggle')) {
+          q('astc-outdir-toggle').click();
+          await sleep(100);
+          out.outRowVisible = q('astc-outdir-row') ? (q('astc-outdir-row').style.display !== 'none') : false;
+          out.preserveVisible = q('astc-preserve-wrap') ? (q('astc-preserve-wrap').style.display !== 'none') : false;
+          out.ok = out.ok && out.outRowVisible && out.preserveVisible;
+        }
+        return out;
+      }
+      case 'toolhistory': {
+        // 回归:批量转换工具选择区拆「选择文件 / 选择目录」两个按钮 + 最近输入目录历史 chips
+        const out = {};
+        // 预置一条历史记录,验证历史持久化与渲染
+        try { localStorage.setItem('toolInputHistory', JSON.stringify(['C:\\fake\\hist_dir\\astc_src'])); } catch (e) {}
+        const tbRoot = [...document.querySelectorAll('.cat-node')]
+          .find((el) => (el.querySelector('.cat-name') || {}).textContent === '资源工具箱');
+        if (!tbRoot) return { err: 'no-toolbox-root' };
+        tbRoot.click();
+        await sleep(250);
+        const astcCard = [...document.querySelectorAll('.tool-entry')]
+          .find((el) => (el.querySelector('.tool-entry-title') || {}).textContent === 'ASTC → PNG');
+        if (!astcCard) return { err: 'no-astc-card' };
+        astcCard.click();
+        await sleep(250);
+        const q = (id) => document.getElementById(id);
+        out.hasPick = !!q('astc-pick');
+        out.hasPickDir = !!q('astc-pick-dir');
+        out.hasHistory = !!q('astc-history');
+        out.histVisible = q('astc-history') ? (q('astc-history').style.display !== 'none') : false;
+        out.chipTexts = [...(q('astc-hist-chips') || { querySelectorAll: () => [] }).querySelectorAll('.hist-chip')]
+          .map((el) => el.getAttribute('title')).join('|');
+        // 清掉预置历史(不影响用户数据),重新渲染确认历史行隐藏
+        try { localStorage.removeItem('toolInputHistory'); } catch (e) {}
+        out.ok = out.hasPick && out.hasPickDir && out.hasHistory && out.histVisible
+          && out.chipTexts.includes('C:\\fake\\hist_dir\\astc_src');
+        // 再验证 spine 文件修复工具同样接入批量选择 + 历史(先回到工具箱主页)
+        const tbRoot2 = [...document.querySelectorAll('.cat-node')]
+          .find((el) => (el.querySelector('.cat-name') || {}).textContent === '资源工具箱');
+        if (tbRoot2) tbRoot2.click();
+        await sleep(250);
+        const fixCard = [...document.querySelectorAll('.tool-entry')]
+          .find((el) => (el.querySelector('.tool-entry-title') || {}).textContent === 'Spine 文件修复');
+        if (!fixCard) return { ...out, err: 'no-spinefix-card' };
+        fixCard.click();
+        await sleep(250);
+        out.fixHasPick = !!q('fix-pick');
+        out.fixHasPickDir = !!q('fix-pick-dir');
+        out.fixHasHistory = !!q('fix-history');
+        out.fixRunLabel = q('fix-run') ? q('fix-run').textContent.trim() : '';
+        out.fixOk = out.fixHasPick && out.fixHasPickDir && out.fixHasHistory
+          && (out.fixRunLabel || '').includes('修复');
+        out.ok = out.ok && out.fixOk;
+        return out;
+      }
+      case 'img-mode': {
+        // 图片预览显示模式按钮:点「100%」→ 缩放=100%、transform scale(1);点「适配窗口」→ 恢复自适应缩放
+        const it = itemById('sample-image');
+        if (!it) return 'no-sample';
+        try { await selectItem(it.id); } catch (err) { return 'load-error:' + (err && err.message); }
+        await sleep(500);
+        const q = (id) => document.getElementById(id);
+        const out = {};
+        const fitBtn = q('img-fit');
+        const actualBtn = q('img-actual');
+        out.hasBtns = !!fitBtn && !!actualBtn;
+        if (actualBtn) {
+          actualBtn.click();
+          await sleep(120);
+          out.zoomAfterActual = q('img-zoom-range') ? q('img-zoom-range').value : '';
+          out.transformAfterActual = q('img-display') ? q('img-display').style.transform : '';
+        }
+        if (fitBtn) {
+          fitBtn.click();
+          await sleep(120);
+          out.zoomAfterFit = q('img-zoom-range') ? q('img-zoom-range').value : '';
+          out.transformAfterFit = q('img-display') ? q('img-display').style.transform : '';
+        }
+        out.ok = out.hasBtns
+          && out.zoomAfterActual === '100'
+          && /scale\(1\)/.test(out.transformAfterActual || '')
+          && /scale\(/.test(out.transformAfterFit || '')
+          && Number(out.zoomAfterFit) > 0 && Number(out.zoomAfterFit) <= 100;
+        return out;
+      }
+      case 'audiohome': {
+        // 音频播放器主页:音频 tab 主页 = 播放器页面(自建播放列表标签页 + 分类目录 + 播放器控件)
+        const out = {};
+        const tabAudio = [...document.querySelectorAll('#resource-tabs .tab')].find((b) => b.dataset.tab === 'audio');
+        if (!tabAudio) return 'no-audio-tab';
+        tabAudio.click();
+        await sleep(400);
+        const q = (id) => document.getElementById(id);
+        out.homeVisible = !!q('page-audio-home') && !q('page-audio-home').hidden;
+        out.hasTabs = !!q('ah-tabs');
+        out.hasNew = !!q('ah-list-new');
+        out.hasMgr = !!q('ah-list-mgr');
+        out.hasCats = !!q('ah-cat-chips');
+        out.hasPlay = !!q('ah-play');
+        out.hasRate = !!q('ah-rate');
+        out.hasMode = !!q('ah-mode');
+        out.hasQueue = !!q('ah-queue');
+        // 预置播放列表 → 标签渲染,点击标签 → 队列播放
+        const sa = itemById('sample-audio');
+        const bak = state.settings.audioPlaylists || [];
+        state.settings.audioPlaylists = [{ id: 'pl_ah', name: '主页列表', paths: sa ? [sa.filePath] : [] }];
+        state.settings.audioCurrentListId = 'pl_ah';
+        tabAudio.click(); // 重渲染主页
+        await sleep(400);
+        const tabBtns = q('ah-tabs') ? [...q('ah-tabs').querySelectorAll('.ah-tab')] : [];
+        out.tabCount = tabBtns.length;
+        out.tabText = tabBtns.map((b) => b.textContent).join('|');
+        if (tabBtns[0]) { tabBtns[0].click(); await sleep(500); }
+        out.queueCount = q('ah-queue') ? q('ah-queue').querySelectorAll('.aq-item').length : 0;
+        out.catChips = q('ah-cat-chips') ? q('ah-cat-chips').querySelectorAll('.ah-cat-chip').length : 0;
+        out.ok = out.homeVisible && out.hasTabs && out.hasNew && out.hasMgr && out.hasCats
+          && out.hasPlay && out.hasRate && out.hasMode && out.hasQueue
+          && out.tabCount === 1 && out.tabText === '主页列表' && out.queueCount === 1
+          && out.catChips >= 1;
+        // 还原
+        state.settings.audioPlaylists = bak;
+        state.settings.audioCurrentListId = null;
+        const mc = q('audio-mini-close');
+        if (mc) mc.click();
+        tabAudio.click();
+        return out;
+      }
+      case 'audioplaylist': {
+        // 播放列表增强:①条目可移动到其它播放列表;②音频资源右键菜单有「添加到播放列表...」
+        const out = {};
+        const q = (id) => document.getElementById(id);
+        const sa = itemById('sample-audio');
+        if (!sa) return 'no-sample';
+        const bak = state.settings.audioPlaylists || [];
+        state.settings.audioPlaylists = [
+          { id: 'pl_a', name: '列表A', paths: [sa.filePath] },
+          { id: 'pl_b', name: '列表B', paths: [] },
+        ];
+        state.settings.audioCurrentListId = 'pl_a';
+        const tabAudio = [...document.querySelectorAll('#resource-tabs .tab')].find((b) => b.dataset.tab === 'audio');
+        if (!tabAudio) return 'no-audio-tab';
+        tabAudio.click();
+        await sleep(400);
+        // ① 管理对话框:移动按钮存在;勾选条目 → 移动到列表B
+        q('ah-list-mgr').click();
+        await sleep(250);
+        out.hasMoveBtn = !!q('plm-move');
+        out.itemCount = q('plm-items') ? q('plm-items').querySelectorAll('.plm-item').length : 0;
+        const chk = q('plm-items') ? q('plm-items').querySelector('.plm-chk') : null;
+        if (chk) {
+          chk.click();
+          q('plm-move').click();
+          await sleep(250);
+          const lastMask = () => { const m = document.querySelectorAll('.modal-mask'); return m[m.length - 1]; };
+          const mt = lastMask() ? lastMask().querySelector('.modal-title') : null;
+          out.moveModalTitle = mt ? mt.textContent : '';
+          const mSel = lastMask() ? lastMask().querySelector('select') : null;
+          if (mSel) { mSel.value = 'pl_b'; mSel.dispatchEvent(new Event('change')); }
+          const okBtn = lastMask() ? [...lastMask().querySelectorAll('.modal-foot .btn')].find((b) => b.textContent.trim() === '确定') : null;
+          if (okBtn) okBtn.click();
+          await sleep(300);
+        }
+        const listA = (state.settings.audioPlaylists || []).find((l) => l.id === 'pl_a');
+        const listB = (state.settings.audioPlaylists || []).find((l) => l.id === 'pl_b');
+        out.aCount = listA ? listA.paths.length : -1;
+        out.bCount = listB ? listB.paths.length : -1;
+        // 关闭管理对话框
+        const closeBtn = [...document.querySelectorAll('.modal-mask .modal-head .icon-btn')];
+        if (closeBtn.length) closeBtn[closeBtn.length - 1].click();
+        await sleep(250);
+        // ② 音频目录列表页 → 右键音频条目 → 「添加到播放列表...」
+        const catNode = [...document.querySelectorAll('.cat-node')]
+          .find((el) => (el.querySelector('.cat-name') || {}).textContent === '内置示例');
+        if (catNode) catNode.click();
+        await sleep(450);
+        const itemEl = document.querySelector('[data-item="sample-audio"]');
+        out.hasItem = !!itemEl;
+        if (itemEl) {
+          const r = itemEl.getBoundingClientRect();
+          itemEl.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 10, clientY: r.top + 10 }));
+          await sleep(250);
+          const menu = document.querySelector('.ctx-menu');
+          out.menuLabels = menu ? [...menu.querySelectorAll('.ctx-item')].map((el) => el.textContent).join('|') : '';
+          out.hasAddToPlaylist = menu ? [...menu.querySelectorAll('.ctx-item')].some((el) => el.textContent.includes('添加到播放列表')) : false;
+          const addItem = menu && [...menu.querySelectorAll('.ctx-item')].find((el) => el.textContent.includes('添加到播放列表'));
+          if (addItem) addItem.click();
+          await sleep(300);
+          const lastMask2 = () => { const m = document.querySelectorAll('.modal-mask'); return m[m.length - 1]; };
+          const mt2 = lastMask2() ? lastMask2().querySelector('.modal-title') : null;
+          out.addModalTitle = mt2 ? mt2.textContent : '';
+          // 目标选列表A(已被移空)→ 确认添加
+          const mSel2 = lastMask2() ? lastMask2().querySelector('select') : null;
+          if (mSel2) { mSel2.value = 'pl_a'; mSel2.dispatchEvent(new Event('change')); }
+          const okBtn2 = lastMask2() ? [...lastMask2().querySelectorAll('.modal-foot .btn')].find((b) => b.textContent.trim() === '确定') : null;
+          if (okBtn2) okBtn2.click();
+          await sleep(300);
+        }
+        const listA2 = (state.settings.audioPlaylists || []).find((l) => l.id === 'pl_a');
+        out.aCountAfterAdd = listA2 ? listA2.paths.length : -1;
+        out.ok = out.hasMoveBtn && out.itemCount === 1 && String(out.moveModalTitle).includes('移动 1 个音频到')
+          && out.aCount === 0 && out.bCount === 1
+          && out.hasItem && out.hasAddToPlaylist && String(out.addModalTitle).includes('添加到播放列表')
+          && out.aCountAfterAdd === 1;
+        // 还原
+        state.settings.audioPlaylists = bak;
+        state.settings.audioCurrentListId = null;
+        document.querySelectorAll('.modal-mask').forEach((m) => m.remove());
+        return out;
+      }
+      case 'audioplayer': {
+        // 音频播放器:模式 6 项 / 倍速 / 播放列表控件 / 元信息按钮 / 队列渲染 / 后台迷你条
+        const it = itemById('sample-audio');
+        if (!it) return 'no-sample';
+        const bak = state.settings.audioPlaylists || [];
+        state.settings.audioPlaylists = [{ id: 'pl_smoke', name: '冒烟列表', paths: [it.filePath] }];
+        state.settings.audioCurrentListId = 'pl_smoke';
+        state.settings.audioMode = 'listLoop';
+        try { await selectItem(it.id); } catch (err) { return 'load-error:' + (err && err.message); }
+        await sleep(700);
+        const q = (id) => document.getElementById(id);
+        const out = {};
+        out.modeOptions = q('audio-mode') ? q('audio-mode').options.length : 0;
+        out.modeValue = q('audio-mode') ? q('audio-mode').value : '';
+        out.hasRate = !!q('audio-rate');
+        out.rateValue = q('audio-rate') ? q('audio-rate').value : '';
+        out.hasListSel = !!q('audio-list-select');
+        out.hasListNew = !!q('audio-list-new');
+        out.hasListMgr = !!q('audio-list-manage');
+        out.hasListAdd = !!q('audio-list-add');
+        out.queueCount = q('audio-queue') ? q('audio-queue').querySelectorAll('.aq-item').length : 0;
+        out.listSelValue = q('audio-list-select') ? q('audio-list-select').value : '';
+        out.miniVisible = q('audio-mini') ? !q('audio-mini').hidden : false;
+        out.miniName = q('audio-mini-name') ? q('audio-mini-name').textContent : '';
+        // 队列条目:序号列 + 时长列(等元信息/时长异步加载完成)
+        await sleep(4000);
+        const aqItem = q('audio-queue') ? q('audio-queue').querySelector('.aq-item') : null;
+        out.idxText = aqItem ? (aqItem.querySelector('.aq-idx') || {}).textContent : '';
+        out.durText = aqItem ? (aqItem.querySelector('.aq-dur') || {}).textContent : '';
+        out.ok = out.modeOptions === 6 && out.modeValue === 'listLoop'
+          && out.hasRate && out.rateValue === '1'
+          && out.hasListSel && out.hasListNew && out.hasListMgr && out.hasListAdd
+          && out.queueCount === 1 && out.listSelValue === 'pl_smoke'
+          && out.miniVisible && String(out.miniName).includes('tone')
+          && out.idxText === '1' && !!out.durText;
+        // 还原(不污染用户设置;点迷你条 × 停止播放)
+        state.settings.audioPlaylists = bak;
+        state.settings.audioCurrentListId = null;
+        state.settings.audioMode = 'single';
+        const mc = q('audio-mini-close');
+        if (mc) mc.click();
+        return out;
+      }
+      case 'img-bg': {
+        // 图片预览背景色:控件存在;点「浅」→ 查看区背景变浅 + settings 更新;点「深」恢复;最后还原用户原设置
+        const it = itemById('sample-image');
+        if (!it) return 'no-sample';
+        try { await selectItem(it.id); } catch (err) { return 'load-error:' + (err && err.message); }
+        await sleep(500);
+        const q = (id) => document.getElementById(id);
+        const out = {};
+        const orig = state.settings.bgColor || '#22242b';
+        out.hasColor = !!q('img-bg-color');
+        out.hasDark = !!q('img-bg-dark');
+        out.hasLight = !!q('img-bg-light');
+        const wrapEl = document.querySelector('.img-canvas-wrap');
+        if (q('img-bg-light')) q('img-bg-light').click();
+        await sleep(100);
+        out.bgAfterLight = wrapEl ? wrapEl.style.background : '';
+        out.settingAfterLight = state.settings.bgColor;
+        if (q('img-bg-dark')) q('img-bg-dark').click();
+        await sleep(100);
+        out.settingAfterDark = state.settings.bgColor;
+        // 浏览器会把 #eef0f5 解析为 rgb(238, 240, 245) 存回 style.background
+        out.ok = out.hasColor && out.hasDark && out.hasLight
+          && out.bgAfterLight === 'rgb(238, 240, 245)' && out.settingAfterLight === '#eef0f5'
+          && out.settingAfterDark === '#22242b';
+        // 还原用户原背景色设置与查看区背景
+        setSetting('bgColor', orig);
+        if (q('img-bg-color')) q('img-bg-color').value = orig;
+        if (wrapEl) wrapEl.style.background = orig;
+        return out;
+      }
+      case 'ieoverwrite': {
+        // 回归:图片编辑新增「保存方式」——可切换覆盖原文件,切换后输出格式/输出目录行隐藏
+        const out = {};
+        const tbRoot = [...document.querySelectorAll('.cat-node')]
+          .find((el) => (el.querySelector('.cat-name') || {}).textContent === '资源工具箱');
+        if (!tbRoot) return { err: 'no-toolbox-root' };
+        tbRoot.click();
+        await sleep(250);
+        const ieCard = [...document.querySelectorAll('.tool-entry')]
+          .find((el) => (el.querySelector('.tool-entry-title') || {}).textContent === '图片编辑');
+        if (!ieCard) return { err: 'no-imageedit-card' };
+        ieCard.click();
+        await sleep(250);
+        const q = (id) => document.getElementById(id);
+        out.hasSave = !!q('ie-save');
+        out.hasOutRow = !!q('ie-outrow');
+        out.saveDefault = q('ie-save') ? q('ie-save').value : '';
+        out.outRowVisibleDefault = q('ie-outrow') ? (q('ie-outrow').style.display !== 'none') : false;
+        // 切到覆盖原文件 → 输出行隐藏 + 输出目录清空
+        if (q('ie-save')) {
+          q('ie-save').value = 'overwrite';
+          q('ie-save').dispatchEvent(new Event('change'));
+          await sleep(100);
+          out.outRowHiddenAfterSwitch = q('ie-outrow') ? (q('ie-outrow').style.display === 'none') : false;
+          // 切回另存 → 输出行恢复
+          q('ie-save').value = 'new';
+          q('ie-save').dispatchEvent(new Event('change'));
+          await sleep(100);
+          out.outRowVisibleAfterBack = q('ie-outrow') ? (q('ie-outrow').style.display !== 'none') : false;
+        }
+        out.ok = out.hasSave && out.hasOutRow && out.saveDefault === 'new' && out.outRowVisibleDefault
+          && out.outRowHiddenAfterSwitch && out.outRowVisibleAfterBack;
+        return out;
+      }
       case 'tab3d': {
         // 3D 标签:点击 → 标签高亮 + 右侧类型主页(3D 资源主页) + 树过滤 3D
         const out = {};
@@ -1210,6 +1653,399 @@ function installSmoke() {
           out.folderVisible = !document.getElementById('page-folder').hidden;
           out.folderStats = (document.getElementById('folder-stats') || {}).textContent || '';
         }
+        return out;
+      }
+      case 'tags': {
+        // 标签:编辑对话框加标签(空格/回车) → 保存持久化 → 标签库建议 → 工具栏标签过滤 + 搜索过滤
+        const out = {};
+        // 切到动画 tab,再进第一个分类目录(确保有可编辑条目)
+        const animTab = [...document.querySelectorAll('#resource-tabs .tab')].find((b) => b.dataset.tab === 'anim');
+        if (animTab) { animTab.click(); await sleep(250); }
+        let catNode = [...document.querySelectorAll('.cat-node')].find((n) => n.dataset.id && !n.dataset.id.startsWith('__') && n.dataset.id !== 'all' && !n.dataset.id.startsWith('fav:'));
+        if (!catNode) return { err: 'no-cat-node' };
+        catNode.click();
+        await sleep(300);
+        const editBtn = document.querySelector('[data-op="edit"]');
+        if (!editBtn) return { err: 'no-edit-btn' };
+        const targetId = editBtn.dataset.item;
+        editBtn.click();
+        await sleep(300);
+        const tagInput = document.querySelector('.tag-editor .tag-input');
+        if (!tagInput) return { err: 'no-tag-editor' };
+        // 输入标签 → 回车添加(空格同理,共用 keydown 分支)
+        const TAG = '__冒烟标签__';
+        tagInput.value = TAG;
+        tagInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        await sleep(120);
+        out.chipsAfterEnter = document.querySelectorAll('.tag-editor .tag-chip').length;
+        out.chipText = [...document.querySelectorAll('.tag-editor .tag-chip')].map((c) => c.textContent).join(',');
+        out.addedOk = out.chipsAfterEnter >= 1 && (out.chipText || '').includes(TAG);
+        // 保存
+        const saveBtn = [...document.querySelectorAll('.modal-foot .btn')].find((b) => b.textContent.trim() === '保存');
+        if (!saveBtn) return { err: 'no-save-btn' };
+        saveBtn.click();
+        await sleep(400);
+        const tagged = state.items.find((i) => i.id === targetId);
+        out.saved = !!(tagged && (tagged.tags || []).includes(TAG));
+        // 重开条目A编辑窗:已保存的标签以 chip 形式回显
+        const editBtn2 = document.querySelector('[data-op="edit"]');
+        if (editBtn2) {
+          editBtn2.click();
+          await sleep(300);
+          const chipsA = [...document.querySelectorAll('.tag-editor .tag-chip')].map((c) => c.textContent);
+          out.reopenChips = chipsA.join(',');
+          out.reopenOk = chipsA.some((c) => c.includes(TAG));
+          const cancelBtn = [...document.querySelectorAll('.modal-foot .btn')].find((b) => b.textContent.trim() === '取消');
+          if (cancelBtn) cancelBtn.click();
+          await sleep(300);
+        }
+        // 打开另一个条目(无该标签):输入前缀 → 标签库建议中出现 TAG(点击可直接添加)
+        const editBtns = [...document.querySelectorAll('[data-op="edit"]')];
+        const editBtnB = editBtns.find((b) => b.dataset.item !== targetId);
+        if (editBtnB) {
+          editBtnB.click();
+          await sleep(300);
+          const tiB = document.querySelector('.tag-editor .tag-input');
+          if (tiB) {
+            tiB.value = TAG.slice(0, 4);
+            tiB.dispatchEvent(new Event('input', { bubbles: true }));
+            await sleep(150);
+            const items = [...document.querySelectorAll('.tag-suggest-item')];
+            out.suggestCount = items.length;
+            out.suggestHasTag = items.some((el) => el.textContent.includes(TAG));
+          }
+          const cancelBtn = [...document.querySelectorAll('.modal-foot .btn')].find((b) => b.textContent.trim() === '取消');
+          if (cancelBtn) cancelBtn.click();
+          await sleep(300);
+        }
+        // 工具栏出现标签过滤下拉
+        const tagSel = document.getElementById('tag-filter');
+        out.filterSelect = !!tagSel;
+        if (tagSel) {
+          out.filterOptions = [...tagSel.options].map((o) => o.value);
+          tagSel.value = TAG;
+          tagSel.dispatchEvent(new Event('change', { bubbles: true }));
+          await sleep(300);
+          out.filterRows = document.querySelectorAll('[data-item]').length;
+          out.filterOk = out.filterRows >= 1;
+        }
+        // 搜索框:按标签文本过滤
+        const fSearch = document.getElementById('folder-search');
+        if (fSearch) {
+          fSearch.value = TAG;
+          fSearch.dispatchEvent(new Event('input', { bubbles: true }));
+          await sleep(300);
+          out.searchRows = document.querySelectorAll('[data-item]').length;
+          out.searchOk = out.searchRows >= 1;
+        }
+        // 清理:恢复全部 + 移除测试标签
+        if (tagSel) { tagSel.value = ''; tagSel.dispatchEvent(new Event('change', { bubbles: true })); await sleep(200); }
+        if (fSearch) { fSearch.value = ''; fSearch.dispatchEvent(new Event('input', { bubbles: true })); await sleep(200); }
+        updateItem(targetId, { tags: [] });
+        renderMainArea(); // 反映清理后的状态
+        return out;
+      }
+      case 'batchmenu': {
+        // 编辑模式多选右键:编辑(批量标签)/移动到.../收藏 三个批量功能
+        const out = {};
+        const animTab = [...document.querySelectorAll('#resource-tabs .tab')].find((b) => b.dataset.tab === 'anim');
+        if (animTab) { animTab.click(); await sleep(250); }
+        let catNode = [...document.querySelectorAll('.cat-node')].find((n) => n.dataset.id && !n.dataset.id.startsWith('__') && n.dataset.id !== 'all' && !n.dataset.id.startsWith('fav:'));
+        if (!catNode) return { err: 'no-cat-node' };
+        catNode.click();
+        await sleep(300);
+        // 进入编辑模式
+        document.getElementById('edit-mode-btn').click();
+        await sleep(300);
+        out.editModeOn = !!document.querySelector('[data-edit-act]');
+        // 编辑模式下 #page-folder 内 [data-item] 仅匹配资源行(操作按钮已隐藏);取前两个行作为批量目标
+        // ⚠️ 不能用全局 [data-item]:home 页 .type-cat-item 也有 data-item(隐藏但 DOM 存在)
+        const folderSel = '#page-folder [data-item]';
+        const itemRows = [...document.querySelectorAll(folderSel)];
+        if (itemRows.length < 2) return { err: 'no-two-items' };
+        const targets = itemRows.slice(0, 2).map((el) => el.dataset.item);
+        const origCats = targets.map((id) => (state.items.find((i) => i.id === id) || {}).categoryId || '');
+        // 点选前两个条目(每次点击触发 renderMainArea 重建 DOM,须重新查询)
+        for (const id of targets) {
+          const el = [...document.querySelectorAll(folderSel)].find((r) => r.dataset.item === id);
+          if (el) { el.click(); await sleep(150); }
+        }
+        out.selectedCount = (document.getElementById('res-count') || {}).textContent || '';
+        const ctx = (x, y) => new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: x, clientY: y });
+        // 右键第一个条目 → 批量菜单(#page-folder 限定)
+        document.querySelector('#page-folder [data-item]').dispatchEvent(ctx(300, 300));
+        await sleep(200);
+        out.menuItems = [...document.querySelectorAll('.ctx-item')].map((el) => el.textContent);
+        out.menuOk = out.menuItems.includes('编辑标签 (2 项)') && out.menuItems.includes('移动到...') && out.menuItems.includes('收藏') && out.menuItems.includes('删除') && out.menuItems.includes('取消选择');
+        // ① 批量标签:点「编辑标签 (2 项)」→ 输入新标签 → 直接点保存(不按回车,验证 commit 提交未确认输入)
+        const bTag = [...document.querySelectorAll('.ctx-item')].find((el) => el.textContent.startsWith('编辑标签'));
+        if (!bTag) return { err: 'no-batch-edit-menu' };
+        bTag.click();
+        await sleep(300);
+        const bTagInput = document.querySelector('.tag-editor .tag-input');
+        if (!bTagInput) return { err: 'no-batch-tag-editor' };
+        bTagInput.value = '__批量标签__';
+        bTagInput.focus();
+        await sleep(100);
+        // 不按回车,直接点保存
+        const bSave = [...document.querySelectorAll('.modal-foot .btn')].find((b) => b.textContent.trim() === '保存');
+        if (!bSave) return { err: 'no-batch-save' };
+        bSave.click();
+        await sleep(400);
+        out.taggedCount = state.items.filter((i) => targets.includes(i.id) && (i.tags || []).includes('__批量标签__')).length;
+        out.batchTagOk = out.taggedCount === 2;
+        // ② 批量收藏:右键 → 收藏 → 输入新收藏分类名 → 确定
+        document.querySelector('#page-folder [data-item]').dispatchEvent(ctx(300, 300));
+        await sleep(200);
+        const bFav = [...document.querySelectorAll('.ctx-item')].find((el) => el.textContent === '收藏');
+        if (!bFav) return { err: 'no-fav-menu' };
+        bFav.click();
+        await sleep(300);
+        const favInput = document.querySelector('.modal-body input[type="text"]');
+        if (!favInput) return { err: 'no-fav-input' };
+        favInput.value = '__批量收藏__';
+        const favOk = [...document.querySelectorAll('.modal-foot .btn')].find((el) => el.textContent.trim() === '确定');
+        favOk.click();
+        await sleep(400);
+        const fcSmoke = state.favCategories.find((c) => c.name === '__批量收藏__');
+        out.favCatCreated = !!fcSmoke;
+        out.favCount = fcSmoke ? state.favItems.filter((f) => f.favCategoryId === fcSmoke.id && targets.includes(f.itemId)).length : 0;
+        out.batchFavOk = out.favCount === 2;
+        // ③ 批量移动:右键 → 移动到... → 选第一个分类 → 移动
+        document.querySelector('#page-folder [data-item]').dispatchEvent(ctx(300, 300));
+        await sleep(200);
+        const bMv = [...document.querySelectorAll('.ctx-item')].find((el) => el.textContent === '移动到...');
+        if (!bMv) return { err: 'no-move-menu' };
+        bMv.click();
+        await sleep(300);
+        const radios = [...document.querySelectorAll('.fav-pick-list input[type="radio"]')];
+        const targetRadio = radios[1]; // [0] 是「未分类」
+        if (!targetRadio) return { err: 'no-move-radio' };
+        targetRadio.checked = true;
+        const mvBtn = [...document.querySelectorAll('.modal-foot .btn')].find((b) => b.textContent.trim() === '移动');
+        if (!mvBtn) return { err: 'no-move-btn' };
+        mvBtn.click();
+        await sleep(400);
+        out.movedCount = state.items.filter((i) => targets.includes(i.id) && (i.categoryId || '') === targetRadio.value).length;
+        out.batchMoveOk = out.movedCount === 2;
+        // 清理:退出编辑模式 + 恢复分类/标签 + 删收藏分类
+        const editBtnExit = document.getElementById('edit-mode-btn');
+        if (editBtnExit) editBtnExit.click();
+        await sleep(250);
+        if (fcSmoke) removeFavCategory(fcSmoke.id);
+        targets.forEach((id, idx) => {
+          removeFavItem(id, undefined); // 清所有收藏引用
+          updateItem(id, { tags: [], categoryId: origCats[idx] });
+          thumbnailService.invalidate(id);
+        });
+        renderCategories(); renderItems(); renderMainArea();
+        return out;
+      }
+      case 'ctrlshift': {
+        // Ctrl+点击进入编辑选择模式并选中;Shift+点击范围选中;编辑模式点击保持滚动位置。自清理。
+        const out = {};
+        const catX = addCategory({ name: '__cs_cat__' });
+        const ids = [];
+        for (let i = 0; i < 30; i++) {
+          const it = addItem({ categoryId: catX.id, type: 'spine', filePath: `E:/fake/cs_${i}.json`, displayName: `__cs_${String(i).padStart(2, '0')}__` });
+          ids.push(it.id);
+        }
+        await sleep(700); // 防抖保存 + 树渲染
+        renderCategories(); renderMainArea();
+        const catNode = [...document.querySelectorAll('.cat-node')]
+          .find((n) => (n.querySelector('.cat-name') || {}).textContent === '__cs_cat__');
+        if (!catNode) return { err: 'no-cat-node' };
+        catNode.click();
+        await sleep(400);
+        const rows = () => [...document.querySelectorAll('#page-folder .res-row[data-item]')];
+        const clickRow = (row, opts = {}) => row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ...opts }));
+        const resCount = () => (document.getElementById('res-count') || {}).textContent || '';
+        // ① Ctrl+点击第一行 → 进入编辑模式并选中
+        const r0 = rows()[0];
+        if (!r0) return { err: 'no-row' };
+        clickRow(r0, { ctrlKey: true });
+        await sleep(300);
+        out.ctrlEnteredEdit = !!document.querySelector('[data-edit-act]');
+        out.ctrlSelected1 = resCount();
+        out.ctrlOk = out.ctrlEnteredEdit && out.ctrlSelected1.includes('已选 1 项');
+        // ② Shift+点击第三行 → 范围选中第 1..3 行(锚点=第 1 行)
+        const r2 = rows()[2];
+        if (!r2) return { err: 'no-row2' };
+        clickRow(r2, { shiftKey: true });
+        await sleep(300);
+        out.shiftRangeCount = resCount();
+        out.shiftOk = out.shiftRangeCount.includes('已选 3 项');
+        // ③ 编辑模式点击保持滚动位置:设 scrollTop → 点击中间行 → 重渲染后应保持
+        const body = document.getElementById('folder-body');
+        body.scrollTop = 120;
+        const scrollBefore = body.scrollTop;
+        const mid = rows()[5];
+        if (mid) clickRow(mid); // 编辑模式普通点击 = toggle 选中
+        await sleep(300);
+        const scrollAfter = document.getElementById('folder-body').scrollTop;
+        out.scrollBefore = scrollBefore;
+        out.scrollAfter = scrollAfter;
+        out.scrollKept = scrollBefore > 0 && scrollAfter === scrollBefore;
+        // 清理:退出编辑模式 + 删测试条目与分类
+        const editBtn = document.getElementById('edit-mode-btn');
+        if (editBtn) editBtn.click();
+        await sleep(250);
+        for (const id of ids) removeItem(id);
+        removeCategory(catX.id);
+        renderCategories(); renderItems(); renderMainArea();
+        return out;
+      }
+      case 'tipicon': {
+        // 悬停提示:title 含 名称/类型/分类/标签;图标视图卡片显示至少一个标签 chip。自清理。
+        const out = {};
+        const animTab = [...document.querySelectorAll('#resource-tabs .tab')].find((b) => b.dataset.tab === 'anim');
+        if (animTab) { animTab.click(); await sleep(250); }
+        const catNode = [...document.querySelectorAll('.cat-node')]
+          .find((n) => n.dataset.id && !n.dataset.id.startsWith('__') && n.dataset.id !== 'all' && !n.dataset.id.startsWith('fav:'));
+        if (!catNode) return { err: 'no-cat-node' };
+        catNode.click();
+        await sleep(300);
+        // 给第一个条目加测试标签
+        const firstRow = document.querySelector('#page-folder .res-row[data-item]');
+        if (!firstRow) return { err: 'no-row' };
+        const id = firstRow.dataset.item;
+        updateItem(id, { tags: ['__冒烟提示__'] });
+        await sleep(400);
+        renderMainArea();
+        await sleep(200);
+        // 列表视图行 title 包含分类/标签
+        const row = document.querySelector(`#page-folder .res-row[data-item="${id}"]`);
+        out.rowTitle = row ? row.title : '';
+        out.rowHasCat = row ? row.title.includes('分类:') : false;
+        out.rowHasTag = row ? row.title.includes('标签:') : false;
+        // 图标视图:卡片 title + rc-tags chip
+        const iconBtn = [...document.querySelectorAll('.view-btn')].find((b) => b.dataset.view === 'icon');
+        if (iconBtn) iconBtn.click();
+        await sleep(400);
+        const card = document.querySelector(`#page-folder .res-card[data-item="${id}"]`);
+        out.cardFound = !!card;
+        out.cardTitle = card ? card.title : '';
+        out.titleHasCat = card ? card.title.includes('分类:') : false;
+        out.titleHasTag = card ? card.title.includes('标签:') : false;
+        const chip = card ? card.querySelector('.rc-tags .tag-chip') : null;
+        out.rcTagText = chip ? chip.textContent : '';
+        out.iconTagOk = out.rcTagText.includes('__冒烟提示__');
+        // 清理:移除标签 + 恢复列表视图
+        updateItem(id, { tags: [] });
+        const listBtn = [...document.querySelectorAll('.view-btn')].find((b) => b.dataset.view === 'list');
+        if (listBtn) listBtn.click();
+        await sleep(200);
+        renderMainArea();
+        return out;
+      }
+      case 'favhome': {
+        // 收藏夹:默认折叠 → 点击根进收藏夹主页 → 点分类入口进收藏夹目录列表页 → 箭头展开树内条目。自清理。
+        const out = {};
+        const fc = addFavCategory({ name: '__fav_home__' });
+        await sleep(300);
+        addFavItem('sample-spine', fc.id);
+        addFavItem('sample-db', fc.id);
+        await sleep(400);
+        renderCategories();
+        // 分隔线:收藏夹区域与资源分类目录区域之间
+        out.hasTreeSep = !!document.querySelector('.tree-section-sep');
+        // ① 树内状态:记录收藏夹根当前箭头(前置步骤可能已展开);验证箭头可切换折叠/展开
+        const favRoot = [...document.querySelectorAll('.cat-node.fav-root')][0];
+        out.arrowBefore = favRoot ? favRoot.querySelector('.cat-arrow').textContent : '';
+        out.favCatInTreeBefore = !!document.querySelector('.cat-node.fav-cat');
+        // 点击根节点 → 收藏夹主页
+        favRoot.click();
+        await sleep(300);
+        out.homeVisible = !document.getElementById('page-home').hidden;
+        out.homeTitle = [...document.querySelectorAll('.home-title')].map((el) => el.textContent).join(',');
+        out.statCards = document.querySelectorAll('#page-home .stat-card').length;
+        out.hasFavCatEntry = [...document.querySelectorAll('#page-home [data-favcat]')].some((el) => el.textContent.includes('__fav_home__'));
+        out.breadcrumb = document.getElementById('breadcrumb').textContent;
+        // ③ 点击收藏分类入口 → 收藏夹目录列表页
+        const entry = [...document.querySelectorAll('#page-home [data-favcat]')].find((el) => el.textContent.includes('__fav_home__'));
+        if (entry) entry.click();
+        await sleep(300);
+        out.folderVisible = !document.getElementById('page-folder').hidden;
+        out.folderStats = (document.getElementById('folder-stats') || {}).textContent || '';
+        out.folderRows = document.querySelectorAll('#page-folder .res-row, #page-folder tr[data-item], #page-folder .res-card').length;
+        out.breadcrumb2 = document.getElementById('breadcrumb').textContent;
+        // ④ 面包屑「收藏夹主页」→ 返回收藏夹主页
+        const crumb = [...document.querySelectorAll('#breadcrumb .crumb')].find((el) => el.dataset.crumb === 'favhome');
+        if (crumb) crumb.click();
+        await sleep(300);
+        out.backToFavHome = !document.getElementById('page-home').hidden && [...document.querySelectorAll('.home-title')].map((el) => el.textContent).join(',').includes('收藏夹主页');
+        // ⑤ 树内:先折叠再展开,验证箭头可切换;展开后应出现 __fav_home__ 分类节点 → 再展开显示条目
+        const root2 = document.querySelector('.cat-node.fav-root');
+        if (root2) {
+          if (root2.querySelector('.cat-arrow').textContent === '▼') {
+            root2.querySelector('.cat-arrow').click(); // 折叠
+            await sleep(200);
+          }
+          const rootCheck = document.querySelector('.cat-node.fav-root');
+          out.rootCollapsedAfterToggle = rootCheck ? rootCheck.querySelector('.cat-arrow').textContent === '▶' : false;
+          if (rootCheck) rootCheck.querySelector('.cat-arrow').click(); // 展开(重新查询避免旧引用)
+          await sleep(200);
+        }
+        const fcNode = [...document.querySelectorAll('.cat-node.fav-cat')].find((n) => (n.querySelector('.cat-name') || {}).textContent === '__fav_home__');
+        out.favCatShownAfterExpand = !!fcNode;
+        if (fcNode) {
+          // 进入目录页时树内该分类已被展开(▼);先折叠再展开,验证箭头切换 + 条目显示
+          if (fcNode.querySelector('.cat-arrow').textContent === '▼') {
+            fcNode.querySelector('.cat-arrow').click();
+            await sleep(200);
+          }
+          const fcCheck = [...document.querySelectorAll('.cat-node.fav-cat')].find((n) => (n.querySelector('.cat-name') || {}).textContent === '__fav_home__');
+          out.diagFcArrowBefore = fcCheck ? fcCheck.querySelector('.cat-arrow').textContent : '';
+          if (fcCheck) {
+            fcCheck.querySelector('.cat-arrow').click(); // 展开
+            await sleep(250);
+            const names = [...document.querySelectorAll('.item-node .ic-name')].map((el) => el.textContent);
+            out.favItemNames = names.filter((t) => t.includes('Spine 示例') || t.includes('DragonBones 示例'));
+            out.favItemsShown = out.favItemNames.length >= 1;
+            out.diagItemNodes = document.querySelectorAll('.item-node').length;
+            // 右键收藏分类节点 → 编辑/删除菜单
+            const fcNode3 = [...document.querySelectorAll('.cat-node.fav-cat')].find((n) => (n.querySelector('.cat-name') || {}).textContent === '__fav_home__');
+            out.diagFc3 = fcNode3 ? 'found' : 'null';
+            out.diagAllFavCatNames = [...document.querySelectorAll('.cat-node.fav-cat .cat-name')].map((el) => el.textContent);
+            out.diagFavOpenNow = [...document.querySelectorAll('.cat-node.fav-cat .cat-arrow')].map((el) => el.textContent);
+            if (fcNode3) {
+              fcNode3.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 200, clientY: 200 }));
+              await sleep(150);
+              out.favCatMenuItems = [...document.querySelectorAll('.ctx-item')].map((el) => el.textContent);
+              out.favCatMenuOk = out.favCatMenuItems.includes('编辑分类') && out.favCatMenuItems.includes('删除分类');
+              document.querySelectorAll('.ctx-menu').forEach((el) => el.remove());
+            }
+            // 右键收藏条目 → 预览/移动收藏分类/取消收藏菜单
+            const favItemRow = [...document.querySelectorAll('.item-node')].find((n) => (n.querySelector('.ic-name') || {}).textContent.includes('Spine 示例'));
+            out.diagFavItemRow = favItemRow ? 'found' : 'null';
+            out.diagAllItemNames = [...document.querySelectorAll('.item-node .ic-name')].map((el) => el.textContent);
+            if (favItemRow) {
+              favItemRow.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 200, clientY: 200 }));
+              await sleep(150);
+              out.favItemMenuItems = [...document.querySelectorAll('.ctx-item')].map((el) => el.textContent);
+              out.favItemMenuOk = out.favItemMenuItems.includes('取消收藏') && out.favItemMenuItems.includes('移动到其他收藏分类') && out.favItemMenuItems.includes('属性');
+              document.querySelectorAll('.ctx-menu').forEach((el) => el.remove());
+            }
+            // 右键收藏夹根节点 → 收藏夹主页/新建收藏分类菜单
+            const favRoot2 = document.querySelector('.cat-node.fav-root');
+            if (favRoot2) {
+              favRoot2.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 200, clientY: 200 }));
+              await sleep(150);
+              out.favRootMenuItems = [...document.querySelectorAll('.ctx-item')].map((el) => el.textContent);
+              out.favRootMenuOk = out.favRootMenuItems.includes('收藏夹主页') && out.favRootMenuItems.includes('新建收藏分类');
+              document.querySelectorAll('.ctx-menu').forEach((el) => el.remove());
+            }
+          }
+        }
+        // 清理:取消收藏 + 删分类 + 点品牌回全局主页(重置收藏夹页面状态)
+        removeFavItem('sample-spine', fc.id);
+        removeFavItem('sample-db', fc.id);
+        removeFavCategory(fc.id);
+        const brand = document.querySelector('.brand');
+        if (brand) brand.click();
+        await sleep(300);
+        renderCategories(); renderMainArea();
+        out.catNamesAfter = state.categories.map((c) => c.name);
         return out;
       }
       case 'crud':

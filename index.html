@@ -11,16 +11,29 @@
     <header class="toolbar">
       <!-- 资源树显示/隐藏切换按钮:图标变化表示状态(☰ 显示 / ▤ 隐藏),不高亮 -->
       <button class="btn sm tree-toggle" id="btn-toggle-side" title="显示资源树">☰ 资源树</button>
-      <div class="brand">游戏资源管理器</div>
+      <div class="brand"><span class="brand-ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span>全部资源首页</div>
+      <!-- 覆盖式页面(资源工具箱 / 游戏场景管理)返回按钮:点击回到资源浏览区 -->
+      <button class="btn sm nav-back" id="btn-back-special" hidden>← 返回</button>
       <!-- 面包屑导航:主页 / 分类路径 -->
       <nav class="breadcrumb" id="breadcrumb"></nav>
+      <!-- 后台播放迷你条:音频在非预览页继续播放时显示 -->
+      <div class="audio-mini" id="audio-mini" hidden>
+        <span class="am-ico">♪</span>
+        <span class="am-name" id="audio-mini-name" title="点击返回音频预览页">—</span>
+        <button class="icon-btn sm" id="audio-mini-prev" title="上一首">⏮</button>
+        <button class="icon-btn sm" id="audio-mini-play" title="播放/暂停">▶</button>
+        <button class="icon-btn sm" id="audio-mini-next" title="下一首">⏭</button>
+        <button class="icon-btn sm" id="audio-mini-close" title="停止播放">✕</button>
+      </div>
       <div class="toolbar-actions">
         <div class="search-box">
           <input id="search" type="text" placeholder="搜索名称 / 备注…" />
+          <button id="search-clear" class="search-clear" type="button" title="清空搜索" hidden>×</button>
         </div>
         <button class="btn" id="btn-add">+ 添加资源</button>
         <button class="btn" id="btn-add-batch">+ 批量添加</button>
         <button class="btn" id="btn-new-cat">新建分类</button>
+        <button class="btn" id="btn-settings" title="设置">⚙ 设置</button>
       </div>
     </header>
 
@@ -39,6 +52,9 @@
       <section class="content-panel" id="content-panel">
         <!-- 主页:各类资源统计与目录快捷入口 -->
         <div class="page page-home" id="page-home"></div>
+
+        <!-- 音频播放器主页:分类目录作为播放列表 + 自建播放列表标签页 + 播放器 -->
+        <div class="page page-audio-home" id="page-audio-home" hidden></div>
 
         <!-- 目录列表页:某目录下的资源总列表 + 统计 + 视图切换 + 排序 -->
         <div class="page page-folder" id="page-folder" hidden></div>
@@ -111,6 +127,7 @@
                     <label class="chk"><input type="checkbox" id="show-bones" /> 骨骼</label>
                     <label class="chk"><input type="checkbox" id="flip-x" /> 镜像</label>
                     <button class="icon-btn" id="btn-rotate" title="旋转 90°">↻</button>
+                    <button class="btn sm" id="pv-capture" title="截图当前帧(透明背景 PNG/WebP)">📷 截图</button>
                     <div class="ctrl-spacer"></div>
                     <span class="status" id="pv-status"></span>
                   </div>
@@ -137,32 +154,76 @@
                   <span class="zoom-val" id="img-zoom-val">100%</span>
                   <button class="btn sm" id="img-fit">适配窗口</button>
                   <button class="btn sm" id="img-actual">100%</button>
+                  <label class="ctrl-label" style="margin-left:14px">背景</label>
+                  <input type="color" id="img-bg-color" value="#22242b" />
+                  <button class="btn sm" id="img-bg-dark">深</button>
+                  <button class="btn sm" id="img-bg-light">浅</button>
                   <div class="ctrl-spacer"></div>
                   <span class="status" id="img-status"></span>
                 </div>
               </div>
             </div>
 
-            <!-- 音频预览 -->
+            <!-- 音频预览:完整播放器(队列/模式/变速/播放列表) -->
             <div id="pv-audio-view" hidden>
-              <div class="audio-wrap" id="audio-wrap">
-                <div class="audio-art" id="audio-art">♪</div>
-                <div class="audio-meta">
-                  <div class="pv-name" id="audio-name"></div>
-                  <div class="pv-path" id="audio-path"></div>
+              <div class="audio-player">
+                <div class="ap-main">
+                  <div class="audio-art" id="audio-art">♪</div>
+                  <div class="audio-meta">
+                    <div class="pv-name" id="audio-name"></div>
+                    <div class="pv-path" id="audio-path"></div>
+                    <div class="audio-meta-ops">
+                      <span class="status" id="audio-status"></span>
+                    </div>
+                  </div>
                 </div>
-                <audio id="audio-el" preload="metadata"></audio>
                 <div class="audio-controls">
+                  <button class="icon-btn" id="audio-prev" title="上一首">⏮</button>
                   <button class="icon-btn" id="audio-play" title="播放/暂停">▶</button>
+                  <button class="icon-btn" id="audio-next" title="下一首">⏭</button>
                   <span class="frame-val" id="audio-time">0:00 / 0:00</span>
                   <input type="range" id="audio-progress" min="0" max="1000" step="1" value="0" title="进度" />
                   <label class="ctrl-label">音量</label>
                   <input type="range" id="audio-volume" min="0" max="100" step="1" value="100" title="音量" />
+                  <label class="ctrl-label">倍速</label>
+                  <select id="audio-rate" title="变速播放">
+                    <option value="0.5">0.5x</option>
+                    <option value="0.75">0.75x</option>
+                    <option value="1" selected>1x</option>
+                    <option value="1.25">1.25x</option>
+                    <option value="1.5">1.5x</option>
+                    <option value="2">2x</option>
+                  </select>
+                  <label class="ctrl-label">模式</label>
+                  <select id="audio-mode" title="播放模式">
+                    <option value="single">单次播放</option>
+                    <option value="loop">单曲循环</option>
+                    <option value="dirOrder">当前目录顺序</option>
+                    <option value="dirLoop">当前目录循环</option>
+                    <option value="listOrder">列表顺序</option>
+                    <option value="listLoop">列表循环</option>
+                  </select>
                 </div>
+                <div class="audio-listbar">
+                  <label class="ctrl-label">播放列表</label>
+                  <select id="audio-list-select" title="切换当前播放列表"><option value="">(无)</option></select>
+                  <button class="btn sm" id="audio-list-add" title="把音频文件添加到当前播放列表(可多选)">+ 添加音频</button>
+                  <button class="btn sm" id="audio-list-new">新建</button>
+                  <button class="btn sm" id="audio-list-manage">管理列表</button>
+                </div>
+                <div class="audio-queue" id="audio-queue"></div>
               </div>
+              <audio id="audio-el" preload="metadata"></audio>
             </div>
           </div>
         </div>
+
+        <!-- 资源工具箱 -->
+        <div class="page page-toolbox" id="page-toolbox" hidden></div>
+        <!-- 游戏场景管理 -->
+        <div class="page page-scene" id="page-scene" hidden></div>
+        <!-- 系统设置 -->
+        <div class="page page-settings" id="page-settings" hidden></div>
       </section>
     </div>
   </div>

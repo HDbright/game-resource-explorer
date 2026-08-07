@@ -2,11 +2,25 @@
 
 const fs = require('fs');
 const path = require('path');
+const { probeSkeleton } = require('./tools/skel');
 
 // 图片 / 音频 / 3D 资源扩展名
 const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tga'];
 const AUDIO_EXTS = ['.mp3', '.wav', '.ogg', '.flac', '.wma', '.m4a'];
 const MODEL_EXTS = ['.glb', '.gltf', '.obj', '.fbx', '.dae', '.stl', '.blend', '.3ds', '.pmx', '.pmd', '.vrm'];
+
+/** 探测 .bin 文件是否为 Spine 二进制骨架(.skel)。只读头部 256 字节,避免整文件读取。 */
+function probeBinFile(fp) {
+  try {
+    const fd = fs.openSync(fp, 'r');
+    const buf = Buffer.alloc(256);
+    const n = fs.readSync(fd, buf, 0, 256, 0);
+    fs.closeSync(fd);
+    return probeSkeleton(buf.subarray(0, n));
+  } catch (err) {
+    return null;
+  }
+}
 
 /**
  * 扫描一个目录,识别其中的 Spine / DragonBones 骨骼动画、图片、音频、3D 资源。
@@ -51,6 +65,43 @@ function scanDir(dir, recursive) {
         base,
         problems: hasAtlas ? [] : ['缺少同名 .atlas 文件'],
         ...statOf(fp),
+      });
+    }
+
+    // ---- .bin 格式检测:若为 Spine 二进制骨架(.skel),统一把扩展名改为 .skel,避免重复 ----
+    const binSkelBases = [];
+    for (const bf of files) {
+      if (!bf.name.toLowerCase().endsWith('.bin')) continue;
+      const fp = path.join(d, bf.name);
+      const probe = probeBinFile(fp);
+      if (!probe || probe.kind !== 'binary') continue;
+      const base = bf.name.slice(0, -'.bin'.length);
+      const skelName = base + '.skel';
+      const skelPath = path.join(d, skelName);
+      // 已存在同名 .skel:跳过该 .bin(避免重复条目,也避免覆盖已有骨架)
+      const hasSkel = files.some((f) => f.name.toLowerCase() === skelName.toLowerCase());
+      if (hasSkel) continue;
+      // 重命名 .bin → .skel(只改扩展名,不移动/不覆盖)
+      let renamed = false;
+      try {
+        fs.renameSync(fp, skelPath);
+        renamed = true;
+      } catch (err) {
+        // 改名失败(权限/占用等):仍按 .bin 骨架条目处理,并提示
+      }
+      const hasAtlas = files.some((f) => f.name.toLowerCase() === (base + '.atlas').toLowerCase());
+      binSkelBases.push(base.toLowerCase());
+      const probMsg = `已识别为 Spine ${probe.version} 二进制骨架(扩展名 .bin)`;
+      results.push({
+        file: renamed ? skelPath : fp,
+        dir: d,
+        type: 'spine',
+        base,
+        binAsSkel: true,
+        problems: renamed
+          ? (hasAtlas ? [`${probMsg},已统一改名为 ${skelName} 按骨架处理`] : [`${probMsg},已统一改名为 ${skelName},但缺少同名 .atlas 文件`])
+          : (hasAtlas ? [`${probMsg},改名 ${skelName} 失败(权限/占用?),按 .bin 处理`] : [`${probMsg},改名 ${skelName} 失败(权限/占用?),且缺少同名 .atlas 文件`]),
+        ...statOf(renamed ? skelPath : fp),
       });
     }
 
@@ -109,6 +160,7 @@ function scanDir(dir, recursive) {
 
     // ---- 图片资源 ----
     const spineBases = new Set(skelFiles.map((f) => f.name.slice(0, -'.skel'.length).toLowerCase()));
+    for (const b of binSkelBases) spineBases.add(b);
     for (const jf of jsonFiles) {
       const base = jf.name.replace(/\.json$/i, '');
       const data = parsed.get(jf.name);

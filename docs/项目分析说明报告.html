@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>游戏资源管理器 — 项目分析说明报告</title>
+<style>
+  :root {
+    --bg: #1b1d24; --bg2: #22252e; --bg3: #2a2e39; --bg4: #353a48;
+    --border: #333847; --text: #e6e8ee; --text2: #9aa1b5;
+    --accent: #4f8cff; --accent2: #3a6fd8; --ok: #3fbf7f; --danger: #e5484d; --warn: #e5a54b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: "Microsoft YaHei", "PingFang SC", sans-serif; font-size: 14px; line-height: 1.7; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 28px 32px 60px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  h2 { font-size: 19px; margin: 34px 0 10px; padding-bottom: 6px; border-bottom: 2px solid var(--accent); }
+  h3 { font-size: 15px; margin: 20px 0 8px; color: var(--accent); }
+  .sub { color: var(--text2); font-size: 12.5px; margin-bottom: 18px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 20px; }
+  .tag { background: var(--bg3); border: 1px solid var(--border); border-radius: 20px; padding: 3px 12px; font-size: 12px; color: var(--text2); }
+  .tag b { color: var(--text); }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 16px; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 7px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--bg3); color: #fff; font-weight: 600; white-space: nowrap; }
+  tr:nth-child(even) td { background: var(--bg2); }
+  td code, .code { font-family: Consolas, Monaco, monospace; font-size: 12px; background: var(--bg3); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; color: #7fd4ff; }
+  .box { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin: 10px 0; }
+  .box.warn { border-color: var(--warn); }
+  .box.ok { border-color: var(--ok); }
+  .box .bt { font-weight: 700; }
+  ul, ol { margin: 6px 0 10px; padding-left: 22px; }
+  li { margin: 3px 0; }
+  .layout { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin: 14px 0; font-family: Consolas, monospace; font-size: 12.5px; line-height: 1.5; overflow-x: auto; white-space: pre; }
+  .hl { color: #ffd479; } .hl2 { color: #7fd4ff; } .hl3 { color: #9ee6a0; } .dim { color: var(--text2); }
+  .arrow { color: var(--warn); font-weight: 700; }
+  .flow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
+  .flow .step { background: var(--bg3); border: 1px solid var(--accent); color: #cfe0ff; border-radius: 6px; padding: 3px 10px; font-size: 12px; }
+  .flow .arrow { font-size: 13px; }
+  details { margin: 8px 0; border: 1px solid var(--border); border-radius: 8px; background: var(--bg2); }
+  summary { cursor: pointer; padding: 9px 14px; font-weight: 600; color: #cfe0ff; }
+  details[open] summary { border-bottom: 1px solid var(--border); }
+  details .inner { padding: 10px 14px; }
+  .kbd { background: var(--bg4); border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; font-family: Consolas, monospace; font-size: 11px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } .wrap { padding: 18px; } }
+  .toc { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 20px; margin: 16px 0 26px; }
+  .toc a { color: #cfe0ff; text-decoration: none; }
+  .toc a:hover { color: #fff; text-decoration: underline; }
+  .toc ol { margin: 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>📦 游戏资源管理器 — 项目分析说明报告</h1>
+<div class="sub">Electron 桌面应用 · 用于管理并预览 Spine / DragonBones 骨骼动画、图片、音频、3D 模型四类游戏资源</div>
+<div class="meta">
+  <span class="tag">当前版本 <b>v1.4.6</b></span>
+  <span class="tag">Electron <b>主进程 + Vite 渲染进程</b></span>
+  <span class="tag">代码总量 <b>≈ 8800 行</b></span>
+  <span class="tag">核心入口 <b>index.html → src/main.js</b></span>
+</div>
+
+<div class="toc">
+  <b>目录</b>
+  <ol>
+    <li><a href="#s1">项目架构总览</a></li>
+    <li><a href="#s2">界面布局总图(三大部分)</a></li>
+    <li><a href="#s3">顶栏工具栏(第 1 行)</a></li>
+    <li><a href="#s4">左侧资源树侧栏</a></li>
+    <li><a href="#s5">右侧主内容区(三页切换)</a></li>
+    <li><a href="#s6">主页(统计页)</a></li>
+    <li><a href="#s7">类型主页</a></li>
+    <li><a href="#s8">目录列表页</a></li>
+    <li><a href="#s9">预览页(动画/图片/音频)</a></li>
+    <li><a href="#s10">弹窗 / 右键菜单 / 拖拽系统</a></li>
+    <li><a href="#s11">文件与代码位置对照表</a></li>
+    <li><a href="#s12">修改 UI 与功能的操作指南</a></li>
+  </ol>
+</div>
+
+<!-- ============ 1 架构 ============ -->
+<h2 id="s1">1. 项目架构总览</h2>
+<div class="box">
+  <div class="bt">进程模型</div>
+  <div class="flow">
+    <span class="step">主进程 electron/main.js</span><span class="arrow">→</span>
+    <span class="step">preload.js 桥接</span><span class="arrow">→</span>
+    <span class="step">渲染进程 (index.html + src/*)</span>
+  </div>
+  <ul>
+    <li><b>主进程</b>：窗口创建、内部 HTTP 静态服务、SQLite 持久化(<code>electron/db.js</code>)、资源扫描(<code>scanner.js</code>)、缩略图磁盘缓存 IPC、冒烟测试驱动。</li>
+    <li><b>渲染进程</b>：全部界面与交互。模块化 ES Module，由 <code>src/main.js</code> 启动。</li>
+    <li><b>状态层</b>：<code>src/state.js</code> 集中管理分类/资源/设置，提供派生查询函数；任何改动后调用 <code>saveState()</code> 防抖写库。</li>
+    <li><b>预览引擎</b>：PixiJS 8.9.2 渲染；Spine 4.x / Spine 3.8 / DragonBones 三个播放器 + 版本探测路由(<code>src/preview/</code>)。</li>
+  </ul>
+</div>
+
+<div class="box warn">
+  <div class="bt">⚠️ 三条最重要的工程约束(改代码前必读)</div>
+  <ol>
+    <li><b>pixi.js 必须锁 8.9.2</b>，不可随意升级（spine-pixi 2.1.1 依赖，8.19+ 会崩）。</li>
+    <li><b>进入预览页必须强制 <code>preview._resize()</code></b>；三个预览子视图(<code>#pv-anim-view / #pv-image-view / #pv-audio-view</code>)必须保持 <code>flex:1; display:flex; flex-direction:column; min-height:0</code>，否则画布高度塌陷为 0、动画空白。</li>
+    <li>状态由 <code>state.settings.resourceTab</code> 决定右侧显示「全局主页 / 类型主页 / 目录列表页 / 预览页」，修改导航逻辑时注意 <code>renderMainArea()</code> 的分支判断。</li>
+  </ol>
+</div>
+
+<!-- ============ 2 布局总图 ============ -->
+<h2 id="s2">2. 界面布局总图</h2>
+<p>整个窗口由 <code>#app</code> 包裹，纵向分两段：<b>顶栏工具栏</b>（高约 52px）+ <b>主体</b>（左右分栏）。</p>
+
+<div class="layout">┌──────────────────────────────────────────────────────────────────────────────┐
+│ <span class="hl">[☰ 资源树]  游戏资源管理器   主页 / 动画主页 / 分类名…    [搜索框][+添加资源][+批量添加][新建分类]</span> │  ← 顶栏 .toolbar (index.html 第11-25行)
+├──────────────────────────────────────────────────────────────────────────────┤
+│ <span class="hl2">┌─ 左侧侧栏 .sidebar (#sidebar) ─┐</span>┌─ 右侧主内容区 .content-panel (#content-panel) ──────────────┐
+│ │ 动画│图片│音频│3D  (标签)   ││ 三个页面 (hidden 切换)                                   │
+│ │ ─────────────────────     ││  ┌─ #page-home     全局主页(统计卡片/目录快捷/最近添加) │
+│ │ 分类树 #cat-tree:          ││  ├─ #page-home     类型主页(统计+分类目录树) ←复用home容器│
+│ │   ▦ 全部动画(类型主页链接)  ││  ├─ #page-folder   目录列表页(统计/三视图/排序/编辑模式)  │
+│ │   ○ 未分类                 ││  └─ #page-preview  预览页(动画/图片/音频三子视图)         │
+│ │   ▣ 分类A ▶                ││                                                                   │
+│ │   ▣ 分类B ▼                ││                                                                   │
+│ │     ▣ 子分类               ││                                                                   │
+│ │   ★ 收藏夹                 ││                                                                   │
+│ └───────────────────────────┘└───────────────────────────────────────────────────┘
+<span class="dim">注:顶栏 .brand(品牌名)和面包屑「主页」crumb 是回到全局主页的入口;「全部XX」节点 = 该类型主页链接</span></div>
+
+<h3>页面显示逻辑(renderMainArea 分支)</h3>
+<div class="layout">state.settings.resourceTab 取值 → 右侧显示什么
+  'home' / 'all'  ──────────────→  #page-home  全局主页
+  'anim'|'image'|'audio'|'3d' 且 currentCategoryId 为 'all' →  #page-home  类型主页(动画主页/图片主页/…)
+  'anim'|'image'|'audio'|'3d' 且 currentCategoryId 为具体分类 →  #page-folder  目录列表页
+  任何类型,点击资源条目 ─────────→  #page-preview  预览页</div>
+
+<!-- ============ 3 顶栏 ============ -->
+<h2 id="s3">3. 顶栏工具栏（.toolbar）</h2>
+<p>位置：<code>index.html</code> 第 11–25 行；样式 <code>src/style.css</code> 第 34 行起；事件绑定 <code>src/ui.js</code> 的 <code>bindToolbar()</code>（第 1896 行）。</p>
+<table>
+  <tr><th>元素 (ID)</th><th>功能</th><th>绑定的行为</th></tr>
+  <tr><td><code>#btn-toggle-side</code> ☰/▤ 资源树</td><td>显示/隐藏左侧资源树侧栏</td><td><code>setSidebarVisible()</code>；用图标变化表示状态（☰=当前隐藏、▤=当前显示），无高亮；状态存 localStorage</td></tr>
+  <tr><td><code>.brand</code> 游戏资源管理器</td><td>回到全局主页（重要入口）</td><td><code>bindBrandHome()</code>：切 resourceTab='home'</td></tr>
+  <tr><td><code>#breadcrumb</code> 面包屑</td><td>导航路径：主页 / 动画主页 / 分类路径</td><td><code>bindBreadcrumb()</code> + <code>renderBreadcrumb()</code>；点击「主页」或「XX主页」crumb 可跳转</td></tr>
+  <tr><td><code>#search</code> 搜索框</td><td>按名称/备注过滤左侧树与列表</td><td>输入 → <code>searchText</code> → 重渲染树</td></tr>
+  <tr><td><code>#btn-add</code> + 添加资源</td><td>单文件添加向导</td><td><code>runAddFlow(false, catId)</code>（src/addFlow.js）</td></tr>
+  <tr><td><code>#btn-add-batch</code> + 批量添加</td><td>目录扫描批量添加</td><td><code>runAddFlow(true, catId)</code></td></tr>
+  <tr><td><code>#btn-new-cat</code> 新建分类</td><td>创建顶级分类</td><td><code>newCategoryDialog()</code></td></tr>
+</table>
+<div class="box warn"><div class="bt">改这里注意</div>「添加资源」按钮已按要求<b>去掉 primary 高亮</b>，如需重新强调可给 <code>#btn-add</code> 加回 <code>class="btn primary"</code>。</div>
+
+<!-- ============ 4 侧栏 ============ -->
+<h2 id="s4">4. 左侧资源树侧栏（.sidebar）</h2>
+<p>位置：<code>index.html</code> 第 28–37 行；样式 <code>style.css</code> 第 97 行起；渲染 <code>src/ui.js</code> 的 <code>renderTree()</code>（第 125 行）。</p>
+
+<h3>4.1 类型标签区 #resource-tabs</h3>
+<table>
+  <tr><th>标签</th><th>data-tab</th><th>点击行为</th></tr>
+  <tr><td>动画</td><td><code>anim</code></td><td rowspan="4">切 resourceTab + currentCategoryId='all' → 右侧显示对应<b>类型主页</b>；标签高亮当前类型（accent 蓝底）</td></tr>
+  <tr><td>图片</td><td><code>image</code></td></tr>
+  <tr><td>音频</td><td><code>audio</code></td></tr>
+  <tr><td>3D</td><td><code>3d</code></td></tr>
+</table>
+<p class="dim">注：没有「主页」标签。全局主页入口 = 品牌名 + 面包屑「主页」。若想加回主页标签，修改 index.html 的 #resource-tabs 并在 <code>bindTabs()</code> 加分支。</p>
+
+<h3>4.2 分类树 #cat-tree</h3>
+<p>树节点结构（由 <code>renderPseudoNode()</code> / <code>renderCatNode()</code> / <code>renderFavSection()</code> 生成）：</p>
+<table>
+  <tr><th>节点</th><th>图标/箭头</th><th>点击行为</th><th>右键菜单</th></tr>
+  <tr><td>▦ 全部XX（伪节点 id='all'）</td><td>箭头显示 <b>→</b>（链接样式）</td><td>打开该类型主页（全部资源列表页），<b>不展开</b>树内条目</td><td>—</td></tr>
+  <tr><td>○ 未分类（伪节点 id=''）</td><td>▶/▼</td><td>点名称只选中并切目录页；<b>只有点箭头才展开</b></td><td>无</td></tr>
+  <tr><td>▣ 分类节点（id=分类id）</td><td>▶/▼（·表示空）</td><td>点名称只选中 + 右侧切目录列表页；<b>点箭头才展开/折叠</b>；默认全部折叠（v1.4.4 起）</td><td>添加资源/批量添加/新建子类别/编辑分类/移动.../删除</td></tr>
+  <tr><td>条目节点（.item-node）</td><td>类型徽章</td><td>点击预览；<b>右键</b>弹条目菜单</td><td>播放/打开目录/编辑/移动到.../删除/属性</td></tr>
+  <tr><td>★ 收藏夹（fav: 前缀）</td><td>▶/▼</td><td>同分类节点；收藏分类可拖入条目</td><td>新建收藏分类/改名/删除</td></tr>
+</table>
+<ul>
+  <li><b>展开状态</b>存于 <code>expandedCats</code>（Set）；<b>默认只展开收藏夹根</b>，所有分类折叠。</li>
+  <li><b>拖拽</b>：条目拖到分类 = 移动资源；分类拖到分类中部 = 设为子分类、边缘 = 同级排序；收藏夹区域支持拖入收藏。</li>
+  <li><b>箭头热区</b>已扩大（::before 伪元素 ±8/±10px），手型光标。</li>
+</ul>
+
+<!-- ============ 5 主内容区 ============ -->
+<h2 id="s5">5. 右侧主内容区（.content-panel）</h2>
+<p>位置 <code>index.html</code> 第 39–166 行；页面切换 <code>showPage(pageId)</code>（ui.js 第 1202 行）。三个页面互斥显示：</p>
+<table>
+  <tr><th>页面</th><th>容器</th><th>渲染函数</th><th>何时显示</th></tr>
+  <tr><td>全局主页</td><td><code>#page-home</code></td><td><code>renderHomePage(全局)</code></td><td>resourceTab='home'</td></tr>
+  <tr><td>类型主页</td><td><code>#page-home</code>（复用）</td><td><code>renderHomePage(类型)</code></td><td>resourceTab 为类型且 currentCategoryId='all'</td></tr>
+  <tr><td>目录列表页</td><td><code>#page-folder</code></td><td><code>renderFolderPage()</code></td><td>resourceTab 为类型且 currentCategoryId=具体分类</td></tr>
+  <tr><td>预览页</td><td><code>#page-preview</code></td><td>selectItem() 分发</td><td>点击任意资源</td></tr>
+</table>
+
+<!-- ============ 6 全局主页 ============ -->
+<h2 id="s6">6. 全局主页（统计页）</h2>
+<p>渲染 <code>src/pages/homePage.js</code> 的 <code>renderGlobalHome()</code>；数据 <code>getHomeData()</code>（state.js）。结构：</p>
+<ul>
+  <li><b>标题</b>「游戏资源管理」+ 副标题（资源总数）。</li>
+  <li><b>统计卡片 .home-cards</b>（5 张 .stat-card）：动画资源 / 图片资源 / 音频资源 / 3D 资源 / 资源总数 —— 每张显示数量 + 占用空间，点击卡片 = 切到对应类型主页。</li>
+  <li><b>📁 目录快捷入口 .quick-cats</b>：每个顶级分类一个快捷块（名称 + 资源数 + 占用），点击进入该分类目录页。</li>
+  <li><b>🕘 最近添加 .recent-list</b>：最近 10 条资源（类型徽章 + 名称 + 分类），点击预览。</li>
+</ul>
+
+<!-- ============ 7 类型主页 ============ -->
+<h2 id="s7">7. 类型主页（如「动画主页」）</h2>
+<p>渲染 <code>homePage.js</code> 的 <code>renderTypeHome()</code>；数据 <code>getTypeHomeData(group)</code>（state.js）。</p>
+<ul>
+  <li><b>标题</b>「动画主页 / 图片主页 / 音频主页 / 3D 资源主页」+ 副标题（数量/细分/占用）。</li>
+  <li><b>3 张统计卡片</b>：资源总数 / 占用空间 / 分类目录数。</li>
+  <li><b>📁 分类目录（拓扑树 .type-cat-tree）</b>：递归渲染所有分类的层级结构，缩进表示层级（<code>--cat-depth</code> 变量）；每个分类显示名称 + 该类型资源数（含子孙）+ 占用；点 ▶/▼ 折叠展开；<b>右键 = 分类右键菜单</b>；展开后显示直属资源条目（点击预览）。</li>
+  <li><b>🕘 最近添加</b>：当前类型最近 10 条。</li>
+</ul>
+<div class="box"><div class="bt">定制提示</div>类型主页的标题映射在 <code>homePage.js</code> 的 <code>GROUP_TITLE</code> 常量；统计卡片在 <code>renderTypeHome()</code> 中 <code>cards</code> 数组。</div>
+
+<!-- ============ 8 目录列表页 ============ -->
+<h2 id="s8">8. 目录列表页（#page-folder）</h2>
+<p>渲染 <code>src/pages/folderPage.js</code> 的 <code>renderFolderPage()</code>；数据 <code>getFolderData()</code>。从上到下结构：</p>
+
+<table>
+  <tr><th>区域</th><th>内容</th></tr>
+  <tr><td><b>.folder-head</b></td><td>文件夹图标 + 当前目录名 + 统计条（共 N 项 · 类型分布 · 占用）</td></tr>
+  <tr><td><b>.folder-toolbar</b></td><td>① 视图切换（📋详情 / ☰列表 / 🖼图标）② 排序下拉 <code>#sort-by</code> + 升/降序按钮 ③ ✎编辑按钮 ④ 编辑模式下：☑全选/☐取消/⇄反选/🗑删除/📂移动 ⑤ 资源计数</td></tr>
+  <tr><td><b>.subcat-row</b></td><td>子目录快捷块（点击进入子目录）</td></tr>
+  <tr><td><b>.folder-body</b></td><td>资源列表主体，三种视图：</td></tr>
+  <tr><td style="padding-left:24px">📋 详情视图 .res-table</td><td>名称/类型/大小/修改日期/备注/操作（▶预览 ★收藏 ✎编辑）；表头可点击排序</td></tr>
+  <tr><td style="padding-left:24px">☰ 列表视图 .res-view-list</td><td>横向行：徽章+名称+大小+日期+操作</td></tr>
+  <tr><td style="padding-left:24px">🖼 图标视图 .res-grid</td><td>卡片网格：缩略图(动画用离屏渲染 dataURL/图片直连 URL/音频♪/3D🧊) + 名称 + 徽章；缩略图有<b>磁盘缓存</b>加速</td></tr>
+</table>
+
+<h3>8.1 排序与视图</h3>
+<ul>
+  <li>排序字段：名称/类型/大小/修改日期；方向升/降。<b>下拉框用 change 事件</b>（click 会导致下拉闪没，已修复）。</li>
+  <li>视图与排序选择持久化在 <code>settings.listViewMode / listSortBy / listSortDir</code>。</li>
+</ul>
+
+<h3>8.2 编辑模式（批量操作）</h3>
+<ul>
+  <li>点「✎ 编辑」进入编辑模式（<code>editModeActive</code> + <code>editSelected</code> Set 在 ui.js）。</li>
+  <li>编辑模式下：点击条目 = 选中/取消（不进预览）；<b>全选/取消/反选</b>一键操作；选中行高亮 + 左侧蓝条 + ☑ 标记。</li>
+  <li><b>🗑 删除</b>：确认后批量从列表移除（不删磁盘文件）。</li>
+  <li><b>📂 移动</b>：弹窗选择目标分类（含层级路径），批量修改分类归属。</li>
+</ul>
+
+<!-- ============ 9 预览页 ============ -->
+<h2 id="s9">9. 预览页（#page-preview）</h2>
+<p>由 <code>selectItem(itemId)</code>（ui.js 第 ~1455 行 showPreviewPage 附近）按类型分发到三个子视图。</p>
+
+<h3>9.1 头部 .preview-head（三视图共用）</h3>
+<table>
+  <tr><th>元素</th><th>功能</th></tr>
+  <tr><td><code>#pv-back</code> ← 返回</td><td>回到之前的目录列表页/类型主页</td></tr>
+  <tr><td><code>#pv-type / #pv-name / #pv-version / #pv-path</code></td><td>类型徽章 / 资源名 / Spine版本 / 文件路径</td></tr>
+  <tr><td><code>#pv-open-dir</code> 打开目录</td><td>在系统资源管理器中定位文件</td></tr>
+  <tr><td><code>#pv-reload</code> 重新加载</td><td>重新加载当前资源</td></tr>
+</table>
+
+<h3>9.2 动画预览 #pv-anim-view</h3>
+<table>
+  <tr><th>控件区</th><th>控件</th><th>说明</th></tr>
+  <tr><td>播放控制</td><td>模式(循环/单次/单帧) · ⏸播放 · ↺重播 · 倍速滑条 · 缩放滑条 · 缩放方式下拉</td><td>缩放方式:适配窗口/100%/固定/动态</td></tr>
+  <tr><td>单帧行（仅单帧模式）</td><td>⏮ ◀ 帧滑条 ▶ ⏭ + 时间显示</td><td><code>#single-row</code></td></tr>
+  <tr><td>动作控制</td><td>◀ 动作下拉 ▶ · 动作时长 · 背景色/深浅 · 骨骼显隐 · 镜像 · ↻旋转 · 状态栏</td><td><code>#anim-select</code> 等</td></tr>
+  <tr><td>插槽控制（有插槽才显示）</td><td>全部显示/全部隐藏 + 插槽列表开关</td><td><code>#slot-row</code></td></tr>
+</table>
+<p class="dim">⚠️ 画布 <code>#pv-canvas</code> 在 <code>#pv-canvas-wrap</code> 内；<code>#pv-error</code> 显示加载错误/3D占位信息。三个预览视图必须保持 flex 撑满（见第 1 节约束）。</p>
+
+<h3>9.3 图片预览 #pv-image-view</h3>
+<p><code>#img-display</code> 图片 + 缩放滑条 + 适配窗口/100% 按钮 + 状态栏；实现 <code>src/viewers/imageViewer.js</code>。</p>
+
+<h3>9.4 音频预览 #pv-audio-view</h3>
+<p>封面图标 ♪ + 名称/路径 + 播放/暂停 + 进度条 + 音量滑条；实现 <code>src/viewers/audioViewer.js</code>。</p>
+
+<div class="box"><div class="bt">3D 模型预览</div>暂未内置 3D 渲染器：点击 3D 模型文件会在 <code>#pv-error</code> 区域显示文件信息占位（文件格式/大小/路径），并提示可通过「打开目录」查看文件。</div>
+
+<!-- ============ 10 弹窗/菜单/拖拽 ============ -->
+<h2 id="s10">10. 弹窗 / 右键菜单 / 拖拽系统</h2>
+<h3>10.1 弹窗系统</h3>
+<p>统一封装在 <code>src/dialogs.js</code>：<code>openModal()</code>、<code>confirmDialog()</code>、<code>promptDialog()</code>、<code>toast()</code>、<code>showContextMenu()</code>。弹窗挂载于 <code>#modal-root</code>。宽弹窗用 <code>.modal.wide</code>（680px）。</p>
+<h3>10.2 常用弹窗清单</h3>
+<table>
+  <tr><th>弹窗</th><th>触发</th><th>函数</th></tr>
+  <tr><td>新建分类</td><td>顶栏「新建分类」</td><td><code>newCategoryDialog()</code></td></tr>
+  <tr><td>编辑分类 / 删除分类(高级)</td><td>分类右键菜单</td><td><code>editCategoryDialog() / deleteCategoryDialog()</code></td></tr>
+  <tr><td>移动分类</td><td>分类右键「移动...」</td><td><code>moveCategoryDialog()</code></td></tr>
+  <tr><td>添加资源向导</td><td>顶栏「+添加资源/+批量添加」、空态按钮、右键</td><td><code>runAddFlow()</code>（addFlow.js：选文件/选目录 → 重名去重 → 导入）</td></tr>
+  <tr><td>条目属性 / 编辑 / 移动 / 删除</td><td>条目右键菜单 / 列表操作列</td><td><code>itemPropertiesDialog() / editItemDialog() / moveItemDialog() / deleteItemDialog()</code></td></tr>
+  <tr><td>收藏目标选择</td><td>条目右键「收藏」、列表 ★</td><td><code>collectTargetDialog()</code></td></tr>
+  <tr><td>批量删除 / 批量移动</td><td>编辑模式工具栏</td><td><code>batchDeleteItems() / batchMoveItems()</code></td></tr>
+</table>
+<h3>10.3 右键菜单内容</h3>
+<ul>
+  <li><b>分类菜单</b>：添加资源 · 批量添加 · 新建子类别 · 编辑分类 · 移动... · 删除（<code>openCategoryMenu()</code>）</li>
+  <li><b>条目菜单</b>：播放 · 打开目录 · 编辑 · 移动到... · 删除 · 属性（<code>openItemMenu()</code>）</li>
+  <li><b>收藏分类菜单</b>：新建收藏分类/改名/删除</li>
+</ul>
+<h3>10.4 拖拽（drag & drop）</h3>
+<p>分类树内：条目拖到分类 = 移动；分类拖到分类 = 子分类/排序；收藏夹支持拖入条目。状态操作函数在 state.js（<code>reorderCategory / updateItem / moveFavItem</code> 等）。</p>
+
+<!-- ============ 11 文件对照 ============ -->
+<h2 id="s11">11. 文件与代码位置对照表</h2>
+<table>
+  <tr><th>文件</th><th>行数</th><th>职责 / 修改什么</th></tr>
+  <tr><td><code>index.html</code></td><td>174</td><td><b>全部静态界面骨架</b>：顶栏/侧栏/三页面/预览控件/弹窗容器。改布局结构、增删按钮、调控件顺序在此。</td></tr>
+  <tr><td><code>src/style.css</code></td><td>609</td><td><b>全部样式</b>：布局/颜色/间距/滚动条。改外观、尺寸、间距在此（按区块注释定位）。</td></tr>
+  <tr><td><code>src/main.js</code></td><td>1254</td><td>应用启动、状态加载、播放器初始化、<b>冒烟测试步骤</b>（约 40 个 case）。</td></tr>
+  <tr><td><code>src/ui.js</code></td><td>2147</td><td><b>核心交互</b>：资源树渲染、标签/面包屑/顶栏/预览控件绑定、弹窗调度、编辑模式、批量操作。改导航/交互逻辑在此。</td></tr>
+  <tr><td><code>src/state.js</code></td><td>586</td><td>状态模型与派生查询：分类树操作、<code>getHomeData / getTypeHomeData / getFolderData / sortItems</code>、设置持久化。</td></tr>
+  <tr><td><code>src/pages/homePage.js</code></td><td>245</td><td>全局主页 + 类型主页渲染（统计卡片、分类目录树、最近添加）。</td></tr>
+  <tr><td><code>src/pages/folderPage.js</code></td><td>298</td><td>目录列表页渲染（统计/工具栏/子目录/三视图/编辑模式 UI）。</td></tr>
+  <tr><td><code>src/dialogs.js</code></td><td>180</td><td>弹窗/确认/提示/右键菜单/toast 通用组件。</td></tr>
+  <tr><td><code>src/addFlow.js</code></td><td>305</td><td>添加资源向导（单选/批量、去重、导入）。</td></tr>
+  <tr><td><code>src/thumbnails.js</code></td><td>190</td><td>缩略图服务：离屏渲染动画首帧 + 内存/磁盘三级缓存。</td></tr>
+  <tr><td><code>src/preview/</code></td><td>~1750</td><td>播放器族：spinePlayer(4.x) / spine38Player(3.x) / dbPlayer(DB) / skelProbe(版本探测) / playerFactory / index(主控)。</td></tr>
+  <tr><td><code>src/viewers/</code></td><td>~200</td><td>图片查看器 imageViewer.js、音频播放器 audioViewer.js。</td></tr>
+  <tr><td><code>electron/main.js</code></td><td>466</td><td>主进程：窗口、HTTP 服务、SQLite、扫描、缩略图缓存 IPC、冒烟驱动。</td></tr>
+  <tr><td><code>electron/db.js</code></td><td>242</td><td>SQLite 读写 + 迁移（size/mtime 列、TEXT type）。</td></tr>
+  <tr><td><code>electron/scanner.js</code></td><td>178</td><td>目录扫描分类（spine/db/image/audio/model 扩展名表）。</td></tr>
+  <tr><td><code>electron/server.js</code></td><td>127</td><td>内部静态文件服务（资源文件/atlas/图片访问）。</td></tr>
+  <tr><td><code>electron/preload.js</code></td><td>29</td><td>IPC 桥（db/目录/系统/缩略图/应用信息）。</td></tr>
+</table>
+
+<!-- ============ 12 修改指南 ============ -->
+<h2 id="s12">12. 修改 UI 与功能的操作指南</h2>
+
+<details><summary>🎨 A. 修改界面外观（颜色/间距/尺寸/字体）</summary><div class="inner">
+  <ol>
+    <li>打开 <code>src/style.css</code>，按顶部区块注释找到对应类（如改顶栏 → <code>.toolbar</code>；改卡片 → <code>.stat-card</code>；改列表 → <code>.res-*</code>）。</li>
+    <li>主题色变量在文件最上方 <code>:root</code>（--bg/--text/--accent 等），全局改色只需改这里。</li>
+    <li>改完运行 <code>npm run build</code> 或直接看 dev 预览（vite）。</li>
+  </ol>
+</div></details>
+
+<details><summary>🧩 B. 调整界面布局（位置/顺序/增删区域）</summary><div class="inner">
+  <ol>
+    <li>静态结构在 <code>index.html</code>：如调整顶栏按钮顺序、给侧栏加区块、给预览页加控件，直接改 HTML。</li>
+    <li>动态生成的内容（主页卡片、分类树、列表、类型主页目录树）在各渲染函数里（见第 11 节对照表）。</li>
+    <li>改完后若元素是动态渲染的，需要同步修改对应 JS 模板字符串；若只改静态部分，CSS+HTML 即可。</li>
+  </ol>
+</div></details>
+
+<details><summary>⚙️ C. 修改功能行为（点击/跳转/数据）</summary><div class="inner">
+  <ol>
+    <li>交互逻辑集中在 <code>src/ui.js</code>（绑定函数）与 <code>src/state.js</code>（数据操作）。</li>
+    <li>导航/页面切换：改 <code>renderMainArea()</code> 分支 + <code>showPage()</code>。</li>
+    <li>数据统计/查询：改 <code>state.js</code> 的 <code>getHomeData/getTypeHomeData/getFolderData</code>。</li>
+    <li>资源类型扩展（如新增类型）：需要动 scanner 扩展名表、TYPE_GROUPS、TYPE_LABEL、各渲染函数、预览分发 <code>selectItem</code>。</li>
+  </ol>
+</div></details>
+
+<details><summary>🧪 D. 验证修改（冒烟测试）</summary><div class="inner">
+  <ol>
+    <li>运行 <code>npm run smoke</code> 自动验证约 40 个功能点（渲染/CRUD/预览/编辑模式等），截图存 <code>%TEMP%/skeleton-previewer-smoke/</code>。</li>
+    <li>冒烟步骤定义在 <code>src/main.js</code> 的 <code>__smokeStep</code> case 中；步骤顺序在 <code>electron/main.js</code> 的 steps 数组。</li>
+    <li>打包：<code>node scripts/pack-manual.js</code>（勿用 electron-builder，本机 Defender 会卡死）。</li>
+  </ol>
+</div></details>
+
+<div class="box ok" style="margin-top:26px">
+  <div class="bt">✅ 报告中修改位置速查（按你的需求习惯）</div>
+  <ul>
+    <li>「顶栏的第 X 个按钮」→ index.html 第 11–25 行 + style.css 第 34–93 行 + ui.js <code>bindToolbar()</code></li>
+    <li>「左侧树/标签」→ index.html 第 28–37 行 + ui.js <code>renderTree()/bindTabs()</code></li>
+    <li>「右侧某个页面」→ 看当前是哪个页（主页/类型主页/目录列表/预览），对应 homePage.js / folderPage.js / ui.js 预览部分</li>
+    <li>「某个弹窗」→ dialogs.js 通用 + ui.js 具体对话框函数</li>
+  </ul>
+</div>
+
+</div>
+</body>
+</html>

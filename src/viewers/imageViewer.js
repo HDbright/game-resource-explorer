@@ -53,6 +53,12 @@ export class ImageViewerController {
         this.setZoom(Number(this.zoomRange.value) / 100);
       });
     }
+
+    // 显示模式按钮:适配窗口 / 100%
+    const fitBtn = wrap.querySelector('#img-fit');
+    if (fitBtn) fitBtn.addEventListener('click', () => this.fit());
+    const actualBtn = wrap.querySelector('#img-actual');
+    if (actualBtn) actualBtn.addEventListener('click', () => this.setZoomUI(1));
   }
 
   async load(url) {
@@ -91,6 +97,12 @@ export class ImageViewerController {
   setZoomUI(r) {
     this.fitMode = false;
     this.setZoom(r);
+  }
+
+  /** 设置查看区背景色(与动画预览的背景色设置一致) */
+  setBgColor(color) {
+    const bgEl = this.wrap ? this.wrap.querySelector('.img-canvas-wrap') : null;
+    if (bgEl) bgEl.style.background = color;
   }
 
   _apply() {

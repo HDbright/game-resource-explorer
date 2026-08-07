@@ -1,10 +1,23 @@
 import {
   getHomeData, getTypeHomeData, getCategoryChildren, categoryById,
-  TYPE_LABEL, formatSize, TYPE_GROUPS,
+  TYPE_LABEL, formatSize, TYPE_GROUPS, itemTags, getFavHomeData, favCategoryById,
+  categoryTypeTagNames,
 } from '../state.js';
 
 /** 类型主页中分类目录树的折叠状态(按 catId 记忆,跨类型共享无碍) */
 const typeCatExpanded = new Set();
+
+/** 资源悬停提示(多行):名称/类型/分类/标签/备注/文件 */
+function itemTooltip(it) {
+  const tags = itemTags(it);
+  const typeName = it.type === 'spine' ? 'Spine' : it.type === 'dragonbones' ? 'DragonBones' : TYPE_LABEL[it.type] || it.type;
+  const catName = it.categoryId ? (categoryById(it.categoryId)?.name || '未分类') : '未分类';
+  const lines = [`名称: ${it.displayName || ''}`, `类型: ${typeName}`, `分类: ${catName}`];
+  if (tags.length) lines.push(`标签: ${tags.join('、')}`);
+  if (it.remark) lines.push(`备注: ${it.remark}`);
+  lines.push(`文件: ${it.filePath || ''}`);
+  return lines.join('\n');
+}
 
 /**
  * 主页渲染入口:
@@ -145,12 +158,15 @@ function renderTypeCatNode(node, group, depth, allItems) {
 
   const arrow = (hasChildren || directItems.length > 0) ? (isOpen ? '▼' : '▶') : '·';
   const countTxt = count > 0 ? `<span class="type-cat-count">${count} 项${totalSize ? ' · ' + formatSize(totalSize) : ''}</span>` : '';
+  // 悬停提示:资源类型标签(备注字段已改为标签勾选;类型主页树已按标签过滤)
+  const tagNames = categoryTypeTagNames(cat);
+  const catTip = tagNames.length ? `资源类型: ${tagNames.join(' / ')}` : '所有资源类型';
 
   let html = `
     <div class="type-cat-node" data-cat="${cat.id}" style="--cat-depth:${depth}">
       <span class="type-cat-arrow" data-act="toggle" data-cat="${cat.id}">${arrow}</span>
       <span class="type-cat-icon">📂</span>
-      <span class="type-cat-name" data-act="cat" data-cat="${cat.id}" title="${escapeHtml(cat.remark || '')}">${escapeHtml(cat.name)}</span>
+      <span class="type-cat-name" data-act="cat" data-cat="${cat.id}" title="${escapeHtml(catTip)}">${escapeHtml(cat.name)}</span>
       ${countTxt}
     </div>
   `;
@@ -160,7 +176,7 @@ function renderTypeCatNode(node, group, depth, allItems) {
     for (const s of subs) html += renderTypeCatNode(s, group, depth + 1, allItems);
     for (const it of directItems) {
       html += `
-        <div class="type-cat-item" data-item="${it.id}" data-cat="${cat.id}" style="--cat-depth:${depth + 1}">
+        <div class="type-cat-item" data-item="${it.id}" data-cat="${cat.id}" style="--cat-depth:${depth + 1}" title="${escapeHtml(itemTooltip(it))}">
           <span class="type-cat-item-spacer"></span>
           <span class="type-badge ${it.type}">${TYPE_LABEL[it.type] || it.type}</span>
           <span class="type-cat-item-name">${escapeHtml(it.displayName || '')}</span>
@@ -183,7 +199,7 @@ function countCatNodes(nodes) {
 function renderRecentList(recent) {
   if (!recent.length) return '<div class="home-empty">暂无资源,点击顶栏「+ 添加资源」开始</div>';
   return recent.map((it) => `
-    <div class="recent-item" data-act="item" data-item="${it.id}">
+    <div class="recent-item" data-act="item" data-item="${it.id}" title="${escapeHtml(itemTooltip(it))}">
       <span class="type-badge ${it.type}">${TYPE_LABEL[it.type] || it.type}</span>
       <span class="ri-name">${escapeHtml(it.displayName || '')}</span>
       <span class="ri-meta">${it.categoryId ? escapeHtml((categoryById(it.categoryId) || {}).name || '') : '未分类'}</span>
@@ -242,4 +258,105 @@ function escapeHtml(s) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+/**
+ * 收藏夹主页:收藏统计 + 收藏分类入口 + 最近收藏(类似类型主页)。
+ * @param {HTMLElement} container #page-home
+ * @param {object} actions
+ *   - onOpenFavCat(fcId) 进入收藏夹目录列表页
+ *   - onOpenItem(itemId) 预览
+ *   - onItemMenu(it, e) / onFavCatMenu(fc, e) 右键
+ *   - onEditFavCat(fcId) / onDeleteFavCat(fcId)
+ */
+export function renderFavHome(container, actions = {}) {
+  const data = getFavHomeData();
+  const cards = [
+    { label: '收藏总数', num: data.total, cls: 'anim' },
+    { label: '涉及资源', num: data.itemCount, cls: 'total' },
+    { label: '收藏分类', num: data.favCategories.length, cls: 'audio' },
+  ];
+  const typeTxt = [];
+  if (data.byType.anim) typeTxt.push(`动画 ${data.byType.anim}`);
+  if (data.byType.image) typeTxt.push(`图片 ${data.byType.image}`);
+  if (data.byType.audio) typeTxt.push(`音频 ${data.byType.audio}`);
+  if (data.byType['3d']) typeTxt.push(`3D ${data.byType['3d']}`);
+
+  container.innerHTML = `
+    <div class="home-title">收藏夹主页</div>
+    <div class="home-subtitle">共 ${data.total} 个收藏${typeTxt.length ? ' · ' + typeTxt.join(' / ') : ''}</div>
+
+    <div class="home-cards">
+      ${cards.map((c) => `
+        <div class="stat-card ${c.cls}">
+          <div class="sc-num">${c.num}</div>
+          <div class="sc-label">${c.label}</div>
+          <div class="sc-sub">&nbsp;</div>
+        </div>
+      `).join('')}
+    </div>
+
+    <div class="home-section">
+      <div class="home-section-title">📁 收藏分类</div>
+      <div class="quick-cats">
+        ${data.favCategories.length ? data.favCategories.map(({ fc, count }) => `
+          <div class="quick-cat" data-favcat="${fc.id}" title="${escapeHtml(fc.name)}">
+            <span class="qc-icon">📁</span>
+            <span>${escapeHtml(fc.name)}</span>
+            <span class="qc-count">${count} 个收藏</span>
+            <span class="qc-ops">
+              <button class="icon-btn" data-favop="edit" data-favcat="${fc.id}" title="编辑收藏分类">✎</button>
+              <button class="icon-btn danger" data-favop="del" data-favcat="${fc.id}" title="删除收藏分类">✕</button>
+            </span>
+          </div>
+        `).join('') : '<div class="home-empty">还没有收藏分类,点击侧栏收藏夹旁的 ＋ 或收藏资源时创建</div>'}
+      </div>
+    </div>
+
+    <div class="home-section">
+      <div class="home-section-title">🕘 最近收藏</div>
+      <div class="recent-list">
+        ${data.recent.length ? data.recent.map(({ fav, item }) => `
+          <div class="recent-item" data-item="${item.id}" title="${escapeHtml(itemTooltip(item))}">
+            <span class="type-badge ${item.type}">${TYPE_LABEL[item.type] || item.type}</span>
+            <span class="ri-name">${escapeHtml(item.displayName || '')}</span>
+            <span class="ri-meta">${fav.favCategoryId ? escapeHtml(favCategoryById(fav.favCategoryId)?.name || '') : '未分类'}</span>
+          </div>
+        `).join('') : '<div class="home-empty">暂无收藏,点击资源行 ★ 或右键「收藏」开始</div>'}
+      </div>
+    </div>
+  `;
+
+  container.onclick = (e) => {
+    const op = e.target.closest('[data-favop]');
+    if (op) {
+      const fcId = op.dataset.favcat;
+      if (op.dataset.favop === 'edit') actions.onEditFavCat && actions.onEditFavCat(fcId);
+      else if (op.dataset.favop === 'del') actions.onDeleteFavCat && actions.onDeleteFavCat(fcId);
+      return;
+    }
+    const cat = e.target.closest('[data-favcat]');
+    if (cat) {
+      actions.onOpenFavCat && actions.onOpenFavCat(cat.dataset.favcat);
+      return;
+    }
+    const item = e.target.closest('[data-item]');
+    if (item) actions.onOpenItem && actions.onOpenItem(item.dataset.item);
+  };
+
+  container.oncontextmenu = (e) => {
+    const itemEl = e.target.closest('[data-item]');
+    const catEl = e.target.closest('[data-favcat]');
+    if (itemEl) {
+      e.preventDefault();
+      const it = data.recent.map((x) => x.item).find((i) => i && i.id === itemEl.dataset.item);
+      if (it) actions.onItemMenu && actions.onItemMenu(it, e);
+      return;
+    }
+    if (catEl) {
+      e.preventDefault();
+      const fc = favCategoryById(catEl.dataset.favcat);
+      if (fc) actions.onFavCatMenu && actions.onFavCatMenu(fc, e);
+    }
+  };
 }

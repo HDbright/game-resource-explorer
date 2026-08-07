@@ -118,7 +118,7 @@ export function toast(message, type = 'ok') {  const el = document.createElement
 }
 
 export function promptDialog({ title, fields, onOk, onCancel }) {
-  // fields: [{key, label, type: 'text'|'textarea'|'select', options?:[{value,label}], value}]
+  // fields: [{key, label, type: 'text'|'textarea'|'select'|'checkboxes', options?:[{value,label}], value}]
   const body = document.createElement('div');
   body.className = 'modal-body';
   const inputs = {};
@@ -142,6 +142,30 @@ export function promptDialog({ title, fields, onOk, onCancel }) {
     } else if (f.type === 'textarea') {
       input = document.createElement('textarea');
       input.value = f.value;
+    } else if (f.type === 'checkboxes') {
+      // 勾选组:options [{value,label}],value 为已勾选数组;结果通过 getValue() 收集
+      input = document.createElement('div');
+      input.className = 'check-group';
+      for (const o of f.options || []) {
+        const lb = document.createElement('label');
+        lb.className = 'check-item';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = o.value;
+        cb.checked = Array.isArray(f.value) && f.value.includes(o.value);
+        cb.addEventListener('change', () => lb.classList.toggle('checked', cb.checked));
+        lb.appendChild(cb);
+        lb.appendChild(document.createTextNode(o.label));
+        input.appendChild(lb);
+      }
+      if (f.hint) {
+        const tip = document.createElement('div');
+        tip.className = 'form-hint';
+        tip.textContent = f.hint;
+        input.appendChild(tip);
+      }
+      input.getValue = () =>
+        [...input.querySelectorAll('input[type="checkbox"]:checked')].map((cb) => cb.value);
     } else {
       input = document.createElement('input');
       input.type = 'text';
@@ -165,7 +189,10 @@ export function promptDialog({ title, fields, onOk, onCancel }) {
           if (okClicked) return;
           okClicked = true;
           const values = {};
-          for (const f of fields) values[f.key] = inputs[f.key].value.trim();
+          for (const f of fields) {
+            const el = inputs[f.key];
+            values[f.key] = el && typeof el.getValue === 'function' ? el.getValue() : el.value.trim();
+          }
           close();
           onOk && onOk(values);
         },

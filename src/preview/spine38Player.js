@@ -1,6 +1,77 @@
 import * as PIXI from 'pixi.js';
 import { probeSkeleton } from './skelProbe.js';
 
+/**
+ * 规范化动画约束时间线(ik / transform / path)的非标准结构。
+ * 部分「二进制 .bin → JSON」转换工具会把约束块写成数组形式
+ * [ { 约束名: 帧对象|帧数组 }, ... ] 或对象值非数组(单帧对象)。
+ * Spine 运行时期望 { 约束名: [帧, ...] },否则空时间线 → duration NaN。
+ * @param {object} obj 解析后的骨架 JSON
+ */
+function normalizeAnimConstraints(obj) {
+  const anims = obj && obj.animations;
+  if (!anims) return;
+  const list = Array.isArray(anims) ? anims : Object.values(anims);
+  const normalize = (block) => {
+    if (!block) return;
+    if (Array.isArray(block)) {
+      const merged = {};
+      for (const item of block) {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+        for (const name of Object.keys(item)) {
+          let frames = item[name];
+          if (frames === null || frames === undefined) continue;
+          if (!Array.isArray(frames)) frames = [frames];
+          merged[name] = (merged[name] || []).concat(frames);
+        }
+      }
+      return merged;
+    }
+    if (typeof block === 'object') {
+      for (const name of Object.keys(block)) {
+        const v = block[name];
+        if (v && typeof v === 'object' && !Array.isArray(v)) block[name] = [v];
+      }
+      return block;
+    }
+    return block;
+  };
+  for (const anim of list) {
+    if (!anim || typeof anim !== 'object') continue;
+    for (const cat of ['ik', 'transform', 'path']) {
+      if (anim[cat]) anim[cat] = normalize(anim[cat]);
+    }
+  }
+}
+
+/**
+ * 归一化 draworder(绘制顺序)时间线里的 offset 为有符号 32 位整数。
+ *
+ * 部分「二进制 .skel → JSON」转换工具(以及个别游戏原始 JSON)会把
+ * draworder 的 offset 以「无符号 32 位」形式写出:例如真正的 -22 被写成
+ * 4294967274(0xFFFFFFEA)。Spine 运行时按 originalIndex + offset 计算目标槽位,
+ * 4294967274 远超槽位数 → 该条目被丢弃 → skeleton.drawOrder 混入 undefined →
+ * 播放器遍历 drawOrder 时 slot.bone 抛 "Cannot read properties of undefined (reading 'bone')"。
+ * 这里在解析前统一 |0 转回有符号 int32(合法的小偏移不受影响),从根上修复。
+ * @param {object} obj 解析后的骨架 JSON
+ */
+function normalizeDrawOrderOffsets(obj) {
+  const anims = obj && obj.animations;
+  if (!anims) return;
+  const list = Array.isArray(anims) ? anims : Object.values(anims);
+  for (const anim of list) {
+    if (!anim || typeof anim !== 'object') continue;
+    const don = anim.drawOrder || anim.draworder;
+    if (!Array.isArray(don)) continue;
+    for (const frame of don) {
+      if (!frame || !Array.isArray(frame.offsets)) continue;
+      for (const o of frame.offsets) {
+        if (o && typeof o.offset === 'number') o.offset = o.offset | 0; // 转有符号 int32
+      }
+    }
+  }
+}
+
 let spine38BundlePromise = null;
 
 /**
@@ -141,6 +212,13 @@ export class Spine38Player {
           }
           jsonObj.skins = skins;
         }
+        // 约束时间线容错:部分「二进制 .bin → JSON」转换工具会把 ik/transform/path 写成
+        // 数组形式 [ {约束名: 帧对象|帧数组} ] 或「单帧对象」;运行时按对象 {约束名: [帧...]}
+        // 遍历会得到 length=undefined → 空时间线 → duration=NaN 抛
+        // "Error while parsing animation, duration is NaN"。这里解析前规范化。
+        normalizeAnimConstraints(jsonObj);
+        // draworder 偏移归为有符号 int32(修复无符号写法导致的 undefined 槽位)
+        normalizeDrawOrderOffsets(jsonObj);
         data = jsonParser.readSkeletonData(jsonObj);
       } else {
         const binary = new spine.SkeletonBinary(loader);
@@ -193,7 +271,7 @@ export class Spine38Player {
     const evalAt = (t) => {
       let slots = 0, minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       for (const slot of sk.drawOrder) {
-        if (slot.bone && !slot.bone.active) continue;
+        if (!slot || (slot.bone && !slot.bone.active)) continue;
         const att = slot.getAttachment();
         if (!att) continue;
         const sc = slot.bone.skeleton.color, slc = slot.color, ac = att.color;
@@ -261,7 +339,7 @@ export class Spine38Player {
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       let valid = false;
       for (const slot of sk.drawOrder) {
-        if (slot.bone && !slot.bone.active) continue;
+        if (!slot || (slot.bone && !slot.bone.active)) continue;
         const att = slot.getAttachment();
         if (att instanceof spine.RegionAttachment) {
           const v = new Float32Array(8);
@@ -447,7 +525,7 @@ export class Spine38Player {
     const alive = new Set();
 
     for (const slot of this.skeleton.drawOrder) {
-      if (slot.bone && !slot.bone.active) continue;
+      if (!slot || (slot.bone && !slot.bone.active)) continue;
 
       // 插槽隐藏:跳过渲染并销毁已有 mesh
       if (this._hiddenSlots.has(slot.data.name)) {
@@ -555,7 +633,7 @@ export class Spine38Player {
         }
       };
       for (const slot of sk.drawOrder) {
-        if (slot.bone && !slot.bone.active) continue;
+        if (!slot || (slot.bone && !slot.bone.active)) continue;
         const att = slot.getAttachment();
         if (att instanceof spine.RegionAttachment) {
           const v = new Float32Array(8);

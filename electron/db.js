@@ -39,6 +39,10 @@ function defaultDb() {
     },
     categories: [],
     items: [],
+    favCategories: [],
+    favItems: [],
+    sceneCategories: [],
+    scenes: [],
   };
 }
 
@@ -60,6 +64,7 @@ function open() {
       name TEXT NOT NULL,
       remark TEXT DEFAULT '',
       parent_id TEXT DEFAULT '',
+      type_tags TEXT DEFAULT '[]',
       sort INTEGER DEFAULT 0,
       created_at INTEGER DEFAULT 0,
       updated_at INTEGER DEFAULT 0
@@ -88,6 +93,28 @@ function open() {
       fav_category_id TEXT DEFAULT '',
       created_at INTEGER DEFAULT 0
     );
+    CREATE TABLE IF NOT EXISTS scene_categories(
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      remark TEXT DEFAULT '',
+      parent_id TEXT DEFAULT '',
+      sort INTEGER DEFAULT 0,
+      created_at INTEGER DEFAULT 0,
+      updated_at INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS scenes(
+      id TEXT PRIMARY KEY,
+      category_id TEXT DEFAULT '',
+      name TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      type TEXT DEFAULT 'folder',
+      remark TEXT DEFAULT '',
+      tags TEXT DEFAULT '[]',
+      size INTEGER,
+      mtime INTEGER,
+      created_at INTEGER DEFAULT 0,
+      updated_at INTEGER DEFAULT 0
+    );
   `);
   // 旧库迁移:categories 缺 parent_id 列时补上(子分类支持)
   try {
@@ -95,16 +122,22 @@ function open() {
     if (!cols.includes('parent_id')) {
       db.exec('ALTER TABLE categories ADD COLUMN parent_id TEXT DEFAULT \'\'');
     }
+    // 旧库迁移:categories 缺 type_tags 列时补上(目录资源类型标签,JSON 数组字符串)
+    if (!cols.includes('type_tags')) {
+      db.exec("ALTER TABLE categories ADD COLUMN type_tags TEXT DEFAULT '[]'");
+    }
   } catch (err) {
-    console.error('[db] migrate parent_id error:', err);
+    console.error('[db] migrate categories parent_id/type_tags error:', err);
   }
   // 旧库迁移:items 缺 size / mtime 列时补上(游戏资源管理器排序/统计用)
   try {
     const cols = db.prepare('PRAGMA table_info(items)').all().map((r) => r.name);
     if (!cols.includes('size')) db.exec('ALTER TABLE items ADD COLUMN size INTEGER');
     if (!cols.includes('mtime')) db.exec('ALTER TABLE items ADD COLUMN mtime INTEGER');
+    // 旧库迁移:items 缺 tags 列时补上(资源标签,JSON 数组字符串)
+    if (!cols.includes('tags')) db.exec("ALTER TABLE items ADD COLUMN tags TEXT DEFAULT '[]'");
   } catch (err) {
-    console.error('[db] migrate items size/mtime error:', err);
+    console.error('[db] migrate items size/mtime/tags error:', err);
   }
   return db;
 }
@@ -125,18 +158,45 @@ function readDb() {
       d.settings[row.key] = JSON.parse(row.value);
     }
     d.categories = conn.prepare(
-      'SELECT id, name, remark, parent_id AS parentId, sort, created_at AS createdAt, updated_at AS updatedAt FROM categories ORDER BY sort'
+      'SELECT id, name, remark, parent_id AS parentId, type_tags AS typeTags, sort, created_at AS createdAt, updated_at AS updatedAt FROM categories ORDER BY sort'
     ).all();
+    // type_tags 列是 JSON 数组字符串 → 解析为数组
+    for (const c of d.categories) {
+      if (typeof c.typeTags === 'string') {
+        try { c.typeTags = JSON.parse(c.typeTags || '[]'); } catch (err) { c.typeTags = []; }
+      }
+      if (!Array.isArray(c.typeTags)) c.typeTags = [];
+    }
     d.items = conn.prepare(
       'SELECT id, category_id AS categoryId, type, file_path AS filePath, atlas_path AS atlasPath, ' +
-      'display_name AS displayName, remark, size, mtime, created_at AS createdAt, updated_at AS updatedAt FROM items'
+      'display_name AS displayName, remark, size, mtime, tags, created_at AS createdAt, updated_at AS updatedAt FROM items'
     ).all();
+    // tags 列是 JSON 数组字符串 → 解析为数组
+    for (const it of d.items) {
+      if (typeof it.tags === 'string') {
+        try { it.tags = JSON.parse(it.tags || '[]'); } catch (err) { it.tags = []; }
+      }
+      if (!Array.isArray(it.tags)) it.tags = [];
+    }
     d.favCategories = conn.prepare(
       'SELECT id, name, sort, created_at AS createdAt, updated_at AS updatedAt FROM fav_categories ORDER BY sort'
     ).all();
     d.favItems = conn.prepare(
       'SELECT id, item_id AS itemId, fav_category_id AS favCategoryId, created_at AS createdAt FROM fav_items'
     ).all();
+    d.sceneCategories = conn.prepare(
+      'SELECT id, name, remark, parent_id AS parentId, sort, created_at AS createdAt, updated_at AS updatedAt FROM scene_categories ORDER BY sort'
+    ).all();
+    d.scenes = conn.prepare(
+      'SELECT id, category_id AS categoryId, name, file_path AS filePath, type, remark, tags, size, mtime, ' +
+      'created_at AS createdAt, updated_at AS updatedAt FROM scenes'
+    ).all();
+    for (const s of (d.scenes || [])) {
+      if (typeof s.tags === 'string') {
+        try { s.tags = JSON.parse(s.tags || '[]'); } catch (err) { s.tags = []; }
+      }
+      if (!Array.isArray(s.tags)) s.tags = [];
+    }
   } catch (err) {
     console.error('[db] read error:', err);
   }
@@ -148,26 +208,31 @@ function writeDb(state) {
   const conn = open();
   conn.exec('BEGIN');
   try {
-    conn.exec('DELETE FROM settings; DELETE FROM categories; DELETE FROM items; DELETE FROM fav_categories; DELETE FROM fav_items;');
+    conn.exec('DELETE FROM settings; DELETE FROM categories; DELETE FROM items; DELETE FROM fav_categories; DELETE FROM fav_items; DELETE FROM scene_categories; DELETE FROM scenes;');
     const setSetting = conn.prepare('INSERT OR REPLACE INTO settings(key, value) VALUES (?, ?)');
     for (const [k, v] of Object.entries(state.settings || {})) {
       setSetting.run(k, JSON.stringify(v));
     }
     const insCat = conn.prepare(
-      'INSERT INTO categories(id, name, remark, parent_id, sort, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO categories(id, name, remark, parent_id, type_tags, sort, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
     );
     for (const c of state.categories || []) {
-      insCat.run(c.id, c.name || '', c.remark || '', c.parentId || '', c.sort || 0, c.createdAt || 0, c.updatedAt || 0);
+      insCat.run(
+        c.id, c.name || '', c.remark || '', c.parentId || '',
+        JSON.stringify(Array.isArray(c.typeTags) ? c.typeTags : []),
+        c.sort || 0, c.createdAt || 0, c.updatedAt || 0
+      );
     }
     const insItem = conn.prepare(
-      'INSERT INTO items(id, category_id, type, file_path, atlas_path, display_name, remark, size, mtime, created_at, updated_at) ' +
-      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO items(id, category_id, type, file_path, atlas_path, display_name, remark, size, mtime, tags, created_at, updated_at) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     for (const it of state.items || []) {
       insItem.run(
         it.id, it.categoryId || '', it.type || '', it.filePath || '',
         it.atlasPath ?? null, it.displayName || '', it.remark || '',
         it.size ?? null, it.mtime ?? null,
+        JSON.stringify(Array.isArray(it.tags) ? it.tags : []),
         it.createdAt || 0, it.updatedAt || 0
       );
     }
@@ -182,6 +247,25 @@ function writeDb(state) {
     );
     for (const f of state.favItems || []) {
       insFavItem.run(f.id, f.itemId || '', f.favCategoryId || '', f.createdAt || 0);
+    }
+    const insSceneCat = conn.prepare(
+      'INSERT INTO scene_categories(id, name, remark, parent_id, sort, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    );
+    for (const sc of state.sceneCategories || []) {
+      insSceneCat.run(sc.id, sc.name || '', sc.remark || '', sc.parentId || '', sc.sort || 0, sc.createdAt || 0, sc.updatedAt || 0);
+    }
+    const insScene = conn.prepare(
+      'INSERT INTO scenes(id, category_id, name, file_path, type, remark, tags, size, mtime, created_at, updated_at) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    for (const s of state.scenes || []) {
+      insScene.run(
+        s.id, s.categoryId || '', s.name || '', s.filePath || '',
+        s.type || 'folder', s.remark || '',
+        JSON.stringify(Array.isArray(s.tags) ? s.tags : []),
+        s.size ?? null, s.mtime ?? null,
+        s.createdAt || 0, s.updatedAt || 0
+      );
     }
     conn.exec('COMMIT');
     return true;

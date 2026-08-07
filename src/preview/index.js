@@ -418,4 +418,27 @@ export class PreviewController {
     }
     if (this.viewC) this.viewC.removeChildren();
   }
+
+  /**
+   * 截取当前帧为透明背景图片(PNG / WebP)。
+   * 直接对 viewC(角色容器)做 extract,不会带入渲染器背景色,故背景透明。
+   * @param {{type?:'png'|'webp', quality?:number}} [opts]
+   * @returns {string|null} dataURL(如 'data:image/png;base64,...'),失败返回 null
+   */
+  captureFrame(opts = {}) {
+    if (!this.app || !this.viewC) return null;
+    if (!this.player) return null;
+    try {
+      // 确保当前帧已渲染到 viewC
+      this.app.render();
+      const canvas = this.app.renderer.extract.canvas(this.viewC);
+      const type = opts.type === 'webp' ? 'webp' : 'png';
+      const mime = type === 'webp' ? 'image/webp' : 'image/png';
+      const url = canvas.toDataURL(`image/${type}`, opts.quality);
+      return url && url.startsWith('data:') ? url : null;
+    } catch (err) {
+      console.error('captureFrame 失败:', err);
+      return null;
+    }
+  }
 }

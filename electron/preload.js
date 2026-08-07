@@ -23,6 +23,25 @@ contextBridge.exposeInMainWorld('api', {
 
   // 应用信息
   appInfo: () => ipcRenderer.invoke('app:info'),
+
+  // ---- 资源工具箱:通用文件 I/O ----
+  pickFiles: (opts) => ipcRenderer.invoke('fs:pickFiles', opts),
+  collectFiles: (args) => ipcRenderer.invoke('tool:collectFiles', args),
+  readBase64: (p) => ipcRenderer.invoke('fs:readBase64', p),
+  writeFileBase64: (p, dataUrl) => ipcRenderer.invoke('fs:writeFileBase64', p, dataUrl),
+  renameFile: (oldPath, newPath) => ipcRenderer.invoke('fs:rename', oldPath, newPath),
+
+  // ---- 资源工具箱:转换工具 ----
+  astc2png: (args) => ipcRenderer.invoke('tool:astc2png', args),
+  skel2json: (args) => ipcRenderer.invoke('tool:skel2json', args),
+  probeSkel: (args) => ipcRenderer.invoke('tool:probeSkel', args),
+  spineFix: (args) => ipcRenderer.invoke('tool:spinefix', args),
+
+  // ---- 音频播放器:目录列表 / ID3 元信息 ----
+  listDirAudios: (dir) => ipcRenderer.invoke('audio:listDir', dir),
+  readAudioMeta: (p) => ipcRenderer.invoke("audio:readMeta", p),
+  readAudioMetas: (paths) => ipcRenderer.invoke("audio:readMetas", paths),
+  writeAudioMeta: (p, tags) => ipcRenderer.invoke('audio:writeMeta', p, tags),
 });
 
 // 冒烟测试标志(仅开发时传入 --smoke,通过 URL 参数传递,见 main.js)

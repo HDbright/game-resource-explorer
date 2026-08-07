@@ -6,6 +6,10 @@ const fs = require('fs');
 const { createServer } = require('./server');
 const { readDb, writeDb, migrateFromJson, dbStats, dbFile } = require('./db');
 const { scanDir } = require('./scanner');
+const { encodePng } = require('./png');
+const { astcToPng } = require('./tools/astc');
+const { skelToJson, probeSkeleton } = require('./tools/skel');
+const { spineFix } = require('./tools/spineFix');
 
 // 冒烟模式:命令行参数(dev)或环境变量(打包版 exe 不经过 electron CLI,未知 -- 参数会被拒绝)
 const isSmoke = process.argv.includes('--smoke') || process.env.SKELETON_VIEWER_SMOKE === '1';
@@ -136,58 +140,19 @@ function seedSamples() {
 }
 
 // 生成 size×size 渐变 RGBA PNG(运行时生成示例资源,避免提交二进制)
-// 注意:不能依赖 zlib.crc32(Electron 主进程环境可能未暴露),自实现 CRC32 表
+// 复用 electron/png.js 中的 encodePng
 function makeSamplePng(size) {
-  const w = size, h = size;
-  const raw = Buffer.alloc(h * (1 + w * 4));
-  for (let y = 0; y < h; y++) {
-    const row = y * (1 + w * 4);
-    raw[row] = 0; // filter none
-    for (let x = 0; x < w; x++) {
-      const i = row + 1 + x * 4;
-      raw[i] = Math.round(255 * x / w);
-      raw[i + 1] = Math.round(120 + 100 * y / h);
-      raw[i + 2] = Math.round(255 * (1 - x / w));
-      raw[i + 3] = 255;
+  const rgba = Buffer.alloc(size * size * 4);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const i = (y * size + x) * 4;
+      rgba[i] = Math.round(255 * x / size);
+      rgba[i + 1] = Math.round(120 + 100 * y / size);
+      rgba[i + 2] = Math.round(255 * (1 - x / size));
+      rgba[i + 3] = 255;
     }
   }
-  const idat = zlib.deflateSync(raw);
-  const chunk = (type, data) => {
-    const len = Buffer.alloc(4);
-    len.writeUInt32BE(data.length);
-    const typeBuf = Buffer.from(type, 'ascii');
-    const body = Buffer.concat([typeBuf, data]);
-    const crc = Buffer.alloc(4);
-    crc.writeUInt32BE(pngCrc32(body));
-    return Buffer.concat([len, body, crc]);
-  };
-  const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(w, 0);
-  ihdr.writeUInt32BE(h, 4);
-  ihdr[8] = 8;  // bit depth
-  ihdr[9] = 6;  // color type RGBA
-  const sig = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
-  return Buffer.concat([sig, chunk('IHDR', ihdr), chunk('IDAT', idat), chunk('IEND', Buffer.alloc(0))]);
-}
-
-/** 标准 CRC32(IEEE 802.3,PNG 用),自实现避免依赖 Electron 环境 API 差异 */
-let _crcTable = null;
-function pngCrc32(buf) {
-  if (!_crcTable) {
-    _crcTable = new Int32Array(256);
-    for (let n = 0; n < 256; n++) {
-      let c = n;
-      for (let k = 0; k < 8; k++) {
-        c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-      }
-      _crcTable[n] = c;
-    }
-  }
-  let c = 0xffffffff;
-  for (let i = 0; i < buf.length; i++) {
-    c = _crcTable[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
-  }
-  return (c ^ 0xffffffff) >>> 0;
+  return encodePng(size, size, rgba);
 }
 
 // 生成 sec 秒 440Hz 正弦波 WAV(16-bit PCM mono 22050Hz)
@@ -323,8 +288,23 @@ async function runSmoke() {
     ['thumb', 1200],
     ['image-load', 1000],
     ['audio-load', 1000],
+    ['audioplayer', 1200],
+    ['audiohome', 1200],
+    ['audioplaylist', 1200],
+    ['img-bg', 900],
+    ['img-mode', 900],
     ['back', 800],
     ['tab3d', 600],
+    ['tags', 800],
+    ['batchmenu', 900],
+    ['ctrlshift', 900],
+    ['tipicon', 800],
+    ['favhome', 900],
+    ['navfix', 900],
+    ['toolhome', 900],
+    ['batchui', 900],
+    ['toolhistory', 900],
+    ['ieoverwrite', 900],
     ['crud', 400],
   ];
 
@@ -454,9 +434,230 @@ app.whenReady().then(async () => {
   ipcMain.handle('app:info', () => ({
     version: app.getVersion(),
     userData: app.getPath('userData'),
+    pictures: app.getPath('pictures'),
+    downloads: app.getPath('downloads'),
     samplesDir: SAMPLES_DIR,
     dbFile: dbFile(),
   }));
+
+  // ============ 资源工具箱:文件选取 / 通用读写 ============
+  ipcMain.handle('fs:pickFiles', async (_e, opts = {}) => {
+    if (!win) return { canceled: true, filePaths: [] };
+    const filters = Array.isArray(opts.filters) && opts.filters.length
+      ? opts.filters
+      : [{ name: '所有文件', extensions: ['*'] }];
+    let properties = ['openFile', 'multiSelections'];
+    if (opts.filesAndDirs) properties = ['openFile', 'openDirectory', 'multiSelections'];
+    else if (opts.directory) properties = ['openDirectory'];
+    const r = await dialog.showOpenDialog(win, {
+      title: opts.title || '选择文件',
+      properties,
+      filters,
+      // 历史目录定位:defaultPath 为最近使用的输入目录
+      defaultPath: (typeof opts.defaultPath === 'string' && opts.defaultPath) ? opts.defaultPath : undefined,
+    });
+    return { canceled: r.canceled, filePaths: r.filePaths };
+  });
+  ipcMain.handle('fs:readBase64', (_e, p) => {
+    try {
+      const buf = fs.readFileSync(p);
+      const ext = path.extname(p).slice(1).toLowerCase();
+      const mime = ({
+        png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+        gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp',
+        svg: 'image/svg+xml',
+      })[ext] || 'application/octet-stream';
+      return { ok: true, dataUrl: `data:${mime};base64,${buf.toString('base64')}`, size: buf.length };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+  ipcMain.handle('fs:writeFileBase64', (_e, filePath, dataUrl) => {
+    try {
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      const s = String(dataUrl || '');
+      const m = /^data:(?:image\/[a-zA-Z0-9+.\-]+|application\/octet-stream);base64,(.+)$/.exec(s);
+      const b64 = m ? m[1] : s.replace(/^data:[^,]+,/, '');
+      fs.writeFileSync(filePath, Buffer.from(b64, 'base64'));
+      return { ok: true, path: filePath };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+  // 重命名文件(仅改文件名,不跨目录移动):返回新路径或错误
+  ipcMain.handle('fs:rename', (_e, oldPath, newPath) => {
+    try {
+      if (!fs.existsSync(oldPath)) return { ok: false, error: '原文件不存在' };
+      if (path.dirname(oldPath) !== path.dirname(newPath)) {
+        return { ok: false, error: '只能修改文件名,不能移动目录' };
+      }
+      if (fs.existsSync(newPath)) return { ok: false, error: '目标文件名已存在' };
+      fs.renameSync(oldPath, newPath);
+      return { ok: true, path: newPath };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // ============ 资源工具箱:转换工具 ============
+  ipcMain.handle('tool:astc2png', async (_e, { inputPath, outputPath }) => {
+    try {
+      const r = astcToPng(inputPath, outputPath);
+      return { ok: true, ...r };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+  ipcMain.handle('tool:skel2json', async (_e, { inputPath, outputPath }) => {
+    try {
+      const r = await skelToJson(inputPath, outputPath);
+      return { ok: true, ...r };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+  // 校验文件是否为有效的 Spine 二进制骨架(skel)。.bin 后缀文件实为 skel 但扩展名不同,
+  // 选择时据此探测是否真为 skel 格式,避免把无关二进制当骨架转换。
+  ipcMain.handle('tool:probeSkel', async (_e, { inputPath }) => {
+    try {
+      const bytes = fs.readFileSync(inputPath);
+      const probe = probeSkeleton(bytes);
+      if (!probe || probe.kind !== 'binary') {
+        return { ok: false, reason: '不是有效的 Spine 二进制骨架(skel)格式' };
+      }
+      return { ok: true, version: probe.version };
+    } catch (err) {
+      return { ok: false, reason: err.message };
+    }
+  });
+  ipcMain.handle('tool:spinefix', async (_e, { inputPath, outputPath }) => {
+    try {
+      const r = await spineFix(inputPath, outputPath);
+      return { ok: true, ...r };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+  // 递归收集文件(支持多选文件 / 文件夹混合):给定若干路径,返回所有匹配扩展名的文件绝对路径,
+  // 并记录每个文件所属"根目录"(直接选中的文件 → 其所在目录;选中的文件夹 → 文件夹本身),
+  // 供批量转换时计算"保持相对目录结构"的输出位置。
+  ipcMain.handle('tool:collectFiles', async (_e, { paths = [], extensions = [] }) => {
+    try {
+      const exts = extensions.map((e) => String(e).toLowerCase().replace(/^\./, ''));
+      const files = [];
+      const visited = new Set();
+      const addFile = (p, baseDir) => {
+        const key = path.resolve(p).toLowerCase();
+        if (visited.has(key)) return;
+        visited.add(key);
+        files.push({ path: path.resolve(p), baseDir: path.resolve(baseDir) });
+      };
+      const walk = (p, baseDir) => {
+        let st;
+        try { st = fs.statSync(p); } catch (e) { return; }
+        if (st.isDirectory()) {
+          let ents;
+          try { ents = fs.readdirSync(p); } catch (e) { return; }
+          for (const name of ents) {
+            if (name === 'node_modules' || name === '.git' || name === '.svn') continue;
+            walk(path.join(p, name), baseDir);
+          }
+        } else if (st.isFile()) {
+          const ext = path.extname(p).slice(1).toLowerCase();
+          if (exts.length && !exts.includes(ext)) return;
+          addFile(p, baseDir);
+        }
+      };
+      // 文件优先处理(保证直接选中的文件 baseDir=自身所在目录),之后遍历文件夹
+      const dirs = [], fileList = [];
+      for (const p of paths) {
+        let st; try { st = fs.statSync(p); } catch (e) { continue; }
+        if (st.isDirectory()) dirs.push(p); else fileList.push(p);
+      }
+      for (const p of fileList) {
+        let st; try { st = fs.statSync(p); } catch (e) { continue; }
+        addFile(p, path.dirname(p));
+      }
+      for (const d of dirs) walk(d, d);
+      return { ok: true, files };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // ============ 音频播放器:目录列表 / ID3 元信息 ============
+  const AUDIO_EXTS = ['.mp3', '.wav', '.ogg', '.flac', '.wma', '.m4a', '.aac', '.opus'];
+  // 列出指定目录(不递归)下所有音频文件
+  ipcMain.handle('audio:listDir', (_e, dir) => {
+    try {
+      const out = [];
+      for (const name of fs.readdirSync(dir)) {
+        if (!fs.statSync(path.join(dir, name)).isFile()) continue;
+        if (!AUDIO_EXTS.includes(path.extname(name).toLowerCase())) continue;
+        out.push(path.join(dir, name));
+      }
+      return { ok: true, files: out.sort() };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+  // 读取音频文件 ID3 元信息(标题/艺术家/专辑/年份/音轨/注释)
+  ipcMain.handle('audio:readMeta', (_e, filePath) => {
+    try {
+      const NodeID3 = require('node-id3');
+      const t = NodeID3.read(filePath) || {};
+      const pick = (v) => (v == null ? '' : String(v));
+      return {
+        ok: true,
+        tags: {
+          title: pick(t.title), artist: pick(t.artist), album: pick(t.album),
+          year: pick(t.year), track: pick(t.trackNumber || ''), comment: pick(t.comment && t.comment.text),
+        },
+      };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+  // 批量读取音频 ID3 元信息(播放列表条目显示用)
+  ipcMain.handle('audio:readMetas', (_e, paths = []) => {
+    try {
+      const NodeID3 = require('node-id3');
+      const pick = (v) => (v == null ? '' : String(v));
+      const out = [];
+      for (const p of paths) {
+        let tags = {};
+        try {
+          const t = NodeID3.read(p) || {};
+          tags = {
+            title: pick(t.title), artist: pick(t.artist), album: pick(t.album),
+            year: pick(t.year), track: pick(t.trackNumber || ''), comment: pick(t.comment && t.comment.text),
+          };
+        } catch (e) { /* 单文件失败跳过 */ }
+        out.push({ path: p, tags });
+      }
+      return { ok: true, items: out };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+  // 写入音频文件 ID3 元信息(仅写入提供的字段)
+  ipcMain.handle('audio:writeMeta', (_e, filePath, tags = {}) => {
+    try {
+      const NodeID3 = require('node-id3');
+      const patch = {};
+      if (tags.title != null) patch.title = String(tags.title);
+      if (tags.artist != null) patch.artist = String(tags.artist);
+      if (tags.album != null) patch.album = String(tags.album);
+      if (tags.year != null) patch.year = String(tags.year);
+      if (tags.track != null) patch.trackNumber = String(tags.track);
+      if (tags.comment != null) patch.comment = { language: 'eng', text: String(tags.comment) };
+      const ok = NodeID3.update(patch, filePath);
+      if (!ok) return { ok: false, error: '写入失败(文件可能不支持 ID3 或只读)' };
+      return { ok: true, path: filePath };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
 
   await createWindow();
 });

@@ -27,7 +27,21 @@ function run(cmd, opts = {}) {
   return execSync(cmd, { stdio: 'inherit', cwd: ROOT, ...opts });
 }
 
-/** 递归复制:目标已存在则覆盖(skipNames 跳过某些名字) */
+/** 复制文件并重试:杀软/Defender 会瞬时锁定新生成的大文件(EBUSY),稍候重试 */
+function copyFileRetry(src, dst, tries = 6, delay = 1200) {
+  for (let i = 1; ; i++) {
+    try {
+      fs.copyFileSync(src, dst);
+      return;
+    } catch (err) {
+      if (i >= tries) throw err;
+      console.warn(`[pack] 复制被锁,重试 ${i}/${tries}: ${dst} (${err.code})`);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, delay);
+    }
+  }
+}
+
+/** 递归复制:目标已存在则覆盖;若目标与源大小+mtime 相同则跳过(避免写入被瞬时锁定文件,如杀软扫描中) */
 function copyDir(src, dst, skipNames = []) {
   fs.mkdirSync(dst, { recursive: true });
   for (const ent of fs.readdirSync(src, { withFileTypes: true })) {
@@ -35,8 +49,48 @@ function copyDir(src, dst, skipNames = []) {
     const s = path.join(src, ent.name);
     const d = path.join(dst, ent.name);
     if (ent.isDirectory()) copyDir(s, d, skipNames);
-    else fs.copyFileSync(s, d); // 覆盖
+    else {
+      try {
+        const ss = fs.statSync(s);
+        const ds = fs.statSync(d);
+        if (ss.size === ds.size && ss.mtimeMs === ds.mtimeMs) continue; // 内容一致,跳过
+      } catch (err) { /* 目标不存在 → 正常复制 */ }
+      copyFileRetry(s, d);
+    }
   }
+}
+
+/**
+ * 主进程运行时第三方依赖(渲染端依赖已由 vite 打包进 dist,无需复制)。
+ * 新增主进程 npm 依赖时,在此追加包名(含 @scope/name);其 dependencies 会自动递归复制。
+ */
+const MAIN_DEPS = ['@arkntools/astc-decode', '@esotericsoftware/spine-core', 'node-id3'];
+
+/** 递归收集某包及其 dependencies 的 node_modules 路径 */
+function collectDeps(pkgName, visited, out) {
+  if (visited.has(pkgName)) return;
+  visited.add(pkgName);
+  const pkgPath = path.join(ROOT, 'node_modules', ...pkgName.split('/'));
+  if (!fs.existsSync(pkgPath)) {
+    console.warn('[pack] 缺少依赖包(跳过):', pkgName);
+    return;
+  }
+  out.push(pkgPath);
+  let pkgJson = {};
+  try { pkgJson = JSON.parse(fs.readFileSync(path.join(pkgPath, 'package.json'), 'utf8')); } catch (err) { /* ignore */ }
+  for (const d of Object.keys(pkgJson.dependencies || {})) collectDeps(d, visited, out);
+}
+
+/** 复制主进程生产依赖 → staging/node_modules(保持相对结构) */
+function copyNodeModules(staging) {
+  const visited = new Set();
+  const pkgPaths = [];
+  for (const d of MAIN_DEPS) collectDeps(d, visited, pkgPaths);
+  for (const src of pkgPaths) {
+    const rel = path.relative(path.join(ROOT, 'node_modules'), src);
+    copyDir(src, path.join(staging, 'node_modules', rel));
+  }
+  console.log('主进程依赖已复制:', pkgPaths.length, '个包 ->', path.join(staging, 'node_modules'));
 }
 
 async function main() {
@@ -61,13 +115,14 @@ async function main() {
   console.log('组装 asar staging ...');
   copyDir(path.join(ROOT, 'dist'), path.join(staging, 'dist'));
   copyDir(path.join(ROOT, 'electron'), path.join(staging, 'electron'));
-  fs.copyFileSync(path.join(ROOT, 'package.json'), path.join(staging, 'package.json'));
+  copyNodeModules(staging);
+  copyFileRetry(path.join(ROOT, "package.json"), path.join(staging, "package.json"));
   const asarCli = path.join(ROOT, 'node_modules', '@electron', 'asar', 'bin', 'asar.js');
   const tmpAsar = path.join(releaseDir, `_app_${stamp}.asar`);
   run(`node "${asarCli}" pack "${staging}" "${tmpAsar}"`);
 
   // 3. 覆盖 resources/app.asar
-  fs.copyFileSync(tmpAsar, path.join(resourcesDir, 'app.asar'));
+  copyFileRetry(tmpAsar, path.join(resourcesDir, "app.asar"));
   console.log('app.asar 大小:', fs.statSync(tmpAsar).size, 'bytes');
 
   // 4. 复制 samples → resources/samples(覆盖)
@@ -75,10 +130,11 @@ async function main() {
   copyDir(path.join(ROOT, 'samples'), samplesTarget);
 
   // 5. rcedit 注入图标/版本(中文名 exe 需先复制成 ASCII 名再 rcedit,最后覆盖回来)
+  //    临时 exe 用唯一名(含 stamp),避免反复覆盖旧文件被杀软扫描锁定(EBUSY);旧 tmp 文件保留但 zip 已排除。
   const exeName = `${APP_NAME}.exe`;
   const exePath = path.join(appDir, exeName);
-  const asciiTmp = path.join(appDir, `app_${VERSION.replace(/\./g, '')}_tmp.exe`);
-  fs.copyFileSync(path.join(appDir, 'electron.exe'), asciiTmp);
+  const asciiTmp = path.join(appDir, `app_${VERSION.replace(/\./g, '')}_${stamp}_tmp.exe`);
+  copyFileRetry(path.join(appDir, "electron.exe"), asciiTmp);
   const rcedit = path.join(ROOT, 'node_modules', 'electron-winstaller', 'vendor', 'rcedit.exe');
   const iconPath = path.join(ROOT, 'build', 'icon.ico');
   if (fs.existsSync(rcedit) && fs.existsSync(iconPath)) {
@@ -90,7 +146,7 @@ async function main() {
   } else {
     console.warn('rcedit 或 icon 不存在,跳过图标注入');
   }
-  fs.copyFileSync(asciiTmp, exePath); // 覆盖
+  copyFileRetry(asciiTmp, exePath); // 覆盖
   console.log('exe 就绪:', exePath);
 
   // 6. 冒烟验证打包版(可选,SKELETON_VIEWER_PACK_SMOKE=1 时执行)
@@ -108,10 +164,10 @@ async function main() {
     }
   }
 
-  // 7. 打便携版 zip(排除 data)
+  // 7. 打便携版 zip(排除 data 用户数据 + 历史遗留的 rcedit ASCII 临时 exe `app_*_tmp.exe`)
   const py = process.env.PYTHON || 'python';
   const zipPath = path.join(releaseDir, `游戏资源管理器-v${VERSION}-便携版.zip`);
-  run(`"${py}" -c "import zipfile,os; root=r'${appDir}'.replace('\\\\','/'); out=r'${zipPath}'.replace('\\\\','/'); zf=zipfile.ZipFile(out,'w',zipfile.ZIP_DEFLATED); [zf.write(os.path.join(r,f), os.path.relpath(os.path.join(r,f), os.path.dirname(root))) for r,dirs,files in os.walk(root) if not (os.path.basename(r)=='data') for f in files]; zf.close(); print('zip done')"`);
+  run(`"${py}" -c "import zipfile,os; root=r'${appDir}'.replace('\\\\','/'); out=r'${zipPath}'.replace('\\\\','/'); zf=zipfile.ZipFile(out,'w',zipfile.ZIP_DEFLATED); [zf.write(os.path.join(r,f), os.path.relpath(os.path.join(r,f), os.path.dirname(root))) for r,dirs,files in os.walk(root) if not (os.path.basename(r)=='data') for f in files if not f.endswith('_tmp.exe')]; zf.close(); print('zip done')"`);
 
   console.log('打包完成:', zipPath);
 }

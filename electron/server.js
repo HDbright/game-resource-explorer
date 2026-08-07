@@ -34,10 +34,13 @@ const MIME = {
   '.m4a': 'audio/mp4',
 };
 
+const AUDIO_EXTS = ['.mp3', '.wav', '.ogg', '.flac', '.wma', '.m4a', '.aac', '.opus'];
+
 /**
  * 内部 HTTP 服务:
  * - `/`、`/index.html`、`/assets/*` → 渲染端构建产物(dist)
  * - `/a/<itemId>/<相对路径>` → 某个动画条目根目录下的资源(用于加载骨骼/贴图)
+ * - `/afile?p=<绝对路径>` → 任意音频文件(播放列表/后台播放,仅音频扩展名)
  */
 function createServer({ dist, roots }) {
   const server = http.createServer(async (req, res) => {
@@ -63,6 +66,15 @@ function createServer({ dist, roots }) {
           return send(res, 403, 'Forbidden');
         }
         return serveFile(req, res, full);
+      }
+
+      // 通用音频文件服务(播放列表 / 后台播放):?p=绝对路径,仅允许音频扩展名
+      if (pathname === '/afile') {
+        const p = u.searchParams.get('p');
+        if (!p) return send(res, 400, 'Bad Request');
+        const ext = path.extname(p).toLowerCase();
+        if (!AUDIO_EXTS.includes(ext)) return send(res, 403, 'Forbidden');
+        return serveFile(req, res, p);
       }
 
       // 静态资源(dist)

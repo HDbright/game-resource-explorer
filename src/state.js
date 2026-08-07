@@ -1,24 +1,48 @@
-// ============ 数据状态层(分类 / 动画条目 CRUD) ============
+// ============ 数据状态层(分类 / 动画条目 / 场景 CRUD) ============
+
+/** 设置默认值(合并到已保存设置,保证旧库缺字段时也能补齐) */
+export const DEFAULT_SETTINGS = {
+  playMode: 'loop',
+  timeScale: 1,
+  bgColor: '#22242b',
+  showBones: false,
+  lastCategoryId: 'all',
+  lastItemId: null,
+  zoomMode: '100', // 'fit' 适配窗口 | '100' 固定100% | 'fixed' 跟随缩放滑块数值
+  resourceTab: 'home', // 'anim' | 'image' | 'audio' | '3d' | 'home'
+  listViewMode: 'list', // 'detail' | 'list' | 'icon'
+  listSortBy: 'name', // 'name' | 'type' | 'size' | 'date'
+  listSortDir: 'asc', // 'asc' | 'desc'
+  // 截图设置
+  screenshotPath: '', // 默认保存目录(空 = 用图片库目录/Spine截图)
+  screenshotFormat: 'png', // 'png' | 'webp'
+  screenshotQuality: 0.92, // webp 质量 0~1
+  screenshotAddToLibrary: true, // 截图后是否加入「图片资源」指定分类
+  screenshotCategory: 'spine截图', // 目标图片分类名(不存在则自动创建)
+  // 音频播放器
+  audioMode: 'single', // 'single'单次 | 'loop'单曲循环 | 'dirOrder'目录顺序 | 'dirLoop'目录循环 | 'listOrder'列表顺序 | 'listLoop'列表循环
+  audioRate: 1, // 变速 0.5~2
+  audioPlaylists: [], // 播放列表 [{id, name, paths: [filePath...]}]
+  audioCurrentListId: null, // 当前播放列表 id
+  audioListFields: { // 播放列表条目显示字段(在设置页配置)
+    fileName: true, // 文件名
+    title: true, // 标题(ID3)
+    artist: true, // 艺术家(ID3)
+    album: false, // 专辑(ID3)
+    duration: true, // 时长
+  },
+};
 
 export const state = {
   version: 2,
-  settings: {
-    playMode: 'loop',
-    timeScale: 1,
-    bgColor: '#22242b',
-    showBones: false,
-    lastCategoryId: 'all',
-    lastItemId: null,
-    zoomMode: '100', // 'fit' 适配窗口 | '100' 固定100% | 'fixed' 跟随缩放滑块数值
-    resourceTab: 'home', // 'anim' | 'image' | 'audio' | '3d' | 'home'
-    listViewMode: 'list', // 'detail' | 'list' | 'icon'
-    listSortBy: 'name', // 'name' | 'type' | 'size' | 'date'
-    listSortDir: 'asc', // 'asc' | 'desc'
-  },
+  settings: { ...DEFAULT_SETTINGS },
   categories: [],
   items: [],
   favCategories: [],
   favItems: [],
+  // 场景管理(独立分类树 + 场景条目,字段结构与资源目录对齐)
+  sceneCategories: [],
+  scenes: [],
 };
 
 // ---------------- 资源类型分组 ----------------
@@ -48,17 +72,70 @@ export function typeGroup(type) {
   return 'anim';
 }
 
+// ---------------- 分类的资源类型标签 ----------------
+
+/** 目录可标记的资源类型标签(勾选后目录只在对应类型的资源树中显示;不勾选 = 所有类型显示) */
+export const CAT_TYPE_TAG_LABELS = {
+  anim: '动画',
+  image: '图片',
+  audio: '音频',
+  '3d': '3D',
+  video: '视频',
+  article: '文章',
+};
+
+/** 全部标签 key(供勾选组按固定顺序渲染) */
+export const CAT_TYPE_TAGS = Object.keys(CAT_TYPE_TAG_LABELS);
+
+/** 分类的资源类型标签数组(过滤非法值,兼容旧数据 undefined/字符串) */
+export function categoryTypeTags(cat) {
+  if (!cat) return [];
+  const raw = Array.isArray(cat.typeTags) ? cat.typeTags : [];
+  return raw.filter((t) => CAT_TYPE_TAG_LABELS[t]);
+}
+
+/** 分类资源类型标签的中文名数组(如 ['音频']) */
+export function categoryTypeTagNames(cat) {
+  return categoryTypeTags(cat).map((t) => CAT_TYPE_TAG_LABELS[t]);
+}
+
+/**
+ * 分类是否在指定资源分组下可见:
+ * - 无标签 → 所有类型都显示
+ * - 有标签 → 仅标签命中该分组的目录显示(可同时勾选多个标签)
+ * - group 为空('home'/'all'/null 全部视图) → 始终显示
+ * @param {object} cat 分类对象
+ * @param {string|null} group 'anim'|'image'|'audio'|'3d'|'all'|null
+ */
+export function catVisibleInGroup(cat, group) {
+  const tags = categoryTypeTags(cat);
+  if (!tags.length) return true;
+  if (!group || group === 'all') return true;
+  return tags.includes(group);
+}
+
 let saveTimer = null;
 
 export async function loadState() {
   const data = await window.api.dbRead();
   if (!data) return;
   Object.assign(state, data);
-  if (!state.settings) state.settings = {};
+  // 合并默认设置,保证旧库缺失的新字段被补齐(已有字段以库为准)
+  state.settings = { ...DEFAULT_SETTINGS, ...(data.settings || {}) };
   state.categories = Array.isArray(data.categories) ? data.categories : [];
   state.items = Array.isArray(data.items) ? data.items : [];
   state.favCategories = Array.isArray(data.favCategories) ? data.favCategories : [];
   state.favItems = Array.isArray(data.favItems) ? data.favItems : [];
+  state.sceneCategories = Array.isArray(data.sceneCategories) ? data.sceneCategories : [];
+  state.scenes = Array.isArray(data.scenes) ? data.scenes : [];
+  // 兼容字段:旧库无 tags 时补 []
+  for (const it of state.items) {
+    if (!Array.isArray(it.tags)) it.tags = [];
+  }
+  // 兼容字段:旧库分类无 typeTags 时补 [](无标签 = 所有资源类型显示)
+  for (const c of state.categories) {
+    if (!Array.isArray(c.typeTags)) c.typeTags = [];
+  }
 }
 
 /** 防抖保存到磁盘 */
@@ -83,13 +160,14 @@ export function now() {
 
 // ---------------- 分类 ----------------
 
-/** 新增分类;parentId 为 '' 表示顶级分类,否则为父分类 id(子分类) */
-export function addCategory({ name, remark = '', parentId = '' }) {
+/** 新增分类;parentId 为 '' 表示顶级分类,否则为父分类 id(子分类);typeTags 为资源类型标签数组(如 ['audio'],空 = 所有类型显示) */
+export function addCategory({ name, remark = '', parentId = '', typeTags = [] }) {
   const cat = {
     id: uid('c'),
     name,
     remark,
     parentId: parentId || '',
+    typeTags: Array.isArray(typeTags) ? typeTags.filter((t) => CAT_TYPE_TAG_LABELS[t]) : [],
     sort: state.categories.length,
     createdAt: now(),
   };
@@ -172,6 +250,17 @@ export function categoryById(id) {
   return state.categories.find((c) => c.id === id) || null;
 }
 
+/** 按名称查找分类(同父级下不区分大小写),不存在则用该名称自动创建并返回 */
+export function findOrCreateCategoryByName(name, parentId = '') {
+  const key = String(name || '').trim();
+  if (!key) return null;
+  let cat = state.categories.find(
+    (c) => (c.parentId || '') === parentId && c.name.toLowerCase() === key.toLowerCase()
+  );
+  if (!cat) cat = addCategory({ name: key, parentId });
+  return cat;
+}
+
 // ---------------- 分类树辅助 ----------------
 
 /** 某分类的直接子分类(按数组顺序,即渲染顺序) */
@@ -244,7 +333,7 @@ export function removeUncategorizedItems() {
 
 // ---------------- 动画条目 ----------------
 
-export function addItem({ categoryId, type, filePath, atlasPath = null, displayName, remark = '', size = null, mtime = null }) {
+export function addItem({ categoryId, type, filePath, atlasPath = null, displayName, remark = '', size = null, mtime = null, tags = [] }) {
   const item = {
     id: uid('i'),
     categoryId: categoryId || '',
@@ -253,6 +342,7 @@ export function addItem({ categoryId, type, filePath, atlasPath = null, displayN
     atlasPath,
     displayName: displayName || filePath.split(/[\\/]/).pop().replace(/\.[^.]+$/, ''),
     remark,
+    tags: cleanTags(tags),
     size,
     mtime,
     createdAt: now(),
@@ -279,6 +369,56 @@ export function removeItem(id) {
 
 export function itemById(id) {
   return state.items.find((i) => i.id === id) || null;
+}
+
+// ---------------- 标签 ----------------
+
+/**
+ * 规范化标签:输入可以是数组或字符串(按空格/逗号分隔)。
+ * 去空白、去重、忽略空项,保持原顺序。单个标签内不允许空格。
+ * @param {string|string[]} input
+ * @returns {string[]}
+ */
+export function cleanTags(input) {
+  if (input == null) return [];
+  const raw = Array.isArray(input) ? input : String(input);
+  const out = [];
+  const seen = new Set();
+  for (const part of raw) {
+    for (const t of String(part).split(/[\s,，、]+/)) {
+      const tag = t.trim();
+      if (tag && !seen.has(tag)) {
+        seen.add(tag);
+        out.push(tag);
+      }
+    }
+  }
+  return out;
+}
+
+/** 条目的标签数组(兼容旧数据:undefined / 字符串) */
+export function itemTags(item) {
+  if (!item) return [];
+  return cleanTags(item.tags);
+}
+
+/** 全库标签库(去重排序),供标签建议下拉 / 标签过滤使用 */
+export function allTags() {
+  const set = new Set();
+  for (const it of state.items) {
+    for (const t of itemTags(it)) set.add(t);
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
+}
+
+/** 设置条目标签(去重后保存) */
+export function setItemTags(id, tags) {
+  const item = itemById(id);
+  if (!item) return null;
+  item.tags = cleanTags(tags);
+  item.updatedAt = now();
+  saveState();
+  return item;
 }
 
 // ---------------- 设置 ----------------
@@ -385,6 +525,41 @@ export function favLocations(itemId) {
 /** 是否已收藏(任一位置) */
 export function isFavored(itemId) {
   return state.favItems.some((f) => f.itemId === itemId);
+}
+
+/**
+ * 收藏夹主页数据:收藏总数(含重复收藏位置) / 涉及资源数 / 类型分布 / 收藏分类列表 / 最近收藏。
+ * @returns {{ total, itemCount, byType, favCategories: [{fc,count}], recent: [{fav,item}] }}
+ */
+export function getFavHomeData() {
+  const byType = { anim: 0, image: 0, audio: 0, '3d': 0 };
+  const seenItems = new Set();
+  let itemCount = 0;
+  for (const f of state.favItems) {
+    const it = itemById(f.itemId);
+    if (!it) continue;
+    byType[typeGroup(it.type)]++;
+    if (!seenItems.has(it.id)) {
+      seenItems.add(it.id);
+      itemCount++;
+    }
+  }
+  const favCategories = state.favCategories.map((fc) => ({
+    fc,
+    count: state.favItems.filter((f) => f.favCategoryId === fc.id).length,
+  }));
+  const recent = [...state.favItems]
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+    .slice(0, 10)
+    .map((f) => ({ fav: f, item: itemById(f.itemId) }))
+    .filter((x) => x.item);
+  return {
+    total: state.favItems.length,
+    itemCount,
+    byType,
+    favCategories,
+    recent,
+  };
 }
 
 // ---------------- 辅助查询 ----------------
@@ -502,8 +677,11 @@ export function getTypeHomeData(group) {
     if (it.size != null) totalSize += it.size;
   }
   // 分类层级树:每个分类节点含「该分类(含子孙)该类型资源数」
+  // 按资源类型标签过滤:目录无标签或标签命中当前分组才显示
   const buildCatNode = (cat) => {
-    const subs = getCategoryChildren(cat.id).map(buildCatNode);
+    const subs = getCategoryChildren(cat.id)
+      .filter((c) => catVisibleInGroup(c, group))
+      .map(buildCatNode);
     let count = 0;
     let sz = 0;
     const catIds = new Set([cat.id, ...getCategoryDescendants(cat.id)]);
@@ -515,7 +693,9 @@ export function getTypeHomeData(group) {
     }
     return { cat, count, totalSize: sz, subs };
   };
-  const categories = getCategoryChildren('').map(buildCatNode);
+  const categories = getCategoryChildren('')
+    .filter((c) => catVisibleInGroup(c, group))
+    .map(buildCatNode);
   const recent = [...items]
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
     .slice(0, 10);
@@ -583,4 +763,125 @@ export function setListSort(by, dir) {
   state.settings.listSortBy = by;
   state.settings.listSortDir = dir;
   saveState();
+}
+
+// ---------------- 场景管理(分类 + 场景条目) ----------------
+
+/** 新增场景分类(支持子分类) */
+export function addSceneCategory({ name, remark = '', parentId = '' }) {
+  const cat = {
+    id: uid('sc'),
+    name,
+    remark,
+    parentId: parentId || '',
+    sort: state.sceneCategories.length,
+    createdAt: now(),
+  };
+  state.sceneCategories.push(cat);
+  saveState();
+  return cat;
+}
+
+export function updateSceneCategory(id, patch) {
+  const cat = state.sceneCategories.find((c) => c.id === id);
+  if (!cat) return null;
+  Object.assign(cat, patch, { updatedAt: now() });
+  saveState();
+  return cat;
+}
+
+/** 删除场景分类:子分类提升到被删分类的父级,场景条目移到「未分类」(categoryId='') */
+export function removeSceneCategory(id) {
+  const cat = state.sceneCategories.find((c) => c.id === id);
+  if (!cat) return;
+  const parentPid = cat.parentId || '';
+  state.sceneCategories = state.sceneCategories.filter((c) => c.id !== id);
+  for (const c of state.sceneCategories) {
+    if (c.parentId === id) c.parentId = parentPid;
+  }
+  for (const s of state.scenes) {
+    if (s.categoryId === id) s.categoryId = '';
+  }
+  saveState();
+}
+
+export function sceneCategoryById(id) {
+  return state.sceneCategories.find((c) => c.id === id) || null;
+}
+
+/** 场景分类的直接子分类(按数组顺序,即渲染顺序) */
+export function getSceneCategoryChildren(parentId) {
+  const pid = parentId || '';
+  return state.sceneCategories.filter((c) => (c.parentId || '') === pid);
+}
+
+export function getSceneCategoryDescendants(catId) {
+  const out = [];
+  const collect = (pid) => {
+    for (const c of state.sceneCategories) {
+      if ((c.parentId || '') === pid) {
+        out.push(c.id);
+        collect(c.id);
+      }
+    }
+  };
+  collect(catId);
+  return out;
+}
+
+/** 拖动排序场景分类 */
+export function reorderSceneCategory(fromId, toId, place = 'before') {
+  const fromIdx = state.sceneCategories.findIndex((c) => c.id === fromId);
+  if (fromIdx < 0) return null;
+  const [moved] = state.sceneCategories.splice(fromIdx, 1);
+  let toIdx = state.sceneCategories.findIndex((c) => c.id === toId);
+  if (toIdx < 0) toIdx = state.sceneCategories.length;
+  if (place === 'after') toIdx += 1;
+  state.sceneCategories.splice(toIdx, 0, moved);
+  state.sceneCategories.forEach((c, i) => { c.sort = i; });
+  saveState();
+  return moved;
+}
+
+/** 新增场景条目;type: 'folder' | 'file' */
+export function addScene({ categoryId = '', name, filePath, type = 'folder', remark = '', tags = [], size = null, mtime = null }) {
+  const scene = {
+    id: uid('sn'),
+    categoryId: categoryId || '',
+    name,
+    filePath: filePath || '',
+    type,
+    remark: remark || '',
+    tags: cleanTags(tags),
+    size,
+    mtime,
+    createdAt: now(),
+  };
+  state.scenes.push(scene);
+  saveState();
+  return scene;
+}
+
+export function updateScene(id, patch) {
+  const s = state.scenes.find((x) => x.id === id);
+  if (!s) return null;
+  if (patch.tags) patch.tags = cleanTags(patch.tags);
+  Object.assign(s, patch, { updatedAt: now() });
+  saveState();
+  return s;
+}
+
+export function removeScene(id) {
+  state.scenes = state.scenes.filter((s) => s.id !== id);
+  saveState();
+}
+
+export function sceneById(id) {
+  return state.scenes.find((s) => s.id === id) || null;
+}
+
+/** 某分类(含未分类 '')下的直属场景条目 */
+export function scenesInCategory(catId) {
+  const target = catId === 'all' ? null : (catId || '');
+  return state.scenes.filter((s) => (catId === 'all') || (s.categoryId || '') === target);
 }
