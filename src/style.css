@@ -130,6 +130,7 @@ body {
 }
 
 .cat-node {
+  position: relative;
   display: flex; align-items: center; gap: 6px;
   padding: 7px 8px; margin-bottom: 2px; border-radius: var(--radius);
   cursor: pointer; color: var(--text); user-select: none;
@@ -152,8 +153,18 @@ body {
 .cat-node .cat-icon { color: var(--text2); font-size: 12px; width: 16px; text-align: center; flex-shrink: 0; }
 .cat-node .cat-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cat-node .cat-count { font-size: 11px; color: var(--text2); background: var(--bg3); border-radius: 8px; padding: 0 7px; flex-shrink: 0; }
-.cat-node .cat-ops { display: none; gap: 2px; }
-.cat-node:hover .cat-ops { display: flex; }
+/* 优化(v1.7.1→v1.7.2):操作按钮改为右侧绝对定位浮层 + opacity/transform 切换。
+   浮层不占布局空间,名称(.cat-name)可显区恢复占满行宽——多层子目录缩进后名称仍完整;
+   hover 仅触发合成层(opacity/transform),零 reflow,卡顿修复保持有效。
+   hover 时计数(.cat-count)同步淡出,避免被按钮浮层遮挡。 */
+.cat-node .cat-ops {
+  position: absolute; right: 6px; top: 50%;
+  transform: translateY(-50%) translateX(10px);
+  display: flex; gap: 2px; opacity: 0; pointer-events: none;
+  transition: opacity .15s, transform .15s;
+}
+.cat-node:hover .cat-ops { opacity: 1; transform: translateY(-50%) translateX(0); pointer-events: auto; }
+.cat-node:hover .cat-count { opacity: 0; }
 .cat-node .cat-ops .icon-btn { width: 20px; height: 20px; font-size: 11px; }
 .cat-node .cat-remark { color: var(--text2); font-size: 11px; }
 
@@ -182,6 +193,7 @@ body {
 /* 树内条目节点 */
 .tree-items { padding: 0 0 2px 18px; }
 .item-node {
+  position: relative;
   display: flex; align-items: center; gap: 6px;
   padding: 6px 8px; margin-bottom: 2px; border-radius: var(--radius);
   cursor: pointer; color: var(--text); font-size: 13px;
@@ -189,8 +201,15 @@ body {
 .item-node:hover { background: var(--bg3); }
 .item-node.active { background: var(--bg4); color: #fff; }
 .item-node .ic-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.item-node .ic-ops { display: none; gap: 2px; }
-.item-node:hover .ic-ops { display: flex; }
+/* 优化(v1.7.1→v1.7.2):同 cat-ops,条目操作按钮改为右侧绝对定位浮层,
+   名称(.ic-name)可显区恢复占满行宽;hover 仅 opacity/transform 合成,零 reflow(卡顿修复保持)。 */
+.item-node .ic-ops {
+  position: absolute; right: 6px; top: 50%;
+  transform: translateY(-50%) translateX(10px);
+  display: flex; gap: 2px; opacity: 0; pointer-events: none;
+  transition: opacity .15s, transform .15s;
+}
+.item-node:hover .ic-ops { opacity: 1; transform: translateY(-50%) translateX(0); pointer-events: auto; }
 .item-node .ic-ops .icon-btn { width: 20px; height: 20px; font-size: 11px; }
 
 /* ---------- 列表 ---------- */
@@ -447,8 +466,32 @@ input[type="color"] { width: 30px; height: 26px; border: 1px solid var(--border)
 .resource-tabs .tab.active:hover { background: var(--accent); }
 
 /* ---------- 游戏资源管理器:主内容区三页 ---------- */
-.content-panel { flex: 1; display: flex; min-width: 0; background: var(--bg); }
+.content-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
 .content-panel .page { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+/* 主区多标签页条 */
+.tab-strip {
+  display: flex; align-items: center; gap: 2px; flex: 0 0 auto;
+  padding: 4px 8px 0; overflow-x: auto; overflow-y: hidden;
+  border-bottom: 1px solid var(--border, #333);
+  background: rgba(255, 255, 255, 0.02);
+  min-height: 30px;
+}
+.main-tab {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 8px; border-radius: 6px 6px 0 0; cursor: pointer;
+  font-size: 12px; color: var(--text2, #aaa); white-space: nowrap;
+  max-width: 200px; overflow: hidden;
+}
+.main-tab .mt-label { overflow: hidden; text-overflow: ellipsis; }
+.main-tab:hover { background: rgba(255, 255, 255, 0.08); color: var(--text, #eee); }
+.main-tab.active { background: var(--bg2, #262a33); color: var(--text, #eee); box-shadow: inset 0 -2px 0 var(--accent2, #6fb3ff); }
+.main-tab .mt-close {
+  width: 15px; height: 15px; line-height: 13px; text-align: center;
+  border-radius: 50%; font-size: 12px; color: var(--text3, #888);
+  visibility: hidden; flex: 0 0 auto;
+}
+.main-tab:hover .mt-close { visibility: visible; }
+.main-tab .mt-close:hover { background: rgba(255, 255, 255, 0.15); color: #fff; }
 
 /* 面包屑 */
 .breadcrumb {
@@ -1282,6 +1325,14 @@ input[type="color"] { width: 30px; height: 26px; border: 1px solid var(--border)
   flex: 0 0 auto;
 }
 .fg-comp-cnt { color: var(--text3, #666); }
+.fg-comp-search {
+  flex: 0 0 auto; margin: 5px 8px 3px; padding: 3px 8px;
+  font-size: 12px; border-radius: 4px;
+  border: 1px solid var(--border, #333);
+  background: rgba(255, 255, 255, 0.05); color: var(--text, #eee);
+  outline: none; min-width: 0;
+}
+.fg-comp-search:focus { border-color: var(--accent2, #6fb3ff); }
 .fg-comp-list { overflow: auto; padding: 4px 6px; font-size: 12px; flex: 1; min-height: 0; }
 .fg-comp-item {
   padding: 3px 6px; border-radius: 4px; cursor: pointer;
@@ -1294,6 +1345,8 @@ input[type="color"] { width: 30px; height: 26px; border: 1px solid var(--border)
 .fg-comp-type { color: var(--text3, #888); font-size: 11px; }
 .fg-ext { color: #ffa657; font-size: 11px; }
 .fg-comp-item.active .fg-comp-type, .fg-comp-item.active .fg-ext { color: rgba(255, 255, 255, 0.85); }
+/* 背景色「存」小按钮(紧贴调色盘,单字) */
+.bg-save-btn { padding: 1px 7px; min-width: 26px; font-size: 11px; }
 .fg-snap-bar {
   display: flex; align-items: center; gap: 5px; flex-wrap: wrap;
   padding: 6px 10px; border-bottom: 1px solid var(--border, #333);

@@ -1,5 +1,20 @@
-import { state, getFolderData, sortItems, formatSize, formatDate, TYPE_LABEL, typeGroup, categoryById, getCategoryPathList, itemTags, categoryLabel, favCategoryById, itemById, catVisibleInGroup, categoryTypeTagNames } from '../state.js';
+import { state, getFolderData, sortItems, formatSize, formatDate, TYPE_LABEL, typeGroup, categoryById, getCategoryPathList, itemTags, categoryLabel, favCategoryById, itemById, catVisibleInGroup, categoryTypeTagNames, getCategoryChildren, TYPE_GROUPS } from '../state.js';
 import { thumbnailService } from '../thumbnails.js';
+
+/** 搜索模式资源池:catId=null 全库;否则含子分类递归;types=null 全部类型 */
+function collectSearchPool(catId, types) {
+  const catIds = new Set();
+  const walk = (id) => {
+    if (!id) return;
+    catIds.add(id);
+    for (const c of getCategoryChildren(id)) walk(c.id);
+  };
+  if (catId != null) walk(catId);
+  return state.items.filter((it) => {
+    if (types && !types.includes(it.type)) return false;
+    return catId == null ? true : catIds.has(it.categoryId);
+  });
+}
 
 function escapeHtml(s) {
   return String(s == null ? '' : s)
@@ -33,11 +48,19 @@ export function renderFolderPage(container, opts) {
   const selectedIds = new Set(opts.selectedIds || []);
   const tagFilter = opts.tagFilter || '';
   const searchText = opts.searchText || '';
+  const searchMode = !!opts.searchMode; // 顶栏全局搜索:全类型/递归子目录范围
 
   const data = getFolderData(catId, group);
 
+  // 搜索模式数据源:home → 全部类型;类型 → 该类型;目录 → 该目录含子分类递归
+  let pool = data.direct;
+  if (searchMode) {
+    const types = group === 'home' ? null : (TYPE_GROUPS[group] || null);
+    pool = collectSearchPool(catId === 'all' ? null : catId, types);
+  }
+
   // 标签过滤 + 文本搜索(名称 / 属性 / 标签)
-  let sorted = sortItems(data.direct, sortBy, sortDir);
+  let sorted = sortItems(pool, sortBy, sortDir);
   const filterActive = !!(tagFilter || searchText);
   if (tagFilter) sorted = sorted.filter((i) => itemTags(i).includes(tagFilter));
   if (searchText) {
@@ -72,11 +95,11 @@ export function renderFolderPage(container, opts) {
   container.innerHTML = `
     <div class="folder-head">
       <div class="folder-title">
-        <span class="ft-icon">${catId ? '📂' : '🗂'}</span>
-        <span>${escapeHtml(cat ? cat.name : catId === '' ? '未分类' : '全部资源')}</span>
+        <span class="ft-icon">${searchMode ? '🔍' : catId ? '📂' : '🗂'}</span>
+        <span>${searchMode ? '搜索结果' : escapeHtml(cat ? cat.name : catId === '' ? '未分类' : '全部资源')}</span>
       </div>
       <div class="folder-stats" id="folder-stats">
-        共 ${data.stats.total} 项 · ${byTypeText.join(' · ')} · 占用 ${formatSize(data.stats.totalSize)}
+        ${searchMode ? `匹配「${escapeHtml(searchText)}」· ` : ''}共 ${sorted.length} 项 · ${byTypeText.join(' · ')} · 占用 ${formatSize(data.stats.totalSize)}
       </div>
     </div>
 

@@ -5,9 +5,10 @@
 import {
   state,
   addScene, addSceneCategory, updateScene, removeScene,
-  getSceneCategoryChildren, scenesInCategory, findSceneByFilePath, recordRecentOpen,
+  getSceneCategoryChildren, scenesInCategory, findSceneByFilePath, recordRecentOpen, setSetting,
 } from '../state.js';
 import { toast, showContextMenu, confirmDialog, promptDialog, footButtons, openModal } from '../dialogs.js';
+import { initBgColorBar } from '../bgColor.js';
 import { FguiLayoutPreview } from '../viewers/fguiLayoutPreview.js';
 
 let fguiPreview = null; // FGUI 预览控制器(单例, 切换时 dispose 重建)
@@ -15,6 +16,49 @@ let fguiKeyHandler = null; // FGUI 预览页 Ctrl+Z 撤销监听(重建页面时
 
 function escHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+}
+
+/** 场景搜索结果页(顶栏全局搜索;catId=null 全部场景,否则当前目录含子分类) */
+export function renderSceneSearchResults(q, catId, actions = {}) {
+  const container = document.getElementById('page-scene');
+  if (!container || !q) return;
+  // 收集场景池:全部 或 当前目录递归子分类
+  const catIds = new Set();
+  const walkCat = (id) => {
+    if (id == null) return;
+    catIds.add(id);
+    for (const c of getSceneCategoryChildren(id)) walkCat(c.id);
+  };
+  if (catId != null) walkCat(catId);
+  const pool = state.scenes.filter((s) => catId == null || catIds.has(s.categoryId));
+  const hits = pool.filter((s) =>
+    String(s.name || '').toLowerCase().includes(q) ||
+    String(s.filePath || '').toLowerCase().includes(q));
+  const range = catId != null ? '当前目录范围' : '全部场景';
+  container.innerHTML = `
+    <div class="scene-home">
+      <div class="home-title">🔍 场景搜索结果</div>
+      <div class="home-subtitle">匹配「${escHtml(q)}」· ${hits.length} 条 · ${range}</div>
+      <div class="scene-recent">
+        <div class="recent-list">
+          ${hits.length ? hits.map((s) => `
+            <div class="recent-item" data-sr-scene="${s.id}" title="${escHtml(s.filePath || '')}">
+              <span class="type-badge">${s.subtype === 'fgui' ? '🧩' : s.type === 'folder' ? '📁' : '📄'}</span>
+              <span class="ri-name">${escHtml(s.name || '')}</span>
+              <span class="ri-meta">${escHtml(s.filePath || '')}</span>
+            </div>`).join('') : '<div class="home-empty">没有匹配的场景</div>'}
+        </div>
+      </div>
+    </div>
+  `;
+  container.querySelectorAll('[data-sr-scene]').forEach((el) => {
+    el.addEventListener('click', () => {
+      const s = state.scenes.find((x) => x.id === el.dataset.srScene);
+      if (!s) return;
+      if (s.subtype === 'fgui' && actions.onOpenFgui) actions.onOpenFgui(s.id);
+      else if (actions.onOpenPath && s.filePath) actions.onOpenPath(s);
+    });
+  });
 }
 
 /** 场景主页:统计 + 分类入口 + 场景总数 */
@@ -146,6 +190,14 @@ export function renderFguiPreviewPage(container, { onBack, initialBinPath } = {}
         <button class="btn sm" id="fgpv-export" disabled title="导出当前包到其所在目录下的同名子目录(已存在文件时提示是否覆盖)">📤 导出资源</button>
         <button class="btn sm" id="fgpv-snapshot" disabled title="保存当前组件编辑后的布局快照(JSON),自动关联到该 FGUI 包">💾 保存快照</button>
         <button class="btn sm" id="fgpv-texdir" style="display:none" title="自动探测纹理失败时手动指定纹理目录">🔧 选择纹理目录</button>
+        <span class="fg-bgbar" id="fgpv-bgbar" style="display:none">
+          <label class="ctrl-label" style="margin-left:2px">背景</label>
+          <input type="color" id="fgpv-bg-color" value="#1b1d23" title="调色盘选背景色(立即生效)" />
+          <button class="btn sm bg-save-btn" id="fgpv-bg-save" title="把调色盘当前颜色保存为自定义颜色">存</button>
+          <button class="btn sm" id="fgpv-bg-dark" title="深色背景 #1b1d23">深</button>
+          <button class="btn sm" id="fgpv-bg-light" title="浅色背景 #eef0f5">浅</button>
+          <button class="btn sm" id="fgpv-bg-custom" title="使用自定义颜色">自定</button>
+        </span>
         <span class="status" id="fgpv-status"></span>
       </div>
       <div class="fg-preview-layout">
@@ -157,6 +209,7 @@ export function renderFguiPreviewPage(container, { onBack, initialBinPath } = {}
           <div class="fg-hsplit" id="fgpv-hsplit" title="拖动调整右侧面板宽度"></div>
           <div class="fg-comp-bar" id="fgpv-compbar" style="display:none">
             <div class="fg-comp-title">📋 组件列表 <span class="fg-comp-cnt" id="fgpv-compcnt"></span></div>
+            <input class="fg-comp-search" id="fgpv-comp-search" type="text" placeholder="🔍 搜索组件(名称/类型/@包名)…" />
             <div class="fg-comp-list" id="fgpv-complist"></div>
           </div>
           <div class="fg-vsplit" id="fgpv-vsplit" style="display:none" title="拖动调整组件列表/属性面板占比"></div>
@@ -186,6 +239,7 @@ export function renderFguiPreviewPage(container, { onBack, initialBinPath } = {}
   const compSel = container.querySelector('#fgpv-comp');
   const statusEl = container.querySelector('#fgpv-status');
   const texBtn = container.querySelector('#fgpv-texdir');
+  const bgBarEl = container.querySelector('#fgpv-bgbar');
   const editBtn = container.querySelector('#fgpv-edit');
   const undoBtn = container.querySelector('#fgpv-undo');
   const unpackBtn = container.querySelector('#fgpv-unpack');
@@ -222,6 +276,7 @@ export function renderFguiPreviewPage(container, { onBack, initialBinPath } = {}
     unpackBtn.disabled = !loaded || !curBinPath;
     exportBtn.disabled = !loaded || !curBinPath;
     snapshotBtn.disabled = !loaded || !fguiPreview;
+    bgBarEl.style.display = loaded && fguiPreview ? '' : 'none';
     editBtn.classList.toggle('active', loaded && fguiPreview && fguiPreview.editMode);
   }
 
@@ -313,6 +368,16 @@ export function renderFguiPreviewPage(container, { onBack, initialBinPath } = {}
     }
     list.appendChild(frag);
     cnt.textContent = `(${total})`;
+    // 组件搜索:按文本过滤列表行(名称/类型/@外部包名)
+    const compSearch = container.querySelector('#fgpv-comp-search');
+    if (compSearch) {
+      compSearch.oninput = () => {
+        const q = compSearch.value.trim().toLowerCase();
+        list.querySelectorAll('.fg-comp-item').forEach((el) => {
+          el.style.display = !q || el.textContent.toLowerCase().includes(q) ? '' : 'none';
+        });
+      };
+    }
   }
 
   /** 组件下拉切换后,同步列表 active(主包组件项) */
@@ -503,6 +568,13 @@ export function renderFguiPreviewPage(container, { onBack, initialBinPath } = {}
     };
     // 画布选中 → 组件列表同步高亮
     bindCompListSelect();
+    // 应用已保存的背景色
+    if (fguiPreview) {
+      const bg = (state.settings && state.settings.fguiBgColor) || '#1b1d23';
+      const bgInput = container.querySelector('#fgpv-bg-color');
+      if (bgInput) bgInput.value = bg;
+      fguiPreview.setBackground(bg);
+    }
     // 从场景管理进入:自动加载指定包(手动加载时同样弹登记窗)
     if (initialBinPath) await loadPkg(initialBinPath, null, { register: true });
   })();
@@ -534,6 +606,21 @@ export function renderFguiPreviewPage(container, { onBack, initialBinPath } = {}
     const r = await window.api.pickFiles({ title: '选择包含图集纹理的目录(如 ui/fgui_texture/fgui)', directory: true });
     if (r.canceled || !r.filePaths.length) return;
     if (curBinPath) await loadPkg(curBinPath, r.filePaths[0]);
+  });
+
+  // 画布背景色:调色盘立即生效 + 深/浅/自定义反色按钮 + 保存自定义
+  initBgColorBar({
+    input: container.querySelector('#fgpv-bg-color'),
+    darkBtn: container.querySelector('#fgpv-bg-dark'),
+    lightBtn: container.querySelector('#fgpv-bg-light'),
+    customBtn: container.querySelector('#fgpv-bg-custom'),
+    saveBtn: container.querySelector('#fgpv-bg-save'),
+    dark: '#1b1d23',
+    onApply: (hex) => {
+      if (fguiPreview) fguiPreview.setBackground(hex);
+      setSetting('fguiBgColor', hex);
+      statusEl.textContent = '背景色已设为 ' + hex;
+    },
   });
 
   editBtn.addEventListener('click', () => {

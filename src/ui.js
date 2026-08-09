@@ -21,11 +21,12 @@ import {
   recordRecentOpen,
 } from './state.js';
 import { openModal, footButtons, confirmDialog, promptDialog, toast, showContextMenu } from './dialogs.js';
+import { initBgColorBar, customBgColor, BG_DARK, BG_LIGHT } from './bgColor.js';
 import { runAddFlow } from './addFlow.js';
 import { renderHomePage, renderFavHome } from './pages/homePage.js';
 import { renderFolderPage, renderFavFolderPage } from './pages/folderPage.js';
 import { renderToolboxPage } from './pages/toolboxPage.js';
-import { renderSceneHome, renderSceneFolderPage, renderFguiPreviewPage, promptRegisterFgui } from './pages/scenePage.js';
+import { renderSceneHome, renderSceneFolderPage, renderFguiPreviewPage, promptRegisterFgui, renderSceneSearchResults } from './pages/scenePage.js';
 import { renderSettingsPage } from './pages/settingsPage.js';
 import { ImageViewerController } from './viewers/imageViewer.js';
 import { AudioPlayerController } from './viewers/audioViewer.js';
@@ -57,6 +58,172 @@ let fguiPreviewShown = false; // 场景管理内 FGUI 界面预览子页是否�
 let pendingFguiBin = null; // 从场景管理进入 FGUI 预览时待加载的 .bin 路径(用后清空)
 let settingsShown = false; // 右侧是否显示系统设置页
 let settingsReturn = null; // 打开设置前的主区状态快照,关闭后恢复
+
+// ---- 主区多标签页(资源/功能页标签,可切换/关闭) ----
+const mainTabs = []; // [{key, id, kind, params, label, icon}]
+let activeTabId = null;
+
+/** 查找或创建标签(key 唯一);创建后默认激活 */
+function ensureTab(key, def) {
+  let t = mainTabs.find((x) => x.key === key);
+  if (!t) {
+    t = { key, id: 'tab' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), kind: '', params: {}, label: '', icon: '', ...def };
+    mainTabs.push(t);
+  }
+  activeTabId = t.id;
+  renderTabStrip();
+  return t;
+}
+
+function renderTabStrip() {
+  const strip = document.getElementById('tab-strip');
+  if (!strip) return;
+  strip.innerHTML = '';
+  for (const t of mainTabs) {
+    const el = document.createElement('div');
+    el.className = 'main-tab' + (t.id === activeTabId ? ' active' : '');
+    el.innerHTML = `<span class="mt-icon">${t.icon || ''}</span><span class="mt-label" title="${esc(t.label || '')}">${esc(t.label || '')}</span><span class="mt-close" title="关闭标签">×</span>`;
+    el.addEventListener('click', (e) => {
+      if (e.target.classList.contains('mt-close')) { closeTab(t.id); return; }
+      if (t.id !== activeTabId) switchTab(t.id);
+    });
+    strip.appendChild(el);
+  }
+}
+
+/** bin 文件名(去扩展名) */
+function pkgNameOf(p) {
+  return (String(p).split(/[\\/]/).pop() || '').replace(/\.[^.]+$/, '') || '未命名';
+}
+
+/** 切换标签:按标签参数重建主区内容 */
+function switchTab(id) {
+  const t = mainTabs.find((x) => x.id === id);
+  if (!t) return;
+  activeTabId = t.id;
+  renderTabStrip();
+  applyTabState(t);
+}
+
+/** 按标签参数设置模块状态并渲染对应内容 */
+function applyTabState(t) {
+  clearOverlays();
+  if (t.kind === 'preview') {
+    // 资源预览:经 selectItem 重建(内部会再 ensureTab 幂等)
+    if (t.params && t.params.itemId) selectItem(t.params.itemId);
+    return;
+  }
+  if (t.kind === 'folder') {
+    setResourceTab(t.params.tab || 'anim');
+    currentCategoryId = t.params.catId == null ? 'all' : t.params.catId;
+    setSetting('lastCategoryId', currentCategoryId);
+    if (currentCategoryId !== 'all' && currentCategoryId !== '') expandedCats.add(currentCategoryId);
+    renderMainArea();
+    renderCategories();
+    syncTabs();
+    return;
+  }
+  if (t.kind === 'home') {
+    setResourceTab('home');
+    renderMainArea();
+    renderCategories();
+    syncTabs();
+    return;
+  }
+  if (t.kind === 'toolbox') {
+    currentTool = t.params.tool || null;
+    toolboxHomeShown = !currentTool;
+    renderMainArea();
+    return;
+  }
+  if (t.kind === 'settings') {
+    settingsShown = true;
+    renderMainArea();
+    return;
+  }
+  if (t.kind === 'scene') {
+    const mode = t.params.mode || 'home';
+    sceneHomeShown = mode === 'home';
+    currentSceneCatId = mode === 'folder' ? (t.params.catId || '') : null;
+    fguiPreviewShown = mode === 'fgui';
+    pendingFguiBin = mode === 'fgui' ? (t.params.binPath || null) : null;
+    if (mode === 'fgui' && !expandedCats.has('__scene__')) expandedCats.add('__scene__');
+    renderMainArea();
+    return;
+  }
+  renderMainArea();
+}
+
+/** 关闭标签;若关闭的是当前标签,切到相邻标签重建内容 */
+function closeTab(id) {
+  const i = mainTabs.findIndex((x) => x.id === id);
+  if (i < 0) return;
+  mainTabs.splice(i, 1);
+  if (id === activeTabId) {
+    const next = mainTabs[Math.max(0, i - 1)] || mainTabs[0];
+    if (next) { activeTabId = next.id; renderTabStrip(); applyTabState(next); }
+    else { activeTabId = null; renderTabStrip(); ensureHomeTab(); }
+  } else {
+    renderTabStrip();
+  }
+}
+
+/** 兜底:确保至少有一个首页标签 */
+function ensureHomeTab() {
+  if (mainTabs.length) return;
+  ensureTab('home', { kind: 'home', label: '资源首页', icon: '🏠' });
+  applyTabState(mainTabs[mainTabs.length - 1]);
+}
+
+/** 渲染主区前同步标签(任何导航渲染后,标签条与内容保持一致) */
+function syncTabFromState() {
+  let tab = null;
+  if (fguiPreviewShown) {
+    tab = ensureTab(`scene-fgui-${pendingFguiBin || ''}`, { kind: 'scene', params: { mode: 'fgui', binPath: pendingFguiBin || '' }, label: pendingFguiBin ? pkgNameOf(pendingFguiBin) : 'FGUI 预览', icon: '🧩' });
+  } else if (currentTool || toolboxHomeShown) {
+    tab = ensureTab(`toolbox-${currentTool || '__home__'}`, { kind: 'toolbox', params: { tool: currentTool }, label: currentTool ? toolLabel(currentTool) : '资源工具箱', icon: '🧰' });
+  } else if (settingsShown) {
+    tab = ensureTab('settings', { kind: 'settings', label: '系统设置', icon: '⚙' });
+  } else if (sceneHomeShown || currentSceneCatId != null) {
+    tab = ensureTab(currentSceneCatId != null ? `scene-folder-${currentSceneCatId}` : 'scene-home', { kind: 'scene', params: { mode: currentSceneCatId != null ? 'folder' : 'home', catId: currentSceneCatId }, label: currentSceneCatId != null ? ((sceneCategoryById(currentSceneCatId) || {}).name || '未分类') : '游戏场景管理', icon: '🗺' });
+  } else if (favHomeShown || currentFavCategoryId != null) {
+    tab = ensureTab('fav', { kind: 'folder', params: { tab: (state.settings && state.settings.resourceTab) || 'anim', catId: 'all' }, label: '收藏夹', icon: '⭐' });
+  } else if (preview && preview.currentItemId) {
+    const it = itemById(preview.currentItemId);
+    if (it) {
+      tab = ensureTab(`preview-${it.id}`, { kind: 'preview', params: { itemId: it.id }, label: it.displayName || '', icon: previewTypeIcon(it.type) });
+    }
+  }
+  if (tab) { activeTabId = tab.id; renderTabStrip(); return; }
+  // 目录 / 类型主页 / 全局主页
+  const tabName = (state.settings && state.settings.resourceTab) || 'home';
+  const catId = currentCategoryId == null ? 'all' : currentCategoryId;
+  if (tabName === 'home') {
+    tab = ensureTab('home', { kind: 'home', label: '资源首页', icon: '🏠' });
+  } else if (catId === 'all' || catId === '') {
+    tab = ensureTab(`folder-${tabName}-all`, { kind: 'folder', params: { tab: tabName, catId: 'all' }, label: GROUP_LABEL[tabName] || '资源主页', icon: '📁' });
+  } else {
+    const cat = categoryById(catId);
+    tab = ensureTab(`folder-${tabName}-${catId}`, { kind: 'folder', params: { tab: tabName, catId }, label: cat ? cat.name : '未分类', icon: '📁' });
+  }
+  activeTabId = tab.id;
+  renderTabStrip();
+}
+
+const GROUP_LABEL = { anim: '动画主页', image: '图片主页', audio: '音频主页', '3d': '3D 资源主页' };
+
+function previewTypeIcon(type) {
+  const g = typeGroup(type);
+  if (g === 'anim') return '🎬';
+  if (type === 'image') return '🖼';
+  if (type === 'audio') return '♪';
+  if (type === 'model') return '🧊';
+  return '📄';
+}
+
+function toolLabel(tool) {
+  return ({ astc2png: 'ASTC→PNG', skel2json: 'SKEL→JSON', spinefix: 'Spine 修复', imageedit: '图片编辑' })[tool] || tool;
+}
 
 export function initUI(pv) {
   preview = pv;
@@ -182,7 +349,59 @@ export function renderCategories(selectId = currentCategoryId) {
 
 /** 兼容旧调用(条目变化时刷新树) */
 export function renderItems() {
+  if (searchText) {
+    renderTree(); // 搜索时侧栏展开全部分类
+    renderSearchResults();
+    return;
+  }
   renderTree();
+}
+
+/** 顶栏全局搜索:范围跟随当前上下文(类型/目录/场景/全部) */
+function renderSearchResults() {
+  const q = searchText;
+  if (!q) return;
+  const lq = q.toLowerCase();
+  // 场景上下文:搜索游戏场景(全部或当前目录)
+  if (sceneHomeShown || currentSceneCatId != null || fguiPreviewShown) {
+    showPage('scene');
+    renderSceneSearchResults(lq, currentSceneCatId, {
+      onOpenFgui: openFguiPreviewFromScene,
+      onOpenPath: (s) => { if (s.filePath) window.api.openPath(s.filePath); },
+    });
+    renderBreadcrumb();
+    return;
+  }
+  // 资源上下文:目录页搜索结果(全部类型 home / 当前类型 / 当前目录含子分类)
+  showPage('folder');
+  const tab = (state.settings && state.settings.resourceTab) || 'home';
+  const catId = currentCategoryId == null ? 'all' : currentCategoryId;
+  renderFolderPage(document.getElementById('page-folder'), {
+    catId,
+    group: tab,
+    viewMode: (state.settings && state.settings.listViewMode) || 'list',
+    sortBy: (state.settings && state.settings.listSortBy) || 'name',
+    sortDir: (state.settings && state.settings.listSortDir) || 'asc',
+    tagFilter: '',
+    searchText: q,
+    searchMode: true,
+    actions: {
+      onOpenItem: (itemId) => selectItem(itemId),
+      onOpenCat: (cid) => {
+        currentCategoryId = cid;
+        setSetting('lastCategoryId', cid);
+        expandedCats.add(cid);
+        // 进入分类时清空顶栏搜索,展示该分类全部内容
+        searchText = '';
+        const s = document.getElementById('search');
+        if (s) s.value = '';
+        renderMainArea(); renderCategories();
+      },
+      onItemMenu: (it, e) => openItemMenu(e.clientX, e.clientY, it),
+      onRefresh: () => renderItems(),
+    },
+  });
+  renderBreadcrumb();
 }
 
 function renderTree() {
@@ -1491,7 +1710,10 @@ function renderItemNode(it) {
   const nm = document.createElement('span');
   nm.className = 'ic-name';
   nm.textContent = it.displayName;
-  nm.title = itemTooltipText(it);
+  // 优化(v1.7.1):原生 title 改为简短信息,避免完整文件路径(~100+ 字符)
+  // 触发的超长 tooltip 在 Windows 上频繁弹出导致的合成开销与潜在系统交互。
+  // 完整信息保留在右键"属性"对话框(folderPage/主页条目侧完整可见)。
+  nm.title = `${it.displayName || ''} · ${it.type === 'spine' ? 'Spine' : it.type === 'dragonbones' ? 'DragonBones' : TYPE_LABEL[it.type] || it.type}`;
   row.appendChild(nm);
 
   // 已收藏:常显 ★ 标记 + hover 提示位置
@@ -1543,22 +1765,16 @@ function renderItemNode(it) {
     openItemMenu(e.clientX, e.clientY, it);
   });
 
-  // ---- 条目拖拽:拖到分类节点上 = 移动到该分类 ----
-  row.draggable = true;
+  // ---- 条目拖拽:优化(v1.7.1)----
+  // 原 row.draggable=true 在大量条目侧栏(本机实测 495+ 条 spine)密集 hover/划过时,
+  // 用户无意识按住鼠标会触发 HTML5 拖拽 → Windows 启动 OLE 拖拽会话,
+  // 鼠标被系统捕获用于 OLE 拖拽,且 Chromium 在大量 draggable 元素间频繁重建 OLE 会话,
+  // 导致"鼠标移动变慢,好一会才恢复"(Chromium / Windows 已知问题)。
+  // 去掉 draggable,改用右键菜单"移动到..."(moveItemDialog 已存在)承担分类移动功能。
+  // 分类节点的 draggable 保留(数量少,~20 个,误触概率低)。
+  // 分类节点 dragover/drop 的 dragKind==='item' 分支变成死代码,保留无害(防御未来回滚)。
+  // row.dataset.dragItemId 也不再需要,但保留以防外部脚本依赖。
   row.dataset.dragItemId = it.id;
-  row.addEventListener('dragstart', (e) => {
-    dragItemId = it.id;
-    dragKind = 'item';
-    e.dataTransfer.effectAllowed = 'move';
-    try { e.dataTransfer.setData('text/plain', it.id); } catch (err) { /* ignore */ }
-    row.classList.add('dragging');
-  });
-  row.addEventListener('dragend', () => {
-    dragItemId = null;
-    dragKind = null;
-    lastDragAt = Date.now();
-    clearDropMarkers();
-  });
 
   row.addEventListener('click', () => {
     if (Date.now() - lastDragAt < 300) return;
@@ -2177,6 +2393,7 @@ export function closeSettings() {
 
 /** 渲染主区域(工具箱 / 场景管理 / 收藏夹页面 / 按 tab + 当前分类分发) */
 export function renderMainArea() {
+  syncTabFromState(); // 多标签:渲染前同步标签条(内容与标签一致)
   updateBackSpecial(); // 同步顶栏"返回"按钮的显隐
   // ---- 资源工具箱主页(汇总视图:列出所有子菜单入口) ----
   if (toolboxHomeShown) {
@@ -2526,6 +2743,8 @@ function bindTabs() {
     toolboxHomeShown = false;
     sceneHomeShown = false;
     currentSceneCatId = null;
+    fguiPreviewShown = false;
+    pendingFguiBin = null;
     renderMainArea();
     renderCategories();
     syncTabs();
@@ -2554,6 +2773,8 @@ function bindBrandHome() {
       toolboxHomeShown = false;
       sceneHomeShown = false;
       currentSceneCatId = null;
+      fguiPreviewShown = false;
+      pendingFguiBin = null;
       renderMainArea();
       renderCategories();
       syncTabs();
@@ -2779,6 +3000,11 @@ function showPreviewPage(item) {
 export async function selectItem(id) {
   const item = itemById(id);
   if (!item) return;
+  // 打开资源 = 新建/激活预览标签
+  ensureTab(`preview-${item.id}`, {
+    kind: 'preview', params: { itemId: item.id },
+    label: item.displayName || '', icon: previewTypeIcon(item.type),
+  });
   // 记录最近打开(首页展示与再次打开)
   recordRecentOpen({ name: item.displayName || '', path: item.filePath, type: item.type, tab: typeGroup(item.type), itemId: item.id });
   setSetting('lastItemId', id);
@@ -4435,7 +4661,7 @@ function bindToolbar() {
       search.value = '';
       searchText = '';
       updateSearchClear();
-      renderItems();
+      renderMainArea(); // 清空搜索 → 恢复当前上下文视图
       search.focus();
     });
   }
@@ -4517,38 +4743,35 @@ function bindPreviewControls() {
     syncFrameSlider();
   });
 
-  // 背景
-  const bgInput = document.getElementById('bg-color');
-  bgInput.addEventListener('input', () => {
-    const c = bgInput.value;
-    setSetting('bgColor', c);
-    preview.setBgColor(c);
-  });
-  document.getElementById('bg-dark').addEventListener('click', () => {
-    bgInput.value = '#22242b';
-    setSetting('bgColor', '#22242b');
-    preview.setBgColor('#22242b');
-  });
-  document.getElementById('bg-light').addEventListener('click', () => {
-    bgInput.value = '#eef0f5';
-    setSetting('bgColor', '#eef0f5');
-    preview.setBgColor('#eef0f5');
+  // 背景(统一调色盘:深/浅/自定义按钮反色 + 保存自定义)
+  initBgColorBar({
+    input: document.getElementById('bg-color'),
+    darkBtn: document.getElementById('bg-dark'),
+    lightBtn: document.getElementById('bg-light'),
+    customBtn: document.getElementById('bg-custom'),
+    saveBtn: document.getElementById('bg-save'),
+    onApply: (c) => {
+      setSetting('bgColor', c);
+      preview.setBgColor(c);
+      const imgInput = document.getElementById('img-bg-color');
+      if (imgInput) imgInput.value = c;
+    },
   });
 
-  // 图片预览背景(与动画预览共用 bgColor 设置)
-  const imgBgInput = document.getElementById('img-bg-color');
-  if (imgBgInput) {
-    const applyImgBg = (c) => {
-      imgBgInput.value = c;
+  // 图片预览背景(与动画预览共用 bgColor 设置,同样支持自定义/保存)
+  initBgColorBar({
+    input: document.getElementById('img-bg-color'),
+    darkBtn: document.getElementById('img-bg-dark'),
+    lightBtn: document.getElementById('img-bg-light'),
+    customBtn: document.getElementById('img-bg-custom'),
+    saveBtn: document.getElementById('img-bg-save'),
+    onApply: (c) => {
       setSetting('bgColor', c);
       if (imageViewer) imageViewer.setBgColor(c);
-    };
-    imgBgInput.addEventListener('input', () => applyImgBg(imgBgInput.value));
-    const imgBgDark = document.getElementById('img-bg-dark');
-    if (imgBgDark) imgBgDark.addEventListener('click', () => applyImgBg('#22242b'));
-    const imgBgLight = document.getElementById('img-bg-light');
-    if (imgBgLight) imgBgLight.addEventListener('click', () => applyImgBg('#eef0f5'));
-  }
+      const animInput = document.getElementById('bg-color');
+      if (animInput) animInput.value = c;
+    },
+  });
 
   // 骨骼显示
   document.getElementById('show-bones').addEventListener('change', (e) => {

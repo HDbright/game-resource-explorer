@@ -3,9 +3,92 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.6.7`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.7.2`）。
 
 ---
+
+## 2026-08-09
+
+### [说明] 发布 v1.7.2（侧栏名称挤压优化版）
+- 内容：v1.7.1 → v1.7.2，针对上一版 hover 卡顿修复带来的"操作按钮始终占布局导致名称挤压"副作用做优化（仅 `src/style.css`）。
+- 产物：`release/游戏资源管理器-v1.7.2-便携版.zip`。
+
+## 2026-08-09
+
+### [修复] 侧栏操作按钮改为右侧绝对定位浮层，名称可显区恢复（v1.7.2）
+- **现象**：v1.7.1 hover 卡顿修复后副作用——`.ic-ops` / `.cat-ops` 改为始终 `display:flex` 占布局（~86px），`.ic-name` / `.cat-name` 可显区永久缩小；多层子目录缩进后名称显示不完整。
+- **根因**：上版为消除 `display:none→flex` hover 触发的 reflow，让操作按钮**始终占布局**；代价是名称被挤压。
+- **改动**：`src/style.css` —— 将 `.ic-ops` / `.cat-ops` 改为 **`position: absolute; right: 6px; top: 50%`** 的右侧浮层；`.item-node` / `.cat-node` 加 `position: relative` 作为定位上下文。hover 时按钮通过 **opacity 0→1 + transform translateX(10px→0)** 切换（仅合成层，**零 reflow**）。hover 时 `.cat-count` 同步淡出避免被按钮浮层遮挡。
+- **验证**：CDP 脚本 `scripts/_cdp_hover_verify.js` + `scripts/_cdp_deep_verify.js` 实测：
+  - 古荒遗迹顶级条目 `.ic-name` 宽度 **79.3px → 171.3px（+92px，近翻倍）**；
+  - 异兽灵境json→特效→UI 特效（3 层缩进）下条目名称完整显示 `fullNameVisible: true`；
+  - hover 前后宽度 Δ=0.00px（卡顿修复保持，零 reflow）。
+- **副作用**：hover 时按钮浮层会遮住名称尾部 ellipsis 区域的几个字符（用户看名称前面大部分完整，hover 时主要关注按钮而非名称尾字）；cat-count 在分类 hover 时淡出（视觉"计数让位给操作按钮"）。
+
+## 2026-08-09
+
+### [说明] 发布 v1.7.1（侧栏 hover 卡顿修复验证版）
+- 内容：v1.7.0 → v1.7.1，仅包含上一条 `[修复] 侧栏 hover 大分类 spine 条目卡顿` 的改动（`src/style.css` + `src/ui.js`），供用户实测。
+- 产物：`release/游戏资源管理器-v1.7.1-便携版.zip`。
+
+## 2026-08-09
+
+### [修复] 侧栏 hover 大分类 spine 条目卡顿、鼠标移动缓慢（v1.7.0）
+- **现象**：左侧栏展开含几百条 spine 的目录（如本机 495 条「古荒遗迹」）后，鼠标经过条目时电脑卡顿、鼠标箭头移动缓慢、停下好一会才恢复。
+- **根因（三层叠加）**：
+  1. **CSS reflow**：原 `.item-node:hover .ic-ops { display: none → flex }` 与 `.cat-node:hover .cat-ops` 同款，hover 时每行触发 reflow + `.ic-name` 文本收缩重算 ellipsis，密集条目下 Chromium 合成压力升高。
+  2. **HTML5 draggable + Windows OLE 拖拽**：`renderItemNode` 把每条 `row.draggable=true`，495 条全是 draggable，用户无意识按住鼠标划过时 Chromium 启动 OLE 拖拽会话，鼠标被系统捕获用于 OLE 拖拽，**且 Chromium 在大量 draggable 元素间频繁重建 OLE 会话**，体感"鼠标移动变慢、好一会才恢复"（Chromium/Windows 已知问题）。
+  3. **原生 title tooltip**：`nm.title` 含完整 Windows 文件路径（80~150+ 字符），495 个条目 hover 频繁触发超长原生 tooltip，与 Windows 系统 UI 频繁交互。
+- **改动**：
+  - `src/style.css`：`.ic-ops` / `.cat-ops` 改为 **`opacity 0 → 1` + `pointer-events none → auto` 切换**（合成层操作，零 reflow）；`.ic-ops` 默认 `display:flex`，按钮始终占布局但不可见。
+  - `src/ui.js renderItemNode`：
+    - 去掉 `row.draggable=true` 及 `dragstart`/`dragend` 监听器；分类移动改走右键菜单「移动到...」（`moveItemDialog` 已存在）。
+    - `nm.title` 简化为「`名称 · 类型`」（如 `aonao · Spine`，13~37 字符），去掉完整路径；完整信息保留在右键属性对话框。
+  - 分类节点（renderCatNode）的 draggable 保留（数量仅 ~20 个，误触概率低）；其 `dragover/drop` 中 `dragKind==='item'` 分支变成死代码但保留（防御回滚）。
+- **验证**：CDP 脚本 `scripts/_cdp_hover_verify.js` 软渲染 + 真实加载 495 条 spine 后采样——
+  - 修复前预期：`.ic-name` 宽度 hover 时被挤压 ~86px（display:flex 触发 reflow）。
+  - 修复后实测：`.ic-name` 宽度 hover 前后 **Δ = 0.00px**，`.ic-ops` opacity 从 0→1 正常生效，rAF 全程 17ms 稳定，无 longtask。
+- **副作用（已评估可接受）**：操作按钮区域始终占布局 ~86px，所有条目的 `.ic-name` 可显区永久比修复前窄约 86px（hover 前后一致，不再跳动）；若需恢复"非 hover 时名称占满"可改 `position:absolute` 浮层（当前未做）。
+
+## 2026-08-09
+
+### [新增] 顶栏搜索与侧栏上下文联动 + FGUI 组件列表搜索（v1.7.0）
+- **顶栏搜索上下文感知**：搜索范围自动跟随当前上下文——
+  - **全部资源首页** → 搜索**全部类型**资源；
+  - **动画/图片/音频/3D 类型主页** → 只搜**该类型**资源；
+  - **目录节点** → 搜**该目录（含子分类递归）** 内资源；
+  - **游戏场景管理（首页/目录）** → 搜**游戏场景**（全部或当前目录递归）；
+  - 输入即进入「🔍 搜索结果」列表页（名称/属性/标签/类型/分类匹配），清空搜索恢复原视图；搜索结果中点击分类自动清空搜索进入该分类。
+- **实现**：`renderItems` 搜索时走 `renderSearchResults()`（按上下文分发）；`folderPage` 新增 `searchMode`（`collectSearchPool` 全类型/递归子目录范围）；`scenePage` 新增 `renderSceneSearchResults(q, catId, actions)` 场景结果页（点击 FGUI 包直接预览）。
+- **FGUI 组件列表搜索**：组件列表面板新增搜索框「🔍 搜索组件(名称/类型/@包名)…」，输入即时过滤列表行（隐藏不匹配项）。
+- **验证**：新增 `scripts/search-smoke-main.js` + `run_search_smoke.js` PASS——首页搜索全类型 2 条、动画 tab 搜索仅动画 1 条、场景搜索出 FGUI 包、组件列表搜索 70→2 条；8 个旧冒烟回归全部通过。
+- **版本**：v1.6.10 → **v1.7.0**。
+
+## 2026-08-09
+
+### [修复] FGUI 预览背景色不生效 + 保存按钮优化
+- **修复 FGUI 预览背景色一直黑色**：`fguiLayoutPreview.js` 的 `setBackground` 之前写 `app.renderer.background = color`——Pixi v8 中 `renderer.background` 是 **BackgroundSystem 实例**（含 `set color(value)`），直接赋值对象不生效导致画布始终为初始黑色。已改为 `renderer.background.color = color`（源码级验证 setter 存在），同时保留画布容器 CSS 背景同步；`setBackground` 额外写 `rootEl.dataset.bg` 作为测试钩子。
+- **保存按钮优化**：背景色条「保存」按钮改为单字 **「存」**（更小：`padding 1px 7px / min-width 26px / 11px`），位置移到**调色盘 input 之后**（紧贴色盘），动画预览/图片预览/FGUI 预览三处统一；顺序为 `调色盘 → 存 → 深 → 浅 → 自定`。
+- **顺带清理**：修复 FGUI 预览工具栏 `#fgpv-texdir` 按钮重复定义（此前编辑残留，两个相同 id）。
+- **验证**：complist 冒烟扩展 PASS——调色盘选白后 `wrap.dataset.bg === '#ffffff'`（setBackground 真实执行）+ CSS 背景变白；「存」按钮文字与紧贴调色盘顺序断言通过；保存自定义 `#ff0000` 后 dataset 变红且持久化；其余 7 个冒烟回归全部通过。
+- **版本**：v1.6.9 → v1.6.10。
+
+## 2026-08-09
+
+### [新增] 背景色调色盘统一升级 + 类型主页最近打开 + 主区多标签页
+- **背景色统一(动画/图片/FGUI 三模块)**：新增共享工具 `src/bgColor.js`（`initBgColorBar`）——调色盘(`input type=color`)选色**立即生效**；「深」「浅」按钮**背景=对应颜色、文字反色**（深 #22242b 白字 / 浅 #eef0f5 黑字，FGUI 深色 #1b1d23）；新增「自定」按钮（背景=已保存的自定义色、文字反色，点击应用）；调色盘旁新增「保存」按钮——把当前调色盘颜色**保存为自定义颜色**（`settings.customBgColor`，全局共享）并立即应用。动画/图片预览共用 `bgColor` 设置、FGUI 用 `fguiBgColor`。
+- **类型主页最近打开**：每个资源类型主页（动画/图片/音频/3D）新增「🕘 最近打开」模块，**只显示对应类型**的最近打开记录（按类型组过滤，上限 10 条），点击同样可再次打开。
+- **主区多标签页**：主内容区顶部新增标签条 `#tab-strip`——**打开资源以新标签页打开**（标签=资源名+类型图标）；点击类型/目录/工具箱/场景/设置/首页等导航时**切换为对应标签页**，原标签保留可随时切回；**鼠标悬停标签显示关闭符号 ×，点击关闭该标签**（关闭当前标签自动切到相邻标签，全部关闭时回到首页）。修复「FGUI 预览时点击『全部资源首页』按钮无法切换回首页」——品牌/资源标签切换漏清 `fguiPreviewShown/pendingFguiBin` 导致被 FGUI 预览拦截。
+- **验证**：新增 `scripts/tabs-smoke-main.js` + `run_tabs_smoke.js` PASS（打开 FGUI 建标签 → 点品牌回首页且 FGUI 标签保留 → 点标签切回预览 → hover 关闭按钮规则存在 → 关闭标签后回首页）；complist 冒烟更新为调色盘交互 PASS（深浅按钮反色、调色盘立即生效、保存自定义色持久化）；recent 冒烟扩展类型主页过滤 PASS；7 个旧冒烟回归全部通过。
+- **版本**：v1.6.8 → v1.6.9。
+
+## 2026-08-09
+
+### [新增] FGUI 预览画布背景色可更改
+- **需求**：FGUI 包预览画布区支持更改背景颜色。
+- **实现**：工具栏新增「🎨 背景色」按钮——弹出对话框选择预设（深色 `#1b1d23` / 中灰 `#3a4150` / 浅灰 `#c9d1d9` / 白色 `#ffffff`）或自定义输入 `#RRGGBB`；渲染器新增 `setBackground(hex)`（改 Pixi renderer 背景 + 画布容器背景并重渲染）；选择持久化到 `settings.fguiBgColor`，下次打开预览自动应用。
+- **验证**：`scripts/run_fgui_complist_smoke.js` 扩展断言 PASS——背景色按钮加载后启用、弹窗出现、选白色后画布容器背景变 `rgb(255,255,255)`、状态提示「背景色已设为 #ffffff」；其余 6 个冒烟回归全部通过。
+- **版本**：v1.6.7 → v1.6.8。
 
 ## 2026-08-09
 

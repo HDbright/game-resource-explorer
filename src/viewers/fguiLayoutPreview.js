@@ -342,6 +342,24 @@ export class FguiLayoutPreview {
     if (this._compHL) { this._compHL.clear(); this._compHL.visible = false; }
   }
 
+  /** 更改画布背景色(hex,如 '#1b1d23')并重渲染 */
+  setBackground(hex) {
+    const color = parseInt(String(hex || '').replace('#', ''), 16);
+    if (isNaN(color)) return;
+    if (this.app && this.app.renderer) {
+      const r = this.app.renderer;
+      // Pixi v8: renderer.background 是 BackgroundSystem 实例,须改 .color(直接赋值对象不生效 → 画布仍黑)
+      if (r.background && typeof r.background === 'object' && 'color' in r.background) r.background.color = color;
+      else r.background = color;
+    }
+    if (this.rootEl) {
+      const css = String(hex).startsWith('#') ? hex : '#' + hex;
+      this.rootEl.style.background = css;
+      this.rootEl.dataset.bg = css; // 测试钩子
+    }
+    this._render();
+  }
+
   /** 若目标世界点明显偏离视口, 平移 viewC 使其进入视口 */
   _ensureVisible(cx, cy) {
     const scale = Math.abs(this.viewC.scale.x || 1);

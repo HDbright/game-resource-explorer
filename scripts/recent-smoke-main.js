@@ -31,11 +31,12 @@ function setup() {
     type: 'file', subtype: 'fgui', remark: '', tags: [], size: null, mtime: null,
     fguiSnapshots: [], createdAt: Date.now(), updatedAt: Date.now(),
   });
-  // 注入最近打开记录(2 条:FGUI + 普通文件)
+  // 注入最近打开记录(3 条:FGUI + 普通文件 + spine 动画)
   d.settings = d.settings || {};
   d.settings.recentOpens = [
     { name: 'RECENT包(FGUI)', path: SAMPLE, type: 'fgui', tab: 'fgui', itemId: null, openedAt: Date.now() - 3600e3 },
     { name: 'sample.txt', path: 'E:/backup/sample.txt', type: 'file', tab: '', itemId: null, openedAt: Date.now() - 7200e3 },
+    { name: 'demo-anim', path: 'E:/demo/demo.skel', type: 'spine', tab: 'anim', itemId: null, openedAt: Date.now() - 1800e3 },
   ];
   dbm.writeDb(d);
 }
@@ -114,11 +115,19 @@ app.whenReady().then(async () => {
         if (fguiItem) { fguiItem.click(); await sleep(1200); }
         out.pkgText = (document.getElementById('fgpv-pkg') || {}).textContent || '';
         out.previewOpened = !!document.getElementById('fgpv-canvas');
+        // 3) 类型主页最近打开: 切到「动画」tab → 只显示 spine 记录(无 FGUI/文件)
+        const animTab = document.querySelector('[data-tab="anim"]');
+        out.animTabFound = !!animTab;
+        if (animTab) { animTab.click(); await sleep(600); }
+        const typeRecent = document.getElementById('home-recent-opens');
+        out.typeRecentText = typeRecent ? typeRecent.textContent : '';
+        out.typeRecentOnlyAnim = !!(typeRecent && (typeRecent.textContent || '').includes('demo-anim') && !(typeRecent.textContent || '').includes('RECENT包') && !(typeRecent.textContent || '').includes('sample.txt'));
         return out;
       })()`, true);
       console.log('FGUI-RECENT-SMOKE-RESULT ' + JSON.stringify(res, null, 2));
       const ok = res.recentSection && res.recentItems >= 2 && res.hasFguiItem && res.hasTime &&
-                 res.fguiItemFound && res.previewOpened && res.pkgText.includes('ActEmperorArrival');
+                 res.fguiItemFound && res.previewOpened && res.pkgText.includes('ActEmperorArrival') &&
+                 res.animTabFound && res.typeRecentOnlyAnim;
       console.log('FGUI-RECENT-SMOKE ' + (ok ? 'PASS' : 'FAIL'));
       cleanup();
       process.exit(ok ? 0 : 1);

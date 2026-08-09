@@ -37,6 +37,10 @@ function cleanup() {
   const d = dbm.readDb();
   d.sceneCategories = (d.sceneCategories || []).filter((c) => c.id !== uxCatId);
   d.scenes = (d.scenes || []).filter((s) => s.id !== 'sn_cl_fgui');
+  // 还原背景色设置(测试中改为白色/红色)与自定义色
+  d.settings = d.settings || {};
+  if (d.settings.fguiBgColor && d.settings.fguiBgColor !== '#1b1d23') d.settings.fguiBgColor = '#1b1d23';
+  if (d.settings.customBgColor) d.settings.customBgColor = '#3a4150';
   dbm.writeDb(d);
   try { fs.rmSync(TMP, { recursive: true, force: true }); } catch (e) { /* ignore */ }
 }
@@ -173,6 +177,33 @@ app.whenReady().then(async () => {
         }
         out.savedSideW = localStorage.getItem('fgpv-sideW') || '';
         out.savedCompH = localStorage.getItem('fgpv-compH') || '';
+        // 6) 画布背景色(调色盘): 深浅按钮反色样式 + 调色盘立即生效 + 保存自定义
+        const bgBarEl = document.getElementById('fgpv-bgbar');
+        const bgInput = document.getElementById('fgpv-bg-color');
+        const bgDark = document.getElementById('fgpv-bg-dark');
+        const bgSave = document.getElementById('fgpv-bg-save');
+        const bgCustomBtn = document.getElementById('fgpv-bg-custom');
+        out.bgBarVisible = bgBarEl ? bgBarEl.style.display !== 'none' : false;
+        out.bgDarkBg = bgDark ? bgDark.style.background : '';
+        out.bgDarkColor = bgDark ? bgDark.style.color : '';
+        if (bgInput) { bgInput.value = '#ffffff'; bgInput.dispatchEvent(new Event('input', { bubbles: true })); }
+        await sleep(250);
+        const wrap2 = document.getElementById('fgpv-canvas-wrap');
+        out.bgAfter = wrap2 ? getComputedStyle(wrap2).backgroundColor : '';
+        out.bgDataset = wrap2 ? wrap2.dataset.bg || '' : ''; // 渲染器 setBackground 测试钩子
+        out.bgStatus = (document.getElementById('fgpv-status') || {}).textContent || '';
+        // 存按钮:文字「存」+ 紧贴调色盘(顺序断言)
+        out.saveText = bgSave ? bgSave.textContent : '';
+        out.saveRightAfterInput = !!(bgInput && bgSave && bgInput.nextElementSibling === bgSave);
+        if (bgInput) { bgInput.value = '#ff0000'; bgInput.dispatchEvent(new Event('input', { bubbles: true })); }
+        if (bgSave) { bgSave.click(); await sleep(250); }
+        out.bgDatasetRed = wrap2 ? wrap2.dataset.bg || '' : '';
+        out.customBtnBg = bgCustomBtn ? bgCustomBtn.style.background : '';
+        try {
+          const dd = await window.api.dbRead();
+          out.savedCustom = (dd.settings && dd.settings.customBgColor) || '';
+          out.savedFguiBg = (dd.settings && dd.settings.fguiBgColor) || '';
+        } catch (e) { out.dbErr = e.message; }
         return out;
       })()`, true);
       console.log('FGUI-CL-SMOKE-RESULT ' + JSON.stringify(res, null, 2));
@@ -184,7 +215,11 @@ app.whenReady().then(async () => {
                  /已定位/.test(res.statusAfterMain || '') && res.mainActive &&
                  res.vSplitVisible && res.hSplitFound &&
                  res.compH1 > res.compH0 + 40 && res.sideW1 > res.sideW0 + 60 &&
-                 !!res.savedSideW && !!res.savedCompH;
+                 !!res.savedSideW && !!res.savedCompH &&
+                 res.bgBarVisible && res.bgDarkBg === 'rgb(27, 29, 35)' && res.bgDarkColor === 'rgb(255, 255, 255)' &&
+                 res.bgAfter === 'rgb(255, 255, 255)' && res.bgDataset === '#ffffff' && /背景色已设为/.test(res.bgStatus || '') &&
+                 res.saveText === '存' && res.saveRightAfterInput &&
+                 res.customBtnBg === 'rgb(255, 0, 0)' && res.bgDatasetRed === '#ff0000' && res.savedCustom === '#ff0000' && res.savedFguiBg === '#ff0000';
       console.log('FGUI-CL-SMOKE ' + (ok ? 'PASS' : 'FAIL'));
       cleanup();
       process.exit(ok ? 0 : 1);

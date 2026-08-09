@@ -49,6 +49,8 @@
       </aside>
 
       <section class="content-panel" id="content-panel">
+        <!-- 主区多标签页条(资源/功能页标签,可切换/关闭) -->
+        <div class="tab-strip" id="tab-strip"></div>
         <!-- 主页:各类资源统计与目录快捷入口 -->
         <div class="page page-home" id="page-home"></div>
 
@@ -120,9 +122,11 @@
                     <button class="icon-btn" id="anim-next" title="下一个动作">▶</button>
                     <span class="anim-dur" id="anim-dur"></span>
                     <label class="ctrl-label" style="margin-left:14px">背景</label>
-                    <input type="color" id="bg-color" value="#22242b" />
-                    <button class="btn sm" id="bg-dark">深</button>
-                    <button class="btn sm" id="bg-light">浅</button>
+                    <input type="color" id="bg-color" value="#22242b" title="调色盘选背景色(立即生效)" />
+                    <button class="btn sm bg-save-btn" id="bg-save" title="把调色盘当前颜色保存为自定义颜色">存</button>
+                    <button class="btn sm" id="bg-dark" title="深色背景 #22242b">深</button>
+                    <button class="btn sm" id="bg-light" title="浅色背景 #eef0f5">浅</button>
+                    <button class="btn sm" id="bg-custom" title="使用自定义颜色">自定</button>
                     <label class="chk"><input type="checkbox" id="show-bones" /> 骨骼</label>
                     <label class="chk"><input type="checkbox" id="flip-x" /> 镜像</label>
                     <button class="icon-btn" id="btn-rotate" title="旋转 90°">↻</button>
@@ -154,9 +158,11 @@
                   <button class="btn sm" id="img-fit">适配窗口</button>
                   <button class="btn sm" id="img-actual">100%</button>
                   <label class="ctrl-label" style="margin-left:14px">背景</label>
-                  <input type="color" id="img-bg-color" value="#22242b" />
-                  <button class="btn sm" id="img-bg-dark">深</button>
-                  <button class="btn sm" id="img-bg-light">浅</button>
+                  <input type="color" id="img-bg-color" value="#22242b" title="调色盘选背景色(立即生效)" />
+                  <button class="btn sm bg-save-btn" id="img-bg-save" title="把调色盘当前颜色保存为自定义颜色">存</button>
+                  <button class="btn sm" id="img-bg-dark" title="深色背景 #22242b">深</button>
+                  <button class="btn sm" id="img-bg-light" title="浅色背景 #eef0f5">浅</button>
+                  <button class="btn sm" id="img-bg-custom" title="使用自定义颜色">自定</button>
                   <div class="ctrl-spacer"></div>
                   <span class="status" id="img-status"></span>
                 </div>

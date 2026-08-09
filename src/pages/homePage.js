@@ -162,12 +162,26 @@ function renderTypeHome(container, actions, group) {
     </div>
 
     <div class="home-section">
+      <div class="home-section-title">🕘 最近打开</div>
+      <div class="recent-list" id="home-recent-opens">
+        ${renderRecentOpens(typeRecentOpens(group))}
+      </div>
+    </div>
+
+    <div class="home-section">
       <div class="home-section-title">🕘 最近添加</div>
       <div class="recent-list" id="home-recent-list">
         ${renderRecentList(data.recent)}
       </div>
     </div>
   `;
+}
+
+/** 该类型组的最近打开记录(只显示对应类型的资源) */
+function typeRecentOpens(group) {
+  const all = (state.settings && state.settings.recentOpens) || [];
+  const typeSet = new Set(TYPE_GROUPS[group] || []);
+  return all.filter((r) => typeSet.has(r.type) || r.tab === group).slice(0, 10);
 }
 
 function countByType(items, type) {

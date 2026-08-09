@@ -26,6 +26,10 @@ export const DEFAULT_SETTINGS = {
   audioCurrentListId: null, // 当前播放列表 id
   // 最近打开(首页展示): [{name, path, type, tab, itemId, openedAt}] 最新在前,上限 20
   recentOpens: [],
+  // FGUI 预览画布背景色
+  fguiBgColor: '#1b1d23',
+  // 自定义背景色(动画/图片/FGUI 背景色条共用,「保存」按钮写入)
+  customBgColor: '#3a4150',
   audioListFields: { // 播放列表条目显示字段(在设置页配置)
     fileName: true, // 文件名
     title: true, // 标题(ID3)
