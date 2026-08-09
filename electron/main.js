@@ -601,6 +601,14 @@ app.whenReady().then(async () => {
       return { ok: false, error: err.message };
     }
   });
+  // 源工程还原: 一个 .bin → outDir/<包名>/ (完整可被 FairyGUI 编辑器打开的包目录)
+  ipcMain.handle('fgui:exportSource', async (_e, { inputPath, outputDir, textureDir }) => {
+    try {
+      return fgui.restoreSourcePkg(inputPath, outputDir, { textureDir: textureDir || null });
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
   // FGUI 布局预览: 解析 .bin → 可渲染 RenderNode 树 + 控制器 + 纹理探测结果
   ipcMain.handle('fgui:previewLoad', async (_e, { inputPath, textureDir }) => {
     try {

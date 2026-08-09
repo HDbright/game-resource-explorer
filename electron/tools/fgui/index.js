@@ -1,10 +1,11 @@
 'use strict';
-/** FGUI 逆向工具对外 API: 探测 / 单文件解析 / 目录批量导出 */
+/** FGUI 逆向工具对外 API: 探测 / 单文件解析 / 目录批量导出 / 源工程还原 */
 const fs = require('fs');
 const path = require('path');
 const { ByteBuffer } = require('./byteBuffer');
 const { parsePackage } = require('./parser');
 const { buildOutputs } = require('./xml');
+const { restoreSource } = require('./restoreSource');
 
 const MAGIC = 0x46475549; // "FGUII"
 
@@ -104,4 +105,9 @@ function exportFile(inputFile, outDir) {
   return { ok: true, base, outDir, ownAtlasKeys, deps };
 }
 
-module.exports = { probeFgui, parseFile, parseDir, batchExport, exportFile, parsePackage };
+/** 还原为 FairyGUI 源工程包目录(完整可被编辑器打开的包) */
+function restoreSourcePkg(inputFile, outDir, opts = {}) {
+  return restoreSource(inputFile, outDir, opts);
+}
+
+module.exports = { probeFgui, parseFile, parseDir, batchExport, exportFile, restoreSourcePkg, parsePackage };

@@ -1157,7 +1157,7 @@ function parseItems(buf, indexTablePos, ver2) {
     it.type = _enum(E.ITEM_TYPE, buf.ReadByte(), '?');
     it.id = buf.ReadS();
     it.name = buf.ReadS();
-    buf.ReadS(); // path
+    it.path = buf.ReadS(); // path(包内子目录, 如 /images/)
     it.file = buf.ReadS();
     it.exported = buf.ReadBool();
     it.width = buf.ReadInt();
@@ -1166,9 +1166,12 @@ function parseItems(buf, indexTablePos, ver2) {
     if (t === 'Image') {
       const so = buf.ReadByte();
       if (so === 1) {
-        for (let j = 0; j < 4; j++) buf.ReadInt(); // scale9 rect
+        it.scaleOption = 1;
+        it.scale9Grid = { x: buf.ReadInt(), y: buf.ReadInt(), width: buf.ReadInt(), height: buf.ReadInt() };
         buf.ReadInt(); // tileGridIndice
-      } else if (so === 2) { /* 无数据 */ }
+      } else if (so === 2) {
+        it.scaleOption = 2;
+      }
       buf.ReadBool(); // smoothing
     } else if (t === 'MovieClip') {
       buf.ReadBool(); // smoothing

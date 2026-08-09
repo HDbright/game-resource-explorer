@@ -3,9 +3,40 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.7.2`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.7.3`）。
 
 ---
+
+## 2026-08-10
+
+### [说明] 发布 v1.7.3(便携版)
+- 在 v1.7.2 基础上重新打包,纳入 FGUI「导出源工程」功能的收尾修正(见同页 [新增] 条目与下方 [修复] 条目)。
+
+### [修复] FGUI 导出源工程:解码严格对齐 fgui-restore + 组件元数据补全
+- **parser.js**:`parseItems` 补全 `it.path`(包内子目录,如 `/images/`)、Image 项 `scaleOption` 与 `scale9Grid` 字段,供 source `package.xml` 正确输出 `scale="9grid" scale9grid="x,y,w,h"`。
+- **restoreSource.js**:`decodeFontData`/`decodeMovieclipData` 的 `nextPos` 改为 `raw.ReadShort() + raw.pointer`(严格对齐 fgui-restore 源码,原版漏加偏移会错位);位图字体/动画帧解析更稳健。
+- **scenePage.js**:「📤 导出源工程」按钮增加 `package.xml` 已存在时的覆盖确认对话框(取消则不打断)。
+- **index.js / main.js / preload.js**:正式接通 `fgui:exportSource` IPC(`restoreSourcePkg` → `fguiExportSource`)。
+- **验证**:`_test_restore_src.js` 回归通过,Common/Cooldown 等包还原正确(`path`/`scale9grid` 字段已写入 `package.xml`)。
+
+### [新增] FGUI 界面预览「导出源工程」:从发布包还原完整可打开的 FairyGUI 源工程
+- **功能**：FGUI 界面预览子页工具栏「📤 导出源工程」按钮,将 .bin 发布包还原为 FairyGUI 编辑器可直接打开的源工程包目录(输出到 bin 同目录 `<包名>_src/<包名>/`),还原方法参考开源项目 fgui-restore(krapnikkk)。
+- **还原内容**：
+  - `package.xml` 标准源工程格式(`<packageDescription id>` + `<resources>` 资源清单 component/image/movieclip/font/sound + `<publish name>` 发布节点),格式对照 FairyGUI-unity 仓库源工程样例;
+  - 组件 XML 按 `<id>.xml` 命名写入包内 path 子目录,displayList 扩展组件(Button/Label/ComboBox/ProgressBar/Slider/ScrollBar)改为源工程的内嵌 `<Button/>` 等节点写法,跨包引用在依赖包 .bin 存在时自动转为 `src="包名.资源名"`;
+  - 碎图从图集裁剪还原(`pngjs`,支持 rotated 旋转),输出 `<name>.png`;
+  - 位图字体还原 `<name>.fnt`(UIBuilder 格式);
+  - MovieClip 还原 `<name>.jta`("yytou" 头/version 102/24fps 基准,帧图取 `<id>_<i>` 命名碎图);
+  - 声音复制 `<name>.<ext>`(bin 同目录 / 共享素材库探测,缺失时跳过并提示)。
+- **改动文件**：
+  - 新增 `electron/tools/fgui/restoreSource.js`(还原主逻辑,参考 fgui-restore 的 decodeFontData/decodeMovieclipData/createMovieClip/handleSprites 方法);
+  - `electron/tools/fgui/parser.js`(items 保存 path / scaleOption / scale9Grid 字段);
+  - `electron/tools/fgui/xml.js`(emitChild 支持 srcResolver + 扩展组件内嵌节点;新增 emitSourcePackageXml);
+  - `electron/tools/fgui/index.js` / `electron/main.js`(新增 `fgui:exportSource` IPC) / `electron/preload.js`(暴露 fguiExportSource);
+  - `src/pages/scenePage.js`(「导出源工程」按钮;「解压FGUI包」保留旧 JSON/XML 提取);
+  - 新依赖 `pngjs`(纯 JS PNG 解码/裁剪),`scripts/pack-manual.js` MAIN_DEPS 已追加。
+- **验证**：samples/fgui 的 ActEmperorArrival(3 组件+11 碎图,跨包引用转 Common.xxx) 与 Common(113 组件+495 碎图+14 字体) 全量还原通过;fgui-restore/test 的 Basics(93 组件+121 碎图+3 动画 jta) / Transition / Cooldown 通过,生成 jta 头部校验 yytou/102/24fps 正确。
+- **已知限制**：MovieClip 帧图缺失时跳过该 jta(提示);跨包依赖 .bin 不在磁盘时保留原始 id 引用并提示一并导出;.fnt 为 UIBuilder 基础格式(fgui-restore 同款,部分字形属性待完善)。
 
 ## 2026-08-09
 

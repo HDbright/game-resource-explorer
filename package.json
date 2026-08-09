@@ -1,6 +1,6 @@
 {
   "name": "game-resource-explorer",
-  "version": "1.7.2",
+  "version": "1.7.3",
   "private": true,
   "description": "游戏资源管理器:管理并预览 Spine / DragonBones 骨骼动画、图片、音频、3D 模型游戏资源",
   "author": "game-resource-explorer",
@@ -53,7 +53,8 @@
     "http-proxy-agent": "^9.1.0",
     "https-proxy-agent": "^9.1.0",
     "node-id3": "^0.2.9",
-    "pixi.js": "^8.9.2"
+    "pixi.js": "^8.9.2",
+    "pngjs": "^7.0.0"
   },
   "devDependencies": {
     "electron": "^43.2.0",

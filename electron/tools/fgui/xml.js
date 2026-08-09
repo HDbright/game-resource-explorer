@@ -138,13 +138,20 @@ function emitRelations(L, indent, rels, childIds) {
   }
 }
 
-function emitChild(L, indent, ch, ctrlNames, childIds) {
+function emitChild(L, indent, ch, ctrlNames, childIds, srcResolver) {
   const p = ch.props || {};
   const ctype = ch.type || '?';
   const tag = TAG[ctype] || ctype.toLowerCase();
   const a = new A();
   a.set('id', p.id).set('name', p.name);
-  a.set('src', ch.src).set('pkg', ch.pkgId);
+  // src: 源工程格式——本包引用保持原样; 跨包引用经 srcResolver 转为 "包名.资源名"(依赖包缺失时保留 pkgId)
+  let src = ch.src;
+  let pkg = ch.pkgId;
+  if (srcResolver) {
+    const r = srcResolver(ch);
+    if (r && r.src != null) { src = r.src; pkg = r.pkg; }
+  }
+  a.set('src', src).set('pkg', pkg);
   a.set('xy', `${_num(p.x || 0)},${_num(p.y || 0)}`);
   if (p.initWidth !== undefined) a.set('size', `${_num(p.initWidth)},${_num(p.initHeight)}`);
   if (p.minWidth !== undefined) {
@@ -167,6 +174,10 @@ function emitChild(L, indent, ch, ctrlNames, childIds) {
   a.set('group', p.groupId).set('tooltips', p.tooltips);
   a.set('customData', p.data);
   a.set('pageController', p.pageController);
+
+  // ---- 子节点(扩展节点/relations/gears 等) ----
+  const inner = [];
+  const ind2 = indent + '  ';
 
   // ---- 类型专属属性 ----
   if (ctype === 'Text' || ctype === 'RichText' || ctype === 'InputText') {
@@ -252,32 +263,54 @@ function emitChild(L, indent, ch, ctrlNames, childIds) {
     a.set('vtScrollBarRes', sc.vtScrollBarRes);
     a.set('hzScrollBarRes', sc.hzScrollBarRes);
   } else if (ctype === 'Label' || ctype === 'Button' || ctype === 'ComboBox' ||
-             ctype === 'ProgressBar' || ctype === 'Slider') {
-    a.set('title', p.title).set('icon', p.icon);
-    a.set('selectedTitle', p.selectedTitle);
-    a.set('selectedIcon', p.selectedIcon);
-    a.set('titleColor', p.titleColor);
-    a.set('titleFontSize', p.titleFontSize);
-    a.set('controller', p.relatedController);
-    a.set('page', p.relatedPageId);
-    a.set('sound', p.sound);
-    a.set('volume', p.soundVolumeScale);
-    a.set('checked', p.selected);
-    a.set('value', p.value).set('max', p.max).set('min', p.min);
-    a.set('visibleItemCount', p.visibleItemCount);
-    a.set('popupDirection', p.popupDirection, 'auto');
-    a.set('selectionController', p.selectionController);
-    if (p.input) {
-      const i = p.input;
-      a.set('prompt', i.promptText).set('restrict', i.restrict);
-      a.set('maxLength', i.maxLength).set('password', i.password);
+             ctype === 'ProgressBar' || ctype === 'Slider' || ctype === 'ScrollBar') {
+    // 扩展组件: 扩展属性输出为内嵌 <Button/> 等节点(FairyGUI 源工程格式, 见官方 Demo 组件 XML)
+    const extA = new A();
+    if (ctype === 'Button') {
+      extA.set('title', p.title).set('selectedTitle', p.selectedTitle);
+      extA.set('icon', p.icon).set('selectedIcon', p.selectedIcon);
+      extA.set('titleColor', p.titleColor).set('titleFontSize', p.titleFontSize);
+      extA.set('controller', p.relatedController).set('page', p.relatedPageId);
+      extA.set('sound', p.sound).set('volume', p.soundVolumeScale);
+      extA.set('checked', p.selected);
+      extA.set('downEffect', p.downEffect).set('downEffectValue', p.downEffectValue);
+      if (p.input) {
+        const i = p.input;
+        extA.set('input', true).set('prompt', i.promptText).set('restrict', i.restrict);
+        extA.set('maxLength', i.maxLength).set('password', i.password);
+      }
+    } else if (ctype === 'Label') {
+      extA.set('title', p.title).set('icon', p.icon).set('titleColor', p.titleColor).set('titleFontSize', p.titleFontSize);
+    } else if (ctype === 'ProgressBar') {
+      extA.set('title', p.title).set('titleColor', p.titleColor).set('max', p.max).set('value', p.value).set('reverse', p.reverse);
+    } else if (ctype === 'Slider') {
+      extA.set('title', p.title).set('titleColor', p.titleColor).set('max', p.max).set('min', p.min)
+             .set('value', p.value).set('reverse', p.reverse).set('wholeNumbers', p.wholeNumbers);
+    } else if (ctype === 'ScrollBar') {
+      extA.set('fixedGripSize', p.fixedGripSize);
+    } else if (ctype === 'ComboBox') {
+      extA.set('title', p.title).set('titleColor', p.titleColor);
+      extA.set('visibleItemCount', p.visibleItemCount).set('direction', p.popupDirection);
+      extA.set('selectionController', p.selectionController).set('sound', p.sound).set('volume', p.soundVolumeScale);
+    }
+    if (ctype === 'ComboBox') {
+      const extInner = [];
+      for (const e of p.comboItems || []) {
+        const ia = new A();
+        ia.set('title', e.item).set('value', e.value).set('icon', e.icon);
+        extInner.push(`${ind2}  <item${ia}/>`);
+      }
+      if (!extA.empty || extInner.length) {
+        inner.push(`${ind2}<ComboBox${extA}>`);
+        inner.push(...extInner);
+        inner.push(`${ind2}</ComboBox>`);
+      }
+    } else if (!extA.empty) {
+      inner.push(`${ind2}<${ctype}${extA}/>`);
     }
   }
   if (!p.title && ch.titleText) a.set('titleFromTemplate', ch.titleText);
 
-  // ---- 子节点 ----
-  const inner = [];
-  const ind2 = indent + '  ';
   if (p.relations) emitRelations(inner, ind2, p.relations, childIds);
   if (p.gears) emitGears(inner, ind2, p.gears, ctrlNames);
   for (const b of p.controllerBindings || []) {
@@ -292,9 +325,6 @@ function emitChild(L, indent, ch, ctrlNames, childIds) {
     ia.set('selectedTitle', it.selectedTitle).set('icon', it.icon);
     ia.set('selectedIcon', it.selectedIcon).set('name', it.name);
     inner.push(`${ind2}<item${ia}/>`);
-  }
-  for (const e of p.comboItems || []) {
-    inner.push(`${ind2}<item title="${xe(e.item)}" value="${xe(e.value)}"${e.icon ? ` icon="${xe(e.icon)}"` : ''}/>`);
   }
   for (const [k, v] of Object.entries(ch.nestedText || {})) {
     if (k !== 'title' && k !== 'icon') {
@@ -331,7 +361,7 @@ function _tv(v) {
   return String(v);
 }
 
-function emitComponentXml(item, comp) {
+function emitComponentXml(item, comp, srcResolver) {
   const L = ['<?xml version="1.0" encoding="utf-8"?>'];
   const ca = new A();
   ca.set('size', `${comp.sourceWidth},${comp.sourceHeight}`);
@@ -398,7 +428,7 @@ function emitComponentXml(item, comp) {
   }
 
   L.push('  <displayList>');
-  for (const ch of comp.children || []) emitChild(L, '    ', ch, ctrlNames, childIds);
+  for (const ch of comp.children || []) emitChild(L, '    ', ch, ctrlNames, childIds, srcResolver);
   L.push('  </displayList>');
 
   if (comp.relations && comp.relations.length) {
@@ -488,4 +518,63 @@ function buildOutputs(pkg) {
   return out;
 }
 
-module.exports = { emitPackageXml, emitComponentXml, buildOutputs, xe, _num };
+/**
+ * 生成 FairyGUI 源工程包标准 package.xml(FairyGUI 编辑器可直接打开包的数据库文件)。
+ * 格式参考 FairyGUI-unity 仓库 UIProject 下的 assets 包 package.xml 与 fgui-restore handlePackageDataBin:
+ *   <packageDescription id><resources><component/image/movieclip/font/sound .../></resources>
+ *   <publish name="包名"><atlas name="Default" index="0"/></publish>
+ * Atlas 资源不列条目(源工程惯例), 图集由 publish.atlas 声明。
+ */
+function emitSourcePackageXml(pkg) {
+  const L = [`<?xml version="1.0" encoding="utf-8"?>`, `<packageDescription id="${xe(pkg.id)}">`, '  <resources>'];
+  const resPath = (it) => {
+    let p = it.path;
+    if (p == null || p === '') p = '/';
+    if (!p.endsWith('/')) p += '/';
+    return p;
+  };
+  for (const it of pkg.items) {
+    const id = xe(it.id);
+    const nm = it.name || it.id;
+    const path = resPath(it);
+    let tag;
+    let attrs;
+    if (it.type === 'Image') {
+      const ext = it.file && it.file.indexOf('.') > -1 ? '.' + it.file.split('.').pop() : '.png';
+      const name = nm.indexOf('.') > -1 ? nm : nm + ext;
+      tag = 'image';
+      attrs = `id="${id}" name="${xe(name)}" path="${path}"`;
+      if (it.scaleOption === 1 && it.scale9Grid) {
+        const g = it.scale9Grid;
+        attrs += ` scale="9grid" scale9grid="${g.x},${g.y},${g.width},${g.height}"`;
+      } else if (it.scaleOption === 2) {
+        attrs += ` scale="tile"`;
+      }
+    } else if (it.type === 'Component') {
+      tag = 'component';
+      attrs = `id="${id}" name="${xe(nm)}.xml" path="${path}"`;
+    } else if (it.type === 'MovieClip') {
+      tag = 'movieclip';
+      attrs = `id="${id}" name="${xe(nm)}.jta" path="${path}"`;
+    } else if (it.type === 'Font') {
+      tag = 'font';
+      attrs = `id="${id}" name="${xe(nm)}.fnt" path="${path}"`;
+    } else if (it.type === 'Sound') {
+      const ext = it.file && it.file.indexOf('.') > -1 ? '.' + it.file.split('.').pop() : '';
+      tag = 'sound';
+      attrs = `id="${id}" name="${xe(nm)}${ext}" path="${path}"`;
+    } else {
+      continue; // Atlas / Misc 等: 源工程不列
+    }
+    if (it.exported) attrs += ' exported="true"';
+    L.push(`    <${tag} ${attrs}/>`);
+  }
+  L.push('  </resources>');
+  L.push(`  <publish name="${xe(pkg.name)}">`);
+  L.push('    <atlas name="Default" index="0"/>');
+  L.push('  </publish>');
+  L.push('</packageDescription>');
+  return L.join('\n');
+}
+
+module.exports = { emitPackageXml, emitComponentXml, emitSourcePackageXml, buildOutputs, xe, _num };

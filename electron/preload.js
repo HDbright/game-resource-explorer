@@ -38,11 +38,12 @@ contextBridge.exposeInMainWorld('api', {
   probeSkel: (args) => ipcRenderer.invoke('tool:probeSkel', args),
   spineFix: (args) => ipcRenderer.invoke('tool:spinefix', args),
 
-  // ---- FGUI 逆向:探测 / 单包解析 / 目录批量导出 ----
+  // ---- FGUI 逆向:探测 / 单包解析 / 目录批量导出 / 源工程还原 ----
   fguiProbe: (args) => ipcRenderer.invoke('fgui:probe', args),
   fguiParse: (args) => ipcRenderer.invoke('fgui:parse', args),
   fguiBatchExport: (args) => ipcRenderer.invoke('fgui:batchExport', args),
   fguiExportSingle: (args) => ipcRenderer.invoke('fgui:exportSingle', args),
+  fguiExportSource: (args) => ipcRenderer.invoke('fgui:exportSource', args),
   fguiPreviewLoad: (args) => ipcRenderer.invoke('fgui:previewLoad', args),
 
   // ---- 音频播放器:目录列表 / ID3 元信息 ----

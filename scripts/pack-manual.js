@@ -64,7 +64,7 @@ function copyDir(src, dst, skipNames = []) {
  * 主进程运行时第三方依赖(渲染端依赖已由 vite 打包进 dist,无需复制)。
  * 新增主进程 npm 依赖时,在此追加包名(含 @scope/name);其 dependencies 会自动递归复制。
  */
-const MAIN_DEPS = ['@arkntools/astc-decode', '@esotericsoftware/spine-core', 'node-id3'];
+const MAIN_DEPS = ['@arkntools/astc-decode', '@esotericsoftware/spine-core', 'node-id3', 'pngjs'];
 
 /** 递归收集某包及其 dependencies 的 node_modules 路径 */
 function collectDeps(pkgName, visited, out) {

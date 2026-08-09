@@ -186,8 +186,8 @@ export function renderFguiPreviewPage(container, { onBack, initialBinPath } = {}
         <div class="fgpv-spacer"></div>
         <button class="btn sm" id="fgpv-edit" disabled title="切换可视化编辑模式(拖拽移动/调整大小/编辑属性)">✎ 编辑模式</button>
         <button class="btn sm" id="fgpv-undo" disabled title="撤销上一步编辑(Ctrl+Z)">↩ 撤销</button>
-        <button class="btn sm" id="fgpv-unpack" disabled title="用内置 FGUI 逆向导出功能,把当前包解压到其所在目录下同包子目录">📦 解压FGUI包</button>
-        <button class="btn sm" id="fgpv-export" disabled title="导出当前包到其所在目录下的同名子目录(已存在文件时提示是否覆盖)">📤 导出资源</button>
+        <button class="btn sm" id="fgpv-unpack" disabled title="用内置 FGUI 逆向导出功能,把当前包解压到其所在目录下同包子目录(JSON/XML/素材)">📦 解压FGUI包</button>
+        <button class="btn sm" id="fgpv-export" disabled title="导出完整 FairyGUI 源工程包:标准 package.xml + 组件 XML + 碎图 + 字体 + 动画,可直接用 FairyGUI 编辑器打开(输出到 <包名>_src 子目录)">📤 导出源工程</button>
         <button class="btn sm" id="fgpv-snapshot" disabled title="保存当前组件编辑后的布局快照(JSON),自动关联到该 FGUI 包">💾 保存快照</button>
         <button class="btn sm" id="fgpv-texdir" style="display:none" title="自动探测纹理失败时手动指定纹理目录">🔧 选择纹理目录</button>
         <span class="fg-bgbar" id="fgpv-bgbar" style="display:none">
@@ -685,7 +685,60 @@ export function renderFguiPreviewPage(container, { onBack, initialBinPath } = {}
   };
 
   unpackBtn.addEventListener('click', () => exportCurrentPkg({ confirm: true, actionLabel: '解压' }));
-  exportBtn.addEventListener('click', () => exportCurrentPkg({ confirm: true, actionLabel: '导出' }));
+
+  /**
+   * 导出完整 FairyGUI 源工程: .bin → <bin同目录>/<包名>_src/<包名>/
+   * 还原方法参考 fgui-restore: 标准 package.xml + <id>.xml 组件 + 图集裁剪碎图 + .fnt 字体 + .jta 动画 + 声音,
+   * 输出可直接用 FairyGUI 编辑器打开的源工程包目录(新建工程后放入 assets 目录即可)。
+   */
+  const exportSourcePkg = async () => {
+    if (!curBinPath) return;
+    const pkgName = pkgNameOf(curBinPath);
+    const outRoot = joinPath(binDirOf(curBinPath), pkgName + '_src');
+    const pkgOutDir = joinPath(outRoot, pkgName);
+    // 覆盖确认: package.xml 已存在
+    let existing = false;
+    try {
+      const st = await window.api.statFile(joinPath(pkgOutDir, 'package.xml'));
+      if (st && st.size != null) existing = true;
+    } catch (e) { /* ignore */ }
+    if (existing) {
+      const go = await new Promise((resolve) => {
+        confirmDialog({
+          title: '源工程已存在',
+          message: `「${escHtml(pkgName)}_src」目录已存在该包的源工程,是否覆盖?<br><code>${escHtml(pkgOutDir)}</code>`,
+          okText: '覆盖',
+          onOk: () => resolve(true),
+          onCancel: () => resolve(false),
+        });
+      });
+      if (!go) { statusEl.textContent = '已取消,未覆盖'; return; }
+    }
+    statusEl.textContent = '正在还原 FairyGUI 源工程...';
+    try {
+      const res = await window.api.fguiExportSource({ inputPath: curBinPath, outputDir: outRoot });
+      if (res && res.ok) {
+        let msg = `✅ 已导出 FairyGUI 源工程: ${res.pkgDir}`;
+        const parts = [];
+        if (res.components) parts.push(`组件 ${res.components}`);
+        if (res.images) parts.push(`碎图 ${res.images}`);
+        if (res.fonts) parts.push(`字体 ${res.fonts}`);
+        if (res.movieclips) parts.push(`动画 ${res.movieclips}`);
+        if (res.sounds) parts.push(`声音 ${res.sounds}`);
+        if (parts.length) msg += ` (${parts.join(', ')})`;
+        if (res.warnings && res.warnings.length) msg += ` [${res.warnings.length} 条提示]`;
+        if (res.skipped && res.skipped.length) msg += ` [跳过 ${res.skipped.length} 项,详情见日志]`;
+        statusEl.textContent = msg;
+        toast(msg, 'success');
+      } else {
+        statusEl.textContent = '✗ ' + ((res && res.error) || '导出失败');
+      }
+    } catch (e) {
+      statusEl.textContent = '✗ ' + (e.message || String(e));
+    }
+  };
+
+  exportBtn.addEventListener('click', () => exportSourcePkg());
 
   snapshotBtn.addEventListener('click', async () => {
     if (!fguiPreview || !payload) return;
