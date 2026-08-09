@@ -16,18 +16,20 @@ import {
   setResourceTab, setListViewMode, setListSort,
   itemTags, allTags, cleanTags,
   addSceneCategory, updateSceneCategory, removeSceneCategory, sceneCategoryById,
-  getSceneCategoryChildren, reorderSceneCategory,
-  addScene, updateScene, removeScene, scenesInCategory,
+  getSceneCategoryChildren, getSceneCategoryDescendants, reorderSceneCategory,
+  addScene, updateScene, removeScene, scenesInCategory, findSceneByFilePath,
+  recordRecentOpen,
 } from './state.js';
 import { openModal, footButtons, confirmDialog, promptDialog, toast, showContextMenu } from './dialogs.js';
 import { runAddFlow } from './addFlow.js';
 import { renderHomePage, renderFavHome } from './pages/homePage.js';
 import { renderFolderPage, renderFavFolderPage } from './pages/folderPage.js';
 import { renderToolboxPage } from './pages/toolboxPage.js';
-import { renderSceneHome, renderSceneFolderPage } from './pages/scenePage.js';
+import { renderSceneHome, renderSceneFolderPage, renderFguiPreviewPage, promptRegisterFgui } from './pages/scenePage.js';
 import { renderSettingsPage } from './pages/settingsPage.js';
 import { ImageViewerController } from './viewers/imageViewer.js';
 import { AudioPlayerController } from './viewers/audioViewer.js';
+import { FguiViewerController } from './viewers/fguiViewer.js';
 import { thumbnailService } from './thumbnails.js';
 import { makeCopyablePath, setCopyablePath } from './clipboard.js';
 
@@ -36,6 +38,7 @@ let searchText = '';
 let preview = null;
 let imageViewer = null;
 let audioPlayer = null;
+let fguiViewer = null;
 let lastFolderTab = 'anim'; // 进入预览前所在 tab,返回时恢复
 let editModeActive = false; // 目录列表页编辑模式开关
 const editSelected = new Set(); // 编辑模式下选中的资源 id
@@ -46,10 +49,12 @@ let favHomeShown = false; // 右侧是否显示收藏夹主页
 let currentFavCategoryId = null; // 当前收藏夹目录列表页的收藏分类 id(null = 不在收藏夹目录页)
 let previewReturnFav = null; // 从收藏夹页面进入预览时记录返回目标 {home, catId}
 // ---- 工具箱 / 场景管理 导航状态 ----
-let currentTool = null; // null | 'astc2png' | 'skel2json' | 'spinefix' | 'imageedit'
+let currentTool = null; // null | 'astc2png' | 'skel2json' | 'spinefix' | 'imageedit' | 'fgui'
 let toolboxHomeShown = false; // 右侧是否显示资源工具箱主页(汇总视图,含所有子菜单入口)
 let sceneHomeShown = false; // 右侧是否显示场景主页
 let currentSceneCatId = null; // 当前场景目录列表页的场景分类 id(null = 不在场景目录页;'' = 未分类)
+let fguiPreviewShown = false; // 场景管理内 FGUI 界面预览子页是否显示
+let pendingFguiBin = null; // 从场景管理进入 FGUI 预览时待加载的 .bin 路径(用后清空)
 let settingsShown = false; // 右侧是否显示系统设置页
 let settingsReturn = null; // 打开设置前的主区状态快照,关闭后恢复
 
@@ -86,6 +91,10 @@ export function initUI(pv) {
     miniName: document.getElementById('audio-mini-name'),
     miniPlay: document.getElementById('audio-mini-play'),
   });
+  // FGUI 包逆向查看器
+  fguiViewer = new FguiViewerController();
+  const fguiWrap = document.getElementById('pv-fgui-view');
+  if (fguiWrap) fguiViewer.init(fguiWrap);
   bindAudioPlayerExtras();
   // 设置页修改播放列表显示字段后,立即刷新队列显示
   document.addEventListener('audio:fieldsChanged', () => {
@@ -99,6 +108,19 @@ export function initUI(pv) {
   document.addEventListener('toolbox:navigate', (e) => {
     const id = e.detail && e.detail.id;
     if (id) openTool(id);
+  });
+  // 场景管理主页「FGUI 界面预览」卡片 / 场景条目「FGUI 预览」→ 进入预览子页(binPath 可选,进入后自动加载)
+  document.addEventListener('scene:navigate', (e) => {
+    const to = e.detail && e.detail.to;
+    if (to === 'fgui-preview') {
+      pendingFguiBin = (e.detail && e.detail.binPath) || null;
+      clearOverlays();
+      fguiPreviewShown = true;
+      sceneHomeShown = false;
+      if (!expandedCats.has('__scene__')) expandedCats.add('__scene__');
+      renderTree();
+      renderMainArea();
+    }
   });
   bindBrandHome();
   bindBreadcrumb();
@@ -116,6 +138,7 @@ const expandedCats = new Set(['all']); // 展开的分类 id('all' / '' / 分类
 let dragCatId = null;    // 当前拖拽中的分类 id
 let dragItemId = null;   // 当前拖拽中的条目 id
 let dragKind = null;     // 拖拽源类型:'cat'(分类) | 'favcat'(收藏分类) | 'item'(动画条目)
+let dragSceneCatId = null; // 当前拖拽中的场景分类 id
 let lastDragAt = 0;      // 上次拖拽结束时间(避免拖拽后误触发 click)
 
 /** 清理所有拖拽视觉标记 */
@@ -185,21 +208,21 @@ function renderTree() {
   const allName = { anim: '动画资源', image: '图片资源', audio: '音频资源', '3d': '3D资源', home: '资源' }[currentGroup() || 'home'];
   renderPseudoNode(tree, { id: 'all', icon: '▦', name: allName });
 
-  // 分格线:资源目录与工具箱之间
+  // 分格线:资源目录与场景管理之间
   const sep2 = document.createElement('div');
   sep2.className = 'tree-section-sep';
   tree.appendChild(sep2);
 
-  // 「资源工具箱」根菜单(展开后显示文件格式转换 / 图片编辑 等子菜单)
-  renderToolboxSection(tree);
+  // 「游戏场景管理」根菜单(展开后显示场景分类树 + 未分类场景)
+  renderSceneSection(tree);
 
-  // 分格线:工具箱与场景管理之间
+  // 分格线:场景管理与工具箱之间
   const sep3 = document.createElement('div');
   sep3.className = 'tree-section-sep';
   tree.appendChild(sep3);
 
-  // 「游戏场景管理」根菜单(展开后显示场景分类树 + 未分类场景)
-  renderSceneSection(tree);
+  // 「资源工具箱」根菜单(展开后显示文件格式转换 / 图片编辑 等子菜单)
+  renderToolboxSection(tree);
 }
 
 /** 资源工具箱侧栏根节点 + 子菜单 */
@@ -296,6 +319,19 @@ function renderToolboxSection(parent) {
   });
   wrap.appendChild(imgNode);
   imgNode.addEventListener('click', () => openTool('imageedit'));
+
+  // 「FGUI 逆向导出」叶子节点(指向 FGUI 逆向导出功能页)
+  const fguiNode = makeTreeNode({
+    icon: '🧩',
+    name: 'FGUI导出',
+    nodeId: '__tool:fgui',
+    active: currentTool === 'fgui',
+    paddingLeft: 22,
+    hasChildren: false,
+    isOpen: false,
+  });
+  wrap.appendChild(fguiNode);
+  fguiNode.addEventListener('click', () => openTool('fgui'));
 }
 
 /** 游戏场景管理侧栏根节点 + 场景分类树 */
@@ -324,6 +360,15 @@ function renderSceneSection(parent) {
     currentSceneCatId = null;
     renderTree();
     renderMainArea();
+  });
+  // 根节点右键:新建顶级场景目录 / 批量添加 FGUI 包
+  root.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    showContextMenu(e.clientX, e.clientY, [
+      { label: '新建目录', onClick: () => addSceneCategoryDialog('') },
+      { label: '添加 FGUI 包', onClick: () => addFguiPackagesDialog('') },
+    ]);
   });
 
   if (!rootOpen) return;
@@ -392,16 +437,78 @@ function renderSceneCatNode(parent, cat, depth) {
     renderMainArea();
   });
 
-  // 右键菜单:新建子分类 / 编辑 / 删除
+  // 右键菜单(与资源目录节点对齐):添加场景 / 新建目录 / 编辑 / 移动到顶级 / 删除
   node.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     e.stopPropagation();
     showContextMenu(e.clientX, e.clientY, [
-      { label: '新建子分类', onClick: () => addSceneCategoryDialog(cat.id) },
-      { label: '编辑分类', onClick: () => editSceneCategoryDialog(cat.id) },
-      { label: '移动到顶级', onClick: () => { updateSceneCategory(cat.id, { parentId: '' }); renderTree(); } },
-      { label: '删除分类', danger: true, onClick: () => deleteSceneCategoryDialog(cat.id) },
+      { label: '添加场景', onClick: () => addSceneDialog(cat.id) },
+      { label: '添加 FGUI 包', onClick: () => addFguiPackagesDialog(cat.id) },
+      { label: '新建目录', onClick: () => addSceneCategoryDialog(cat.id) },
+      { label: '编辑目录', onClick: () => editSceneCategoryDialog(cat.id) },
+      { label: '移动到顶级', onClick: () => { updateSceneCategory(cat.id, { parentId: '' }); renderTree(); renderMainArea(); } },
+      { label: '删除目录', danger: true, onClick: () => deleteSceneCategoryDialog(cat.id) },
     ]);
+  });
+
+  // ---- 场景分类拖拽排序(仅同父分类之间) + 拖入子分类(与资源分类节点一致) ----
+  node.draggable = true;
+  node.dataset.dragId = cat.id;
+  node.addEventListener('dragstart', (e) => {
+    dragSceneCatId = cat.id;
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData('text/plain', cat.id); } catch (err) { /* ignore */ }
+    node.classList.add('dragging');
+  });
+  node.addEventListener('dragend', () => {
+    dragSceneCatId = null;
+    lastDragAt = Date.now();
+    clearDropMarkers();
+  });
+  node.addEventListener('dragover', (e) => {
+    if (!dragSceneCatId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const rect = node.getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    const h = rect.height;
+    if (dragSceneCatId === cat.id) return;
+    const src = sceneCategoryById(dragSceneCatId);
+    if (!src || getSceneCategoryDescendants(cat.id).includes(dragSceneCatId)) return; // 不能拖到自己的子孙下
+    const before = y < h / 3;
+    const after = y > (h * 2) / 3;
+    node.classList.toggle('drop-before', before && (src.parentId || '') === (cat.parentId || ''));
+    node.classList.toggle('drop-after', after && (src.parentId || '') === (cat.parentId || ''));
+    node.classList.toggle('drop-in', !before && !after && (src.parentId || '') !== cat.id);
+  });
+  node.addEventListener('dragleave', () => {
+    node.classList.remove('drop-before', 'drop-after', 'drop-in');
+  });
+  node.addEventListener('drop', (e) => {
+    e.preventDefault();
+    node.classList.remove('drop-before', 'drop-after', 'drop-in');
+    if (!dragSceneCatId || dragSceneCatId === cat.id) { dragSceneCatId = null; lastDragAt = Date.now(); return; }
+    const src = sceneCategoryById(dragSceneCatId);
+    if (!src || getSceneCategoryDescendants(cat.id).includes(dragSceneCatId)) { dragSceneCatId = null; lastDragAt = Date.now(); return; }
+    const rect = node.getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    const h = rect.height;
+    const before = y < h / 3;
+    const after = y > (h * 2) / 3;
+    if (!before && !after) {
+      // 中部:作为子分类
+      if ((src.parentId || '') !== cat.id) {
+        updateSceneCategory(dragSceneCatId, { parentId: cat.id });
+        expandedCats.add('scene:' + cat.id);
+        toast('已移动到「' + cat.name + '」下');
+      }
+    } else if ((src.parentId || '') === (cat.parentId || '')) {
+      reorderSceneCategory(dragSceneCatId, cat.id, before ? 'before' : 'after');
+      toast('目录顺序已更新');
+    }
+    dragSceneCatId = null;
+    lastDragAt = Date.now();
+    renderTree();
   });
 
   if (!isOpen || !hasChildren) return;
@@ -414,24 +521,38 @@ function renderSceneCatNode(parent, cat, depth) {
   for (const s of scenes) sub.appendChild(makeSceneItemNode(s));
 }
 
-/** 侧栏场景条目(只读,显示名称 + 类型图标) */
+/** 侧栏场景条目(只读,显示名称 + 类型图标);点击或右键弹出该场景的操作菜单 */
 function makeSceneItemNode(s) {
   const el = document.createElement('div');
   el.className = 'cat-node';
   el.style.paddingLeft = '8px';
   el.innerHTML = `
     <span class="cat-arrow">·</span>
-    <span class="cat-icon">${s.type === 'folder' ? '📁' : '📄'}</span>
+    <span class="cat-icon">${s.type === 'folder' ? '📁' : (s.subtype === 'fgui' ? '🧩' : '📄')}</span>
     <span class="cat-name" title="${esc(s.filePath || s.name)}">${esc(s.name)}</span>
   `;
-  el.addEventListener('click', () => {
-    // 在分类页内点击条目:弹出该场景的操作菜单
-    showContextMenu(window.innerWidth - 240, 120, [
+  const openSceneMenu = (x, y) => {
+    const items = [
+      ...(s.subtype === 'fgui' ? [{ label: '🧩 FGUI 界面预览', onClick: () => openFguiPreviewFromScene(s.id) }] : []),
       { label: '查看路径', onClick: () => toast(s.filePath || '(无路径)', 'info', 4000) },
       { label: '在文件管理器中显示', onClick: () => window.api.showItem(s.filePath) },
       { label: '编辑场景信息', onClick: () => editSceneDialog(s.id) },
       { label: '删除', danger: true, onClick: () => confirmAndRemoveScene(s.id) },
-    ]);
+    ];
+    showContextMenu(x, y, items);
+  };
+  // FGUI 界面包条目:单击直接在主内容区打开预览;其它类型弹右键菜单
+  el.addEventListener('click', () => {
+    if (s.subtype === 'fgui') {
+      openFguiPreviewFromScene(s.id);
+    } else {
+      openSceneMenu(window.innerWidth - 240, 120);
+    }
+  });
+  el.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    openSceneMenu(e.clientX, e.clientY);
   });
   return el;
 }
@@ -489,6 +610,7 @@ function clearOverlays() {
   toolboxHomeShown = false;
   sceneHomeShown = false;
   currentSceneCatId = null;
+  fguiPreviewShown = false;
   settingsShown = false;
   favHomeShown = false;
   currentFavCategoryId = null;
@@ -498,13 +620,15 @@ function clearOverlays() {
 
 function addSceneCategoryDialog(parentId = '') {
   promptDialog({
-    title: parentId ? '新建子分类' : '新建场景分类',
-    placeholder: '分类名称',
-    onOk: (name) => {
-      if (!name) return;
+    title: '新建目录',
+    fields: [{ key: 'name', label: '目录名称', type: 'text', value: '' }],
+    onOk: ({ name }) => {
+      if (!name) return toast('目录名称不能为空', 'error');
       addSceneCategory({ name, parentId });
+      if (parentId) expandedCats.add('scene:' + parentId);
       renderTree();
-      toast('已创建场景分类');
+      renderMainArea();
+      toast('已创建目录');
     },
   });
 }
@@ -512,13 +636,14 @@ function editSceneCategoryDialog(id) {
   const cat = sceneCategoryById(id);
   if (!cat) return;
   promptDialog({
-    title: '编辑场景分类',
-    placeholder: '分类名称',
-    defaultValue: cat.name,
-    onOk: (name) => {
-      if (!name) return;
+    title: '编辑目录',
+    fields: [{ key: 'name', label: '目录名称', type: 'text', value: cat.name }],
+    onOk: ({ name }) => {
+      if (!name) return toast('目录名称不能为空', 'error');
       updateSceneCategory(id, { name });
       renderTree();
+      renderMainArea();
+      toast('目录已更新');
     },
   });
 }
@@ -528,13 +653,13 @@ function deleteSceneCategoryDialog(id) {
   const subs = getSceneCategoryChildren(id);
   const scenes = scenesInCategory(id);
   confirmDialog({
-    title: `删除分类「${cat.name}」?`,
-    message: `子分类 ${subs.length} 个、场景 ${scenes.length} 个将被一并处理(子分类提升到被删分类的父级;场景条目移到「未分类」)。`,
+    title: `删除目录「${cat.name}」?`,
+    message: `子目录 ${subs.length} 个、场景 ${scenes.length} 个将被一并处理(子目录提升到被删目录的父级;场景条目移到「未分类」)。`,
     onOk: () => {
       removeSceneCategory(id);
       if (currentSceneCatId === id) currentSceneCatId = null;
       renderTree(); renderMainArea();
-      toast('已删除分类');
+      toast('已删除目录');
     },
   });
 }
@@ -543,13 +668,13 @@ function editSceneDialog(id) {
   if (!s) return;
   promptDialog({
     title: '编辑场景',
-    placeholder: '场景名称',
-    defaultValue: s.name,
-    onOk: (name) => {
-      if (!name) return;
+    fields: [{ key: 'name', label: '场景名称', type: 'text', value: s.name }],
+    onOk: ({ name }) => {
+      if (!name) return toast('场景名称不能为空', 'error');
       updateScene(id, { name });
       renderMainArea();
       renderTree();
+      toast('场景已更新');
     },
   });
 }
@@ -563,16 +688,25 @@ function confirmAndRemoveScene(id) {
   });
 }
 
-/** 添加场景条目:先选文件或目录(支持两种类型),再录入名称/备注 */
+/** 添加场景条目:先选文件或目录(支持两种类型),再录入名称/备注;.bin 为 FGUI 界面包时弹登记对话框(所属目录默认=当前目录) */
 async function addSceneDialog(catId) {
   const r = await window.api.pickFiles({ directory: false, title: '选择场景文件或目录(可多选)' });
   if (r.canceled || !r.filePaths || !r.filePaths.length) return;
-  // 区分文件/目录(用第一个判断)—— 多选时按用户实际选择走,但 fs:stat 一下
   for (const p of r.filePaths) {
     let stat;
     try { stat = await window.api.statFile(p); } catch (e) { stat = null; }
-    const isDir = !!(stat && (stat.size === undefined || stat.isDirectory));
-    // statFile 返回 {size, mtime},没有 isDirectory。这里简化为:扩展名判断 / 后续可改 IPC。
+    // FGUI 界面包(.bin 且 magic 匹配)→ 走登记对话框(默认所属目录 = 当前点击的目录)
+    if (isBinExt(p)) {
+      let isFgui = false;
+      try {
+        const pr = await window.api.fguiProbe({ inputPath: p });
+        isFgui = !!(pr && pr.ok && pr.isFgui);
+      } catch (e) { /* ignore */ }
+      if (isFgui) {
+        await promptRegisterFgui(p, { defaultCategoryId: catId || '', defaultName: deriveName(p) });
+        continue;
+      }
+    }
     const isProbablyDir = !pathLooksLikeFile(p);
     const type = isProbablyDir ? 'folder' : 'file';
     addScene({
@@ -586,7 +720,133 @@ async function addSceneDialog(catId) {
   }
   renderMainArea();
   renderTree();
-  toast(`已添加 ${r.filePaths.length} 个场景`);
+  toast('已完成场景添加');
+}
+
+function isBinExt(p) {
+  return /\.bin$/i.test(String(p || ''));
+}
+
+/**
+ * 批量添加 FGUI 包:支持单选/多选 .bin 文件,以及选择一个或多个目录(目录内扫描 FGUI 包,可选递归子目录)。
+ * 所有包一次性登记到指定场景目录(按名称字母排序),自动探测去重并记录大小。
+ */
+async function addFguiPackagesDialog(catId) {
+  const r = await window.api.pickFiles({
+    title: '添加 FGUI 包:选择 .bin 文件或目录(可多选;目录将扫描其中的 FGUI 包)',
+    filesAndDirs: true,
+    filters: [{ name: 'FGUI 包', extensions: ['bin'] }],
+  });
+  if (r.canceled || !r.filePaths || !r.filePaths.length) return;
+  const pickedBins = [];
+  const dirs = [];
+  for (const p of r.filePaths) {
+    if (isBinExt(p)) pickedBins.push(p);
+    else dirs.push(p);
+  }
+  // 选了目录 → 确认是否递归子目录
+  let recursive = false;
+  if (dirs.length) {
+    const rec = await new Promise((resolve) => {
+      promptDialog({
+        title: '扫描目录中的 FGUI 包',
+        fields: [
+          {
+            key: 'rec', label: '扫描范围', type: 'select',
+            options: [
+              { value: '0', label: '仅当前目录(不进入子目录)' },
+              { value: '1', label: '递归子目录(最多 4 层)' },
+            ],
+            value: '0',
+          },
+        ],
+        onOk: (v) => resolve(v.rec === '1'),
+        onCancel: () => resolve(null),
+      });
+    });
+    if (rec === null) return; // 用户取消
+    recursive = rec;
+  }
+  // 收集全部候选 .bin
+  const candidates = [...pickedBins];
+  for (const d of dirs) {
+    let list = [];
+    try { list = await window.api.scanDir(d, recursive); } catch (e) { list = []; }
+    for (const it of list || []) {
+      if (it.type === 'fgui' && it.file && !candidates.includes(it.file)) candidates.push(it.file);
+    }
+  }
+  if (!candidates.length) { toast('没有找到 FGUI 包', 'error'); return; }
+  // 按名称字母排序(中文按拼音),再探测去重登记
+  const sorted = candidates.sort((a, b) => {
+    const na = (a.split(/[\\/]/).pop() || '').toLowerCase();
+    const nb = (b.split(/[\\/]/).pop() || '').toLowerCase();
+    return na.localeCompare(nb, 'zh-Hans-CN');
+  });
+  let added = 0, skipped = 0;
+  for (const p of sorted) {
+    let isFgui = true;
+    try {
+      const pr = await window.api.fguiProbe({ inputPath: p });
+      isFgui = !!(pr && pr.ok && pr.isFgui);
+    } catch (e) { isFgui = false; }
+    if (!isFgui) { skipped++; continue; }
+    if (findSceneByFilePath(p)) { skipped++; continue; } // 已登记过
+    let stat = null;
+    try { stat = await window.api.statFile(p); } catch (e) { stat = null; }
+    addScene({
+      categoryId: catId || '',
+      name: deriveName(p),
+      filePath: p,
+      type: 'file',
+      subtype: 'fgui',
+      size: stat ? stat.size : null,
+      mtime: stat ? stat.mtime : null,
+    });
+    added++;
+  }
+  renderMainArea();
+  renderTree();
+  if (added) toast(`已登记 ${added} 个 FGUI 包${skipped ? `,跳过 ${skipped} 个(重复/非 FGUI)` : ''}`, 'success');
+  else toast(skipped ? `没有新增 FGUI 包(跳过 ${skipped} 个重复或非 FGUI 文件)` : '没有新增 FGUI 包', 'error');
+}
+
+/** 首页「最近打开」:按路径重新打开资源或 FGUI 包 */
+function openRecentPath(path) {
+  if (!path) return;
+  const norm = String(path).replace(/\\/g, '/');
+  // 1) FGUI 包:直接进入 FGUI 预览(loadPkg 会按路径关联/登记)
+  if (/\.bin$/i.test(path)) {
+    clearOverlays();
+    fguiPreviewShown = true;
+    sceneHomeShown = false;
+    currentSceneCatId = null;
+    pendingFguiBin = path;
+    if (!expandedCats.has('__scene__')) expandedCats.add('__scene__');
+    renderTree();
+    renderMainArea();
+    return;
+  }
+  // 2) 普通资源条目:按路径匹配(任何分类)
+  const it = state.items.find((x) => x.filePath && String(x.filePath).replace(/\\/g, '/') === norm);
+  if (it) { selectItem(it.id); return; }
+  // 3) 场景条目:打开路径
+  const sc = state.scenes.find((x) => x.filePath && String(x.filePath).replace(/\\/g, '/') === norm);
+  if (sc) { window.api.openPath(sc.filePath); return; }
+  toast('该资源已不存在或已被移除', 'error');
+}
+
+/** 从场景条目直接进入 FGUI 界面预览(自动加载该条目的 .bin) */
+function openFguiPreviewFromScene(sceneId) {  const s = state.scenes.find((x) => x.id === sceneId);
+  if (!s || !s.filePath) return;
+  clearOverlays();
+  fguiPreviewShown = true;
+  sceneHomeShown = false;
+  currentSceneCatId = null;
+  pendingFguiBin = s.filePath;
+  if (!expandedCats.has('__scene__')) expandedCats.add('__scene__');
+  renderTree();
+  renderMainArea();
 }
 
 /** 简易文件/目录判断(无扩展名 + 非已知资源扩展名 → 当作目录) */
@@ -690,6 +950,17 @@ function renderPseudoNode(parent, n) {
     syncTabs();
   });
 
+  // 类型根节点(「XX资源」):右键菜单 → 新建顶级目录
+  if (isAll) {
+    node.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      showContextMenu(e.clientX, e.clientY, [
+        { label: '新建目录', onClick: () => newCategoryDialog() },
+      ]);
+    });
+  }
+
   parent.appendChild(node);
 
   if (isOpen && hasItems) {
@@ -755,7 +1026,7 @@ function renderCatNode(parent, cat, depth) {
   favBtn.className = 'icon-btn fav-btn';
   const allFav = items.length > 0 && items.every((i) => isFavored(i.id));
   favBtn.textContent = allFav ? '★' : '☆';
-  favBtn.title = allFav ? '整个分类已收藏(点击可收藏到其他位置)' : '收藏整个分类到收藏夹';
+  favBtn.title = allFav ? '整个目录已收藏(点击可收藏到其他位置)' : '收藏整个目录到收藏夹';
   favBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     if (items.length === 0) return toast('该分类下没有动画', 'error');
@@ -776,7 +1047,7 @@ function renderCatNode(parent, cat, depth) {
   ops.appendChild(delBtn);
   node.appendChild(ops);
 
-  // ---- 右键菜单:新建子类别 / 编辑 / 移动... / 删除 ----
+  // ---- 右键菜单:新建目录 / 编辑 / 移动... / 删除 ----
   node.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -915,14 +1186,14 @@ function openCategoryMenu(x, y, cat) {
   showContextMenu(x, y, [
     { label: '添加资源', onClick: () => runAddFlow(false, cat.id) },
     { label: '批量添加', onClick: () => runAddFlow(true, cat.id) },
-    { label: '新建子类别', onClick: () => newSubCategoryDialog(cat) },
-    { label: '编辑分类', onClick: () => editCategoryDialog(cat.id) },
+    { label: '新建目录', onClick: () => newSubCategoryDialog(cat) },
+    { label: '编辑目录', onClick: () => editCategoryDialog(cat.id) },
     { label: '移动...', onClick: () => moveCategoryDialog(cat) },
     { label: '删除', danger: true, onClick: () => deleteCategoryDialog(cat.id) },
   ]);
 }
 
-/** 目录的资源类型标签勾选字段(新建/编辑分类对话框复用;不勾选 = 在所有资源类型中显示) */
+/** 目录的资源类型标签勾选字段(新建/编辑目录对话框复用;不勾选 = 在所有资源类型中显示) */
 function typeTagField(value) {
   return {
     key: 'typeTags',
@@ -934,34 +1205,34 @@ function typeTagField(value) {
   };
 }
 
-/** 新建子类别 */
+/** 新建子目录 */
 function newSubCategoryDialog(parent) {
   promptDialog({
-    title: '新建子类别',
+    title: '新建目录',
     fields: [
-      { key: 'name', label: '子类别名称', type: 'text', value: '' },
+      { key: 'name', label: '子目录名称', type: 'text', value: '' },
       typeTagField([]),
     ],
     onOk: ({ name, typeTags }) => {
-      if (!name) return toast('子类别名称不能为空', 'error');
+      if (!name) return toast('目录名称不能为空', 'error');
       addCategory({ name, typeTags, parentId: parent.id });
       expandedCats.add(parent.id);
       renderCategories();
       renderMainArea();
-      toast(`已创建子类别「${name}」`);
+      toast(`已创建子目录「${name}」`);
     },
   });
 }
 
-/** 移动分类到其它分类下(或顶级) */
+/** 移动目录到其它目录下(或顶级) */
 function moveCategoryDialog(cat) {
-  // 候选:顶级 + 其它非自身/非子孙分类
+  // 候选:顶级 + 其它非自身/非子孙目录
   const exclude = new Set([cat.id, ...getCategoryDescendants(cat.id)]);
   const body = document.createElement('div');
   body.className = 'modal-body';
   const tip = document.createElement('div');
   tip.className = 'form-row';
-  tip.innerHTML = `<span class="ro">将分类「<b>${esc(cat.name)}</b>」移动到:</span>`;
+  tip.innerHTML = `<span class="ro">将目录「<b>${esc(cat.name)}</b>」移动到:</span>`;
   body.appendChild(tip);
 
   const list = document.createElement('div');
@@ -981,7 +1252,7 @@ function moveCategoryDialog(cat) {
     lb.appendChild(sp);
     list.appendChild(lb);
   };
-  pick('', '移至顶级(不作为子分类)');
+  pick('', '移至顶级(不作为子目录)');
   for (const c of state.categories) {
     if (exclude.has(c.id)) continue;
     pick(c.id, categoryPath(c.id));
@@ -989,7 +1260,7 @@ function moveCategoryDialog(cat) {
   body.appendChild(list);
 
   const { close } = openModal({
-    title: '移动分类',
+    title: '移动目录',
     body,
     foot: footButtons([
       { text: '取消', cls: '', onClick: () => close() },
@@ -1005,7 +1276,7 @@ function moveCategoryDialog(cat) {
           if (target) expandedCats.add(target);
           renderCategories();
           renderMainArea();
-          toast('分类已移动');
+          toast('目录已移动');
         },
       },
     ]),
@@ -1685,17 +1956,17 @@ function collectTargetDialog(itemIds, opts = {}) {
 
 export function newCategoryDialog() {
   promptDialog({
-    title: '新建分类',
+    title: '新建目录',
     fields: [
-      { key: 'name', label: '分类名称', type: 'text', value: '' },
+      { key: 'name', label: '目录名称', type: 'text', value: '' },
       typeTagField([]),
     ],
     onOk: ({ name, typeTags }) => {
-      if (!name) return toast('分类名称不能为空', 'error');
+      if (!name) return toast('目录名称不能为空', 'error');
       addCategory({ name, typeTags });
       renderCategories();
       renderMainArea();
-      toast('分类已创建');
+      toast('目录已创建');
     },
   });
 }
@@ -1704,18 +1975,18 @@ function editCategoryDialog(id) {
   const cat = categoryById(id);
   if (!cat) return;
   promptDialog({
-    title: '编辑分类',
+    title: '编辑目录',
     fields: [
-      { key: 'name', label: '分类名称', type: 'text', value: cat.name },
+      { key: 'name', label: '目录名称', type: 'text', value: cat.name },
       typeTagField(cat.typeTags),
     ],
     onOk: ({ name, typeTags }) => {
-      if (!name) return toast('分类名称不能为空', 'error');
+      if (!name) return toast('目录名称不能为空', 'error');
       updateCategory(id, { name, typeTags });
       renderCategories();
       renderItems();
       renderMainArea();
-      toast('分类已更新');
+      toast('目录已更新');
     },
   });
 }
@@ -1730,7 +2001,7 @@ function deleteCategoryDialog(id) {
 
   const body = document.createElement('div');
   body.className = 'modal-body';
-  body.innerHTML = `<div class="hint" style="margin-bottom:10px">将删除分类「<b>${esc(cat.name)}</b>」(${nItems} 个动画${hasSubs ? `,${subs.length} 个子类别` : ''}),请选择处理方式:</div>`;
+  body.innerHTML = `<div class="hint" style="margin-bottom:10px">将删除目录「<b>${esc(cat.name)}</b>」(${nItems} 个动画${hasSubs ? `,${subs.length} 个子目录` : ''}),请选择处理方式:</div>`;
 
   // 动画处理方式
   const animRow = document.createElement('div');
@@ -1742,7 +2013,7 @@ function deleteCategoryDialog(id) {
   rbDel.name = 'delcat-anim';
   rbDel.value = 'delete';
   optDel.appendChild(rbDel);
-  optDel.appendChild(document.createTextNode('删除分类下的所有动画(仅从列表移除,不删磁盘文件)和子类别'));
+  optDel.appendChild(document.createTextNode('删除目录下的所有动画(仅从列表移除,不删磁盘文件)和子目录'));
   const optMove = document.createElement('label');
   optMove.className = 'fav-pick-item';
   const rbMove = document.createElement('input');
@@ -1751,7 +2022,7 @@ function deleteCategoryDialog(id) {
   rbMove.value = 'move';
   rbMove.checked = true;
   optMove.appendChild(rbMove);
-  optMove.appendChild(document.createTextNode('将分类下的动画移动到「未分类」'));
+  optMove.appendChild(document.createTextNode('将目录下的动画移动到「未分类」'));
   body.appendChild(optDel);
   body.appendChild(optMove);
 
@@ -1761,7 +2032,7 @@ function deleteCategoryDialog(id) {
     const subTip = document.createElement('div');
     subTip.className = 'hint';
     subTip.style.margin = '8px 0 4px';
-    subTip.textContent = '子类别处理:';
+    subTip.textContent = '子目录处理:';
     subBox.appendChild(subTip);
     const optUp = document.createElement('label');
     optUp.className = 'fav-pick-item';
@@ -1771,7 +2042,7 @@ function deleteCategoryDialog(id) {
     rbUp.value = 'parent';
     rbUp.checked = true;
     optUp.appendChild(rbUp);
-    optUp.appendChild(document.createTextNode(cat.parentId ? '提升为上一级分类的子类别' : '提升为顶级分类'));
+    optUp.appendChild(document.createTextNode(cat.parentId ? '提升为上一级目录的子目录' : '提升为顶级目录'));
     const optTo = document.createElement('label');
     optTo.className = 'fav-pick-item';
     const rbTo = document.createElement('input');
@@ -1779,7 +2050,7 @@ function deleteCategoryDialog(id) {
     rbTo.name = 'delcat-sub';
     rbTo.value = 'category';
     optTo.appendChild(rbTo);
-    optTo.appendChild(document.createTextNode('移动到指定分类下:'));
+    optTo.appendChild(document.createTextNode('移动到指定目录下:'));
     const subSel = document.createElement('select');
     const exclude = new Set([cat.id, ...subDesc]);
     for (const c of state.categories) {
@@ -1808,7 +2079,7 @@ function deleteCategoryDialog(id) {
   toggleSub();
 
   const { close } = openModal({
-    title: '删除分类',
+    title: '删除目录',
     body,
     foot: footButtons([
       { text: '取消', cls: '', onClick: () => close() },
@@ -1831,7 +2102,7 @@ function deleteCategoryDialog(id) {
           renderCategories();
           renderItems();
           renderMainArea();
-          toast('分类已删除');
+          toast('目录已删除');
         },
       },
     ]),
@@ -1922,6 +2193,24 @@ export function renderMainArea() {
     return;
   }
 
+  // ---- FGUI 界面预览子页(场景管理内) ----
+  if (fguiPreviewShown) {
+    showPage('scene');
+    const initialBinPath = pendingFguiBin;
+    pendingFguiBin = null;
+    renderFguiPreviewPage(document.getElementById('page-scene'), {
+      initialBinPath,
+      onBack: () => {
+        fguiPreviewShown = false;
+        sceneHomeShown = true;
+        currentSceneCatId = null;
+        renderTree();
+        renderMainArea();
+      },
+    });
+    renderBreadcrumb();
+    return;
+  }
   // ---- 场景管理 ----
   if (sceneHomeShown || currentSceneCatId !== null) {
     showPage('scene');
@@ -1935,6 +2224,8 @@ export function renderMainArea() {
         },
         onAddScene: (catId) => addSceneDialog(catId || ''),
         onAddCategory: (parentId) => addSceneCategoryDialog(parentId || ''),
+        onAddFguiPackages: (catId) => addFguiPackagesDialog(catId || ''),
+        onFguiPreview: (sceneId) => openFguiPreviewFromScene(sceneId),
         onRefresh: () => renderMainArea(),
       });
     } else {
@@ -1943,6 +2234,8 @@ export function renderMainArea() {
         actions: {
           onAddScene: (catId) => addSceneDialog(catId),
           onAddCategory: (parentId) => addSceneCategoryDialog(parentId),
+          onAddFguiPackages: (catId) => addFguiPackagesDialog(catId),
+          onFguiPreview: (sceneId) => openFguiPreviewFromScene(sceneId),
           onEditScene: (id) => editSceneDialog(id),
           onRemoveScene: (id) => confirmAndRemoveScene(id),
           onMoveScene: (id) => moveSceneDialog(id),
@@ -1954,7 +2247,7 @@ export function renderMainArea() {
             renderMainArea(); renderCategories();
           },
           onCatMenu: (cat, e) => showContextMenu(e.clientX, e.clientY, [
-            { label: '新建子分类', onClick: () => addSceneCategoryDialog(cat.id) },
+            { label: '新建目录', onClick: () => addSceneCategoryDialog(cat.id) },
             { label: '编辑分类', onClick: () => editSceneCategoryDialog(cat.id) },
             { label: '提升到顶级', onClick: () => { updateSceneCategory(cat.id, { parentId: '' }); renderTree(); renderMainArea(); } },
             { label: '删除分类', danger: true, onClick: () => deleteSceneCategoryDialog(cat.id) },
@@ -2049,6 +2342,8 @@ export function renderMainArea() {
         renderMainArea(); renderCategories();
       },
       onOpenItem: (itemId) => selectItem(itemId),
+      // 首页「最近打开」:按路径重新打开资源 / FGUI 包
+      onOpenRecent: (path) => openRecentPath(path),
       onItemMenu: (it, e) => openItemMenu(e.clientX, e.clientY, it),
       onCatMenu: (cat, e) => openCategoryMenu(e.clientX, e.clientY, cat),
       onRefresh: () => renderMainArea(),
@@ -2468,8 +2763,10 @@ function showPreviewPage(item) {
   document.getElementById('pv-anim-view').hidden = !isAnim && !isModel;
   const imgView = document.getElementById('pv-image-view');
   const audioView = document.getElementById('pv-audio-view');
+  const fguiView = document.getElementById('pv-fgui-view');
   if (imgView) imgView.hidden = !(item.type === 'image');
   if (audioView) audioView.hidden = !(item.type === 'audio');
+  if (fguiView) fguiView.hidden = !(item.type === 'fgui');
   // 顶部信息
   document.getElementById('pv-name').textContent = item.displayName;
   document.getElementById('pv-type').textContent = TYPE_LABEL[item.type] || item.type;
@@ -2482,6 +2779,8 @@ function showPreviewPage(item) {
 export async function selectItem(id) {
   const item = itemById(id);
   if (!item) return;
+  // 记录最近打开(首页展示与再次打开)
+  recordRecentOpen({ name: item.displayName || '', path: item.filePath, type: item.type, tab: typeGroup(item.type), itemId: item.id });
   setSetting('lastItemId', id);
   preview.currentItemId = id;
   renderItems();
@@ -2501,10 +2800,22 @@ export async function selectItem(id) {
       await showAudioPlayer(item);
     } else if (item.type === 'model') {
       await showModelPlaceholder(item);
+    } else if (item.type === 'fgui') {
+      await showFguiViewer(item);
     }
   } catch (err) {
     console.error('[load]', item.id, err);
     showPreviewError(item, err.message || String(err));
+  }
+}
+
+/** FGUI 包逆向查看 */
+async function showFguiViewer(item) {
+  showPreviewPage(item);
+  const errEl = document.getElementById('pv-error');
+  if (errEl) errEl.hidden = true;
+  if (fguiViewer) {
+    await fguiViewer.load(item);
   }
 }
 
@@ -2887,7 +3198,7 @@ function renderAhCats() {
         .map((it) => it.filePath);
       if (!paths.length) { toast('该分类下没有音频', 'warn'); return; }
       audioPlayer.openList(paths);
-      toast(`正在播放分类「${el.textContent}」的 ${paths.length} 个音频`);
+      toast(`正在播放目录「${el.textContent}」的 ${paths.length} 个音频`);
     });
   });
 }
@@ -4088,8 +4399,6 @@ function bindToolbar() {
   const btnBatch = document.getElementById('btn-add-batch');
   btnBatch.addEventListener('click', () => runAddFlow(true, currentCategoryId === 'all' || currentCategoryId === '' ? '' : currentCategoryId));
 
-  document.getElementById('btn-new-cat').addEventListener('click', newCategoryDialog);
-
   // 系统设置
   const btnSettings = document.getElementById('btn-settings');
   if (btnSettings) btnSettings.addEventListener('click', () => openSettings());
@@ -4134,7 +4443,14 @@ function bindToolbar() {
 }
 
 function bindList() {
-  window.addEventListener('items-changed', () => {
+  window.addEventListener('items-changed', (e) => {
+    // 递归批量添加自动建的目录:展开其所在链路,让用户立即看到
+    const expand = e && e.detail && e.detail.expand;
+    if (Array.isArray(expand)) {
+      for (const id of expand) {
+        if (categoryById(id)) expandedCats.add(id);
+      }
+    }
     renderCategories();
     renderItems();
     renderMainArea();

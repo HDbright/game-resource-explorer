@@ -1,7 +1,7 @@
 import {
   getHomeData, getTypeHomeData, getCategoryChildren, categoryById,
   TYPE_LABEL, formatSize, TYPE_GROUPS, itemTags, getFavHomeData, favCategoryById,
-  categoryTypeTagNames,
+  categoryTypeTagNames, state,
 } from '../state.js';
 
 /** 类型主页中分类目录树的折叠状态(按 catId 记忆,跨类型共享无碍) */
@@ -12,7 +12,7 @@ function itemTooltip(it) {
   const tags = itemTags(it);
   const typeName = it.type === 'spine' ? 'Spine' : it.type === 'dragonbones' ? 'DragonBones' : TYPE_LABEL[it.type] || it.type;
   const catName = it.categoryId ? (categoryById(it.categoryId)?.name || '未分类') : '未分类';
-  const lines = [`名称: ${it.displayName || ''}`, `类型: ${typeName}`, `分类: ${catName}`];
+  const lines = [`名称: ${it.displayName || ''}`, `类型: ${typeName}`, `目录: ${catName}`];
   if (tags.length) lines.push(`标签: ${tags.join('、')}`);
   if (it.remark) lines.push(`备注: ${it.remark}`);
   lines.push(`文件: ${it.filePath || ''}`);
@@ -45,6 +45,7 @@ export function renderHomePage(container, actions = {}) {
 
 function renderGlobalHome(container, actions) {
   const data = getHomeData();
+  const recentOpens = (state.settings && state.settings.recentOpens) || [];
   const cards = [
     { group: 'anim', label: '动画资源', num: data.byType.anim, cls: 'anim', size: data.byType.totalSize },
     { group: 'image', label: '图片资源', num: data.byType.image, cls: 'image', size: null },
@@ -76,7 +77,14 @@ function renderGlobalHome(container, actions) {
             <span>${escapeHtml(cat.name)}</span>
             <span class="qc-count">${count} 项${totalSize ? ' · ' + formatSize(totalSize) : ''}</span>
           </div>
-        `).join('') : '<div class="home-empty">暂无分类目录,点击顶栏「新建分类」创建</div>'}
+        `).join('') : '<div class="home-empty">暂无目录,在左侧「XX资源」根节点上右键选择「新建目录」创建</div>'}
+      </div>
+    </div>
+
+    <div class="home-section">
+      <div class="home-section-title">🕘 最近打开</div>
+      <div class="recent-list" id="home-recent-opens">
+        ${renderRecentOpens(recentOpens)}
       </div>
     </div>
 
@@ -87,6 +95,26 @@ function renderGlobalHome(container, actions) {
       </div>
     </div>
   `;
+}
+
+/** 首页「最近打开」列表(含打开时间;点击再次打开) */
+function renderRecentOpens(list) {
+  if (!list || !list.length) return '<div class="home-empty">暂无打开记录,打开过的资源会显示在这里</div>';
+  const TYPE_BADGE = { anim: '动画', image: '图片', audio: '音频', '3d': '3D', fgui: 'FGUI', scene: '场景', folder: '目录' };
+  return list.map((r) => `
+    <div class="recent-item" data-act="recent" data-path="${escapeHtml(r.path || '')}" title="${escapeHtml(r.name || '')} · ${escapeHtml(r.path || '')}">
+      <span class="type-badge">${TYPE_BADGE[r.type] || r.type || '文件'}</span>
+      <span class="ri-name">${escapeHtml(r.name || '')}</span>
+      <span class="ri-meta">${formatOpenTime(r.openedAt)}</span>
+    </div>
+  `).join('');
+}
+
+function formatOpenTime(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
 // ================= 类型主页 =================
@@ -103,11 +131,11 @@ function renderTypeHome(container, actions, group) {
   }
   subParts.push(`占用 ${formatSize(data.totalSize)}`);
 
-  // 统计卡片:资源总数 / 占用空间 / 分类目录数
+  // 统计卡片:资源总数 / 占用空间 / 目录数
   const cards = [
     { label: '资源总数', num: data.total, cls: 'total', size: data.totalSize },
     { label: '占用空间', num: formatSize(data.totalSize), cls: 'total', size: null },
-    { label: '分类目录', num: countCatNodes(data.categories), cls: group === '3d' ? 'd3' : group, size: null },
+    { label: '目录数', num: countCatNodes(data.categories), cls: group === '3d' ? 'd3' : group, size: null },
   ];
 
   container.innerHTML = `
@@ -125,11 +153,11 @@ function renderTypeHome(container, actions, group) {
     </div>
 
     <div class="home-section">
-      <div class="home-section-title">📁 分类目录</div>
+      <div class="home-section-title">📁 目录</div>
       <div class="type-cat-tree" id="type-cat-tree">
         ${data.categories.length
           ? data.categories.map((n) => renderTypeCatNode(n, group, 0, data.items)).join('')
-          : '<div class="home-empty">暂无分类目录,点击顶栏「新建分类」创建</div>'}
+          : '<div class="home-empty">暂无目录,在左侧「XX资源」根节点上右键选择「新建目录」创建</div>'}
       </div>
     </div>
 
@@ -232,6 +260,11 @@ function bindHomeEvents(container, actions) {
     }
     if (act === 'item') {
       actions.onOpenItem && actions.onOpenItem(el.dataset.item);
+      return;
+    }
+    if (act === 'recent') {
+      actions.onOpenRecent && actions.onOpenRecent(el.dataset.path);
+      return;
     }
   };
 

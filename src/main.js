@@ -9,6 +9,7 @@ import {
   addFavCategory, removeFavCategory, addFavItem, removeFavItem, moveFavItem,
   reorderFavCategory,
   favLocations, isFavored,
+  removeSceneCategory, sceneCategoryById,
 } from './state.js';
 import { PreviewController } from './preview/index.js';
 import { initUI, renderCategories, renderItems, renderMainArea, selectItem, updatePlaybackUI, updateStatusBar } from './ui.js';
@@ -490,7 +491,13 @@ function installSmoke() {
       case 'cat': {
         const out = {};
         try {
-          document.getElementById('btn-new-cat').click();
+          // 顶栏「新建分类」按钮已移除 → 改为右键类型根节点(「XX资源」)选择「新建目录」
+          const rootNode = document.querySelector('.cat-node[data-id="all"]');
+          if (rootNode) rootNode.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 220, clientY: 220 }));
+          await sleep(200);
+          const ctxMenu = document.querySelector('.ctx-menu');
+          const newDirItem = ctxMenu && [...ctxMenu.querySelectorAll('.ctx-item')].find((el) => el.textContent === '新建目录');
+          if (newDirItem) newDirItem.click();
           await sleep(300);
           let mask = document.querySelector('.modal-mask');
           out.modalExists = !!mask;
@@ -515,7 +522,7 @@ function installSmoke() {
             target.querySelector('.cat-ops .danger').click();
             await sleep(300);
             const cMask = document.querySelector('.modal-mask');
-            out.confirmOpened = !!cMask && (cMask.querySelector('.modal-title') || {}).textContent === '删除分类';
+            out.confirmOpened = !!cMask && (cMask.querySelector('.modal-title') || {}).textContent === '删除目录';
             const delBtn = cMask && [...cMask.querySelectorAll('.modal-foot .btn')].find((b) => b.textContent === '删除');
             if (delBtn) delBtn.click();
             await sleep(300);
@@ -950,7 +957,7 @@ function installSmoke() {
         const menu = document.querySelector('.ctx-menu');
         out.menuShown = !!menu;
         out.menuItems = menu ? [...menu.querySelectorAll('.ctx-item')].map((el) => el.textContent) : [];
-        out.newSubClicked = clickMenuItem('新建子类别');
+        out.newSubClicked = clickMenuItem('新建目录');
         await fillPrompt('__sub_1__');
         const subCat = state.categories.find((c) => c.name === '__sub_1__');
         out.subCreated = !!subCat && subCat.parentId === catA.id;
@@ -981,9 +988,27 @@ function installSmoke() {
         }
         renderCategories();
         out.subInTree = !!findNode('__sub_1__');
+        // 4) 类型根节点(「XX资源」)右键 → 新建目录(顶级;顶栏按钮已移除)
+        renderCategories();
+        const rootNode = document.querySelector('.cat-node[data-id="all"]');
+        if (rootNode) rootNode.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 220, clientY: 220 }));
+        await sleep(150);
+        const rootMenu = document.querySelector('.ctx-menu');
+        out.rootMenuItems = rootMenu ? [...rootMenu.querySelectorAll('.ctx-item')].map((el) => el.textContent) : [];
+        out.rootNewDirClicked = clickMenuItem('新建目录');
+        await sleep(200);
+        const mask3 = document.querySelector('.modal-mask');
+        out.newDirTitle = mask3 ? (mask3.querySelector('.modal-title') || {}).textContent || '' : '';
+        out.topBtnGone = !document.getElementById('btn-new-cat');
+        await fillPrompt('__root_dir_1__');
+        const rootDir = state.categories.find((c) => c.name === '__root_dir_1__');
+        out.rootDirTop = !!rootDir && rootDir.parentId === '';
         out.ok = out.menuShown && out.subCreated && out.moveOk && out.subInTree
-          && JSON.stringify(out.menuItems) === JSON.stringify(['添加资源', '批量添加', '新建子类别', '编辑分类', '移动...', '删除']);
+          && JSON.stringify(out.menuItems) === JSON.stringify(['添加资源', '批量添加', '新建目录', '编辑目录', '移动...', '删除'])
+          && out.rootMenuItems.includes('新建目录') && out.rootNewDirClicked
+          && out.newDirTitle === '新建目录' && out.topBtnGone && out.rootDirTop;
         // 清理
+        if (rootDir) removeCategory(rootDir.id);
         for (const c of state.categories.filter((c) => c.name.startsWith('__tree_') || c.name === '__sub_1__')) {
           removeCategory(c.id);
         }
@@ -1278,7 +1303,20 @@ function installSmoke() {
         out.afterToolboxHidden = document.getElementById('page-toolbox').hidden;
         out.breadcrumb = (document.getElementById('breadcrumb').textContent || '').trim();
         out.enteredSub = document.querySelectorAll('.tool-grid').length === 0 && !document.getElementById('page-toolbox').hidden;
-        out.ok = out.toolboxVisible && out.homeGrid === 1 && out.entries === 4 && out.enteredSub;
+        // 侧栏「资源工具箱」下应有「FGUI导出」叶子菜单 → 点击进入 FGUI 逆向导出功能页
+        const tbRoot2 = [...document.querySelectorAll('.cat-node')]
+          .find((el) => (el.querySelector('.cat-name') || {}).textContent === '资源工具箱');
+        const tbArrow = tbRoot2 ? tbRoot2.querySelector('.cat-arrow') : null;
+        if (tbArrow && tbArrow.textContent === '▶') tbArrow.click(); // 展开工具箱(未展开时)
+        await sleep(150);
+        const fguiLeaf = [...document.querySelectorAll('.cat-node')]
+          .find((el) => (el.querySelector('.cat-name') || {}).textContent === 'FGUI导出');
+        out.fguiLeafFound = !!fguiLeaf;
+        if (fguiLeaf) fguiLeaf.click();
+        await sleep(250);
+        out.fguiPageTitle = (document.querySelector('#page-toolbox .tool-title') || {}).textContent || '';
+        out.fguiOk = out.fguiLeafFound && out.fguiPageTitle === 'FGUI 逆向导出';
+        out.ok = out.toolboxVisible && out.homeGrid === 1 && out.entries === 5 && out.enteredSub && out.fguiOk;
         return out;
       }
       case 'batchui': {
@@ -1913,10 +1951,10 @@ function installSmoke() {
         await sleep(400);
         renderMainArea();
         await sleep(200);
-        // 列表视图行 title 包含分类/标签
+        // 列表视图行 title 包含目录/标签
         const row = document.querySelector(`#page-folder .res-row[data-item="${id}"]`);
         out.rowTitle = row ? row.title : '';
-        out.rowHasCat = row ? row.title.includes('分类:') : false;
+        out.rowHasCat = row ? row.title.includes('目录:') : false;
         out.rowHasTag = row ? row.title.includes('标签:') : false;
         // 图标视图:卡片 title + rc-tags chip
         const iconBtn = [...document.querySelectorAll('.view-btn')].find((b) => b.dataset.view === 'icon');
@@ -1925,7 +1963,7 @@ function installSmoke() {
         const card = document.querySelector(`#page-folder .res-card[data-item="${id}"]`);
         out.cardFound = !!card;
         out.cardTitle = card ? card.title : '';
-        out.titleHasCat = card ? card.title.includes('分类:') : false;
+        out.titleHasCat = card ? card.title.includes('目录:') : false;
         out.titleHasTag = card ? card.title.includes('标签:') : false;
         const chip = card ? card.querySelector('.rc-tags .tag-chip') : null;
         out.rcTagText = chip ? chip.textContent : '';
@@ -2046,6 +2084,84 @@ function installSmoke() {
         await sleep(300);
         renderCategories(); renderMainArea();
         out.catNamesAfter = state.categories.map((c) => c.name);
+        return out;
+      }
+      case 'scenetree': {
+        // 场景管理:主页「+ 新建目录」按钮(修复旧 promptDialog 签名) + 侧栏场景根节点/分类节点右键菜单 + 分类节点数量/拖拽属性。自清理。
+        const out = {};
+        const sleep2 = (ms) => new Promise((r) => setTimeout(r, ms));
+        const q = (sel) => document.querySelector(sel);
+        const qa = (sel) => [...document.querySelectorAll(sel)];
+        const findNode = (nm) => qa('.cat-node').find((n) => (n.querySelector('.cat-name') || {}).textContent === nm);
+        const clickMenu = (label) => {
+          const menu = q('.ctx-menu');
+          if (!menu) return false;
+          const item = [...menu.querySelectorAll('.ctx-item')].find((el) => el.textContent === label);
+          if (item) item.click();
+          return !!item;
+        };
+        const fillAndOk = async (value) => {
+          await sleep2(200);
+          const mask = q('.modal-mask');
+          const input = mask && mask.querySelector('input');
+          if (input) input.value = value;
+          const ok = mask && [...mask.querySelectorAll('.modal-foot .btn')].find((b) => b.textContent === '确定');
+          if (ok) ok.click();
+          await sleep2(200);
+          return !!ok;
+        };
+        // 1) 进入场景主页,点「+ 新建目录」→ 对话框 → 创建顶级目录(旧签名 bug 修复验证)
+        const scRoot = findNode('游戏场景管理');
+        if (scRoot) scRoot.click();
+        await sleep2(250);
+        out.homeVisible = !document.getElementById('page-scene').hidden;
+        const addCatBtn = document.getElementById('sc-add-cat');
+        out.addCatBtnText = addCatBtn ? addCatBtn.textContent : '';
+        if (addCatBtn) addCatBtn.click();
+        await sleep2(200);
+        out.homeModalTitle = (q('.modal-mask .modal-title') || {}).textContent || '';
+        out.homeModalHasInput = !!q('.modal-mask input');
+        await fillAndOk('__scene_dir_1__');
+        out.homeDirCreated = !!state.sceneCategories.find((c) => c.name === '__scene_dir_1__' && !c.parentId);
+        // 2) 侧栏场景根节点右键 → 新建目录
+        renderCategories();
+        await sleep2(150);
+        const scRoot2 = findNode('游戏场景管理');
+        if (scRoot2) scRoot2.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 220, clientY: 220 }));
+        await sleep2(150);
+        out.rootMenuItems = q('.ctx-menu') ? [...q('.ctx-menu').querySelectorAll('.ctx-item')].map((el) => el.textContent) : [];
+        out.rootNewDir = clickMenu('新建目录');
+        await sleep2(200);
+        out.rootModalTitle = (q('.modal-mask .modal-title') || {}).textContent || '';
+        await fillAndOk('__scene_dir_2__');
+        out.rootDirCreated = !!state.sceneCategories.find((c) => c.name === '__scene_dir_2__' && !c.parentId);
+        // 3) 分类节点:数量 + 拖拽属性 + 右键菜单(与资源目录节点对齐)
+        renderCategories();
+        await sleep2(150);
+        // 展开场景根节点(分类节点仅在展开时渲染)
+        const scRoot3 = findNode('游戏场景管理');
+        const scArrow = scRoot3 ? scRoot3.querySelector('.cat-arrow') : null;
+        if (scArrow && scArrow.textContent === '▶') scArrow.click();
+        await sleep2(150);
+        const dirNode = findNode('__scene_dir_1__');
+        out.dirCount = dirNode ? ((dirNode.querySelector('.cat-count') || {}).textContent || '') : '';
+        out.dirDraggable = dirNode ? dirNode.draggable : false;
+        out.dirDragId = dirNode ? (dirNode.dataset.dragId || '') : '';
+        if (dirNode) dirNode.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 220, clientY: 220 }));
+        await sleep2(150);
+        out.dirMenuItems = q('.ctx-menu') ? [...q('.ctx-menu').querySelectorAll('.ctx-item')].map((el) => el.textContent) : [];
+        out.dirMenuOk = out.dirMenuItems.includes('添加场景') && out.dirMenuItems.includes('新建目录')
+          && out.dirMenuItems.includes('编辑目录') && out.dirMenuItems.includes('移动到顶级') && out.dirMenuItems.includes('删除目录');
+        // 清理
+        for (const nm of ['__scene_dir_1__', '__scene_dir_2__']) {
+          const c = state.sceneCategories.find((x) => x.name === nm);
+          if (c) removeSceneCategory(c.id);
+        }
+        renderCategories(); renderMainArea();
+        out.ok = out.homeVisible && out.addCatBtnText.includes('新建目录') && out.homeModalTitle === '新建目录'
+          && out.homeModalHasInput && out.homeDirCreated
+          && out.rootMenuItems.includes('新建目录') && out.rootNewDir && out.rootModalTitle === '新建目录' && out.rootDirCreated
+          && out.dirCount !== '' && out.dirDraggable && !!out.dirDragId && out.dirMenuOk;
         return out;
       }
       case 'crud':

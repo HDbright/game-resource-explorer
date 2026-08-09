@@ -1,0 +1,13 @@
+'use strict';
+/** FGUI 集成冒烟启动器(清理环境变量后拉起 electron) */
+const { spawn } = require('child_process');
+const path = require('path');
+const electronPath = require('electron');
+
+const env = { ...process.env };
+delete env.NODE_OPTIONS;
+delete env.ELECTRON_RUN_AS_NODE;
+
+const child = spawn(electronPath, [path.join(__dirname, 'fgui-smoke-main.js')], { env, stdio: 'inherit' });
+child.on('close', (code) => process.exit(code == null ? 0 : code));
+child.on('error', (err) => { console.error('启动失败:', err.message); process.exit(1); });

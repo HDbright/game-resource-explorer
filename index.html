@@ -32,7 +32,6 @@
         </div>
         <button class="btn" id="btn-add">+ 添加资源</button>
         <button class="btn" id="btn-add-batch">+ 批量添加</button>
-        <button class="btn" id="btn-new-cat">新建分类</button>
         <button class="btn" id="btn-settings" title="设置">⚙ 设置</button>
       </div>
     </header>
@@ -214,6 +213,46 @@
                 <div class="audio-queue" id="audio-queue"></div>
               </div>
               <audio id="audio-el" preload="metadata"></audio>
+            </div>
+
+            <!-- FGUI 包逆向查看器 -->
+            <div id="pv-fgui-view" hidden>
+              <div class="fgui-viewer">
+                <div class="fgui-head">
+                  <span class="fgui-name" id="fgui-name"></span>
+                  <span class="fgui-badge" id="fgui-version"></span>
+                  <span class="fgui-badge" id="fgui-pkg-id"></span>
+                  <span class="fgui-meta">资源: <span id="fgui-items"></span></span>
+                  <span class="fgui-meta">精灵: <span id="fgui-sprites"></span></span>
+                  <span class="fgui-meta" title="依赖的其它 FGUI 包">依赖: <span id="fgui-deps"></span></span>
+                  <div class="ctrl-spacer"></div>
+                  <button class="btn sm" id="fgui-export-pkg" title="把当前目录下全部 FGUI 包导出为 JSON + XML 到所选目录">📤 导出全部包</button>
+                  <button class="btn sm" id="fgui-copy-src" title="复制当前源码标签页内容">📋 复制</button>
+                  <span class="status" id="fgui-status"></span>
+                </div>
+                <div class="fgui-body">
+                  <div class="fgui-col fgui-comp-col">
+                    <div class="fgui-col-title">
+                      组件清单
+                      <span class="fgui-badge" id="fgui-comp-type" style="margin-left:6px"></span>
+                    </div>
+                    <select id="fgui-comp-select" class="fgui-comp-select"></select>
+                    <div class="fgui-tree" id="fgui-tree"></div>
+                  </div>
+                  <div class="fgui-col fgui-props-col">
+                    <div class="fgui-col-title">属性</div>
+                    <div class="fgui-props" id="fgui-props"><div class="hint">点击左侧树节点查看属性</div></div>
+                  </div>
+                  <div class="fgui-col fgui-src-col">
+                    <div class="fgui-col-title">
+                      <span class="fg-src-tab active" data-tab="component">组件 XML</span>
+                      <span class="fg-src-tab" data-tab="package">包 XML</span>
+                      <span class="fg-src-tab" data-tab="json">包 JSON</span>
+                    </div>
+                    <pre class="fgui-src" id="fgui-src"></pre>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>

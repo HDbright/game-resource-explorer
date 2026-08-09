@@ -10,6 +10,8 @@ const { encodePng } = require('./png');
 const { astcToPng } = require('./tools/astc');
 const { skelToJson, probeSkeleton } = require('./tools/skel');
 const { spineFix } = require('./tools/spineFix');
+const fgui = require('./tools/fgui');
+const { buildPreviewData, findGameRoot } = require('./tools/fgui/previewData');
 
 // 冒烟模式:命令行参数(dev)或环境变量(打包版 exe 不经过 electron CLI,未知 -- 参数会被拒绝)
 const isSmoke = process.argv.includes('--smoke') || process.env.SKELETON_VIEWER_SMOKE === '1';
@@ -301,6 +303,7 @@ async function runSmoke() {
     ['tipicon', 800],
     ['favhome', 900],
     ['navfix', 900],
+    ['scenetree', 900],
     ['toolhome', 900],
     ['batchui', 900],
     ['toolhistory', 900],
@@ -390,6 +393,21 @@ app.whenReady().then(async () => {
       return { size: s.size, mtime: Math.round(s.mtimeMs) };
     } catch (err) {
       return null;
+    }
+  });
+  // 列目录: 返回 { ok, files: [{name, isDir, size}] } (目录不存在/失败时 ok=false)
+  ipcMain.handle('fs:listDir', (_e, p) => {
+    try {
+      const files = fs.readdirSync(p, { withFileTypes: true })
+        .map((d) => ({
+          name: d.name,
+          isDir: d.isDirectory(),
+          size: d.isFile() ? fs.statSync(path.join(p, d.name)).size : 0,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      return { ok: true, files };
+    } catch (err) {
+      return { ok: false, error: err.message };
     }
   });
   // ---- 缩略图持久化缓存(userData/thumbnails/<itemId>.png) ----
@@ -534,6 +552,59 @@ app.whenReady().then(async () => {
     try {
       const r = await spineFix(inputPath, outputPath);
       return { ok: true, ...r };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // ============ FGUI 逆向:探测 / 单包解析 / 目录批量导出 ============
+  // 探测文件是否为 FGUI 包(.bin 魔数 FGUII)
+  ipcMain.handle('fgui:probe', async (_e, { inputPath }) => {
+    try {
+      const data = fs.readFileSync(inputPath);
+      return { ok: true, isFgui: fgui.probeFgui(data) };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+  // 解析单个 FGUI 包 → 结构树 + 包级 XML + 组件 XML 列表
+  ipcMain.handle('fgui:parse', async (_e, { inputPath }) => {
+    try {
+      const r = fgui.parseFile(inputPath);
+      // 只回传渲染端需要的部分(避免大 Buffer / 非序列化字段)
+      const info = JSON.parse(JSON.stringify(r.pkg));
+      delete info.rawById;
+      return { ok: true, pkg: info, packageXml: r.packageXml, componentXmls: r.componentXmls,
+               srcDir: path.dirname(inputPath) };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+  // 批量导出: 目录下全部 .bin → 输出目录(JSON + 包级 XML + 组件 XML)
+  ipcMain.handle('fgui:batchExport', async (_e, { inputDir, outputDir }) => {
+    try {
+      return fgui.batchExport(inputDir, outputDir);
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+  // 单文件导出: 一个 .bin → 输出目录(预览页「解压 FGUI 包」用)
+  ipcMain.handle('fgui:exportSingle', async (_e, { inputPath, outputDir }) => {
+    try {
+      const r = fgui.exportFile(inputPath, outputDir);
+      // 共享单图素材库根目录: {gameRoot}/ui/fgui_texture/fgui (未识别到游戏根时为 null, 渲染端回退旧复制行为)
+      let spriteLibDir = null;
+      const gameRoot = findGameRoot(path.dirname(inputPath));
+      if (gameRoot) spriteLibDir = path.join(gameRoot, 'ui', 'fgui_texture', 'fgui');
+      return { ...r, spriteLibDir };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+  // FGUI 布局预览: 解析 .bin → 可渲染 RenderNode 树 + 控制器 + 纹理探测结果
+  ipcMain.handle('fgui:previewLoad', async (_e, { inputPath, textureDir }) => {
+    try {
+      return buildPreviewData(inputPath, { textureDir });
     } catch (err) {
       return { ok: false, error: err.message };
     }

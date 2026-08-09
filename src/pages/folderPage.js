@@ -115,7 +115,7 @@ export function renderFolderPage(container, opts) {
         <button class="btn sm" data-edit-act="select-none" title="取消全选">☐ 取消</button>
         <button class="btn sm" data-edit-act="invert" title="反选">⇄ 反选</button>
         <button class="btn sm danger" data-edit-act="batch-delete" title="删除选中的资源">🗑 删除</button>
-        <button class="btn sm" data-edit-act="batch-move" title="移动选中的资源到其它分类">📂 移动</button>
+        <button class="btn sm" data-edit-act="batch-move" title="移动选中的资源到其它目录">📂 移动</button>
       ` : ''}
       <div class="spacer"></div>
       <span class="res-count" id="res-count">${editMode ? `已选 ${selectedIds.size} 项 / ` : ''}${filterActive ? `${sorted.length} / ` : ''}${data.direct.length} 项资源</span>
@@ -315,14 +315,14 @@ function tagChipsHtml(arr, max = 3) {
   return html;
 }
 
-/** 资源悬停提示(多行):名称/类型/分类/标签/备注/文件 */
+/** 资源悬停提示(多行):名称/类型/目录/标签/备注/文件 */
 function itemTooltip(it) {
   const tags = itemTags(it);
   const typeName = it.type === 'spine' ? 'Spine' : it.type === 'dragonbones' ? 'DragonBones' : TYPE_LABEL[it.type] || it.type;
   const lines = [
     `名称: ${it.displayName || ''}`,
     `类型: ${typeName}`,
-    `分类: ${categoryLabel(it)}`,
+    `目录: ${categoryLabel(it)}`,
   ];
   if (tags.length) lines.push(`标签: ${tags.join('、')}`);
   if (it.remark) lines.push(`备注: ${it.remark}`);

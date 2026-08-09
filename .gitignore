@@ -16,6 +16,8 @@ data/*.db-wal
 .tmp-*
 _tmp*
 _test_*
+err_*.txt
+scripts/_*
 *.tar.gz
 *.tgz
 *.tmp

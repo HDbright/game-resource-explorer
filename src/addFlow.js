@@ -12,6 +12,38 @@ function normPath(p) {
   return String(p).replace(/\\/g, '/').toLowerCase();
 }
 
+/** 判断 dir 是否位于 root 之下(含相等) */
+function isWithin(dir, root) {
+  const d = normPath(dir);
+  const r = normPath(root).replace(/\/+$/, '');
+  return d === r || d.startsWith(r + '/');
+}
+
+/** dir 相对 root 的路径段(不含文件);dir == root 时返回 [] */
+function relSegments(dir, root) {
+  const d = normPath(dir);
+  const r = normPath(root).replace(/\/+$/, '');
+  if (d === r) return [];
+  const rel = d.slice(r.length + 1);
+  return rel.split('/').filter(Boolean);
+}
+
+/** 递归扫描添加时: 按文件相对根目录的路径结构, 在目标分类下逐级建立目录(同名复用) */
+function ensureCategoryChain(baseParentId, segs, typeTags) {
+  let parentId = baseParentId;
+  const created = [];
+  for (const seg of segs) {
+    const kids = state.categories.filter((c) => (c.parentId || '') === parentId);
+    let c = kids.find((k) => k.name === seg);
+    if (!c) {
+      c = addCategory({ name: seg, typeTags, parentId });
+      created.push(c.id);
+    }
+    parentId = c.id;
+  }
+  return { catId: parentId, created };
+}
+
 /**
  * 判断某个扫描到的资源是否已经在"目标分类"下存在(去重判定)。
  * 同一文件重复添加到同一分类 → 视为重复,跳过。
@@ -83,7 +115,7 @@ export async function runAddFlow(batch, defaultCategoryId) {
   }
   const newCatOpt = document.createElement('option');
   newCatOpt.value = '__new__';
-  newCatOpt.textContent = '➕ 新建分类…';
+  newCatOpt.textContent = '➕ 新建目录…';
   catSelect.appendChild(newCatOpt);
   catSelect.value = hasDefaultCat ? defaultCategoryId : '';
   catRow.appendChild(catLabel);
@@ -221,10 +253,10 @@ export async function runAddFlow(batch, defaultCategoryId) {
         text: '添加所选',
         cls: 'primary',
         onClick: (btn) => {
-          // 需求:必须已选择分类目录(或新建分类)才能添加
+          // 需求:必须已选择分类目录(或新建目录)才能添加
           const catId = catSelect.value;
           if (!catId || catId === '__new__') {
-            toast('请先选择分类目录,或点击「➕ 新建分类…」新建分类', 'error');
+            toast('请先选择分类目录,或点击「➕ 新建目录…」新建目录', 'error');
             return;
           }
           const items = flow.entries.filter((e) => flow.checked.has(e.file));
@@ -235,14 +267,34 @@ export async function runAddFlow(batch, defaultCategoryId) {
           btn.disabled = true;
           let added = 0;
           let skipped = 0;
+          let dirsCreated = 0;
+          const createdCatIds = [];
+          // 递归扫描时:按被添加文件相对选中根目录的路径结构,自动在目标分类下建立对应目录
+          const usePathDirs = flow.recursive;
+          const parentCat = state.categories.find((c) => c.id === catId);
+          const inheritTags = parentCat ? (parentCat.typeTags || []) : [];
           for (const e of items) {
+            // 计算该文件应归入的分类:递归扫描时按路径结构建目录链
+            let targetCatId = catId;
+            if (usePathDirs) {
+              const root = flow.dirs.find((d) => isWithin(e.dir, d));
+              if (root) {
+                const segs = relSegments(e.dir, root);
+                if (segs.length) {
+                  const { catId: cid, created } = ensureCategoryChain(catId, segs, inheritTags);
+                  targetCatId = cid;
+                  dirsCreated += created.length;
+                  createdCatIds.push(...created);
+                }
+              }
+            }
             // 再次校验:目标分类下已存在 → 跳过,不重复添加
-            if (isDuplicateInCategory(e.file, catId)) {
+            if (isDuplicateInCategory(e.file, targetCatId)) {
               skipped++;
               continue;
             }
             addItem({
-              categoryId: catId,
+              categoryId: targetCatId,
               type: e.type,
               filePath: e.file,
               atlasPath: e.atlasPath || null,
@@ -256,10 +308,13 @@ export async function runAddFlow(batch, defaultCategoryId) {
           close();
           const catName = catSelect.selectedOptions[0]?.textContent || '未分类';
           let msg = `已添加 ${added} 个资源到「${catName}」`;
+          if (dirsCreated > 0) msg += `,自动创建 ${dirsCreated} 个目录`;
           if (skipped > 0) msg += `,${skipped} 个重复已跳过`;
-          if (added === 0 && skipped > 0) msg = `本次未添加新资源,${skipped} 个已在「${catName}」中,已跳过`;
+          if (added === 0 && skipped > 0) msg = `本次未添加新资源,${skipped} 个已在对应目录中,已跳过`;
           toast(msg);
-          window.dispatchEvent(new CustomEvent('items-changed'));
+          window.dispatchEvent(new CustomEvent('items-changed', {
+            detail: createdCatIds.length ? { expand: createdCatIds } : undefined,
+          }));
         },
       },
     ]),
@@ -280,11 +335,11 @@ export async function runAddFlow(batch, defaultCategoryId) {
   catSelect.addEventListener('change', () => {
     if (applyingCat) return;
     if (catSelect.value === '__new__') {
-      // 选择「➕ 新建分类…」:弹出创建对话框,创建后自动选中新分类
+      // 选择「➕ 新建目录…」:弹出创建对话框,创建后自动选中新目录
       const prev = lastCatId;
       promptDialog({
-        title: '新建分类',
-        fields: [{ key: 'name', label: '分类名称', type: 'text', value: '' }],
+        title: '新建目录',
+        fields: [{ key: 'name', label: '目录名称', type: 'text', value: '' }],
         onOk: ({ name }) => {
           if (!name) { setCatValue(prev || ''); return; }
           const cat = addCategory({ name, remark: '' });

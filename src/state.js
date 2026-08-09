@@ -24,6 +24,8 @@ export const DEFAULT_SETTINGS = {
   audioRate: 1, // 变速 0.5~2
   audioPlaylists: [], // 播放列表 [{id, name, paths: [filePath...]}]
   audioCurrentListId: null, // 当前播放列表 id
+  // 最近打开(首页展示): [{name, path, type, tab, itemId, openedAt}] 最新在前,上限 20
+  recentOpens: [],
   audioListFields: { // 播放列表条目显示字段(在设置页配置)
     fileName: true, // 文件名
     title: true, // 标题(ID3)
@@ -53,6 +55,7 @@ export const TYPE_GROUPS = {
   image: ['image'],
   audio: ['audio'],
   '3d': ['model'],
+  fgui: ['fgui'],
 };
 
 /** 类型显示名 */
@@ -62,13 +65,15 @@ export const TYPE_LABEL = {
   image: '图片',
   audio: '音频',
   model: '3D',
+  fgui: 'FGUI',
 };
 
-/** 资源类型 → 分组('anim' | 'image' | 'audio' | '3d') */
+/** 资源类型 → 分组('anim' | 'image' | 'audio' | '3d' | 'fgui') */
 export function typeGroup(type) {
   if (type === 'image') return 'image';
   if (type === 'audio') return 'audio';
   if (type === 'model') return '3d';
+  if (type === 'fgui') return 'fgui';
   return 'anim';
 }
 
@@ -82,6 +87,7 @@ export const CAT_TYPE_TAG_LABELS = {
   '3d': '3D',
   video: '视频',
   article: '文章',
+  fgui: 'UI',
 };
 
 /** 全部标签 key(供勾选组按固定顺序渲染) */
@@ -425,6 +431,18 @@ export function setItemTags(id, tags) {
 
 export function setSetting(key, value) {
   state.settings[key] = value;
+  saveState();
+}
+
+/** 最近打开(首页展示与再次打开): 去重按 path, 最新在前, 上限 20, 持久化 */
+export function recordRecentOpen({ name = '', path = '', type = '', tab = '', itemId = null }) {
+  if (!path) return;
+  const norm = String(path).replace(/\\/g, '/');
+  const list = Array.isArray(state.settings.recentOpens) ? [...state.settings.recentOpens] : [];
+  const idx = list.findIndex((r) => r.path && String(r.path).replace(/\\/g, '/') === norm);
+  if (idx >= 0) list.splice(idx, 1);
+  list.unshift({ name, path, type, tab, itemId, openedAt: now() });
+  state.settings.recentOpens = list.slice(0, 20);
   saveState();
 }
 
@@ -843,18 +861,20 @@ export function reorderSceneCategory(fromId, toId, place = 'before') {
   return moved;
 }
 
-/** 新增场景条目;type: 'folder' | 'file' */
-export function addScene({ categoryId = '', name, filePath, type = 'folder', remark = '', tags = [], size = null, mtime = null }) {
+/** 新增场景条目;type: 'folder' | 'file';subtype: '' | 'fgui'(FGUI 界面包登记) */
+export function addScene({ categoryId = '', name, filePath, type = 'folder', subtype = '', remark = '', tags = [], size = null, mtime = null, fguiSnapshots = [] }) {
   const scene = {
     id: uid('sn'),
     categoryId: categoryId || '',
     name,
     filePath: filePath || '',
     type,
+    subtype: subtype || '',
     remark: remark || '',
     tags: cleanTags(tags),
     size,
     mtime,
+    fguiSnapshots: Array.isArray(fguiSnapshots) ? fguiSnapshots : [],
     createdAt: now(),
   };
   state.scenes.push(scene);
@@ -878,6 +898,13 @@ export function removeScene(id) {
 
 export function sceneById(id) {
   return state.scenes.find((s) => s.id === id) || null;
+}
+
+/** 按文件路径精确匹配场景条目(FGUI 包登记查重用),返回第一个或 null */
+export function findSceneByFilePath(fp) {
+  if (!fp) return null;
+  const norm = String(fp).replace(/\\/g, '/');
+  return state.scenes.find((s) => String(s.filePath || '').replace(/\\/g, '/') === norm) || null;
 }
 
 /** 某分类(含未分类 '')下的直属场景条目 */

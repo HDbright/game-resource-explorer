@@ -44,7 +44,7 @@ export function footButtons(buttons) {
   return foot;
 }
 
-export function confirmDialog({ title, message, okText = '确定', danger = false, onOk }) {
+export function confirmDialog({ title, message, okText = '确定', danger = false, onOk, onCancel }) {
   const body = document.createElement('div');
   body.className = 'modal-body';
   const p = document.createElement('p');
@@ -56,7 +56,7 @@ export function confirmDialog({ title, message, okText = '确定', danger = fals
     title,
     body,
     foot: footButtons([
-      { text: '取消', cls: '', onClick: () => close() },
+      { text: '取消', cls: '', onClick: () => { close(); onCancel && onCancel(); } },
       { text: okText, cls: danger ? 'danger' : 'primary', onClick: () => { close(); onOk && onOk(); } },
     ]),
   });

@@ -1056,3 +1056,282 @@ input[type="color"] { width: 30px; height: 26px; border: 1px solid var(--border)
   background: var(--accent2); color: #fff; border-color: var(--accent2);
 }
 .btn.primary:hover { filter: brightness(1.08); }
+
+/* ============ FGUI 包逆向查看器 ============ */
+.fgui-viewer {
+  display: flex; flex-direction: column; height: 100%; min-height: 0;
+}
+.fgui-head {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 8px 14px; border-bottom: 1px solid var(--border, #333);
+  background: rgba(255, 255, 255, 0.02);
+}
+.fgui-name { font-weight: 600; font-size: 15px; }
+.fgui-badge {
+  font-size: 11px; padding: 1px 8px; border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08); color: var(--text2, #aaa);
+}
+.fgui-meta { font-size: 12px; color: var(--text2, #aaa); }
+.fgui-body {
+  display: flex; flex: 1; min-height: 0; gap: 1px;
+}
+.fgui-col {
+  display: flex; flex-direction: column; min-height: 0; min-width: 0;
+  background: rgba(255, 255, 255, 0.02);
+}
+.fgui-comp-col { width: 220px; flex: 0 0 220px; }
+.fgui-props-col { width: 280px; flex: 0 0 280px; }
+.fgui-src-col { flex: 1; }
+.fgui-col-title {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px; font-size: 12px; color: var(--text2, #aaa);
+  border-bottom: 1px solid var(--border, #333);
+}
+.fgui-comp-select {
+  margin: 8px; width: calc(100% - 16px); max-width: none;
+  background: var(--bg2, #22242b); color: var(--text, #eee);
+  border: 1px solid var(--border, #444); border-radius: 6px; padding: 4px 8px;
+}
+.fgui-tree {
+  flex: 1; overflow: auto; padding: 4px 8px 12px; margin: 0;
+}
+.fgui-tree ul { list-style: none; margin: 0; padding: 0; }
+.fg-node {
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 6px; margin: 1px 0; border-radius: 4px; cursor: pointer;
+  font-size: 13px; white-space: nowrap; overflow: hidden;
+}
+.fg-node:hover { background: rgba(255, 255, 255, 0.06); }
+.fg-node-type {
+  font-size: 10px; padding: 0 5px; border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1); color: var(--text2, #aaa);
+  flex: 0 0 auto;
+}
+.fg-node-name { overflow: hidden; text-overflow: ellipsis; }
+.fg-node-text {
+  font-size: 11px; color: var(--accent2, #6fb3ff); opacity: 0.9;
+  overflow: hidden; text-overflow: ellipsis; max-width: 40%;
+}
+.fgui-props { flex: 1; overflow: auto; padding: 6px 10px 12px; font-size: 12px; }
+.fg-prop {
+  display: flex; gap: 8px; padding: 3px 0; border-bottom: 1px dashed rgba(255, 255, 255, 0.06);
+}
+.fg-prop-k { color: var(--text2, #aaa); flex: 0 0 72px; overflow: hidden; text-overflow: ellipsis; }
+.fg-prop-v { flex: 1; word-break: break-all; color: var(--text, #eee); }
+.fg-src-tab {
+  cursor: pointer; padding: 2px 10px; border-radius: 10px; font-size: 12px;
+  color: var(--text2, #aaa); user-select: none;
+}
+.fg-src-tab:hover { background: rgba(255, 255, 255, 0.08); }
+.fg-src-tab.active { background: var(--accent2, #6fb3ff); color: #fff; }
+.fgui-src {
+  flex: 1; overflow: auto; margin: 0; padding: 10px 12px;
+  font-family: Consolas, 'Courier New', monospace; font-size: 12px;
+  line-height: 1.5; color: #d4d4d4; background: rgba(0, 0, 0, 0.25);
+  white-space: pre; tab-size: 2;
+}
+
+/* ============ FGUI 包逆向查看器 ============ */
+.fgui-viewer {
+  display: flex; flex-direction: column; height: 100%; min-height: 0;
+}
+.fgui-head {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 8px 14px; border-bottom: 1px solid var(--border, #333);
+  background: rgba(255, 255, 255, 0.02);
+}
+.fgui-name { font-weight: 600; font-size: 15px; }
+.fgui-badge {
+  font-size: 11px; padding: 1px 8px; border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08); color: var(--text2, #aaa);
+}
+.fgui-meta { font-size: 12px; color: var(--text2, #aaa); }
+.fgui-body {
+  display: flex; flex: 1; min-height: 0; gap: 1px;
+}
+.fgui-col {
+  display: flex; flex-direction: column; min-height: 0; min-width: 0;
+  background: rgba(255, 255, 255, 0.02);
+}
+.fgui-comp-col { width: 220px; flex: 0 0 220px; }
+.fgui-props-col { width: 280px; flex: 0 0 280px; }
+.fgui-src-col { flex: 1; }
+.fgui-col-title {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px; font-size: 12px; color: var(--text2, #aaa);
+  border-bottom: 1px solid var(--border, #333);
+}
+.fgui-comp-select {
+  margin: 8px; width: calc(100% - 16px); max-width: none;
+  background: var(--bg2, #22242b); color: var(--text, #eee);
+  border: 1px solid var(--border, #444); border-radius: 6px; padding: 4px 8px;
+}
+.fgui-tree {
+  flex: 1; overflow: auto; padding: 4px 8px 12px; margin: 0;
+}
+.fgui-tree ul { list-style: none; margin: 0; padding: 0; }
+.fg-node {
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 6px; margin: 1px 0; border-radius: 4px; cursor: pointer;
+  font-size: 13px; white-space: nowrap; overflow: hidden;
+}
+.fg-node:hover { background: rgba(255, 255, 255, 0.06); }
+.fg-node-type {
+  font-size: 10px; padding: 0 5px; border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1); color: var(--text2, #aaa);
+  flex: 0 0 auto;
+}
+.fg-node-name { overflow: hidden; text-overflow: ellipsis; }
+.fg-node-text {
+  font-size: 11px; color: var(--accent2, #6fb3ff); opacity: 0.9;
+  overflow: hidden; text-overflow: ellipsis; max-width: 40%;
+}
+.fgui-props { flex: 1; overflow: auto; padding: 6px 10px 12px; font-size: 12px; }
+.fg-prop {
+  display: flex; gap: 8px; padding: 3px 0; border-bottom: 1px dashed rgba(255, 255, 255, 0.06);
+}
+.fg-prop-k { color: var(--text2, #aaa); flex: 0 0 72px; overflow: hidden; text-overflow: ellipsis; }
+.fg-prop-v { flex: 1; word-break: break-all; color: var(--text, #eee); }
+.fg-src-tab {
+  cursor: pointer; padding: 2px 10px; border-radius: 10px; font-size: 12px;
+  color: var(--text2, #aaa); user-select: none;
+}
+.fg-src-tab:hover { background: rgba(255, 255, 255, 0.08); }
+.fg-src-tab.active { background: var(--accent2, #6fb3ff); color: #fff; }
+.fgui-src {
+  flex: 1; overflow: auto; margin: 0; padding: 10px 12px;
+  font-family: Consolas, 'Courier New', monospace; font-size: 12px;
+  line-height: 1.5; color: #d4d4d4; background: rgba(0, 0, 0, 0.25);
+  white-space: pre; tab-size: 2;
+}
+
+/* ============ FGUI 界面交互预览(场景管理内) ============ */
+.fg-entry-card {
+  display: flex; align-items: center; gap: 12px;
+  margin: 14px 0 6px; padding: 14px 18px;
+  background: linear-gradient(135deg, rgba(90, 130, 200, 0.12), rgba(120, 90, 200, 0.10));
+  border: 1px solid rgba(120, 140, 220, 0.35);
+  border-radius: 10px; cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.fg-entry-card:hover { background: rgba(90, 130, 200, 0.22); border-color: var(--accent2, #6fb3ff); }
+.fg-entry-ico { font-size: 30px; flex: 0 0 auto; }
+.fg-entry-main { flex: 1; min-width: 0; }
+.fg-entry-title { font-weight: 600; font-size: 15px; margin-bottom: 3px; }
+.fg-entry-desc { font-size: 12px; color: var(--text2, #aaa); line-height: 1.5; }
+.fg-entry-go { color: var(--accent2, #6fb3ff); font-size: 13px; flex: 0 0 auto; }
+
+.fg-preview-page { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.fg-pv-toolbar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 14px; border-bottom: 1px solid var(--border, #333);
+  background: rgba(255, 255, 255, 0.02);
+}
+.fg-pv-toolbar select { max-width: 260px; }
+.fgpv-pkg { font-size: 13px; color: var(--text2, #aaa); }
+.fgpv-reg { font-size: 12px; color: var(--ok, #4caf50); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fgpv-spacer { flex: 1; }
+.fg-preview-layout { display: flex; flex: 1; min-height: 0; gap: 1px; }
+.fg-canvas-wrap {
+  position: relative; flex: 1; min-width: 0; overflow: hidden;
+  background: #1b1d23;
+}
+.fg-canvas-wrap canvas { display: block; width: 100%; height: 100%; }
+.fg-text-layer {
+  position: absolute; inset: 0; overflow: hidden; pointer-events: none;
+  transform-origin: 0 0;
+}
+.fg-text-node {
+  position: absolute; display: flex;
+  white-space: pre-wrap; overflow: hidden; word-break: break-all;
+  font-family: system-ui, "Microsoft YaHei", "PingFang SC", sans-serif;
+  pointer-events: auto; cursor: pointer;
+  box-sizing: border-box;
+}
+.fg-text-node.sel { outline: 2px solid #6fb3ff; outline-offset: -2px; }
+.fg-side { position: relative; display: flex; flex-direction: column; width: 250px; flex: 0 0 250px; min-width: 0; }
+/* 右侧面板左边框拖拽条(横向改宽) */
+.fg-hsplit {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 6px;
+  cursor: ew-resize; z-index: 20;
+}
+.fg-hsplit::before {
+  content: ''; position: absolute; left: 2px; top: 0; bottom: 0; width: 2px;
+  background: rgba(255, 255, 255, 0.14);
+}
+.fg-hsplit:hover::before { background: var(--accent2, #6fb3ff); }
+/* 组件列表/属性面板之间的垂直分割线 */
+.fg-vsplit {
+  flex: 0 0 auto; height: 7px; cursor: ns-resize;
+  display: flex; align-items: center; justify-content: center;
+}
+.fg-vsplit::after {
+  content: ''; width: 36px; height: 3px; border-radius: 2px;
+  background: rgba(255, 255, 255, 0.18);
+}
+.fg-vsplit:hover::after { background: var(--accent2, #6fb3ff); }
+/* 组件列表面板(右侧顶部): 主包组件 + 跨包子组件 */
+.fg-comp-bar {
+  display: flex; flex-direction: column; flex: 1 1 50%; min-height: 60px;
+  border-bottom: 1px solid var(--border, #333);
+  background: rgba(255, 255, 255, 0.02);
+}
+.fg-comp-title {
+  padding: 6px 10px; font-size: 12px; color: var(--text2, #aaa);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex: 0 0 auto;
+}
+.fg-comp-cnt { color: var(--text3, #666); }
+.fg-comp-list { overflow: auto; padding: 4px 6px; font-size: 12px; flex: 1; min-height: 0; }
+.fg-comp-item {
+  padding: 3px 6px; border-radius: 4px; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: var(--text, #eee);
+}
+.fg-comp-item:hover { background: rgba(255, 255, 255, 0.08); }
+.fg-comp-item.active { background: var(--accent2, #6fb3ff); color: #fff; }
+.fg-comp-item.sub { padding-left: 22px; color: var(--text2, #aaa); }
+.fg-comp-type { color: var(--text3, #888); font-size: 11px; }
+.fg-ext { color: #ffa657; font-size: 11px; }
+.fg-comp-item.active .fg-comp-type, .fg-comp-item.active .fg-ext { color: rgba(255, 255, 255, 0.85); }
+.fg-snap-bar {
+  display: flex; align-items: center; gap: 5px; flex-wrap: wrap;
+  padding: 6px 10px; border-bottom: 1px solid var(--border, #333);
+  font-size: 12px; background: rgba(255, 255, 255, 0.02);
+}
+.fg-snap-title { color: var(--text2, #aaa); white-space: nowrap; }
+.fg-snap-bar select {
+  flex: 1; min-width: 0; max-width: 150px;
+  background: var(--bg2, #22242b); color: var(--text, #eee);
+  border: 1px solid var(--border, #444); border-radius: 4px;
+  padding: 2px 4px; font-size: 12px;
+}
+.fg-prop-panel {
+  flex: 1 1 50%; min-height: 0; overflow: auto; padding: 8px 10px 14px;
+  font-size: 12px; background: rgba(255, 255, 255, 0.02);
+}
+.fg-prop { display: flex; gap: 8px; padding: 3px 0; border-bottom: 1px dashed rgba(255, 255, 255, 0.06); }
+.fg-prop-k { color: var(--text2, #aaa); flex: 0 0 66px; overflow: hidden; text-overflow: ellipsis; }
+.fg-prop-v { flex: 1; word-break: break-all; color: var(--text, #eee); }
+.fg-ctrl-btns { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.fg-ctrl-group { display: inline-flex; align-items: center; gap: 3px; margin-right: 10px; }
+.fg-ctrl-name { font-size: 11px; color: var(--text2, #aaa); margin-right: 3px; }
+.fg-ctrl-btn.active {
+  background: var(--accent2, #6fb3ff); color: #fff; border-color: var(--accent2, #6fb3ff);
+}
+
+/* FGUI 编辑模式 */
+#fgpv-edit.active { background: var(--accent2, #6fb3ff); color: #fff; border-color: var(--accent2, #6fb3ff); }
+.fg-prop-panel .fg-prop-input {
+  flex: 1; min-width: 0;
+  background: var(--bg2, #22242b); color: var(--text, #eee);
+  border: 1px solid var(--border, #444); border-radius: 4px;
+  padding: 2px 6px; font-size: 12px;
+}
+.fg-prop-panel .fg-prop-input:focus { border-color: var(--accent2, #6fb3ff); outline: none; }
+.fg-prop-panel textarea.fg-prop-input { resize: vertical; min-height: 40px; }
+.fg-text-edit {
+  position: absolute; padding: 2px 4px; box-sizing: border-box;
+  font-family: system-ui, "Microsoft YaHei", "PingFang SC", sans-serif;
+  white-space: pre-wrap; overflow: hidden; word-break: break-all;
+}

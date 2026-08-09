@@ -22,6 +22,22 @@ function probeBinFile(fp) {
   }
 }
 
+const FGUI_MAGIC = 0x46475549; // "FGUII"
+
+/** 探测 .bin 是否为 FairyGUI 包(魔数 FGUII)。只读头部 8 字节。 */
+function probeFguiBin(fp) {
+  try {
+    const fd = fs.openSync(fp, 'r');
+    const buf = Buffer.alloc(8);
+    const n = fs.readSync(fd, buf, 0, 8, 0);
+    fs.closeSync(fd);
+    if (n < 8) return false;
+    return buf.readUInt32BE(0) === FGUI_MAGIC;
+  } catch (err) {
+    return false;
+  }
+}
+
 /**
  * 扫描一个目录,识别其中的 Spine / DragonBones 骨骼动画、图片、音频、3D 资源。
  * 返回条目列表:
@@ -68,11 +84,18 @@ function scanDir(dir, recursive) {
       });
     }
 
-    // ---- .bin 格式检测:若为 Spine 二进制骨架(.skel),统一把扩展名改为 .skel,避免重复 ----
+    // ---- .bin 格式检测:Spine 二进制骨架(.skel) 或 FairyGUI 包(FGUII) ----
     const binSkelBases = [];
+    const fguiFiles = [];
     for (const bf of files) {
       if (!bf.name.toLowerCase().endsWith('.bin')) continue;
       const fp = path.join(d, bf.name);
+      // FGUI 包优先(魔数 FGUII)
+      if (probeFguiBin(fp)) {
+        const base = bf.name.slice(0, -'.bin'.length);
+        fguiFiles.push({ fp, base });
+        continue;
+      }
       const probe = probeBinFile(fp);
       if (!probe || probe.kind !== 'binary') continue;
       const base = bf.name.slice(0, -'.bin'.length);
@@ -102,6 +125,18 @@ function scanDir(dir, recursive) {
           ? (hasAtlas ? [`${probMsg},已统一改名为 ${skelName} 按骨架处理`] : [`${probMsg},已统一改名为 ${skelName},但缺少同名 .atlas 文件`])
           : (hasAtlas ? [`${probMsg},改名 ${skelName} 失败(权限/占用?),按 .bin 处理`] : [`${probMsg},改名 ${skelName} 失败(权限/占用?),且缺少同名 .atlas 文件`]),
         ...statOf(renamed ? skelPath : fp),
+      });
+    }
+
+    // ---- FairyGUI 包(.bin 魔数 FGUII) ----
+    for (const { fp, base } of fguiFiles) {
+      results.push({
+        file: fp,
+        dir: d,
+        type: 'fgui',
+        base,
+        problems: [],
+        ...statOf(fp),
       });
     }
 

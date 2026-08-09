@@ -30,12 +30,20 @@ contextBridge.exposeInMainWorld('api', {
   readBase64: (p) => ipcRenderer.invoke('fs:readBase64', p),
   writeFileBase64: (p, dataUrl) => ipcRenderer.invoke('fs:writeFileBase64', p, dataUrl),
   renameFile: (oldPath, newPath) => ipcRenderer.invoke('fs:rename', oldPath, newPath),
+  listDir: (p) => ipcRenderer.invoke('fs:listDir', p),
 
   // ---- 资源工具箱:转换工具 ----
   astc2png: (args) => ipcRenderer.invoke('tool:astc2png', args),
   skel2json: (args) => ipcRenderer.invoke('tool:skel2json', args),
   probeSkel: (args) => ipcRenderer.invoke('tool:probeSkel', args),
   spineFix: (args) => ipcRenderer.invoke('tool:spinefix', args),
+
+  // ---- FGUI 逆向:探测 / 单包解析 / 目录批量导出 ----
+  fguiProbe: (args) => ipcRenderer.invoke('fgui:probe', args),
+  fguiParse: (args) => ipcRenderer.invoke('fgui:parse', args),
+  fguiBatchExport: (args) => ipcRenderer.invoke('fgui:batchExport', args),
+  fguiExportSingle: (args) => ipcRenderer.invoke('fgui:exportSingle', args),
+  fguiPreviewLoad: (args) => ipcRenderer.invoke('fgui:previewLoad', args),
 
   // ---- 音频播放器:目录列表 / ID3 元信息 ----
   listDirAudios: (dir) => ipcRenderer.invoke('audio:listDir', dir),

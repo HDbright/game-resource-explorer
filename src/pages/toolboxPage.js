@@ -20,6 +20,7 @@ export function renderToolboxPage(container, tool) {
     skel2json: { title: 'SKEL → JSON', desc: '把 Spine 二进制骨架(.skel)转为 JSON(自动探测 3.x / 4.x 版本,调用对应运行时解析)。', render: renderSkelTool },
     spinefix: { title: 'Spine 文件修复', desc: '对 .json / .skel / .atlas 执行诊断与自动修复(JSON 注释/尾逗号/版本字段;atlas 缺图检测),输出修复副本。可单选/多选文件或整个目录(含子目录),记住最近输入目录。', render: renderSpineFixTool },
     imageedit: { title: '图片编辑', desc: '单个或批量处理图片:镜像翻转、旋转、缩放、生成指定大小/样式的缩略图(canvas 处理,导出 PNG/JPEG,可覆盖原文件)。', render: renderImageEditTool },
+    fgui: { title: 'FGUI 逆向导出', desc: '把 FairyGUI 发布的 .bin 包批量逆向为可读结构:每个包生成 JSON(完整组件树)+ FGUI 风格 XML(包级 + 每个组件一个)。', render: renderFguiTool },
   };
   const cfg = tools[tool] || tools.astc2png;
   const head = document.createElement('div');
@@ -39,6 +40,7 @@ function renderToolboxHome(container) {
     { id: 'skel2json', icon: '📦', title: 'SKEL → JSON', desc: '把 Spine 二进制骨架(.skel)转为 JSON(自动探测 3.x / 4.x 版本,调用对应运行时解析)。可单选/多选文件或整个目录(含子目录),记住最近输入目录。' },
     { id: 'spinefix', icon: '🛠', title: 'Spine 文件修复', desc: '对 .json / .skel / .atlas 执行诊断与自动修复(JSON 注释/尾逗号/版本字段;atlas 缺图检测),输出修复副本。可单选/多选文件或整个目录(含子目录),记住最近输入目录。' },
     { id: 'imageedit', icon: '🎨', title: '图片编辑', desc: '单个或批量处理图片:镜像翻转、旋转、缩放、生成指定大小/样式的缩略图(canvas 处理,导出 PNG/JPEG,可覆盖原文件)。' },
+    { id: 'fgui', icon: '🧩', title: 'FGUI 逆向导出', desc: '把 FairyGUI 发布的 .bin 包批量逆向为可读结构:每个包生成 JSON(完整组件树)+ FGUI 风格 XML(包级 + 每个组件一个)。可整目录导出。' },
   ];
   const head = document.createElement('div');
   head.className = 'tool-head';
@@ -385,6 +387,135 @@ function renderSkelTool(body) {
     // 选择时探测文件是否确为 Skel 二进制格式(.bin 后缀常为误命名,需校验)
     validateFile: async (p) => window.api.probeSkel({ inputPath: p }),
   });
+}
+
+// ---- FGUI 逆向导出(目录 → 目录) ----
+
+function renderFguiTool(body) {
+  const px = 'fgui';
+  body.innerHTML = `
+    <div class="tool-card">
+      <div class="field-row">
+        <label class="field-label">输入目录</label>
+        <div class="field-ctrl">
+          <input type="text" id="${px}-indir" placeholder="选择包含 FGUI 包(.bin)的目录..." readonly />
+          <button class="btn" id="${px}-indir-pick">选择目录...</button>
+          <span class="${px}-count" id="${px}-count"></span>
+        </div>
+      </div>
+      <div class="tool-history" id="${px}-history" style="display:none">
+        <span class="hist-label">最近目录:</span>
+        <span class="hist-chips" id="${px}-hist-chips"></span>
+        <span class="hist-hint">(点击定位到该目录)</span>
+      </div>
+      <div class="field-row">
+        <label class="field-label">输出目录</label>
+        <div class="field-ctrl">
+          <input type="text" id="${px}-outdir" placeholder="选择输出目录(每个包生成 .json + .xml)..." readonly />
+          <button class="btn" id="${px}-outdir-pick">选择目录...</button>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field-ctrl">
+          <button class="btn primary" id="${px}-run" disabled>开始逆向导出</button>
+          <span class="status" id="${px}-status"></span>
+        </div>
+      </div>
+      <div class="tool-result" id="${px}-result"></div>
+    </div>
+  `;
+  const indirEl = body.querySelector(`#${px}-indir`);
+  const outdirEl = body.querySelector(`#${px}-outdir`);
+  const countEl = body.querySelector(`#${px}-count`);
+  const runBtn = body.querySelector(`#${px}-run`);
+  const statusEl = body.querySelector(`#${px}-status`);
+  const resultEl = body.querySelector(`#${px}-result`);
+  const histWrap = body.querySelector(`#${px}-history`);
+  const histChips = body.querySelector(`#${px}-hist-chips`);
+
+  let inputDir = '';
+
+  function renderHistory() {
+    const h = getInputHistory();
+    histWrap.style.display = h.length ? '' : 'none';
+    histChips.innerHTML = h.map((p) => `<span class="hist-chip" title="${escHtml(p)}">${escHtml(p)}</span>`).join('');
+    histChips.querySelectorAll('.hist-chip').forEach((el) => {
+      el.addEventListener('click', () => {
+        inputDir = el.title;
+        indirEl.value = inputDir;
+        refreshCount();
+      });
+    });
+  }
+
+  async function refreshCount() {
+    if (!inputDir) { countEl.textContent = ''; runBtn.disabled = true; return; }
+    countEl.textContent = '正在统计...';
+    const r = await window.api.collectFiles({ paths: [inputDir], extensions: ['bin'] });
+    const n = r.ok ? (r.files || []).length : 0;
+    countEl.textContent = n ? `发现 ${n} 个 .bin 文件` : '(未发现 .bin 文件)';
+    runBtn.disabled = !n;
+  }
+
+  body.querySelector(`#${px}-indir-pick`).addEventListener('click', async () => {
+    const r = await window.api.pickFiles({
+      title: '选择包含 FGUI 包(.bin)的目录',
+      directory: true,
+      defaultPath: getInputHistory()[0] || undefined,
+    });
+    if (r.canceled || !r.filePaths.length) return;
+    inputDir = r.filePaths[0];
+    indirEl.value = inputDir;
+    pushInputHistory([inputDir]);
+    renderHistory();
+    await refreshCount();
+  });
+
+  body.querySelector(`#${px}-outdir-pick`).addEventListener('click', async () => {
+    const r = await window.api.pickFiles({
+      title: '选择 FGUI 逆向导出输出目录',
+      directory: true,
+    });
+    if (r.canceled || !r.filePaths.length) return;
+    outdirEl.value = r.filePaths[0];
+  });
+
+  runBtn.addEventListener('click', async () => {
+    if (!inputDir) { toast('请先选择输入目录', 'error'); return; }
+    let outDir = outdirEl.value;
+    if (!outDir) {
+      // 默认输出到输入目录下的 fgui_out
+      outDir = inputDir.replace(/[\\/]+$/, '') + '/fgui_out';
+      outdirEl.value = outDir;
+    }
+    runBtn.disabled = true;
+    statusEl.textContent = '正在导出...';
+    setResult(body, `#${px}-result`, { type: 'busy', msg: '正在解析并写入文件...' });
+    try {
+      const res = await window.api.fguiBatchExport({ inputDir, outputDir: outDir });
+      if (res && res.ok) {
+        statusEl.textContent = '';
+        let msg = `✅ 导出完成:成功 ${res.total} 个包`;
+        if (res.failed > 0) msg += `,失败 ${res.failed} 个`;
+        msg += ` → ${escHtml(outDir)}`;
+        setResult(body, `#${px}-result`, { type: res.failed ? 'warn' : 'ok', msg });
+        if (res.errors && res.errors.length) {
+          setResult(body, `#${px}-result`, { type: 'warn', msg: res.errors.map((e) => `${escHtml(e.file)}:${escHtml(e.error)}`).join('<br/>') });
+        }
+      } else {
+        statusEl.textContent = '';
+        setResult(body, `#${px}-result`, { type: 'err', msg: '✗ ' + ((res && res.error) || '导出失败') });
+      }
+    } catch (e) {
+      statusEl.textContent = '';
+      setResult(body, `#${px}-result`, { type: 'err', msg: '✗ ' + (e.message || String(e)) });
+    } finally {
+      runBtn.disabled = false;
+      await refreshCount();
+    }
+  });
+
+  renderHistory();
 }
 
 // ---- Spine 修复 ----

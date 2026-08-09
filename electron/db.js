@@ -139,6 +139,14 @@ function open() {
   } catch (err) {
     console.error('[db] migrate items size/mtime/tags error:', err);
   }
+  // 旧库迁移:scenes 缺 subtype / fgui_snapshots 列时补上(FGUI 界面包登记 + 关联快照)
+  try {
+    const cols = db.prepare('PRAGMA table_info(scenes)').all().map((r) => r.name);
+    if (!cols.includes('subtype')) db.exec("ALTER TABLE scenes ADD COLUMN subtype TEXT DEFAULT ''");
+    if (!cols.includes('fgui_snapshots')) db.exec("ALTER TABLE scenes ADD COLUMN fgui_snapshots TEXT DEFAULT '[]'");
+  } catch (err) {
+    console.error('[db] migrate scenes subtype/fgui_snapshots error:', err);
+  }
   return db;
 }
 
@@ -188,14 +196,19 @@ function readDb() {
       'SELECT id, name, remark, parent_id AS parentId, sort, created_at AS createdAt, updated_at AS updatedAt FROM scene_categories ORDER BY sort'
     ).all();
     d.scenes = conn.prepare(
-      'SELECT id, category_id AS categoryId, name, file_path AS filePath, type, remark, tags, size, mtime, ' +
-      'created_at AS createdAt, updated_at AS updatedAt FROM scenes'
+      'SELECT id, category_id AS categoryId, name, file_path AS filePath, type, subtype, remark, tags, size, mtime, ' +
+      'fgui_snapshots AS fguiSnapshots, created_at AS createdAt, updated_at AS updatedAt FROM scenes'
     ).all();
     for (const s of (d.scenes || [])) {
       if (typeof s.tags === 'string') {
         try { s.tags = JSON.parse(s.tags || '[]'); } catch (err) { s.tags = []; }
       }
       if (!Array.isArray(s.tags)) s.tags = [];
+      if (typeof s.fguiSnapshots === 'string') {
+        try { s.fguiSnapshots = JSON.parse(s.fguiSnapshots || '[]'); } catch (err) { s.fguiSnapshots = []; }
+      }
+      if (!Array.isArray(s.fguiSnapshots)) s.fguiSnapshots = [];
+      if (!s.subtype) s.subtype = '';
     }
   } catch (err) {
     console.error('[db] read error:', err);
@@ -255,15 +268,16 @@ function writeDb(state) {
       insSceneCat.run(sc.id, sc.name || '', sc.remark || '', sc.parentId || '', sc.sort || 0, sc.createdAt || 0, sc.updatedAt || 0);
     }
     const insScene = conn.prepare(
-      'INSERT INTO scenes(id, category_id, name, file_path, type, remark, tags, size, mtime, created_at, updated_at) ' +
-      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO scenes(id, category_id, name, file_path, type, subtype, remark, tags, size, mtime, fgui_snapshots, created_at, updated_at) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     for (const s of state.scenes || []) {
       insScene.run(
         s.id, s.categoryId || '', s.name || '', s.filePath || '',
-        s.type || 'folder', s.remark || '',
+        s.type || 'folder', s.subtype || '', s.remark || '',
         JSON.stringify(Array.isArray(s.tags) ? s.tags : []),
         s.size ?? null, s.mtime ?? null,
+        JSON.stringify(Array.isArray(s.fguiSnapshots) ? s.fguiSnapshots : []),
         s.createdAt || 0, s.updatedAt || 0
       );
     }

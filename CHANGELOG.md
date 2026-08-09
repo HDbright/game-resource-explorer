@@ -3,11 +3,208 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.5.5`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.6.7`）。
 
 ---
 
+## 2026-08-09
+
+### [新增] 首页「最近打开」模块 + 全应用布局与组件说明文档
+- **最近打开**：首页新增「🕘 最近打开」模块（位于目录快捷入口与最近添加之间）——展示最近打开的**资源条目 / FGUI 包**：类型徽标 + 名称 + **打开日期时间**（`YYYY-MM-DD HH:mm`）；点击列表项**再次打开**（资源 → 预览页；`.bin` → FGUI 预览）。
+- **数据**：`settings.recentOpens`（`[{name, path, type, tab, itemId, openedAt}]`，按路径去重、最新在前、上限 20、随 db 持久化）；`state.js` 新增 `recordRecentOpen()`。
+- **埋点**：资源预览统一入口 `selectItem()`（动画/图片/音频/3D）；FGUI 预览 `loadPkg()` 成功时记录。
+- **再次打开**：`ui.js openRecentPath()`——`.bin` 直接进 FGUI 预览（按路径自动关联登记）；普通资源按路径匹配 item 后预览；场景条目打开路径；不存在时提示。
+- **文档**：新增 `docs/游戏资源管理器-布局与组件说明.md`——覆盖全局布局（顶栏/侧栏/主区 7 页）、首页（统计/最近打开/最近添加/目录快捷）、目录页、预览页（动画/图片/音频/3D）、资源工具箱、游戏场景管理（含 FGUI 预览器）、系统设置、通用组件、快捷键、数据持久化、代码结构、布局演进记录。
+- **验证**：新增 `scripts/recent-smoke-main.js` + `run_recent_smoke.js` PASS——首页最近打开渲染 2 条（FGUI + 普通文件，均含时间格式），点击 FGUI 项重新打开预览成功；原有 6 个冒烟（smoke/register/ux/batch/export/complist）回归全部通过。
+- **版本**：v1.6.6 → v1.6.7。
+
+## 2026-08-09
+
+### [新增] FGUI 预览器组件列表完整化 + 点击联动属性面板
+- **需求**：① 点击组件列表中的组件，属性面板联动显示该组件属性；② 组件列表显示不完整——Bag.bin 中本包的图片/组件（bg/list/hcBt.title 等）未列出，全部显示成 Common 外部包；③ 更新预览器布局说明文档；④ 递增版本打包。
+- **列表完整化**：`renderCompList` 重写——不再只列跨包子组件，而是**完整列出组件树全部节点**（主组件 `📦 名称 (类型)` + 递归全部子节点 `└ 名称 (类型)`，按深度缩进）；**本包节点正常显示**（无 @ 标注，如 `└ list List`、`└ bg Loader`），**外部包节点标注 `@外部包名`**（橙色，如 `└ btnGet @Common Button`）；实测 Bag.bin 列表含 8 个本包子节点 + 71 个跨包节点（原 80 节点齐全）。
+- **点击联动属性面板**：点击列表项 → ① 画布黄色定位框（`highlightNode`）② **属性面板显示该节点属性**（`selectNode` → `_renderProps`）③ 列表项 active；点击**其他主组件项自动切换组件**再定位；顶部组件下拉与列表**双向同步**（`loadComp` 同步 `compSel.value`）。
+- **文档**：`docs/fgui-previewer-layout.md` 更新为三区布局新图（组件列表/分割线/快照条/属性面板）、4.0 组件列表面板章节、五节「布局演进记录」（v1.6.4/1.6.5/1.6.6）。
+- **验证**：`scripts/run_fgui_complist_smoke.js` 扩展断言 PASS——列表含本包子节点（无 @ 项）与 @Common 跨包项；点击本包节点/跨包节点属性面板均显示（9~10 项属性）；点击 ActBarCom0 主项自动切换组件且属性面板 7 项；顶部下拉同步为 ActBarCom0；拖拽分割线/宽度在干净状态下生效（276→356 / 250→341）；5 个旧冒烟回归全 PASS。
+- **版本**：v1.6.5 → v1.6.6。
+
+## 2026-08-09
+
+### [新增] FGUI 预览器右侧面板可拖拽布局:组件列表/属性面板分割线 + 面板宽度调整
+- **需求**：组件列表区域与属性面板默认各占一半垂直空间，中间分割线可拖动改变占比；右侧面板左边框可拖动改变面板宽度。
+- **实现**：
+  - 组件列表 `.fg-comp-bar` 与属性面板 `.fg-prop-panel` 默认 `flex: 1 1 50%` 各占一半；两者之间新增垂直分割线 `#fgpv-vsplit`（hover 高亮），拖动调整组件列表高度（60px ~ 面板高-140px），快照条保持固定小横条。
+  - 右侧面板 `.fg-side` 左边缘新增水平分割线 `#fgpv-hsplit`（绝对定位 6px），拖动调整面板宽度（180~480px，向左拖变宽）。
+  - 尺寸持久化到 `localStorage`（`fgpv-compH` / `fgpv-sideW`），下次打开预览自动恢复。
+  - `setPointerCapture` 兼容 synthetic 事件（try/catch 包裹）。
+- **验证**：`scripts/run_fgui_complist_smoke.js` 扩展拖拽断言 PASS——vsplit 向下拖 80px 组件列表高 276→356、hsplit 左移 90px 面板宽 250→341，localStorage 持久化生效；其余 5 个冒烟回归全部通过。
+- **版本**：v1.6.4 → v1.6.5。
+
+## 2026-08-09
+
+### [新增] FGUI 预览器右侧「组件列表」面板 + 组件定位高亮
+- **需求**：预览 FGUI 包时右侧要有包中所有组件的列表；列表显示组件名称、组件类型；属于外部包的组件在名称后标注 `@外部组件名`；点击组件名称则预览区域将该组件边框高亮显示。
+- **组件列表面板**：右侧 `.fg-side` 顶部（快照条之上）新增「📋 组件列表」面板（`#fgpv-compbar`）——列出**主包全部组件**（`📦 名称` + 类型），并在每个组件下递归列出其组件树中**引用外部包的子组件**（`└ 名称 @外部包名` + 节点类型，如 `└ btnGet @Common Button`）；顶部显示条目计数。
+- **点击定位高亮**：渲染器 `fguiLayoutPreview.js` 新增常驻 `_compHL` Graphics 层（`_clearTree` 保留前 3 个子节点），`highlightNode(node)` 按节点世界坐标（外层定位 position + 节点尺寸）画黄色外框，目标明显偏离视口时自动平移画布居中；点击列表项后状态栏显示 `已定位:名称 (x,y w×h)`。
+- **双向联动**：组件下拉切换组件时列表主项同步高亮；画布点选节点时（`_onSelect`）列表对应项（含跨包子组件）同步 active。
+- **验证**：新增 `scripts/fgui-complist-smoke-main.js` + `run_fgui_complist_smoke.js` PASS——样例包列表 49 条（3 主组件 + 46 条 `@Common` 跨包项），点击跨包项/主组件项均正确高亮定位；`run_fgui_smoke`/`register`/`ux`/`batch`/`export` 五个冒烟回归全部通过。
+- **版本**：v1.6.3 → v1.6.4。
+
+## 2026-08-09
+
+### [说明] 发布 v1.6.3(便携版)
+- 版本号由 v1.6.2 递增至 v1.6.3(`package.json` / `package-lock.json`),重新构建 `dist` 并经 `scripts/pack-manual.js` 手工打包便携版,产物:`release/游戏资源管理器-v1.6.3-便携版.zip`。
+- 本版本主要变更:FGUI 解压素材优化——只复制本包单图、共享素材库优先、跨包图集不复制、跨包解析缓存(见下方 [新增] 条目)。
+
+### [新增] FGUI 解压素材优化:只复制本包单图 + 共享素材库优先
+- **只复制本包素材**：解压/导出 FGUI 包时不再盲目复制全部纹理,而是按 `exportFile` 返回的本包图集清单 `ownAtlasKeys`(形如 `${pkgName}_${atlasId}`)过滤——只复制属于当前包的图集,跨包引用的图集一律不复制(由依赖包提供),避免大量重复文件。
+- **共享素材库优先**：`fgui:exportSingle` 额外返回 `spriteLibDir`(由 bin 路径回溯探测游戏根 `{gameRoot}/ui/fgui_texture/fgui`,未识别到为 null 时渲染端回退旧行为)。复制素材时优先从共享素材库 `<spriteLibDir>/<图集名>/` 目录取单图(逐张复制到 `<outDir>/<图集名>/`),素材库未生成该图集时回退复制整张图集 PNG。
+- **跨包解析缓存**：`previewData.js` 新增 `pkgCache`(bin 路径 → 解析结果 Map),跨包子对象解析 `loadPkg` 命中缓存,避免同一依赖包重复解析。
+- **改动**：`src/pages/scenePage.js`(新增 `copySpritesToDir`)、`electron/main.js`(spriteLibDir 探测)、`electron/tools/fgui/index.js`(exportFile 返回 ownAtlasKeys/deps)、`electron/tools/fgui/previewData.js`(pkgCache)。
+
+## 2026-08-08
+
+### [说明] 发布 v1.6.2(便携版)
+- 版本号由 v1.6.1 递增至 v1.6.2(`package.json` / `package-lock.json`),重新构建 `dist` 并经 `scripts/pack-manual.js` 手工打包便携版,产物:`release/游戏资源管理器-v1.6.2-便携版.zip`。
+- 本版本主要变更:FGUI 界面预览交互增强(侧栏直达/添加场景识别登记/解压/撤销与编辑历史)、FGUI 包批量添加与目录页大小/行点击预览、导出资源统一为包名子目录+覆盖确认(见下方 2026-08-08 条目)。
+
+## 2026-08-08
+
+### [改进] FGUI 预览「导出资源」不再弹目录选择,直接导出到包名子目录 + 已存在文件时确认覆盖
+- **行为变更**：预览页「📤 导出资源」不再弹出目录选择框,直接调用单文件导出(`fguiExportSingle`)把当前包导出到 **bin 同目录/`<包名>/`** 子目录(如预览 `City.bin` → `City.bin` 所在目录下 `City/`);目录不存在自动创建,已存在则直接写入。
+- **覆盖确认**：导出/解压前检查目标目录是否已存在该包导出文件(`<包名>.json`/`<包名>.xml`),存在则弹「目录已存在导出文件」确认框——点「覆盖」才写入,点「取消」中止(状态提示「已取消,未覆盖原文件」);首次导出无文件时不打扰。
+- **统一逻辑**：原「📦 解压FGUI包」与「📤 导出资源」合并为同一导出流程(`exportCurrentPkg`,按按钮区分状态文案「已解压到/已导出到」),均单包、固定目录、带覆盖确认。
+- **改动**：`src/pages/scenePage.js`(`exportCurrentPkg` + 两按钮绑定)、`src/dialogs.js`(`confirmDialog` 支持 `onCancel` 回调)。
+- **验证**：新增 `scripts/fgui-export-smoke-main.js` + `run_fgui_export_smoke.js` 端到端 PASS——首次点导出直接生成 `ActEmperorArrival/`(JSON+XML+组件XML+atlas PNG)且目录选择从未触发(pickDirCalls=0)→ 二次点击弹覆盖确认 → 取消不改文件 → 覆盖成功;`run_fgui_register_smoke`/`run_fgui_ux_smoke`/`run_fgui_batch_smoke`/`run_fgui_smoke` 回归全部通过。
+
+## 2026-08-08
+
+### [新增] FGUI 包批量添加(单/多文件 + 目录递归) + 目录页显示大小与行点击预览
+- **批量添加**：场景主页/目录页新增「🧩 添加FGUI包」按钮,侧栏「游戏场景管理」根节点与分类节点右键菜单新增「添加 FGUI 包」——支持单选/多选 `.bin` 文件,也支持选择一个或多个目录(内部扫描 FGUI 包);选中目录后弹「扫描范围」对话框可选「仅当前目录 / 递归子目录(最多 4 层)」。所有包一次性登记到当前场景目录,按名称字母排序、`fguiProbe` 探测过滤、按路径去重,并记录文件大小。
+- **目录页显示大小**：登记时记录 `size`(批量与单个登记均异步补齐);场景目录页表格大小列对 FGUI 包显示实际大小;早期登记未记录大小的条目在打开目录页时惰性 stat 补全。
+- **行点击打开预览**：场景目录页点击 FGUI 包所在行(名称/路径等非按钮区域)直接打开该文件的 FGUI 界面预览。
+- **解压仅当前包**：预览页「📦 解压FGUI包」始终走单文件导出(`fguiExportSingle`),只解压当前预览的包到 **bin 同目录/`<包名>/`** 子目录,不批量解压同目录其它包。
+- **验证**：新增 `scripts/fgui-batch-smoke-main.js` + `run_fgui_batch_smoke.js` 端到端 PASS——目录页「添加FGUI包」选目录→递归扫描→登记 2 个包到当前目录(带大小)→表格显示 🧩/名称/4.5 KB→行点击打开预览(已登记:批量目录)→解压仅生成 `ActEmperorArrival/` 且不产生 `B/`;`run_fgui_register_smoke`/`run_fgui_ux_smoke`/`run_fgui_smoke` 回归全部通过。
+
+## 2026-08-08
+
+### [新增] FGUI 预览交互增强:侧栏直达 / 添加场景识别登记 / 解压包 / 快照目录 / 撤销与编辑历史
+- **侧栏单击直达预览**：左侧「游戏场景管理」目录节点下的 FGUI 界面包条目,**单击**直接在主内容区打开预览(不再弹右键菜单;右键菜单仍保留完整操作)。
+- **添加场景识别 FGUI 包**：场景主页/目录页「添加场景」与目录节点右键菜单「添加场景」选中 `.bin` 文件时,自动用 `fguiProbe` 探测 magic——确认为 FGUI 包则弹「登记 FGUI 包到游戏场景管理」窗口,**所属目录默认选中点击时的目录**;非 FGUI 文件仍按普通场景添加。
+- **解压 FGUI 包**：预览页「保存快照」旁新增「📦 解压FGUI包」按钮——用内置 FGUI 逆向导出(`fgui:exportSingle` 单文件导出,新增)把该包解压到 **bin 同目录/`<包名>/`** 子目录(JSON + 包级 XML + 组件 XML + atlas PNG),形成完整可编辑资源包;编辑状态(快照/历史)默认也存该目录,自动关联。
+- **快照默认目录**：保存快照默认定位到 bin 同目录/`<包名>/`(如 `Bag.bin` → `.../fgui/Bag/`),不再用 `fgui_edit/`。
+- **撤销 + 编辑历史**：编辑模式下工具栏新增「↩ 撤销」按钮与 Ctrl+Z 快捷键;渲染器 `fguiLayoutPreview.js` 新增撤销栈(`_beginEdit`/`_commitEdit`/`undo`,拖拽/缩放/属性/文本编辑各操作接入),逐步回退;每次编辑提交通过 `_onEditCommitted` 回调写入 **`<包名>/edit_history.json`** 编辑历史文件(timestamp/component/nodeId/changes.before/after),状态栏显示历史条数。
+- **验证**：新增 `scripts/fgui-ux-smoke-main.js` + `run_fgui_ux_smoke.js` 端到端 PASS——侧栏单击直达(显示「已登记:UX测试目录 / UX包」)→ 解压生成 5 个 XML/JSON + atlas PNG + edit_history.json → 保存快照 defaultPath=包名子目录 → 编辑 x 0→88 → 撤销还原 0 → 目录页「添加场景」弹登记窗且所属目录默认=当前目录 → 确定后新增条目;`run_fgui_register_smoke.js` 修复为按注入条目名定位(开发库已有真实登记数据不影响)后 PASS。
+
+## 2026-08-08
+
+### [新增] FGUI 界面包与「游戏场景管理」打通:登记 + 关联快照管理
+- **需求背景**：用户反馈加载 `Bag.bin` 预览并保存快照后,应用没有记住 .bin 与快照的位置,下次还要手动重新加载。
+- **登记到场景管理**：预览子页加载 `.bin` 时自动弹出登记对话框——选择「登记为 FGUI 界面包」+ 指定所属场景目录(未分类/分类树)+ 场景名称,调 `addScene({subtype:'fgui'})` 落库;已按路径登记过的包直接复用(自动升级 subtype 标记)。工具栏新增「📌 登记到场景管理」按钮供补登记;状态栏显示「📌 已登记:目录路径 / 名称」。
+- **从场景管理直接预览**：场景目录页表格对 FGUI 条目显示 🧩「FGUI 界面预览」按钮;场景主页「最近添加」与侧栏场景条目右键菜单也提供「🧩 FGUI 界面预览」——点击即进入预览子页并自动加载该条目关联的 .bin(`scene:navigate` 携带 binPath → pendingFguiBin → initialBinPath)。
+- **快照与 .bin 关联**：保存快照默认定位到 `.bin` 同目录 `fgui_edit/`(自动建目录),成功后把 `{id, name, path, timestamp}` 追加入场景条目的 `fguiSnapshots` 字段(随 db 持久化);右侧新增「📋 快照」条——下拉列出该包所有快照,可「↺ 加载」回放(组件不匹配时自动切换组件;`fguiPreview.applySnapshot` 按节点 id 回放属性)、「🗑 移除记录」(磁盘文件保留)、「📂 打开快照目录」。
+- **数据层**：`scenes` 表新增 `subtype`(标记 FGUI 界面包)与 `fgui_snapshots`(JSON 快照记录)两列(旧库自动迁移);`state.js` 新增 `findSceneByFilePath`(路径分隔符归一化匹配)。
+- **验证**：`scripts/run_fgui_register_smoke.js` 端到端冒烟全链路 PASS——注入 FGUI 场景条目 → 场景主页最近添加 → 目录页 🧩 按钮 → 预览子页自动加载 → 已登记状态 → 保存快照落盘+关联+快照条刷新 → 回放 → 删除记录 → 返回;db 迁移与持久化往返脚本 `scripts/test-db-fgui-migrate.js` 通过。
+
 ## 2026-08-07
+
+### [修复] FGUI 界面预览图片不显示
+- **现象**：「游戏场景管理 → FGUI 界面预览」选择 `.bin` 后,Image/Loader 节点只渲染灰色占位框,图集 PNG 没有显示。
+- **根因**：`src/viewers/fguiLayoutPreview.js` 用 `PIXI.Texture.from(dataUrl)` 直接由 data URL 创建纹理,PixiJS v8 中该纹理为异步加载,在创建子纹理(frame 裁切)时源图尚未解码,导致 Sprite 创建失败并降级为占位框。
+- **改动**：新增 `loadTextureFromDataUrl()` 先构造 `Image` 并等待 `onload`,再用完全解码后的图片创建 `PIXI.Texture`,并设置 `alphaMode='premultiplied-alpha'`。
+- **验证**：`scripts/run-fgui-screenshot.js` 端到端截图显示 `ActEmperorArrivalItem` 金色面板、按钮、装饰图正常渲染;`scripts/run_fgui_smoke.js` 退出码 0。
+
+### [新增] FGUI 界面预览支持可视化编辑 + 资源导出/快照
+- **能力**：在原有预览基础上新增「编辑模式」,可拖拽移动节点、拖拽 8 个手柄调整大小、双击文本节点内联修改文字;右侧属性面板可直接编辑 x/y/width/height/scaleX/scaleY/alpha/rotation/visible/text。
+- **资源导出**：工具栏新增「📤 导出资源」,调用 `fguiBatchExport` 导出 JSON + XML 结构,并自动把命中图集 PNG 复制到输出目录,形成完整可编辑资源包。
+- **布局快照**：工具栏新增「💾 保存快照」,将当前组件中被修改过的节点属性(含原始值)导出为 JSON,方便记录与外部使用。
+- **改动**：`src/viewers/fguiLayoutPreview.js`(编辑状态、拖拽/缩放、属性面板输入、文本内联编辑、exportEdits);`src/pages/scenePage.js`(编辑/导出/快照按钮与事件、测试钩子);`src/style.css`(编辑模式输入框/内联文本编辑样式)。
+- **验证**：`scripts/run-fgui-screenshot.js` 截图显示编辑模式高亮框、缩放手柄、右侧可编辑属性面板均正常;`scripts/run_fgui_smoke.js` 无回归。
+
+## 2026-08-07
+
+### [说明] 发布 v1.6.1(便携版)
+- 版本号由 v1.6.0 递增至 v1.6.1(`package.json` / `package-lock.json`),重新构建 `dist` 并经 `scripts/pack-manual.js` 手工打包便携版,产物:`release/游戏资源管理器-v1.6.1-便携版.zip`。
+- 本版本为重新打包,无新增功能变更;包含 FGUI 界面预览、FGUI 包逆向解码、分类命名统一与递归建目录等全部最新功能。
+
+## 2026-08-07
+
+### [新增] 游戏场景管理内「FGUI 界面预览」(PixiJS 交互式布局还原)
+- **能力**：在「游戏场景管理」主页新增「🧩 FGUI 界面预览」卡片 → 独立预览子页。选择 FairyGUI 的 `.bin` 界面包 → 选组件 → 用 PixiJS 8 按 xy/size/scale/pivot/alpha 把 Image/Loader/Text 渲染为可交互 UI 布局预览。
+- **交互**：滚轮缩放(0.05~8×,以鼠标为锚点)/拖拽平移/点选对象高亮并显示属性面板/组件控制器(controller)页切换(按 gearDisplay 重算可见性)。
+- **数据层** `electron/tools/fgui/previewData.js`(新增,纯 Node 可单测)：`buildPreviewData(inputPath, {textureDir})` 把包解析结果扁平化为 RenderNode 树——BFS 递归展开组件子树、跨包依赖解析(按 pkg.deps 找同名 .bin,支持跨包 Image/组件引用)、Image 取 sprite 矩形(无 initSize 时用原始 ow/oh)、纹理自动探测(`{game}/ui/fgui_texture/fgui/{pkgName}_{atlasId}.png` 与 bin 同目录,可手动指定目录兜底)、循环引用/深度上限 8/节点上限 2000 防护。
+- **渲染器** `src/viewers/fguiLayoutPreview.js`(新增)：独立 PixiJS 8 应用(不复用动画预览画布)；双层容器坐标换算(外层定位 xy、内层偏移 -pivot*size 保证围绕 pivot 缩放旋转)；Sprite 按 sprite 矩形裁切(含 rotated 修正)；文本用 DOM overlay(与画布同步 transform,天然支持中文/换行,选中高亮边框)；`app.ticker.stop()` + 交互后手动渲染。
+- **集成**：`src/pages/scenePage.js`(主页卡片 + `renderFguiPreviewPage`)、`src/ui.js`(fguiPreviewShown 状态 + renderMainArea 分支 + scene:navigate 监听 + clearOverlays)、`src/style.css`(.fg-preview-* / .fg-entry-card)。
+- **验证**：`scripts/smoke-fgui-data.js`(纯 Node 断言:3 组件/6 子对象/跨包 Common 解析/纹理命中/stateCtrl 3 页)通过;`scripts/run_fgui_smoke.js` 端到端冒烟(数据链路 + UI 链路:侧栏→主页卡片→子页 Pixi 画布 WebGL 就绪→返回)退出码 0。样例自包含于 `samples/fgui/`。
+- **边界(第一版)**:mask/clip 不裁剪、List 运行时子项不展开、rotated sprite 已处理但未专门回归、文本 rotation 用 CSS 兜底。
+
+### [说明] 发布 v1.6.0(便携版)
+- 版本号由 v1.5.9 递增至 v1.6.0(`package.json` / `package-lock.json`),重新构建 `dist` 并经 `scripts/pack-manual.js` 手工打包便携版,产物:`release/游戏资源管理器-v1.6.0-便携版.zip`。
+- 本版本主要变更:左侧栏「资源工具箱」与「游戏场景管理」位置对换(见下方 [变更] 条目);并包含「分类命名统一 + 递归批量添加自动建目录」与「FGUI 包逆向解码」等全部最新功能。
+
+### [新增] 分类命名统一 + 递归批量添加自动按路径建目录
+- **分类命名统一**：「新建子分类」→「新建目录」(分类节点右键)、「新建分类」→「新建目录」(新建顶级目录对话框),移除顶栏「新建分类」按钮;左侧「音频/动画/图片/3D资源」类型根节点新增右键菜单「新建目录」,点击弹出「新建目录」对话框,默认为**顶级目录**(不作为子目录)。
+- **递归批量添加自动建目录**：批量添加资源勾选「递归扫描子目录」时,按被添加文件相对所选根目录的路径结构,在目标分类下自动逐级建立对应目录(同名目录复用,不重复创建),资源文件分类到对应目录;新建目录继承目标分类的资源类型标签。未勾选递归时行为不变(全部加入目标分类)。新建目录自动展开以便查看。
+- **改动**：`src/ui.js`(根节点右键/文案/items-changed 展开)、`src/state.js`(类型标签)、`src/addFlow.js`(按路径建目录链)。
+- **验证**：`scripts/test-addflow-pathdirs.js` 逻辑测试通过(建链/复用/标签继承/多根目录/非递归不建);全量冒烟 `smoke done` 无回归(`subcat` 步骤断言菜单项=添加资源/批量添加/新建目录/编辑目录/移动.../删除、根节点右键菜单含新建目录、对话框标题「新建目录」、顶栏按钮已删除、默认顶级,全部 ok)。
+
+### [新增] FGUI 包逆向解码(FGUI 查看器 + 工具箱批量导出)
+- **能力**：把 FairyGUI 编辑器发布的 `.bin` UI 包(魔数 `FGUII`,Cocos Creator / Unity H5 游戏常见)逆向为可读结构——完整组件树、控制器、子对象可视属性、gear、关系、过渡动画、滚动、列表条目;输出 JSON + FGUI 风格 XML。
+- **新增** `electron/tools/fgui/`(纯 Node 零依赖):`byteBuffer.js`(大端 + 段表 Seek + ReadS 语义)/ `enums.js`(ObjectType 等枚举)/ `parser.js`(包解析)/ `xml.js`(XML 生成)/ `index.js`(probe/parse/batchExport)。
+- **集成**：扫描器识别 `.bin` 魔数 → 新类型「FGUI」;预览页新增 FGUI 查看器(组件清单 + 组件树 + 属性面板 + 源码标签页「组件 XML / 包 XML / 包 JSON」+ 复制 + 导出全部包);工具箱新增「🧩 FGUI 逆向导出」(目录 → 目录批量导出)。
+- **验证**：`scripts/verify_fgui_js.js` 对 155 个真实 FGUI 包(异兽灵境)回归——53 段 leftover 全 0、JSON 与 Python 版零差异、XML 仅换行符差异;`scripts/run_fgui_smoke.js` 端到端冒烟(解析/探测/批量导出 155 包 0 失败)退出码 0。
+
+## 2026-08-07
+
+### [变更] 左侧栏「资源工具箱」与「游戏场景管理」位置对换
+- **需求**：左侧树状菜单栏中「资源工具箱」与「游戏场景管理」两个区块对调位置。
+- **改动**：`src/ui.js` `renderTree` 调整区块渲染顺序——「XX资源」类型根节点之后依次为「游戏场景管理」→「资源工具箱」(分格线随区块同步交换)。收藏夹置顶与资源分类目录区顺序不变。
+- **验证**：`vite build` 通过;冒烟全量通过(`smoke done`),`navfix`/`toolhome`/`scenetree` 等按节点名称查找的步骤无回归。
+
+### [说明] 发布 v1.5.9(便携版)
+- 版本号由 v1.5.8 递增至 v1.5.9(`package.json` / `package-lock.json`),重新构建 `dist` 并经 `scripts/pack-manual.js` 手工打包便携版,产物:`release/游戏资源管理器-v1.5.9-便携版.zip`。
+- 本版本主要变更:场景管理「新建目录」修复 + 侧栏场景树右键/拖拽/数量增强(见下方 [新增] 条目)。
+
+### [新增] 场景管理增强:修复「新建目录」无效 + 侧栏场景树右键/拖拽/数量
+- **修复**：游戏场景管理页面的「新建分类」按钮点击无效,无法新建场景目录。
+  - **根因**：`src/ui.js` 中 `addSceneCategoryDialog` / `editSceneCategoryDialog` / `editSceneDialog` 仍使用**旧版 `promptDialog` 签名**(`placeholder`/`defaultValue`/`onOk(name)`),而对话框已升级为 `fields` 数组签名 → 无输入框、确定后 `name` 为空直接 return,表现为"点击无效"。
+  - **改动**：三个对话框改用新版 `fields` 签名(「新建目录」/「编辑目录」/「编辑场景」,含名称校验 toast 与 `renderMainArea` 刷新)。
+- **新增**：左侧栏「游戏场景管理」交互增强(与资源目录节点对齐)——
+  - 场景根节点(「游戏场景管理」)右键菜单「新建目录」(新建顶级场景目录)。
+  - 场景分类节点:右键菜单完善为「添加场景 / 新建目录 / 编辑目录 / 移动到顶级 / 删除目录」;新增**拖动排序**(同级上/下排序 + 拖入中部变为子分类,复用 `reorderSceneCategory` / `updateSceneCategory`,与资源分类节点一致);节点显示该目录下场景数量(`cat-count`)。
+  - 场景条目节点支持右键菜单(与点击同菜单:查看路径/在文件管理器中显示/编辑场景信息/删除)。
+  - `scenePage.js` 按钮/文案统一:主页「+ 新建分类」→「+ 新建目录」、目录页「+ 新建子分类」→「+ 新建子目录」、统计卡「目录数」、区块「场景目录」。
+- **验证**：新增冒烟步骤 `scenetree`(主页按钮→对话框「新建目录」创建成功;场景根节点右键→新建顶级目录;分类节点数量/拖拽属性/右键菜单 5 项齐全)全部 ok;全量冒烟 `smoke done` 无回归。
+
+### [说明] 发布 v1.5.8(便携版)
+- 版本号由 v1.5.7 递增至 v1.5.8(`package.json` / `package-lock.json`),重新构建 `dist` 并经 `scripts/pack-manual.js` 手工打包便携版,产物:`release/游戏资源管理器-v1.5.8-便携版.zip`。
+- 本版本主要变更:侧栏资源工具箱新增「FGUI导出」菜单项(见下方 [新增] 条目)。
+
+### [新增] 侧栏「资源工具箱」增加 FGUI导出 菜单项
+- **需求**：在左侧树状菜单栏的「资源工具箱」下增加「FGUI导出」菜单项,指向「FGUI 逆向导出」功能页。
+- **改动**：
+  - `src/ui.js` `renderToolboxSection`：在「图片编辑」叶子之后新增「FGUI导出」叶子节点(🧩,`nodeId:'__tool:fgui'`,点击 → `openTool('fgui')`);`currentTool` 注释补充 `'fgui'`。
+  - FGUI 逆向导出功能本身此前已完整存在(工具页 `renderFguiTool` + 主页入口卡片 + IPC `fgui:batchExport` + `electron/tools/fgui` 解析器),本次仅补齐侧栏入口。
+  - `src/main.js` 冒烟 `toolhome`：主页卡片断言 `entries 4→5`(此前漏同步);新增侧栏「FGUI导出」菜单验证——展开工具箱 → 点击「FGUI导出」叶子 → 断言功能页标题「FGUI 逆向导出」。
+- **验证**：`vite build` 通过;冒烟全量通过(`smoke done`),`toolhome` 步骤 `entries:5`、`fguiLeafFound:true`、`fguiPageTitle:"FGUI 逆向导出"`、`ok:true`。
+
+### [说明] 发布 v1.5.7(便携版)
+- 版本号由 v1.5.6 递增至 v1.5.7(`package.json` / `package-lock.json`),重新构建 `dist` 并经 `scripts/pack-manual.js` 手工打包便携版,产物:`release/游戏资源管理器-v1.5.7-便携版.zip`。
+- 本版本主要变更:「分类」术语统一为「目录」、新建目录入口迁移到类型根节点右键(见下方 [变更] 条目)。
+
+### [变更] 「分类」统一改称「目录」:顶栏按钮移除,类型根节点右键新建目录
+- **需求**：①右键菜单中的「新建子分类」改名为「新建目录」;②删除顶栏「新建分类」按钮;③左侧每个类型资源根节点(动画资源/图片资源/音频资源/3D资源)增加右键菜单「新建目录」,点击弹出原「新建分类」窗口(改名为「新建目录」,默认新建顶级目录)。
+- **改动**：
+  - `index.html`：删除顶栏 `#btn-new-cat`「新建分类」按钮;`src/ui.js` 移除 `bindToolbar` 中对应绑定。
+  - `src/ui.js` `renderPseudoNode`：类型根节点(「XX资源」,id='all')新增右键菜单「新建目录」→ `newCategoryDialog()`(新建顶级目录)。
+  - 对话框与菜单统一改「目录」：`newCategoryDialog`(标题「新建目录」/字段「目录名称」)、`newSubCategoryDialog`(新建子目录)、`editCategoryDialog`(编辑目录)、`deleteCategoryDialog`(删除目录,子目录处理文案)、`moveCategoryDialog`(移动目录);资源分类右键菜单项「新建目录/编辑目录」;场景分类右键「新建子分类」→「新建目录」、`addSceneCategoryDialog` 标题统一「新建目录」。
+  - 其余术语同步：`addFlow.js`「➕ 新建目录…」及弹窗;`homePage` 空态提示改为「在左侧『XX资源』根节点上右键选择『新建目录』」、统计卡「目录数」、区块标题「目录」;`folderPage` 批量移动/资源悬停提示「目录」;tooltip「目录: xxx」。
+  - 冒烟同步：`cat` 步骤改经类型根节点右键打开新建目录对话框;`subcat` 步骤断言菜单 `['添加资源','批量添加','新建目录','编辑目录','移动...','删除']` + 根节点右键「新建目录」+ 对话框标题「新建目录」+ 顶栏按钮已移除 + 顶级创建。
+- **验证**：`vite build` 通过;冒烟全量通过(`smoke done`),`cat`/`subcat` 步骤新断言(`newDirTitle:"新建目录"`、`topBtnGone:true`、`rootDirTop:true`、菜单项)全部 ok;打包版冒烟通过。
+
+### [说明] 发布 v1.5.6(便携版)
+- 版本号由 v1.5.5 递增至 v1.5.6(`package.json` / `package-lock.json`),重新构建 `dist` 并经 `scripts/pack-manual.js` 手工打包便携版,产物:`release/游戏资源管理器-v1.5.6-便携版.zip`。
+- 本版本主要变更:分类目录资源类型标签(见下方 [新增] 条目)。
 
 ### [新增] 分类目录资源类型标签:目录按类型(动画/图片/音频/3D/视频/文章)归属显示
 - **需求**：分类树中的目录增加资源类型标签属性(动画/图片/音频/3D/视频/文章);带标签的目录只在对应类型的资源树中显示(可多选,如同时勾选「动画+音频」则在两处资源树都显示);无标签的目录在所有资源类型中都显示;目录的「备注」字段改为标签勾选。
