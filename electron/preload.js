@@ -44,6 +44,7 @@ contextBridge.exposeInMainWorld('api', {
   fguiBatchExport: (args) => ipcRenderer.invoke('fgui:batchExport', args),
   fguiExportSingle: (args) => ipcRenderer.invoke('fgui:exportSingle', args),
   fguiExportSource: (args) => ipcRenderer.invoke('fgui:exportSource', args),
+  fguiSaveSourceEdits: (args) => ipcRenderer.invoke('fgui:saveSourceEdits', args),
   fguiPreviewLoad: (args) => ipcRenderer.invoke('fgui:previewLoad', args),
 
   // ---- 音频播放器:目录列表 / ID3 元信息 ----
@@ -51,6 +52,34 @@ contextBridge.exposeInMainWorld('api', {
   readAudioMeta: (p) => ipcRenderer.invoke("audio:readMeta", p),
   readAudioMetas: (paths) => ipcRenderer.invoke("audio:readMetas", paths),
   writeAudioMeta: (p, tags) => ipcRenderer.invoke('audio:writeMeta', p, tags),
+
+  // ---- 网页游戏逆向分析:内嵌浏览器 / 请求拦截 / 资源下载 ----
+  webOpen: (url, opts) => ipcRenderer.invoke('web:open', { url, ...opts }),
+  webNavigate: (url) => ipcRenderer.invoke('web:navigate', url),
+  webGoBack: () => ipcRenderer.invoke('web:goBack'),
+  webGoForward: () => ipcRenderer.invoke('web:goForward'),
+  webReload: () => ipcRenderer.invoke('web:reload'),
+  webOpenDevTools: (action) => ipcRenderer.invoke('web:devtools', action || 'open'),
+  webCloseDevTools: () => ipcRenderer.invoke('web:devtools', 'close'),
+  webClose: () => ipcRenderer.invoke('web:close'),
+  webSetBounds: (rect) => ipcRenderer.invoke('web:setBounds', rect),
+  webSetAudioMuted: (muted) => ipcRenderer.invoke('web:setAudioMuted', muted),
+  webGetCaptured: () => ipcRenderer.invoke('web:getCaptured'),
+  webClearCaptured: () => ipcRenderer.invoke('web:clearCaptured'),
+  webProbe: (p) => ipcRenderer.invoke('web:probe', p),
+  webDownload: (args) => ipcRenderer.invoke('web:download', args),
+  webFetchText: (args) => ipcRenderer.invoke('web:fetchText', args),
+  // 资源悬浮预览: 独立窗口(像 DevTools detach)
+  webPreviewShow: (payload) => ipcRenderer.invoke('web:previewShow', payload),
+  webPreviewHide: () => ipcRenderer.invoke('web:previewHide'),
+  webPreviewClose: () => ipcRenderer.invoke('web:previewClose'),
+  onWebPreviewAction: (cb) => ipcRenderer.on('web:previewAction', (_e, d) => cb(d)),
+  onWebPreviewPinState: (cb) => ipcRenderer.on('web:previewPinState', (_e, d) => cb(d)),
+  onWebPreviewClosed: (cb) => ipcRenderer.on('web:previewClosed', () => cb()),
+  onWebStatus: (cb) => ipcRenderer.on('web:status', (_e, d) => cb(d)),
+  onWebCaptured: (cb) => ipcRenderer.on('web:captured', (_e, d) => cb(d)),
+  onWebProgress: (cb) => ipcRenderer.on('web:progress', (_e, d) => cb(d)),
+  onWebDownloadDone: (cb) => ipcRenderer.on('web:downloadDone', (_e, d) => cb(d)),
 });
 
 // 冒烟测试标志(仅开发时传入 --smoke,通过 URL 参数传递,见 main.js)

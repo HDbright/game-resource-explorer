@@ -37,6 +37,11 @@ export const DEFAULT_SETTINGS = {
     album: false, // 专辑(ID3)
     duration: true, // 时长
   },
+  // 网络资源抓取
+  webGameLastUrl: '', // 上次打开的游戏 URL(自动回填)
+  webGameSaveDir: '', // 抓取资源输出目录
+  webGameProxy: '', // 可选代理(如 http://127.0.0.1:7890)
+  webGameHistory: [], // 最近打开的游戏 [{url, title, openedAt}] 最新在前,上限 20
 };
 
 export const state = {
@@ -49,6 +54,9 @@ export const state = {
   // 场景管理(独立分类树 + 场景条目,字段结构与资源目录对齐)
   sceneCategories: [],
   scenes: [],
+  // 网址收藏夹(网络资源抓取:分类树可嵌套 + 网址条目)
+  webBookmarkCategories: [],
+  webBookmarks: [],
 };
 
 // ---------------- 资源类型分组 ----------------
@@ -915,4 +923,92 @@ export function findSceneByFilePath(fp) {
 export function scenesInCategory(catId) {
   const target = catId === 'all' ? null : (catId || '');
   return state.scenes.filter((s) => (catId === 'all') || (s.categoryId || '') === target);
+}
+
+// ---------------- 网址收藏夹(网络资源抓取) ----------------
+
+/** 新增网址收藏夹分类(可嵌套: parentId 指向父分类, '' = 顶级) */
+export function addWebBookmarkCategory({ name, remark = '', parentId = '' }) {
+  const cat = {
+    id: uid('wbc'),
+    name,
+    remark,
+    parentId: parentId || '',
+    sort: state.webBookmarkCategories.length,
+    createdAt: now(),
+  };
+  state.webBookmarkCategories.push(cat);
+  saveState();
+  return cat;
+}
+
+export function updateWebBookmarkCategory(id, patch) {
+  const cat = state.webBookmarkCategories.find((c) => c.id === id);
+  if (!cat) return null;
+  Object.assign(cat, patch, { updatedAt: now() });
+  saveState();
+  return cat;
+}
+
+export function webBookmarkCategoryById(id) {
+  return state.webBookmarkCategories.find((c) => c.id === id) || null;
+}
+
+/** 某分类的直接子分类(按数组顺序,即渲染顺序) */
+export function getWebBookmarkCategoryChildren(parentId) {
+  const pid = parentId || '';
+  return state.webBookmarkCategories.filter((c) => (c.parentId || '') === pid);
+}
+
+/** 删除分类:子分类提升到被删分类的父级,网址条目移到「未分类」(categoryId='') */
+export function removeWebBookmarkCategory(id) {
+  const cat = state.webBookmarkCategories.find((c) => c.id === id);
+  if (!cat) return;
+  const parentPid = cat.parentId || '';
+  state.webBookmarkCategories = state.webBookmarkCategories.filter((c) => c.id !== id);
+  for (const c of state.webBookmarkCategories) {
+    if (c.parentId === id) c.parentId = parentPid;
+  }
+  for (const b of state.webBookmarks) {
+    if (b.categoryId === id) b.categoryId = '';
+  }
+  saveState();
+}
+
+/** 新增网址收藏条目 */
+export function addWebBookmark({ categoryId = '', name, url, remark = '' }) {
+  const bm = {
+    id: uid('wbm'),
+    categoryId: categoryId || '',
+    name: name || url,
+    url: url || '',
+    remark,
+    createdAt: now(),
+  };
+  state.webBookmarks.push(bm);
+  saveState();
+  return bm;
+}
+
+export function updateWebBookmark(id, patch) {
+  const bm = state.webBookmarks.find((b) => b.id === id);
+  if (!bm) return null;
+  Object.assign(bm, patch, { updatedAt: now() });
+  saveState();
+  return bm;
+}
+
+export function removeWebBookmark(id) {
+  state.webBookmarks = state.webBookmarks.filter((b) => b.id !== id);
+  saveState();
+}
+
+export function webBookmarkById(id) {
+  return state.webBookmarks.find((b) => b.id === id) || null;
+}
+
+/** 某分类(含未分类 '')下的网址收藏条目 */
+export function webBookmarksInCategory(catId) {
+  const target = catId === 'all' ? null : (catId || '');
+  return state.webBookmarks.filter((b) => (catId === 'all') || (b.categoryId || '') === target);
 }

@@ -3,7 +3,230 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.7.11`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.1`）。
+
+---
+
+## 2026-08-10
+
+### [修复] v1.9.1: 悬浮预览窗(独立窗口)不再随鼠标移动
+- 现象:v1.9.0 独立预览窗每次悬停资源行都会重新定位到鼠标旁,窗口跟着鼠标跳。
+- 修复(`electron/tools/webPreviewWindow.js`):定位策略改为——窗口已可见 → **原地不动,只更新内容**;首次显示 → 屏幕右上角(主显示器 workArea 右上,偏移 16px);隐藏/拖动过后 → **记住上次位置(`lastPos`),再次显示恢复到原位**。`showNearCursor` 更名 `show`,主进程 `web:previewShow` 同步更新。
+- 交互:悬停行只在首次弹出时定位一次,之后窗口固定在用户放置的位置(可自由拖动),不再随鼠标移动。
+- 验证:CJS `node --check` 通过;vite build 通过。
+
+### [新增] v1.9.0: 悬浮预览窗改为独立窗口(像 DevTools detach)
+- 需求:预览窗拖到浏览器区上方时不再冻结网页画面 → 改为**独立 BrowserWindow**(像 DevTools detach 一样脱离主窗口),彻底绕开「DOM 无法覆盖原生 WebContentsView」约束——原生窗口天然悬浮在所有窗口之上,可自由拖到浏览器区上方,无遮挡/无黑屏/无冻结,浏览区始终实时。
+- 实现:
+  - 新增 `electron/tools/webPreviewWindow.js`:单例 `BrowserWindow`(420×360,可缩放,普通系统标题栏自带拖动/关闭),`showNearCursor`(按 `screen.getCursorScreenPoint()` 定位,不抢焦点)、`hide`(**鼠标仍在预览窗内时不隐藏**,防止移入瞬间被关)、`togglePin/setPin`(alwaysOnTop)、关闭/置顶时经回调通知主窗口。
+  - 新增 `public/preview-window.html`(vite 复制到 dist,主进程 `loadFile`):独立页面按类型渲染预览(图片/音频/视频/字体/文本脚本 + FGUI 打开/Spine 入库按钮 + 保存按钮),📌 切换置顶;**点击进入窗口自动置顶常驻**;配 `electron/previewPreload.js`(previewApi:onContent/onPinState/downloadDataUrl/fetchText/togglePin/setPin/action)。
+  - `electron/main.js`:抽取共享 `mimeOfExt`/`downloadToDataUrl`/`fetchTextOf`(fs:readBase64、web:fetchText、preview:downloadDataUrl、preview:fetchText 统一复用);新增 `web:previewShow/Hide/Close` + `preview:togglePin/setPin/downloadDataUrl/fetchText` + `preview:action`(转发回主窗口);移除 `web:captureBrowser`(快照方案废弃)。
+  - `electron/preload.js`:新增 webPreviewShow/Hide/Close + onWebPreviewAction/onWebPreviewPinState/onWebPreviewClosed;移除 webCaptureBrowser。
+  - `src/pages/webGamePage.js`:删除 DOM 预览窗(`#wg-pv`)、`syncBrowserOcclusion`/快照垫底全部代码与相关 CSS;悬停改调 `webPreviewShow(payload)`(类型/URL/文件名/大小/referrer),移出未置顶自动隐藏;`onWebPreviewAction` 回传 save/fgui/spine 动作复用 saveSingleRec/openFguiPreview/openSpinePreview;`_webGameDetach` 同步隐藏预览窗。
+- 交互说明:悬停资源行 350ms → 独立预览窗出现在鼠标旁;移出列表 280ms 自动隐藏(置顶时除外);点进预览窗即自动置顶常驻,可拖到浏览器区上方任意位置;📌 取消置顶后恢复自动隐藏;✕ 关闭/OS 关闭后置顶状态复位。
+- 验证:vite build 通过(dist 含 preview-window.html);electron CJS 五文件 `node --check` 通过。
+
+### [修复] v1.8.9: 悬浮预览窗移到浏览器区上方不再黑屏
+- 现象:v1.8.7 起预览窗与浏览器区重叠时隐藏整个 `WebContentsView`(bounds 0×0),浏览器区背后 DOM 为空 → 整块黑屏。
+- 修复:**隐藏原生视图前先用 `webContents.capturePage()` 截图,把画面快照 `<img class="wg-browser-snap">` 铺满 `.wg-browser` 垫底**;预览窗(DOM,z-index 9998)浮在快照上方;移出不重叠/关闭预览/离开页面时恢复真实视图并清除快照。浏览器区在预览期间显示冻结画面(不再黑屏),真实视图恢复后继续实时。
+- 新增链路:`WebGameView.captureBrowser()`(capturePage→toDataURL, 空图/未打开返回错误)→ `web:captureBrowser` IPC → preload `webCaptureBrowser` → 渲染端 `syncBrowserOcclusion`(重叠时先截图再 `webSetBounds({0,0})`, 非重叠/隐藏时清快照+恢复)。
+- 文件改动:`electron/tools/webGame.js`(+captureBrowser)、`electron/main.js`(+IPC)、`electron/preload.js`(+1)、`src/pages/webGamePage.js`(模板+快照 img、syncBrowserOcclusion 异步化、_webGameDetach 清快照)、`src/style.css`(.wg-browser-snap)。
+- 验证:node --check 三文件通过;vite build 通过(729 模块)。
+
+### [修复] v1.8.8: 侧栏默认折叠 + 折叠按钮修复 + 预览窗音频播放
+- 修复 1: 侧栏「XX资源」类型根节点**默认处于折叠状态**(`expandedCats` 初始值不再含 `'all'`);「网络资源抓取」「网址收藏夹」折叠按钮点击无效——根因是 `renderWebGameSection` 每次渲染都强制 `expandedCats.add('__webgame__'/'__webgame_fav__')`,折叠后立即被重新展开;改为仅初始默认展开(初始 Set 含这两键),折叠/展开状态可持久。
+- 配套:新建顶级目录(`newCategoryDialog`)时 `expandedCats.add('all')`,保证新目录在折叠状态下仍可见(同时兼容冒烟 `catInTree` 断言)。
+- 修复 2: 悬浮预览窗音频无法播放。根因:①直连 URL 常因缺 referrer/登录态被 403;②回退用的 `file://` 在渲染进程不可靠;③`fs:readBase64` 的 mime 映射只有图片类型,音频返回 `application/octet-stream` 无法播。方案:音频/视频预览 onerror 时改走「主进程带 referrer 下载 → readBase64 → data URL」播放(带 `dataset.fb` 防循环);`readBase64` mime 映射扩充音频(mp3/wav/ogg/m4a/flac/aac/opus)与视频(mp4/webm/mov/m4v/avi/mkv)及字体类型;删除无用 `loadMediaPath`。
+- 文件改动:`src/ui.js`(expandedCats 初始值/renderWebGameSection/newCategoryDialog)、`src/pages/webGamePage.js`(audio/video 回退)、`electron/main.js`(readBase64 mime 表)。
+- 验证:vite build 通过;electron CJS `node --check` 通过。
+
+### [修复] v1.8.7: 悬浮预览窗图钉固定位置 + 不被浏览器区遮挡
+- 修复 1: 图钉置顶常驻后预览窗**固定位置,不再随鼠标移动而移动**(`showPreview` 仅首次显示时按鼠标定位;图钉状态下悬停其它行只更新内容,不重定位)。
+- 修复 2: 预览窗与浏览器区重叠时**不再被遮挡**。根因:内嵌浏览器是 `WebContentsView` 原生视图,永远叠在 DOM 之上(z-index 无法超过原生视图)。方案:新增 `syncBrowserOcclusion()`——预览窗与浏览器区矩形重叠时临时 `webSetBounds({0,0})` 隐藏浏览器视图,让预览窗浮到最上层;移出不重叠/关闭预览后自动恢复浏览器视图。在显示/拖拽移动/窗口 resize 时均触发检查,`_webGameDetach` 同步重置遮挡标记。
+- 文件改动:`src/pages/webGamePage.js`(showPreview 定位逻辑 + syncBrowserOcclusion 新增)。
+- 验证:vite build 通过(729 模块);electron CJS `node --check` 通过。
+
+### [新增] v1.8.6: 网络资源抓取—勾选框/缩略图/右键保存/悬浮预览窗
+- 捕获列表权限管理:①每行前加勾选框,`#wg-dl-sel`「下载选中」只下载勾选的资源;②筛选行「资源数据」后加「全选」复选框 +「已选 N」计数;全选/取消全选作用于当前筛选结果。
+- 图片资源缩略图:列表行中 `image` 类型显示 28×28 缩略图(`<img>` direct URL;加载失败自动 fallback 下载到 temp + data URL)。
+- 右键菜单:列表中右键弹出自定义菜单,含「💾 保存此资源…」(downloadOne + 不入库时入库)、「👁 预览」、「🔗 复制 URL」;点击外部/滚动自动关闭。
+- 悬浮预览窗(`.wg-pv`):hover 鼠标移到列表行 350ms 后显示,鼠标移出 280ms 后自动消失。
+  - 可**拖动标题栏**移动位置,支持**CSS resize 边框缩放**,📌**图钉按钮**常驻(不自动消失),✕ 关闭。
+  - 预览内容按类型:「image」`<img>`(onerror→temp download+data URL)、「audio/video」`<audio/video controls>`(onerror→temp `file://`)、「font」@font-face 样本文字、「text/script/config/json/xml/css/html/other」`web:fetchText` IPC→`<pre>`、**FGUI/bin**→「在 FGUI 编辑器中打开」(temp download bin→`scene:navigate` 事件→FGUI 编辑器)、**Spine**→「下载并加入资源库」(temp download skel/json+atlas+png→`addItem` 入库「网页游戏预览」→预览页可打开)。
+  - 底部统一「⬇ 保存此资源」按钮,调用 `saveSingleRec`(下载+入库)。
+- 新增 IPC `web:fetchText`:主进程下载 URL 正文→临时文件→读取 UTF-8(截断 ~1MB)→返回文本,供文本/脚本/配置预览旁路 CSP 限制。preload 暴露 `webFetchText`。
+- 文件改动:`src/pages/webGamePage.js`(renderList 重写+7 个新函数+2 个 DOM 容器)、`src/style.css`(12 个新选择器~75 行)、`electron/main.js`(+28 行 fetchText 处理器)、`electron/preload.js`(+1 `webFetchText`)。
+- 验证:vite build 通过(729 模块);electron CJS 三文件 `node --check` 通过。
+
+### [说明] 发布 v1.8.5
+- 版本号由 v1.8.4 提升至 v1.8.5(用户反馈微调)。
+- 本次微调:①状态文本 `#wg-status` 移入地址栏尾部(`.wg-url-wrap` 内绝对定位,`right:10px`,灰色 `rgba(255,255,255,0.45)` + 半透明底),地址栏输入加 `padding-right:88px` 避免文字被覆盖;长状态自动省略号截断。②`</>` DevTools 按钮从「刷新」后移到「🔖 收藏」按钮之后。
+- 验证:vite build 通过;electron CJS 三文件 `node --check` 通过。pack-manual 打包便携版,rcedit 注入 v1.8.5 版本字符串。
+- 产物:`release/游戏资源管理器-v1.8.5-便携版.zip`。
+
+---
+
+## 2026-08-10
+
+### [说明] 发布 v1.8.4
+- 版本号由 v1.8.3 提升至 v1.8.4(用户反馈微调)。
+- 本次微调:顶栏「🧰 DevTools」按钮改为**只显示 `</>` 符号**(去掉文字,缩短宽度),tooltip 保留「打开网页 DevTools(独立窗口...)」说明;`#wg-devtools` 加等宽字体 + `padding:0 8px;min-width:30px` 收窄,与静音图标按钮一致。
+- 验证:vite build 通过;electron CJS 三文件 `node --check` 通过。pack-manual 打包便携版,rcedit 注入 v1.8.4 版本字符串。
+- 产物:`release/游戏资源管理器-v1.8.4-便携版.zip`。
+
+---
+
+## 2026-08-10
+
+### [说明] 发布 v1.8.3
+- 版本号由 v1.8.2 提升至 v1.8.3(用户反馈微调)。
+- 本次微调:①「🗂隐藏侧栏」改为**折叠侧栏高度(≈0)并让浏览器区 `flex:1` 占据空出区域**(不再 `display:none` 留白),切换后重新上报浏览器视图矩形使内嵌网页跟随缩放;②网页音频静音/播放切换按钮改为**纯图标**(🔊/🔇,无文字,缩短按钮宽度),tooltip 保留状态说明。
+- 验证:vite build 通过;electron CJS 三文件 `node --check` 通过。pack-manual 打包便携版,rcedit 注入 v1.8.3 版本字符串。
+- 产物:`release/游戏资源管理器-v1.8.3-便携版.zip`。
+
+---
+
+## 2026-08-10
+
+### [说明] 发布 v1.8.2
+- 版本号由 v1.8.1 提升至 v1.8.2(用户要求每次完成任务都递增版本并构建 exe 以便测试)。
+- 本次内容:网络资源抓取页 ①顶栏新增「🔊播放/🔇禁音」网页音频一键静音切换(新增 `web:setAudioMuted` IPC + preload `webSetAudioMuted` + `WebGameView.setAudioMuted`,静音状态继承到新打开网页) ②顶栏新增「🗂隐藏侧栏/👁显示侧栏」一键隐藏/显示 `.wg-side` ③资源捕获 tab 的「资源数据(*条/共**条)」与「仅下载不入库」开关移入类型筛选 chips 行(`#wg-filter`,chips 渲染容器改 `#wg-chips`)。
+- 验证:vite build 通过(729 模块);electron CJS 三文件 `node --check` 通过;`src/main.js` 冒烟 `hasFilterChips` 改查 `#wg-chips` + 新增 `hasMuteBtn`/`hasToggleSideBtn`。pack-manual 打包便携版,rcedit 注入 v1.8.2 版本字符串。
+- 产物:`release/游戏资源管理器-v1.8.2-便携版.zip`。
+
+---
+
+## 2026-08-10
+
+### [新增] 网络资源抓取:顶栏静音 + 侧栏开关 + 筛选行整合
+- **网页音频静音**:顶栏新增「🔊 播放 / 🔇 禁音」一键切换按钮,调用 `WebContentsView.webContents.setAudioMuted` 控制内嵌网页音频;静音状态会继承到新打开的网页。新增 IPC `web:setAudioMuted` + preload `webSetAudioMuted` + `WebGameView.setAudioMuted`。
+- **侧栏隐藏/显示**:顶栏新增「🗂 隐藏侧栏 / 👁 显示侧栏」一键切换,控制 `.wg-side` 整块显示/隐藏(再次显示后自动重报浏览器视图矩形)。
+- **筛选行整合**:资源捕获 tab 中的「资源数据(*条/共**条)」与「仅下载不入库」开关(`#wg-onlyurl`)由原独立行移入类型筛选 chips 行(`#wg-filter`),chips 渲染容器改为 `#wg-chips`,布局更紧凑。
+- **验证**:vite build 通过;electron CJS 三文件 `node --check` 通过;冒烟用例新增 `#wg-mute` / `#wg-toggle-side` 检测。
+
+---
+
+## 2026-08-10
+
+### [新增] 网络资源抓取:DevTools 独立窗口入口 + 网址收藏夹增强
+- **DevTools 入口**:网络资源抓取页工具栏新增「🧰 DevTools」按钮,点击后以 `openDevTools({mode:'detach'})` **独立窗口**打开网页 DevTools(可查看 Network 请求/Console/Element,便于逆向分析);右键按钮可关闭。新增 IPC `web:devtools`(action open/close)+ preload `webOpenDevTools`/`webCloseDevTools`。
+- **改名**:「网页游戏抓取」→「网络资源抓取」(侧栏节点/tab/面包屑/注释)。
+- **网址收藏夹**:侧栏「🔖 网址收藏夹」分类树(可嵌套子目录,默认展开),网址条目增删改查;页面新增「🔖 收藏」按钮 +「📡 资源捕获 / 🔖 网址收藏夹」面板切换;收藏夹面板支持收藏当前 URL / 新建子目录 / 打开 / 编辑 / 删除;数据入 SQLite 新表 web_bookmark_categories / web_bookmarks。
+- **分割线拖动**:浏览器区与资源区之间分割线可拖动调整比例(修复 flex-basis 覆盖 height 问题)。
+- **滚动条**:网页显示区支持滚动条查看被遮挡区域。
+- **验证**:58 步冒烟全绿(webgame 步骤含 DevTools 按钮/API、收藏夹 CRUD 7 项、分割线、面板切换)。
+
+---
+
+## 2026-08-10
+
+### [说明] 版本号提升至 v1.8.0
+- 版本号由 v1.7.17 提升为 v1.8.0（主版本号升级,内容同 v1.7.17：网页游戏逆向分析抓取模块 + FGUI 导出源工程声音修复）。
+
+---
+
+## 2026-08-10
+
+### [说明] 发布 v1.7.17(便携版)
+- 新增「网页游戏逆向分析与资源抓取」模块(内嵌浏览器拦截网络请求识别 FGUI/Spine/图集/音频等资源,下载入库);FGUI 导出源工程声音查找路径补全 audio 素材库。版本号 1.7.16 → 1.7.17。
+
+---
+
+## 2026-08-10
+
+### [新增] 网页游戏逆向分析与资源抓取模块
+- **能力**:侧栏新增「网页游戏抓取」根节点(🌐),进入独立页面后可打开任意网页游戏 URL —— 应用内用 WebContentsView(Electron 43 推荐替代已废弃 BrowserView)内嵌真实游戏页面,独立分区 session(`persist:webgame`)持久化登录态、不污染应用主 session;`session.webRequest` 拦截所有帧(含 iframe,兼容 4399 登录 iframe)的网络请求,按扩展名/content-type 自动分类为 FGUI / Spine / 图集 / 图片 / 音频 / 视频 / 字体 / 脚本 / 配置,实时推送到资源清单。
+- **下载与入库**:选中或批量下载(fgui/spine/image/audio,主进程 https 下载,rejectUnauthorized:false + Referer/UA 防盗链 + 可选代理 + 进度条);下载后本地探测(.bin 魔数 FGUII / spine json 特征)精确分类;fgui .bin → `addScene`(subtype='fgui',可被 FGUI 编辑器打开),spine/image/audio → `addItem` 复用现有预览链路,零数据库 schema 改动;spine 自动按 basename 配对同目录 `.atlas` 填 atlasPath。
+- **布局**:URL 输入 + 打开/停止/后退/前进/刷新 + 类型筛选 chips + 捕获列表(点击复制 URL) + 输出目录选择 + 下载进度 + 仅下载不入库开关;浏览器区与列表区可拖动分割线调整。
+- **持久化**:`webGameLastUrl`/`webGameSaveDir`/`webGameProxy`/`webGameHistory`(最近游戏历史,侧栏子节点点击直达)。
+- **改动**:新建 `electron/tools/webGame.js`(WebGameView 单例:open/setBounds/close/destroy + hookWebRequest 拦截 + classify 分类 + downloadResource 下载 + probeFile 探测)、`src/pages/webGamePage.js`(页面 UI + 入库);修改 `electron/main.js`(web:* 10 个 IPC + window-all-closed 销毁)、`electron/preload.js`(10 invoke API + 4 事件监听)、`index.html`(#page-webgame 容器)、`src/ui.js`(webGameShown 状态 + 侧栏节点 + showPage/applyTabState/syncTabFromState/renderMainArea/updateBackSpecial/renderBreadcrumb 接入 + enterWebGame)、`src/state.js`(DEFAULT_SETTINGS 4 项)、`src/style.css`(wg- 样式段)、`src/main.js`(webgame 冒烟 case)、`scripts/pack-manual.js`(MAIN_DEPS 追加 http-proxy-agent/https-proxy-agent)。
+- **验证**:classify 12 用例全 PASS;probeFile 真实文件(FGUI bin / spine json / DragonBones json)全 PASS;downloadResource 下载 example.com 559B 成功;端到端 Electron 实测 WebContentsView 打开 example.com 拦截推送成功;58 步冒烟全绿(webgame 步骤:侧栏节点/页面渲染/工具栏/筛选/下载按钮齐全,截图正常)。
+
+---
+
+## 2026-08-10
+
+### [修复] FGUI 导出源工程:声音查找路径补全 audio 素材库
+- **现象**:导出源工程时 Sound 资源常被跳过(`sound xxx: 磁盘未找到 <file>`),FairyGUI 编辑器打开后声音缺失。
+- **根因**:`restoreSource.js` 声音候选路径仅含 bin 同目录(`<file>`/`<包名>_<file>`)与共享素材库 `ui/fgui_texture/fgui`,未覆盖 Cocos 等引擎把 FGUI 声音导出为独立音频素材目录 `audio/` 的布局。
+- **修复**:`electron/tools/fgui/restoreSource.js` 声音查找增加 `{gameRoot}/audio/` 目录候选,支持三种命名(`<file>` / `<包名>_<file>` / `<资源名>.<ext>`);bin 同目录与共享素材库也补上 `<资源名>.<ext>` 候选。
+- **验证**:异兽灵境(4399 H5, gameId=100073549)Common.bin 唯一 Sound `dianji`(o2q2ea.mp3) —— 修复前 `sounds=0` 且跳过,修复后 `sounds=1` 输出 `FGUI_src/Common/res/dianji.mp3`,与 CDN `assets/fgui/native/aa/aa8b1334...9d735.mp3` 及本地 `audio/Common_o2q2ea.mp3` MD5 一致(`9d735d6f...`)。回归:Basics 2 声音、Transition 1 声音均正常输出,`_test_restore_src.js` 全 PASS,`npm run build` 通过。
+
+---
+
+## 2026-08-10
+
+### [说明] 发布 v1.7.16(便携版)
+- FGUI 编辑器:编辑模式属性面板支持修改节点名称/id(保存时联动更新源工程 XML 及引用);srcPkg/sprite/atlas 属性可一键复制。版本号 1.7.15 → 1.7.16。
+
+### [新增] FGUI 编辑器属性面板:名称/id 可编辑 + 字段复制
+- **名称/id 编辑**:编辑模式下属性面板「名称」「id」改为文本输入框;修改后节点实时更新,点「💾 保存源工程」时与原始快照对比,仅变化项提交(`nodeOrig` Map 记录加载时的原始 id/name)。
+- **保存联动更新关联引用**:`fgui:saveSourceEdits` 的节点新增 `name`/`newId` 字段;主进程按 XML id 匹配更新 name 属性;id 变更时**全局替换引号包裹的完整 token**(节点自身 id + relations target / controller action objectId / transition item target / group 等所有引用处同步更新)。
+- **可复制字段**:srcPkg/sprite/atlas 在属性面板(编辑/非编辑模式)均显示为可复制行——值可选中(复制)或点 📋 按钮复制到剪贴板(事件委托 `_bindCopyButtons`,只绑一次)。
+- **改动**:`src/viewers/fguiLayoutPreview.js`(`_renderProps` 名称/id 输入框+`copyable` 渲染+`_bindCopyButtons`;`_applyPropFromInput` 支持 name/id)、`src/pages/fguiEditorPage.js`(nodeOrig 快照、保存时增量提交 name/newId、保存后刷新快照)、`electron/tools/fgui/index.js`(saveSourceEdits 支持 name/newId + 引用全局替换)、`src/style.css`(复制按钮样式)。
+- **验证**:主进程单测——节点 `n5_mah9` → `n5_zzz9` 且 name 写入,旧 id 引用 0 残留、新 id 出现、xy/size 更新 PASS;electron 冒烟——名称/id 输入框存在、修改后节点实时更新(名称=改名节点、id=n0_cb4z_x1)、3 个复制按钮、保存成功。
+
+---
+
+## 2026-08-10
+
+### [说明] 发布 v1.7.15(便携版)
+- FGUI 编辑器增强:组件列表/层级树分割线可拖动、层级树折叠展开、资源预览+主区 9 点高亮+属性关联、源工程编辑与保存。版本号 1.7.14 → 1.7.15。
+
+### [新增] FGUI 编辑器四大增强
+- **1) 分割线拖动**:组件列表与层级树之间的分割线可上下拖动,调整两个区域竖向空间比例(`#fge-hsplit`,pointer 事件调整组件列表高度)。
+- **2) 层级树折叠**:层级树节点有子节点时显示 ▶/▼ 箭头,点击按层级折叠/展开(`hierCollapsed` Set 记录折叠节点)。
+- **3) 资源预览 + 主区高亮 + 属性关联**:资源 tab 列表下方新增预览区;点击资源:
+  - 图片:从图集纹理裁切 sprite 渲染到预览 canvas(支持 rotated 转回);主区用 **9 点可调边框**(2px 外框 + 8 缩放手柄,`FguiLayoutPreview.highlightResource`)高亮第一个使用该资源的节点;右侧属性面板显示 类型/id/名称/路径/尺寸/图集/图集位置/使用节点数。
+  - 字体:显示名称与字形数;动画:显示名称与尺寸;声音:显示文件并可播放(读音频 dataUrl → Audio)。
+  - 数据层 `buildPreviewData.resources` 扩展:Image 附带 `atlasKey+sprite`(含 atlasItemId),Sound 附带 `file`,Font 附带 `fontCount`。
+- **4) 源工程编辑与保存**:工具栏新增「💾 保存源工程」,把当前组件树的编辑结果(节点 id/x/y/width/height/rotation/alpha/visible/scale)写回 `FGUI_src/<包名>/<组件>.xml` 的 displayList(源工程不存在时自动先还原);新增 IPC `fgui:saveSourceEdits`(`electron/tools/fgui/index.js` 的 `saveSourceEdits`,按 XML id 匹配更新 xy/size/scale/rotation/alpha/visible 属性)。
+- **改动**:`src/pages/fguiEditorPage.js`、`src/viewers/fguiLayoutPreview.js`(highlightResource)、`electron/tools/fgui/previewData.js`、`electron/tools/fgui/index.js`、`electron/main.js`、`electron/preload.js`、`src/style.css`。
+- **验证**:主进程单测——真实节点 id 的 xy/size/rotation/alpha/visible/scale 全部正确写回 XML(updated=1);electron 冒烟——分割线存在、层级树 76 箭头点击折叠 76→1、图片资源预览 canvas+主区高亮+属性面板齐全、保存按钮可用。
+
+---
+
+## 2026-08-10
+
+### [说明] 发布 v1.7.14(便携版)
+- FGUI 编辑器入口整合:菜单移入「资源工具箱」下;场景管理中 FGUI 包点击/右键改用 FGUI 编辑器打开;编辑器切页/切标签后保持打开文件与编辑状态。版本号 1.7.13 → 1.7.14。
+
+### [新增] FGUI 编辑器入口整合与状态保持
+- **1) 菜单位置**:左侧「FGUI编辑器」从独立 section 移入「资源工具箱」目录节点下(与 图片编辑/FGUI导出 并列,✏️ 图标)。
+- **2) 场景 FGUI 包打开方式**:「游戏场景管理」树中的 FGUI 包条目(.bin)、场景主页入口卡片、场景目录页 🧩 按钮与行点击、最近添加列表、场景搜索结果,点击/打开均改用 **FGUI 编辑器**;保留原 FGUI 预览页代码作为内部功能。
+- **3) 编辑器状态保持**:FGUI 编辑器页首次进入初始化一次(标记 `_fguiEditorInited`),切到其他菜单/标签再回来时保留已打开包、组件与编辑状态,不重建画布;外部再次加载走 `container._fguiEditorLoad`。
+- **4) 右键「编辑器打开」**:侧栏场景树 FGUI 包条目右键菜单、场景主页「最近添加」FGUI 行右键、场景目录页 FGUI 行右键菜单,均新增「✏️ 用FGUI编辑器打开」。
+- **改动**:`src/ui.js`(菜单/`enterFguiEditor`/`openFguiEditorFromScene`/scene:navigate/渲染分支/状态保持)、`src/pages/fguiEditorPage.js`(初始化一次+`_fguiEditorLoad`)、`src/pages/scenePage.js`(入口文案/右键菜单/行交互)。
+- **验证**(electron 冒烟):菜单叶子在工具箱下;场景树 Bag 条目点击 → 编辑器打开(Bag v7,nodeMap 76);切走再切回状态保持(nodeMap 76 不变);右键菜单含「用FGUI编辑器打开」。
+
+---
+
+## 2026-08-10
+
+### [说明] 发布 v1.7.13(便携版)
+- 新增左侧菜单「FGUI编辑器」(位于资源工具箱下方):独立的 FairyGUI 包可视化编辑器,布局参考 FairyGUI-Editor-Online 的 IDE 结构(左资源面板/中画布/右属性),复用现有 FGUI 预览画布引擎与 .bin 解析。版本号 1.7.12 → 1.7.13。
+
+### [新增] FGUI编辑器独立页面(参考 FairyGUI-Editor-Online / OpenFairyGUI)
+- **入口**:左侧菜单栏「资源工具箱」下方新增「🧩 FGUI编辑器」菜单项,点击进入独立编辑器页。
+- **布局**:顶栏(选择 .bin/组件下拉/撤销/编辑模式/导出源工程/打开目录/背景色)+ 左侧资源面板(组件列表+层级树,可切换「资源」tab 查看 图片/字体/动画/声音 清单)+ 中间画布 + 右侧属性面板(控制器+属性)。
+- **改动**:
+  - `src/pages/fguiEditorPage.js`(新):编辑器页逻辑,复用 `FguiLayoutPreview` 画布引擎与 `window.api.fguiPreviewLoad` 数据层;层级树点击 ↔ 画布选中联动;导出源工程输出到 `FGUI_src/<包名>`。
+  - `electron/tools/fgui/previewData.js`:`buildPreviewData` 返回新增 `resources`(包内 items 按 图片/字体/动画/声音/组件 分组精简列表),供资源面板使用。
+  - `src/ui.js`:新增菜单 section `renderFguiEditorSection`、状态 `fguiEditorShown`/`pendingFguiEditorBin`、`showPage('fgui-editor')`、`renderMainArea` 分支、tab 与面包屑/返回按钮适配。
+  - `index.html`:新增 `#page-fgui-editor` 页面容器;`src/style.css`:新增 `.fge-*` 编辑器布局样式。
+- **验证**(electron 冒烟):菜单出现 → 进入编辑器页 → 加载 `Bag.bin` 成功(`pkg=Bag`、图集纹理 3、层级树 76 项=nodeMap 76、控制器 8、资源面板正常)。
+
+---
+
+## 2026-08-10
+
+### [说明] 发布 v1.7.12(便携版)
+- FGUI 包预览工具栏移除「解压FGUI包」按钮,保留「导出源工程」;导出源工程输出目录由 `<包名>_src/<包名>/` 调整为 bin 同目录下的 `FGUI_src/<包名>/`(目录不存在时自动创建)。版本号 1.7.11 → 1.7.12。
+
+### [新增] FGUI 界面预览:工具栏精简 + 导出源工程目录规范为 FGUI_src
+- **改动**(`src/pages/scenePage.js`):移除「解压FGUI包」按钮(`#fgpv-unpack`)及其解压逻辑(`exportCurrentPkg`/`copySpritesToDir`),工具栏仅保留「导出源工程」;`exportSourcePkg` 输出根目录由 `bin同目录/<包名>_src` 改为 `bin同目录/FGUI_src`,包内容输出到 `FGUI_src/<包名>/`。
+- **联动**(`electron/tools/fgui/previewData.js`):`sourcePngForItem`(位图字形源 PNG 兜底)与 `findFntFile`(.fnt 文本兜底)的导出源工程路径同步改为 `FGUI_src/<包名>/`,与导出逻辑保持一致。
+- **验证**:samples/fgui 导出 `ActEmperorArrival.bin` → `FGUI_src/ActEmperorArrival/`(组件3+碎图11)、`Common.bin` → `FGUI_src/Common/`(组件113+碎图495+字体14);`findFntFile` 在新路径命中 `PowerFont3.fnt`。
 
 ---
 

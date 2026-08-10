@@ -12,6 +12,44 @@ const { skelToJson, probeSkeleton } = require('./tools/skel');
 const { spineFix } = require('./tools/spineFix');
 const fgui = require('./tools/fgui');
 const { buildPreviewData, findGameRoot } = require('./tools/fgui/previewData');
+const { webGame, downloadResource, probeFile, classify, typeDir, fileNameFromUrl, safeName } = require('./tools/webGame');
+const webPreviewWindow = require('./tools/webPreviewWindow');
+
+// ---- 通用:扩展名 → MIME / 下载到临时目录 → data URL / 抓取文本(主窗口与悬浮预览窗共用) ----
+const MIME_EXT = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
+  bmp: 'image/bmp', svg: 'image/svg+xml', astc: 'image/astc', tga: 'image/x-tga',
+  mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', oga: 'audio/ogg', m4a: 'audio/mp4',
+  flac: 'audio/flac', aac: 'audio/aac', opus: 'audio/ogg',
+  mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime',
+  avi: 'video/x-msvideo', mkv: 'video/x-matroska',
+  ttf: 'font/ttf', otf: 'font/otf', woff: 'font/woff', woff2: 'font/woff2', eot: 'application/vnd.ms-fontobject',
+};
+function mimeOfExt(ext) { return MIME_EXT[ext] || 'application/octet-stream'; }
+async function downloadToDataUrl({ url, referrer, proxy, name }) {
+  const dir = path.join(app.getPath('userData'), 'webgame_preview_cache');
+  const sp = path.join(dir, safeName(name || fileNameFromUrl(url) || 'res'));
+  const r = await downloadResource({ url, referrer, proxy }, sp);
+  if (!(r && r.ok)) return { ok: false, error: (r && r.error) || '下载失败' };
+  const buf = await fs.promises.readFile(sp);
+  const mime = mimeOfExt(path.extname(sp).slice(1).toLowerCase());
+  try { await fs.promises.unlink(sp); } catch (e) { /* ignore */ }
+  return { ok: true, dataUrl: `data:${mime};base64,${buf.toString('base64')}`, size: buf.length };
+}
+async function fetchTextOf({ url, referrer, proxy, maxBytes }) {
+  const limit = Math.min(Number(maxBytes) || 1024 * 1024, 4 * 1024 * 1024);
+  const tmp = path.join(app.getPath('userData'), 'webgame_preview_cache', 'txt_' + Date.now() + '_' + safeName(String(fileNameFromUrl(url) || 'text')));
+  try {
+    const r = await downloadResource({ url, referrer, proxy }, tmp);
+    if (!r || !r.ok) return { ok: false, error: '下载失败' };
+    const buf = await fs.promises.readFile(tmp);
+    return { ok: true, text: buf.subarray(0, limit).toString('utf8'), truncated: buf.length > limit, size: buf.length, mime: r.mime || '' };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  } finally {
+    try { await fs.promises.unlink(tmp); } catch (e) { /* ignore */ }
+  }
+}
 
 // 冒烟模式:命令行参数(dev)或环境变量(打包版 exe 不经过 electron CLI,未知 -- 参数会被拒绝)
 const isSmoke = process.argv.includes('--smoke') || process.env.SKELETON_VIEWER_SMOKE === '1';
@@ -308,6 +346,7 @@ async function runSmoke() {
     ['batchui', 900],
     ['toolhistory', 900],
     ['ieoverwrite', 900],
+    ['webgame', 900],
     ['crud', 400],
   ];
 
@@ -479,12 +518,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('fs:readBase64', (_e, p) => {
     try {
       const buf = fs.readFileSync(p);
-      const ext = path.extname(p).slice(1).toLowerCase();
-      const mime = ({
-        png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
-        gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp',
-        svg: 'image/svg+xml',
-      })[ext] || 'application/octet-stream';
+      const mime = mimeOfExt(path.extname(p).slice(1).toLowerCase());
       return { ok: true, dataUrl: `data:${mime};base64,${buf.toString('base64')}`, size: buf.length };
     } catch (err) {
       return { ok: false, error: err.message };
@@ -605,6 +639,15 @@ app.whenReady().then(async () => {
   ipcMain.handle('fgui:exportSource', async (_e, { inputPath, outputDir, textureDir }) => {
     try {
       return fgui.restoreSourcePkg(inputPath, outputDir, { textureDir: textureDir || null });
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+  // 保存源工程编辑: 将编辑器中的节点属性修改写回 FGUI_src/<包名>/<组件名>.xml 的 displayList
+  // nodes: [{id, x, y, width, height, rotation, alpha, visible, scaleX, scaleY}]
+  ipcMain.handle('fgui:saveSourceEdits', async (_e, { inputPath, compName, nodes }) => {
+    try {
+      return fgui.saveSourceEdits(inputPath, compName, nodes || []);
     } catch (err) {
       return { ok: false, error: err.message };
     }
@@ -738,9 +781,119 @@ app.whenReady().then(async () => {
     }
   });
 
+  // ---- 网页游戏逆向分析:内嵌浏览器 / 请求拦截 / 资源下载 ----
+  ipcMain.handle('web:open', (_e, { url, ua, proxy } = {}) => {
+    try {
+      if (!url) return { ok: false, error: '缺少 URL' };
+      return webGame.open(win, url, { ua, proxy });
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+  ipcMain.handle('web:navigate', (_e, url) => {
+    try { return webGame.navigate(url); } catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('web:goBack', () => {
+    try { return webGame.goBack(); } catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('web:goForward', () => {
+    try { return webGame.goForward(); } catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('web:reload', () => {
+    try { return webGame.reload(); } catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('web:devtools', (_e, action) => {
+    // action: 'open' | 'close' — 独立窗口模式(detach)打开网页 DevTools
+    try {
+      if (action === 'close') return webGame.closeDevTools();
+      return webGame.openDevTools();
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('web:close', () => {
+    try { webGame.close(); return { ok: true }; } catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('web:setBounds', (_e, rect) => {
+    try { return webGame.setBounds(rect); } catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('web:setAudioMuted', (_e, muted) => {
+    // 一键静音 / 取消禁音网页音频(muted: boolean)
+    try { return webGame.setAudioMuted(muted); } catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('web:getCaptured', () => {
+    try { return { ok: true, records: webGame.getCaptured() }; } catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('web:clearCaptured', () => {
+    try { return webGame.clearCaptured(); } catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('web:probe', (_e, p) => {
+    try { return probeFile(p).then((type) => ({ ok: true, type })); } catch (err) { return { ok: false, error: err.message }; }
+  });
+  // 下载: 返回 { ok, path, size, type, url }; 进度经 web:progress 推送
+  ipcMain.handle('web:download', (_e, args) => {
+    const { url, savePath, referrer, ua, proxy, type } = args || {};
+    if (!url || !savePath) return Promise.resolve({ ok: false, error: '缺少 url/savePath' });
+    const lastPush = { t: 0 };
+    return downloadResource({ url, referrer, ua, proxy }, savePath, (p) => {
+      const now = Date.now();
+      if (now - lastPush.t >= 100 || p.percent >= 100) {
+        lastPush.t = now;
+        try { win.webContents.send('web:progress', { ...p, type }); } catch (e) { /* ignore */ }
+      }
+    }).then((r) => {
+      // 下载后探测真实类型(bin 魔数 / spine 特征), 供入库精确分类
+      return probeFile(savePath).then((real) => ({ ok: true, path: r.path, size: r.size, mime: r.mime, url, type: real || type || classify(url, r.mime) }));
+    }).catch((err) => ({ ok: false, error: err.message, url }));
+  });
+  // 抓取文本: 主进程下载 URL 正文到临时文件, 读取为 UTF-8 文本(截断 ~1MB),
+  // 供渲染端与悬浮预览窗展示文本/脚本/配置而无需受 CSP 限制直接 fetch 外网。
+  ipcMain.handle('web:fetchText', async (_e, args) => {
+    if (!args || !args.url) return { ok: false, error: '缺少 url' };
+    return fetchTextOf(args);
+  });
+
+  // ---- 资源悬浮预览: 独立窗口(像 DevTools detach 一样脱离主窗口, 可自由悬浮到浏览器区上方) ----
+  webPreviewWindow.setNotifyApp((evt, val) => {
+    try {
+      if (evt === 'closed') {
+        win.webContents.send('web:previewClosed');
+      } else if (evt === 'pin') {
+        win.webContents.send('web:previewPinState', { pinned: !!val });
+        const pw = webPreviewWindow.getWin();
+        if (pw && !pw.isDestroyed()) pw.webContents.send('preview:pinState', !!val);
+      }
+    } catch (e) { /* ignore */ }
+  });
+  ipcMain.handle('web:previewShow', (_e, payload) => {
+    try { webPreviewWindow.show(payload); return { ok: true }; } catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('web:previewHide', () => {
+    try { webPreviewWindow.hide(); return { ok: true }; } catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('web:previewClose', () => {
+    try { webPreviewWindow.close(); return { ok: true }; } catch (err) { return { ok: false, error: err.message }; }
+  });
+  // 预览窗内部 IPC(由 previewPreload.js 调用)
+  ipcMain.handle('preview:togglePin', () => {
+    try { const p = webPreviewWindow.togglePin(); return { ok: true, pinned: p }; } catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('preview:setPin', (_e, p) => {
+    try { const v = webPreviewWindow.setPin(p); return { ok: true, pinned: v }; } catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('preview:downloadDataUrl', async (_e, args) => {
+    try { return await downloadToDataUrl(args || {}); } catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('preview:fetchText', async (_e, args) => {
+    try { return await fetchTextOf(args || {}); } catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.on('preview:action', (_e, payload) => {
+    try { win.webContents.send('web:previewAction', payload); } catch (err) { /* ignore */ }
+  });
+
   await createWindow();
 });
 
 app.on('window-all-closed', () => {
+  try { webPreviewWindow.close(); } catch (e) { /* ignore */ }
+  try { webGame.destroy(); } catch (e) { /* ignore */ }
   app.quit();
 });

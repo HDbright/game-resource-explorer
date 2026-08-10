@@ -87,11 +87,11 @@ export function renderSceneHome(container, { onOpenCat, onAddScene, onAddCategor
         <button class="btn" id="sc-add-cat">+ 新建目录</button>
         <button class="btn sm" id="sc-refresh">刷新</button>
       </div>
-      <div class="fg-entry-card" id="sc-fgui-entry" title="用 PixiJS 把 FairyGUI 的 .bin 界面包按布局还原为可交互预览">
-        <div class="fg-entry-ico">🧩</div>
+      <div class="fg-entry-card" id="sc-fgui-entry" title="用 PixiJS 打开 FairyGUI 的 .bin 界面包进行可视化编辑(组件树/画布/属性面板)">
+        <div class="fg-entry-ico">✏️</div>
         <div class="fg-entry-main">
-          <div class="fg-entry-title">FGUI 界面预览</div>
-          <div class="fg-entry-desc">选择 FairyGUI 的 .bin 界面包,按 xy/size 渲染 Image/Loader/Text 布局;支持缩放平移、点选属性、控制器页切换。</div>
+          <div class="fg-entry-title">FGUI 编辑器</div>
+          <div class="fg-entry-desc">选择 FairyGUI 的 .bin 界面包,在独立编辑器中打开:组件列表/层级树、画布编辑、属性面板、控制器切换、导出源工程。</div>
         </div>
         <div class="fg-entry-go">进入 →</div>
       </div>
@@ -138,7 +138,7 @@ export function renderSceneHome(container, { onOpenCat, onAddScene, onAddCategor
       `;
       row.addEventListener('click', () => {
         const items = [
-          ...(s.subtype === 'fgui' ? [{ label: '🧩 FGUI 界面预览', onClick: () => onFguiPreview && onFguiPreview(s.id) }] : []),
+          ...(s.subtype === 'fgui' ? [{ label: '✏️ 用FGUI编辑器打开', onClick: () => onFguiPreview && onFguiPreview(s.id) }] : []),
           { label: '在文件管理器中显示', onClick: () => window.api.showItem(s.filePath) },
           { label: '打开', onClick: () => window.api.openPath(s.filePath) },
           { label: '编辑场景信息', onClick: () => promptDialog({ title: '编辑场景名称', defaultValue: s.name, onOk: (n) => { if (n) updateScene(s.id, { name: n }); onRefresh(); } }) },
@@ -154,9 +154,9 @@ export function renderSceneHome(container, { onOpenCat, onAddScene, onAddCategor
   container.querySelector('#sc-add-fgui').addEventListener('click', () => onAddFguiPackages && onAddFguiPackages(''));
   container.querySelector('#sc-add-cat').addEventListener('click', () => onAddCategory(''));
   container.querySelector('#sc-refresh').addEventListener('click', onRefresh);
-  // FGUI 界面预览入口 → 独立子页(事件解耦, ui.js 接住; 需 bubbles 冒泡到 document)
+  // FGUI 编辑器入口 → 独立页(事件解耦, ui.js 接住; 需 bubbles 冒泡到 document)
   container.querySelector('#sc-fgui-entry').addEventListener('click', () => {
-    container.dispatchEvent(new CustomEvent('scene:navigate', { detail: { to: 'fgui-preview' }, bubbles: true }));
+    container.dispatchEvent(new CustomEvent('scene:navigate', { detail: { to: 'fgui-editor' }, bubbles: true }));
   });
 }
 
@@ -186,8 +186,7 @@ export function renderFguiPreviewPage(container, { onBack, initialBinPath } = {}
         <div class="fgpv-spacer"></div>
         <button class="btn sm" id="fgpv-edit" disabled title="切换可视化编辑模式(拖拽移动/调整大小/编辑属性)">✎ 编辑模式</button>
         <button class="btn sm" id="fgpv-undo" disabled title="撤销上一步编辑(Ctrl+Z)">↩ 撤销</button>
-        <button class="btn sm" id="fgpv-unpack" disabled title="用内置 FGUI 逆向导出功能,把当前包解压到其所在目录下同包子目录(JSON/XML/素材)">📦 解压FGUI包</button>
-        <button class="btn sm" id="fgpv-export" disabled title="导出完整 FairyGUI 源工程包:标准 package.xml + 组件 XML + 碎图 + 字体 + 动画,可直接用 FairyGUI 编辑器打开(输出到 <包名>_src 子目录)">📤 导出源工程</button>
+        <button class="btn sm" id="fgpv-export" disabled title="导出完整 FairyGUI 源工程包:标准 package.xml + 组件 XML + 碎图 + 字体 + 动画,可直接用 FairyGUI 编辑器打开(输出到 <bin同目录>/FGUI_src/<包名> 子目录)">📤 导出源工程</button>
         <button class="btn sm" id="fgpv-opendir" disabled title="用 Windows 资源管理器打开当前 FGUI 包(.bin)所在目录">📂 打开目录</button>
         <button class="btn sm" id="fgpv-snapshot" disabled title="保存当前组件编辑后的布局快照(JSON),自动关联到该 FGUI 包">💾 保存快照</button>
         <button class="btn sm" id="fgpv-texdir" style="display:none" title="自动探测纹理失败时手动指定纹理目录">🔧 选择纹理目录</button>
@@ -243,7 +242,6 @@ export function renderFguiPreviewPage(container, { onBack, initialBinPath } = {}
   const bgBarEl = container.querySelector('#fgpv-bgbar');
   const editBtn = container.querySelector('#fgpv-edit');
   const undoBtn = container.querySelector('#fgpv-undo');
-  const unpackBtn = container.querySelector('#fgpv-unpack');
   const exportBtn = container.querySelector('#fgpv-export');
   const openDirBtn = container.querySelector('#fgpv-opendir');
   const snapshotBtn = container.querySelector('#fgpv-snapshot');
@@ -275,7 +273,6 @@ export function renderFguiPreviewPage(container, { onBack, initialBinPath } = {}
     const loaded = !!payload;
     editBtn.disabled = !loaded;
     undoBtn.disabled = !loaded || !fguiPreview || !fguiPreview.editMode;
-    unpackBtn.disabled = !loaded || !curBinPath;
     exportBtn.disabled = !loaded || !curBinPath;
     openDirBtn.disabled = !loaded || !curBinPath;
     snapshotBtn.disabled = !loaded || !fguiPreview;
@@ -642,63 +639,14 @@ export function renderFguiPreviewPage(container, { onBack, initialBinPath } = {}
   });
 
   /**
-   * 导出/解压当前预览的 FGUI 包到 bin 同目录/<包名>/ 子目录(不弹目录选择;自动建目录)。
-   * @param {{confirm?: boolean, actionLabel?: string}} opts confirm=true 时若目录已存在导出文件则弹窗确认是否覆盖;actionLabel 状态文案用词(解压/导出)
-   */
-  const exportCurrentPkg = async ({ confirm = true, actionLabel = '导出' } = {}) => {
-    if (!curBinPath) return;
-    const outDir = pkgDir();
-    const pkgName = pkgNameOf(curBinPath);
-    // 检查目标目录是否已存在该包的导出文件
-    let existing = false;
-    for (const f of [pkgName + '.json', pkgName + '.xml']) {
-      try {
-        const st = await window.api.statFile(joinPath(outDir, f));
-        if (st && st.size != null) { existing = true; break; }
-      } catch (e) { /* ignore */ }
-    }
-    if (existing && confirm) {
-      const go = await new Promise((resolve) => {
-        confirmDialog({
-          title: '目录已存在导出文件',
-          message: `目标目录「${escHtml(pkgName)}」已存在该包的导出文件,是否覆盖原文件?<br><code>${escHtml(outDir)}</code>`,
-          okText: '覆盖',
-          onOk: () => resolve(true),
-          onCancel: () => resolve(false),
-        });
-      });
-      if (!go) { statusEl.textContent = '已取消,未覆盖原文件'; return; }
-    }
-    statusEl.textContent = `正在${actionLabel} FGUI 包...`;
-    try {
-      const res = await window.api.fguiExportSingle({ inputPath: curBinPath, outputDir: outDir });
-      if (res && res.ok) {
-        // 只复制本包图集的单图(来自共享素材库,不复制整张图集,避免跨包重复);素材库未生成时回退复制整图集
-        const copied = await copySpritesToDir(payload, outDir, res);
-        let msg = `✅ 已${actionLabel}到 ${outDir}`;
-        if (copied.count > 0) msg += `,素材 ${copied.count} 张`;
-        if (res.deps && res.deps.length) msg += ` [引用公共素材: ${res.deps.join(', ')},请一并解压该包]`;
-        statusEl.textContent = msg;
-        toast(msg, 'success');
-      } else {
-        statusEl.textContent = '✗ ' + ((res && res.error) || `${actionLabel}失败`);
-      }
-    } catch (e) {
-      statusEl.textContent = '✗ ' + (e.message || String(e));
-    }
-  };
-
-  unpackBtn.addEventListener('click', () => exportCurrentPkg({ confirm: true, actionLabel: '解压' }));
-
-  /**
-   * 导出完整 FairyGUI 源工程: .bin → <bin同目录>/<包名>_src/<包名>/
+   * 导出完整 FairyGUI 源工程: .bin → <bin同目录>/FGUI_src/<包名>/
    * 还原方法参考 fgui-restore: 标准 package.xml + <id>.xml 组件 + 图集裁剪碎图 + .fnt 字体 + .jta 动画 + 声音,
    * 输出可直接用 FairyGUI 编辑器打开的源工程包目录(新建工程后放入 assets 目录即可)。
    */
   const exportSourcePkg = async () => {
     if (!curBinPath) return;
     const pkgName = pkgNameOf(curBinPath);
-    const outRoot = joinPath(binDirOf(curBinPath), pkgName + '_src');
+    const outRoot = joinPath(binDirOf(curBinPath), 'FGUI_src');
     const pkgOutDir = joinPath(outRoot, pkgName);
     // 覆盖确认: package.xml 已存在
     let existing = false;
@@ -710,7 +658,7 @@ export function renderFguiPreviewPage(container, { onBack, initialBinPath } = {}
       const go = await new Promise((resolve) => {
         confirmDialog({
           title: '源工程已存在',
-          message: `「${escHtml(pkgName)}_src」目录已存在该包的源工程,是否覆盖?<br><code>${escHtml(pkgOutDir)}</code>`,
+          message: `「FGUI_src/${escHtml(pkgName)}」目录已存在该包的源工程,是否覆盖?<br><code>${escHtml(pkgOutDir)}</code>`,
           okText: '覆盖',
           onOk: () => resolve(true),
           onCancel: () => resolve(false),
@@ -863,53 +811,6 @@ export function renderFguiPreviewPage(container, { onBack, initialBinPath } = {}
   window.addEventListener('keydown', onKey);
 }
 
-/**
- * 解压时复制图片素材(只复制"本包"图集的单图, 不复制整张图集, 避免大量重复文件):
- *  1) 共享素材库优先: <spriteLibDir>/<图集名>/ 目录中的单图 → <outDir>/<图集名>/
- *  2) 素材库未生成时回退: 复制整张图集 → <outDir>/<图集名>.png
- * 跨包引用的图集(不属于本包 ownAtlasKeys)一律不复制, 保持依赖关系由依赖包提供。
- * @param {object} payload buildPreviewData 结果(textures: atlasKey -> 整图集路径)
- * @param {string} outDir 解压输出目录
- * @param {{spriteLibDir?: string, ownAtlasKeys?: string[]}} res fguiExportSingle 返回
- * @returns {{count:number, fromLib:number, fromAtlas:number}}
- */
-async function copySpritesToDir(payload, outDir, res = {}) {
-  if (!payload || !payload.textures) return { count: 0, fromLib: 0, fromAtlas: 0 };
-  const own = new Set(res.ownAtlasKeys || []);
-  const restrict = own.size > 0; // 有本包图集清单时只复制本包图集
-  let count = 0, fromLib = 0, fromAtlas = 0;
-  for (const key of Object.keys(payload.textures)) {
-    if (restrict && !own.has(key)) continue; // 跨包图集: 不复制(依赖包提供)
-    const src = payload.textures[key];
-    if (!src) continue;
-    // ① 共享素材库优先
-    if (res.spriteLibDir) {
-      const libDir = joinPath(res.spriteLibDir, key);
-      const dir = await window.api.listDir(libDir);
-      if (dir && dir.ok && Array.isArray(dir.files) && dir.files.length) {
-        const pngs = dir.files.filter((f) => !f.isDir && /\.png$/i.test(f.name));
-        for (const f of pngs) {
-          try {
-            const r = await window.api.readBase64(joinPath(libDir, f.name));
-            if (!r || !r.ok) continue;
-            const dst = joinPath(joinPath(outDir, key), f.name);
-            const wr = await window.api.writeFileBase64(dst, r.dataUrl);
-            if (wr.ok) { count++; fromLib++; }
-          } catch (e) { /* ignore */ }
-        }
-        continue;
-      }
-    }
-    // ② 回退: 复制整张图集
-    try {
-      const r = await window.api.readBase64(src);
-      if (!r || !r.ok) continue;
-      const wr = await window.api.writeFileBase64(joinPath(outDir, key + '.png'), r.dataUrl);
-      if (wr.ok) { count++; fromAtlas++; }
-    } catch (e) { /* ignore */ }
-  }
-  return { count, fromLib, fromAtlas };
-}
 
 function joinPath(dir, name) {
   return dir.replace(/[\\/]+$/, '') + (dir.includes('\\') ? '\\' : '/') + name;
@@ -1073,7 +974,7 @@ export function renderSceneFolderPage(container, { catId, actions }) {
         <div class="scene-td scene-path-col" title="${escHtml(s.filePath)}">${escHtml(s.filePath)}</div>
         <div class="scene-td scene-size-col">${s.size ? fmtSize(s.size) : '—'}</div>
         <div class="scene-td scene-op-col">
-          ${s.subtype === 'fgui' ? `<button class="icon-btn" data-act="fgui" title="打开 FGUI 界面预览">🧩</button>` : ''}
+          ${s.subtype === 'fgui' ? `<button class="icon-btn" data-act="fgui" title="用 FGUI 编辑器打开">✏️</button>` : ''}
           <button class="icon-btn" data-act="show" title="在文件管理器中显示">📂</button>
           <button class="icon-btn" data-act="open" title="打开">▶</button>
           <button class="icon-btn" data-act="edit" title="编辑">✎</button>
@@ -1081,6 +982,17 @@ export function renderSceneFolderPage(container, { catId, actions }) {
           <button class="icon-btn danger" data-act="del" title="删除">✕</button>
         </div>
       `;
+      // 行右键菜单: FGUI 包提供「用FGUI编辑器打开」入口
+      row.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        showContextMenu(e.clientX, e.clientY, [
+          ...(s.subtype === 'fgui' ? [{ label: '✏️ 用FGUI编辑器打开', onClick: () => actions.onFguiPreview && actions.onFguiPreview(s.id) }] : []),
+          { label: '在文件管理器中显示', onClick: () => actions.onShowInFolder && actions.onShowInFolder(s.filePath) },
+          { label: '打开', onClick: () => actions.onOpenPath && actions.onOpenPath(s.filePath) },
+          { label: '编辑场景信息', onClick: () => actions.onEditScene && actions.onEditScene(s.id) },
+          { label: '删除', danger: true, onClick: () => actions.onRemoveScene && actions.onRemoveScene(s.id) },
+        ]);
+      });
       row.addEventListener('click', (e) => {
         const btn = e.target.closest('button[data-act]');
         if (btn) {
@@ -1093,7 +1005,7 @@ export function renderSceneFolderPage(container, { catId, actions }) {
           else if (act === 'del') actions.onRemoveScene(s.id);
           return;
         }
-        // 行内点击(非按钮):FGUI 包直接打开预览
+        // 行内点击(非按钮):FGUI 包直接打开 FGUI 编辑器
         if (s.subtype === 'fgui' && actions.onFguiPreview) actions.onFguiPreview(s.id);
       });
       table.appendChild(row);

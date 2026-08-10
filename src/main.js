@@ -10,6 +10,8 @@ import {
   reorderFavCategory,
   favLocations, isFavored,
   removeSceneCategory, sceneCategoryById,
+  addWebBookmarkCategory, updateWebBookmarkCategory, removeWebBookmarkCategory,
+  addWebBookmark, updateWebBookmark, removeWebBookmark,
 } from './state.js';
 import { PreviewController } from './preview/index.js';
 import { initUI, renderCategories, renderItems, renderMainArea, selectItem, updatePlaybackUI, updateStatusBar } from './ui.js';
@@ -2189,6 +2191,74 @@ function installSmoke() {
           const res = await PIXI.Assets.load({ src: base + '/a/sample-spine/hero.atlas' });
           out.pixiAtlas = res ? res.constructor.name : 'null';
         } catch (e) { out.pixiAtlasErr = e.message; out.pixiAtlasStack = String(e.stack || e).slice(0, 600); }
+        return out;
+      }
+      case 'webgame': {
+        // 网络资源抓取页:侧栏根节点 + 页面渲染 + 工具栏 + 网址收藏夹面板(增删改查), 不真正开浏览器
+        const out = {};
+        const sleep2 = (ms) => new Promise((r) => setTimeout(r, ms));
+        const q = (sel) => document.querySelector(sel);
+        const findNode = (nm) => [...document.querySelectorAll('.cat-node')].find((n) => (n.querySelector('.cat-name') || {}).textContent === nm);
+        // 1) 侧栏节点存在(改名后)
+        const wgRoot = findNode('网络资源抓取');
+        out.sidebarNode = !!wgRoot;
+        out.oldNameGone = !findNode('网页游戏抓取');
+        out.arrowChar = wgRoot ? (wgRoot.querySelector('.cat-arrow') || {}).textContent : null;
+        out.favArrow = (() => { const f = findNode('网址收藏夹'); return f ? (f.querySelector('.cat-arrow') || {}).textContent : null; })();
+        if (wgRoot) wgRoot.click();
+        await sleep2(250);
+        // 2) 页面容器渲染 + 控件齐全
+        const pageEl = document.getElementById('page-webgame');
+        out.pageVisible = pageEl && !pageEl.hidden;
+        out.hasUrl = !!q('#wg-url');
+        out.hasOpen = !!q('#wg-open');
+        out.hasBrowser = !!q('#wg-browser');
+        out.hasList = !!q('#wg-list');
+        out.hasFilterChips = (q('#wg-chips') || { children: [] }).children.length > 0;
+        out.hasMuteBtn = !!q('#wg-mute');
+        out.hasToggleSideBtn = !!q('#wg-toggle-side');
+        out.hasDownload = !!q('#wg-dl-sel') && !!q('#wg-dl-all');
+        out.hasDevTools = !!q('#wg-devtools');
+        out.devToolsApi = typeof window.api.webOpenDevTools === 'function';
+        out.devToolsCloseApi = typeof window.api.webCloseDevTools === 'function';
+        // 3) 分割线 + 面板切换
+        out.hasSplit = !!q('#wg-hsplit');
+        const favTab = [...document.querySelectorAll('.wg-stab')].find((b) => b.dataset.panel === 'bookmark');
+        out.hasFavTab = !!favTab;
+        if (favTab) favTab.click();
+        await sleep2(150);
+        out.bmPanelVisible = !q('.wg-panel[data-panel="bookmark"]').hidden;
+        out.hasBmAdd = !!q('#wg-bm-add-url') && !!q('#wg-bm-add-cat');
+        // 4) 网址收藏夹增删改查
+        // 新增子分类
+        const catBefore = state.webBookmarkCategories.length;
+        addWebBookmarkCategory({ name: '__bm_cat_1__' });
+        const catCreated = state.webBookmarkCategories.some((c) => c.name === '__bm_cat_1__' && !c.parentId);
+        // 在子分类下再建子分类(嵌套)
+        const cat1 = state.webBookmarkCategories.find((c) => c.name === '__bm_cat_1__');
+        addWebBookmarkCategory({ name: '__bm_sub_1__', parentId: cat1.id });
+        const subCreated = state.webBookmarkCategories.some((c) => c.name === '__bm_sub_1__' && c.parentId === cat1.id);
+        // 新增网址
+        addWebBookmark({ categoryId: cat1.id, name: '__bm_url_1__', url: 'https://example.com/bm1' });
+        const urlAdded = state.webBookmarks.some((b) => b.name === '__bm_url_1__' && b.categoryId === cat1.id);
+        // 更新网址
+        const bm1 = state.webBookmarks.find((b) => b.name === '__bm_url_1__');
+        updateWebBookmark(bm1.id, { name: '__bm_url_1_edited__' });
+        const urlEdited = state.webBookmarks.some((b) => b.name === '__bm_url_1_edited__');
+        // 删除网址
+        removeWebBookmark(bm1.id);
+        const urlDeleted = !state.webBookmarks.some((b) => b.id === bm1.id);
+        // 删除子分类(子目录提升到顶级)
+        removeWebBookmarkCategory(cat1.id);
+        const catDeleted = !state.webBookmarkCategories.some((c) => c.id === cat1.id);
+        const subPromoted = state.webBookmarkCategories.some((c) => c.name === '__bm_sub_1__' && !c.parentId);
+        out.bmCrud = { catBefore, catCreated, subCreated, urlAdded, urlEdited, urlDeleted, catDeleted, subPromoted };
+        // 清理冒烟数据(子分类被提升到顶级后一并删)
+        const leftover = state.webBookmarkCategories.filter((c) => c.name.startsWith('__bm_'));
+        for (const c of leftover) removeWebBookmarkCategory(c.id);
+        out.bmClean = state.webBookmarkCategories.length === catBefore;
+        // 5) 关闭视图
+        await window.api.webClose();
         return out;
       }
       default:

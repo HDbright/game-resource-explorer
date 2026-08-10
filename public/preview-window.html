@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>资源预览</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+    font-family: system-ui, "Microsoft YaHei", "Segoe UI", sans-serif;
+    background: #23262e; color: #e8eaf0; font-size: 13px;
+  }
+  .hd {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
+    padding: 6px 10px; background: #2c303a; border-bottom: 1px solid rgba(255,255,255,.12);
+    -webkit-user-select: none; user-select: none;
+  }
+  .hd .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+  .hd button {
+    flex: 0 0 auto; width: 28px; height: 24px; border: none; border-radius: 4px;
+    background: rgba(255,255,255,.08); color: #cfd3dc; cursor: pointer; font-size: 13px; line-height: 1;
+  }
+  .hd button:hover { background: rgba(255,255,255,.18); }
+  .hd button.on { background: #ffcc5c; color: #23262e; }
+  .body {
+    flex: 1; min-height: 0; overflow: auto; padding: 10px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .meta { color: rgba(255,255,255,.7); display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; }
+  .meta b { color: rgba(255,255,255,.5); font-weight: 600; margin-right: 3px; }
+  .url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255,255,255,.4); font-size: 12px; }
+  .media { max-width: 100%; max-height: 55vh; object-fit: contain; border-radius: 4px; background: #111; align-self: center; }
+  video.media { max-height: 50vh; }
+  pre {
+    flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 8px;
+    white-space: pre-wrap; word-break: break-all;
+    font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; color: #d8dde6;
+    background: rgba(0,0,0,.35); border-radius: 4px;
+  }
+  .font-sample { font-size: 26px; padding: 10px; word-break: break-all; line-height: 1.6; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .hint { color: rgba(255,255,255,.4); font-size: 12px; }
+  button.btn {
+    padding: 5px 12px; border: 1px solid rgba(255,255,255,.18); border-radius: 4px;
+    background: rgba(255,255,255,.08); color: #e8eaf0; cursor: pointer; font-size: 12px;
+  }
+  button.btn:hover { background: rgba(255,255,255,.18); }
+  button.btn.primary { background: #5c9cff; border-color: transparent; color: #fff; }
+  button.btn:disabled { opacity: .5; cursor: default; }
+</style>
+</head>
+<body>
+  <div class="hd">
+    <span class="t" id="title">资源预览</span>
+    <button id="pin" title="置顶常驻(不自动消失)">📌</button>
+  </div>
+  <div class="body" id="body"><div class="hint">在主窗口捕获列表中悬停资源行即可预览</div></div>
+<script>
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const bodyEl = $('body');
+  const pinBtn = $('pin');
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const fmtSize = (n) => { n = Number(n) || 0; if (n >= 1048576) return (n / 1048576).toFixed(1) + ' MB'; if (n >= 1024) return (n / 1024).toFixed(1) + ' KB'; return n + ' B'; };
+  const TYPE_LABEL = { fgui: 'FGUI', spine: 'Spine', 'spine-json': 'Spine', 'spine-skel': 'Spine', 'spine-atlas': 'Atlas', image: '图片', audio: '音频', video: '视频', font: '字体', script: '脚本', config: '配置', other: '其他', bin: 'Bin' };
+  const nameOf = (url) => { try { const u = new URL(url); const b = decodeURIComponent(u.pathname.split('/').pop() || ''); return b || u.hostname; } catch (e) { return url; } };
+  const btn = (label, cls, onClick) => {
+    const b = document.createElement('button');
+    b.className = 'btn ' + (cls || '');
+    b.textContent = label;
+    b.addEventListener('click', onClick);
+    return b;
+  };
+  const saveBtn = (rec) => btn('⬇ 保存此资源', 'primary', () => previewApi.action({ action: 'save', payload: rec }));
+  const metaHTML = (rec) => `<div class="meta"><span><b>类型</b>${TYPE_LABEL[rec.type] || rec.type}</span><span><b>大小</b>${rec.size ? fmtSize(rec.size) : '?'}</span></div><div class="url" title="${esc(rec.url)}">${esc(rec.url)}</div>`;
+
+  async function renderFont(rec) {
+    const r = await previewApi.downloadDataUrl({ url: rec.url, referrer: rec.referrer || '', type: rec.type });
+    if (!(r && r.ok)) { bodyEl.innerHTML += '<div class="hint">字体加载失败</div>'; return; }
+    const ext = (rec.url.split('?')[0].split('.').pop() || 'ttf').toLowerCase();
+    const fmt = ext === 'woff2' ? 'woff2' : ext === 'woff' ? 'woff' : ext === 'otf' ? 'opentype' : 'truetype';
+    const fam = 'pf_' + Date.now();
+    const st = document.createElement('style');
+    st.textContent = `@font-face{font-family:'${fam}';src:url(${r.dataUrl}) format('${fmt}');}`;
+    document.head.appendChild(st);
+    const sample = document.createElement('div');
+    sample.className = 'font-sample';
+    sample.style.fontFamily = `'${fam}', sans-serif`;
+    sample.textContent = 'AaBbCc 中文预览 0123456789 The quick brown fox 永';
+    bodyEl.appendChild(sample);
+  }
+
+  async function renderText(rec) {
+    const pre = document.createElement('pre');
+    pre.textContent = '加载中…';
+    bodyEl.appendChild(pre);
+    const r = await previewApi.fetchText({ url: rec.url, referrer: rec.referrer || '', maxBytes: 1024 * 1024 });
+    pre.textContent = (r && r.ok) ? (r.text + (r.truncated ? '\n\n…(已截断, 仅显示前 1MB)' : '')) : ('无法获取文本: ' + ((r && r.error) || ''));
+  }
+
+  function render(rec) {
+    $('title').textContent = `${TYPE_LABEL[rec.type] || rec.type} · ${nameOf(rec.url)}`;
+    bodyEl.innerHTML = metaHTML(rec);
+    const type = rec.type;
+    if (type === 'image') {
+      const img = document.createElement('img'); img.className = 'media'; img.src = rec.url; img.alt = '';
+      img.onerror = async () => { if (img.dataset.fb) return; img.dataset.fb = '1'; const r = await previewApi.downloadDataUrl({ url: rec.url, referrer: rec.referrer || '', type }); if (r && r.ok) img.src = r.dataUrl; };
+      bodyEl.appendChild(img);
+      bodyEl.appendChild(saveBtn(rec));
+    } else if (type === 'audio') {
+      const au = document.createElement('audio'); au.controls = true; au.src = rec.url;
+      au.onerror = async () => { if (au.dataset.fb) return; au.dataset.fb = '1'; const r = await previewApi.downloadDataUrl({ url: rec.url, referrer: rec.referrer || '', type }); if (r && r.ok) au.src = r.dataUrl; };
+      bodyEl.appendChild(au);
+      bodyEl.appendChild(saveBtn(rec));
+    } else if (type === 'video') {
+      const v = document.createElement('video'); v.controls = true; v.src = rec.url;
+      v.onerror = async () => { if (v.dataset.fb) return; v.dataset.fb = '1'; const r = await previewApi.downloadDataUrl({ url: rec.url, referrer: rec.referrer || '', type }); if (r && r.ok) v.src = r.dataUrl; };
+      bodyEl.appendChild(v);
+      bodyEl.appendChild(saveBtn(rec));
+    } else if (type === 'font') {
+      renderFont(rec).then(() => bodyEl.appendChild(saveBtn(rec))).catch(() => {});
+    } else if (type === 'fgui' || type === 'bin') {
+      const row = document.createElement('div'); row.className = 'actions';
+      row.appendChild(btn('🧩 在 FGUI 编辑器中打开', 'primary', () => previewApi.action({ action: 'fgui', payload: rec })));
+      row.appendChild(saveBtn(rec));
+      bodyEl.appendChild(row);
+    } else if (type === 'spine' || type === 'spine-json' || type === 'spine-skel' || type === 'spine-atlas') {
+      const row = document.createElement('div'); row.className = 'actions';
+      row.appendChild(btn('🦴 下载并加入资源库', 'primary', () => previewApi.action({ action: 'spine', payload: rec })));
+      row.appendChild(saveBtn(rec));
+      bodyEl.appendChild(row);
+    } else {
+      renderText(rec).then(() => bodyEl.appendChild(saveBtn(rec))).catch(() => {});
+    }
+  }
+
+  previewApi.onContent((rec) => { if (rec && rec.url) render(rec); });
+  previewApi.onPinState((p) => pinBtn.classList.toggle('on', !!p));
+  pinBtn.addEventListener('click', async () => {
+    const r = await previewApi.togglePin();
+    pinBtn.classList.toggle('on', !!(r && r.pinned));
+  });
+  // 点击进入窗口 = 开始交互 → 自动置顶常驻(不自动消失)
+  window.addEventListener('focus', () => { previewApi.setPin(true); });
+</script>
+</body>
+</html>

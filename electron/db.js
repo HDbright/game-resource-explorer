@@ -43,6 +43,8 @@ function defaultDb() {
     favItems: [],
     sceneCategories: [],
     scenes: [],
+    webBookmarkCategories: [],
+    webBookmarks: [],
   };
 }
 
@@ -112,6 +114,25 @@ function open() {
       tags TEXT DEFAULT '[]',
       size INTEGER,
       mtime INTEGER,
+      created_at INTEGER DEFAULT 0,
+      updated_at INTEGER DEFAULT 0
+    );
+    -- 网址收藏夹(网络资源抓取):分类树(可嵌套) + 网址条目
+    CREATE TABLE IF NOT EXISTS web_bookmark_categories(
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      remark TEXT DEFAULT '',
+      parent_id TEXT DEFAULT '',
+      sort INTEGER DEFAULT 0,
+      created_at INTEGER DEFAULT 0,
+      updated_at INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS web_bookmarks(
+      id TEXT PRIMARY KEY,
+      category_id TEXT DEFAULT '',
+      name TEXT NOT NULL,
+      url TEXT NOT NULL,
+      remark TEXT DEFAULT '',
       created_at INTEGER DEFAULT 0,
       updated_at INTEGER DEFAULT 0
     );
@@ -210,6 +231,12 @@ function readDb() {
       if (!Array.isArray(s.fguiSnapshots)) s.fguiSnapshots = [];
       if (!s.subtype) s.subtype = '';
     }
+    d.webBookmarkCategories = conn.prepare(
+      'SELECT id, name, remark, parent_id AS parentId, sort, created_at AS createdAt, updated_at AS updatedAt FROM web_bookmark_categories ORDER BY sort'
+    ).all();
+    d.webBookmarks = conn.prepare(
+      'SELECT id, category_id AS categoryId, name, url, remark, created_at AS createdAt, updated_at AS updatedAt FROM web_bookmarks'
+    ).all();
   } catch (err) {
     console.error('[db] read error:', err);
   }
@@ -221,7 +248,7 @@ function writeDb(state) {
   const conn = open();
   conn.exec('BEGIN');
   try {
-    conn.exec('DELETE FROM settings; DELETE FROM categories; DELETE FROM items; DELETE FROM fav_categories; DELETE FROM fav_items; DELETE FROM scene_categories; DELETE FROM scenes;');
+    conn.exec('DELETE FROM settings; DELETE FROM categories; DELETE FROM items; DELETE FROM fav_categories; DELETE FROM fav_items; DELETE FROM scene_categories; DELETE FROM scenes; DELETE FROM web_bookmark_categories; DELETE FROM web_bookmarks;');
     const setSetting = conn.prepare('INSERT OR REPLACE INTO settings(key, value) VALUES (?, ?)');
     for (const [k, v] of Object.entries(state.settings || {})) {
       setSetting.run(k, JSON.stringify(v));
@@ -280,6 +307,18 @@ function writeDb(state) {
         JSON.stringify(Array.isArray(s.fguiSnapshots) ? s.fguiSnapshots : []),
         s.createdAt || 0, s.updatedAt || 0
       );
+    }
+    const insBmCat = conn.prepare(
+      'INSERT INTO web_bookmark_categories(id, name, remark, parent_id, sort, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    );
+    for (const bc of state.webBookmarkCategories || []) {
+      insBmCat.run(bc.id, bc.name || '', bc.remark || '', bc.parentId || '', bc.sort || 0, bc.createdAt || 0, bc.updatedAt || 0);
+    }
+    const insBm = conn.prepare(
+      'INSERT INTO web_bookmarks(id, category_id, name, url, remark, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    );
+    for (const b of state.webBookmarks || []) {
+      insBm.run(b.id, b.categoryId || '', b.name || '', b.url || '', b.remark || '', b.createdAt || 0, b.updatedAt || 0);
     }
     conn.exec('COMMIT');
     return true;

@@ -384,6 +384,34 @@ export class FguiLayoutPreview {
     if (this._compHL) { this._compHL.clear(); this._compHL.visible = false; }
   }
 
+  /** 9 点可调边框高亮(资源定位用,不进入编辑模式): 2px 外框 + 8 个缩放手柄 */
+  highlightResource(node) {
+    if (!node || !this.nodeMap.some((x) => x.node === node)) return null;
+    const entry = this.nodeMap.find((x) => x.node === node);
+    const [w, h] = this._nodeSize(node);
+    const x = entry.outer.x;
+    const y = entry.outer.y;
+    this._compHL.clear();
+    this._compHL.lineStyle(2, 0xffd60a, 1);
+    this._compHL.beginFill(0xffd60a, 0.06);
+    this._compHL.drawRect(x - 4, y - 4, w + 8, h + 8);
+    this._compHL.endFill();
+    // 8 个缩放手柄
+    const s = 8;
+    const handles = [
+      { x: x - 4 - s, y: y - 4 - s }, { x: x + w / 2 - s / 2, y: y - 4 - s }, { x: x + w + 4, y: y - 4 - s },
+      { x: x - 4 - s, y: y + h / 2 - s / 2 }, { x: x + w + 4, y: y + h / 2 - s / 2 },
+      { x: x - 4 - s, y: y + h + 4 }, { x: x + w / 2 - s / 2, y: y + h + 4 }, { x: x + w + 4, y: y + h + 4 },
+    ];
+    for (const hd of handles) {
+      this._compHL.rect(hd.x, hd.y, s, s).fill({ color: 0xffd60a }).stroke({ width: 1, color: 0xffffff });
+    }
+    this._compHL.visible = true;
+    this._ensureVisible(x + w / 2, y + h / 2);
+    this._render();
+    return { x: x - 4, y: y - 4, w: w + 8, h: h + 8 };
+  }
+
   /** 更改画布背景色(hex,如 '#1b1d23')并重渲染 */
   setBackground(hex) {
     const color = parseInt(String(hex || '').replace('#', ''), 16);
@@ -691,6 +719,10 @@ export class FguiLayoutPreview {
         if (typeof v === 'object') s = JSON.stringify(v);
         rows.push(`<div class="fg-prop"><span class="fg-prop-k">${esc(k)}</span><span class="fg-prop-v">${esc(s)}</span></div>`);
       };
+      const copyable = (k, v) => {
+        const s = v != null ? String(v) : '';
+        return `<div class="fg-prop fg-prop-copy"><span class="fg-prop-k">${esc(k)}</span><span class="fg-prop-v fg-copy-val" title="点击复制">${esc(s)}</span><button class="fg-copy-btn" type="button" title="复制到剪贴板">📋</button></div>`;
+      };
       add('类型', node.type);
       add('名称', node.name);
       add('id', node.id);
@@ -705,11 +737,12 @@ export class FguiLayoutPreview {
       add('text', node.text || null);
       if (node.textFormat && node.textFormat.size) add('fontSize', node.textFormat.size);
       if (node.textFormat && node.textFormat.color) add('color', node.textFormat.color);
-      add('srcPkg', node.srcPkgId);
-      add('sprite', node.sprite ? `${node.sprite.atlasItemId} ${node.sprite.x},${node.sprite.y} ${node.sprite.w}×${node.sprite.h}` : null);
-      add('atlas', node.atlasKey);
+      rows.push(copyable('srcPkg', node.srcPkgId));
+      rows.push(copyable('sprite', node.sprite ? `${node.sprite.atlasItemId} ${node.sprite.x},${node.sprite.y} ${node.sprite.w}×${node.sprite.h}` : null));
+      rows.push(copyable('atlas', node.atlasKey));
       add('gearDisplay', node.gearDisplay ? JSON.stringify(node.gearDisplay) : null);
       this.propPanel.innerHTML = rows.length ? rows.join('') : '<div class="hint">(无属性)</div>';
+      this._bindCopyButtons();
       return;
     }
 
@@ -721,18 +754,23 @@ export class FguiLayoutPreview {
         <input type="number" id="${id}" class="fg-prop-input" value="${v != null ? esc(String(v)) : ''}" data-key="${k}" ${step != null ? `step="${step}"` : ''} ${min != null ? `min="${min}"` : ''} ${max != null ? `max="${max}"` : ''} />
       </div>`;
     };
-    const txt = (k, v, rows = 1) => {
+    const txt = (k, v, rows = 1, label) => {
       const id = `fg-pp-${k}`;
       return `<div class="fg-prop">
-        <label class="fg-prop-k" for="${id}">${esc(k)}</label>
+        <label class="fg-prop-k" for="${id}">${esc(label || k)}</label>
         <textarea id="${id}" class="fg-prop-input" data-key="${k}" rows="${rows}">${v != null ? esc(String(v)) : ''}</textarea>
       </div>`;
     };
     const ro = (k, v) => `<div class="fg-prop"><span class="fg-prop-k">${esc(k)}</span><span class="fg-prop-v">${esc(v != null ? String(v) : '')}</span></div>`;
+    // 可复制字段:值可选中,并带复制按钮
+    const copyable = (k, v) => {
+      const s = v != null ? String(v) : '';
+      return `<div class="fg-prop fg-prop-copy"><span class="fg-prop-k">${esc(k)}</span><span class="fg-prop-v fg-copy-val" title="点击复制">${esc(s)}</span><button class="fg-copy-btn" type="button" title="复制到剪贴板">📋</button></div>`;
+    };
     const rows = [];
     rows.push(ro('类型', node.type));
-    rows.push(ro('名称', node.name));
-    rows.push(ro('id', node.id));
+    rows.push(txt('name', node.name != null ? node.name : '', 1, '名称'));
+    rows.push(txt('id', node.id != null ? node.id : '', 1, 'id'));
     rows.push(num('x', Math.round(node.x)));
     rows.push(num('y', Math.round(node.y)));
     if (w || h) rows.push(num('width', w || 0, 0));
@@ -743,9 +781,9 @@ export class FguiLayoutPreview {
     rows.push(num('rotation', node.rotation != null ? node.rotation : 0));
     rows.push(`<div class="fg-prop"><span class="fg-prop-k">visible</span><label class="fg-prop-v chk"><input type="checkbox" id="fg-pp-visible" data-key="visible" ${node.visible !== false ? 'checked' : ''} /> 显示</label></div>`);
     if (node.kind === 'text') rows.push(txt('text', node.text || '', 3));
-    rows.push(ro('srcPkg', node.srcPkgId));
-    rows.push(ro('sprite', node.sprite ? `${node.sprite.atlasItemId} ${node.sprite.x},${node.sprite.y} ${node.sprite.w}×${node.sprite.h}` : null));
-    rows.push(ro('atlas', node.atlasKey));
+    rows.push(copyable('srcPkg', node.srcPkgId));
+    rows.push(copyable('sprite', node.sprite ? `${node.sprite.atlasItemId} ${node.sprite.x},${node.sprite.y} ${node.sprite.w}×${node.sprite.h}` : null));
+    rows.push(copyable('atlas', node.atlasKey));
     this.propPanel.innerHTML = rows.length ? rows.join('') : '<div class="hint">(无属性)</div>';
 
     // 绑定输入事件
@@ -757,6 +795,30 @@ export class FguiLayoutPreview {
     });
     const visCb = this.propPanel.querySelector('#fg-pp-visible');
     if (visCb) visCb.addEventListener('change', () => this._applyPropFromInput(node, 'visible', visCb.checked));
+    this._bindCopyButtons();
+  }
+
+  /** 绑定属性面板复制按钮 + 可复制值点击(事件委托,只绑一次) */
+  _bindCopyButtons() {
+    if (!this.propPanel || this.propPanel._copyBound) return;
+    this.propPanel._copyBound = true;
+    this.propPanel.addEventListener('click', (e) => {
+      const btn = e.target.closest('.fg-copy-btn');
+      if (btn) {
+        const val = btn.parentElement ? (btn.parentElement.querySelector('.fg-copy-val') || {}).textContent || '' : '';
+        try {
+          navigator.clipboard.writeText(val).then(() => {
+            btn.textContent = '✓';
+            setTimeout(() => { btn.textContent = '📋'; }, 1200);
+          }).catch(() => {});
+        } catch (e2) { /* ignore */ }
+        return;
+      }
+      const valEl = e.target.closest('.fg-copy-val');
+      if (valEl) {
+        try { navigator.clipboard.writeText(valEl.textContent || ''); } catch (e3) { /* ignore */ }
+      }
+    });
   }
 
   // ---------- 编辑模式公共方法 ----------
@@ -908,6 +970,12 @@ export class FguiLayoutPreview {
       if (orig.text === undefined) orig.text = node.text;
       node.text = String(value || '');
       if (node._textDiv) node._textDiv.textContent = node.text;
+    } else if (key === 'name') {
+      if (orig.name === undefined) orig.name = node.name;
+      node.name = String(value || '');
+    } else if (key === 'id') {
+      if (orig.id === undefined) orig.id = node.id;
+      node.id = String(value || '');
     }
     this._drawSelection();
     if (!deferRender) { this._commitEdit(node); this._render(); }

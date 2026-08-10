@@ -425,24 +425,36 @@ function restoreSource(inputFile, outDir, opts = {}) {
   let sounds = 0;
   const gameRoot = pv().findGameRoot(srcDir);
   const spriteLibDir = gameRoot ? path.join(gameRoot, 'ui', 'fgui_texture', 'fgui') : null;
+  // Cocos 等引擎会把 FGUI 声音导出为独立音频素材(audio/ 目录), 命名可能带包名前缀或资源名
+  const audioDir = gameRoot ? path.join(gameRoot, 'audio') : null;
   for (const it of pkg.items) {
     if (it.type !== 'Sound') continue;
     const file = it.file;
     if (!file) { skipped.push(`sound ${it.name || it.id}: 无 file`); continue; }
+    const ext = file.indexOf('.') > -1 ? '.' + file.split('.').pop() : '';
+    const nm = it.name || it.id;
     const candidates = [];
     candidates.push(path.join(srcDir, file));
     candidates.push(path.join(srcDir, pkgName + '_' + file));
-    if (spriteLibDir) candidates.push(path.join(spriteLibDir, file));
+    candidates.push(path.join(srcDir, nm + ext));
+    if (spriteLibDir) {
+      candidates.push(path.join(spriteLibDir, file));
+      candidates.push(path.join(spriteLibDir, pkgName + '_' + file));
+    }
+    if (audioDir) {
+      candidates.push(path.join(audioDir, file));
+      candidates.push(path.join(audioDir, pkgName + '_' + file));
+      candidates.push(path.join(audioDir, nm + ext));
+    }
     let found = null;
     for (const c of candidates) {
       try { if (fs.existsSync(c) && fs.statSync(c).isFile()) { found = c; break; } } catch (e) { /* ignore */ }
     }
     if (!found) {
-      skipped.push(`sound ${it.name || it.id}: 磁盘未找到 ${file}(bin 同目录或共享素材库)`);
+      skipped.push(`sound ${it.name || it.id}: 磁盘未找到 ${file}(bin 同目录 / audio 素材库 / 共享素材库)`);
       continue;
     }
-    const ext = file.indexOf('.') > -1 ? '.' + file.split('.').pop() : '';
-    const out = filePath(it, (it.name || it.id) + ext);
+    const out = filePath(it, nm + ext);
     fs.mkdirSync(path.dirname(out), { recursive: true });
     fs.copyFileSync(found, out);
     sounds++;

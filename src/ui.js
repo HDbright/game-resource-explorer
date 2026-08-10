@@ -18,6 +18,10 @@ import {
   addSceneCategory, updateSceneCategory, removeSceneCategory, sceneCategoryById,
   getSceneCategoryChildren, getSceneCategoryDescendants, reorderSceneCategory,
   addScene, updateScene, removeScene, scenesInCategory, findSceneByFilePath,
+  addWebBookmarkCategory, updateWebBookmarkCategory, removeWebBookmarkCategory,
+  webBookmarkCategoryById, getWebBookmarkCategoryChildren,
+  addWebBookmark, updateWebBookmark, removeWebBookmark,
+  webBookmarkById, webBookmarksInCategory,
   recordRecentOpen,
 } from './state.js';
 import { openModal, footButtons, confirmDialog, promptDialog, toast, showContextMenu } from './dialogs.js';
@@ -27,7 +31,9 @@ import { renderHomePage, renderFavHome } from './pages/homePage.js';
 import { renderFolderPage, renderFavFolderPage } from './pages/folderPage.js';
 import { renderToolboxPage } from './pages/toolboxPage.js';
 import { renderSceneHome, renderSceneFolderPage, renderFguiPreviewPage, promptRegisterFgui, renderSceneSearchResults } from './pages/scenePage.js';
+import { renderFguiEditorPage } from './pages/fguiEditorPage.js';
 import { renderSettingsPage } from './pages/settingsPage.js';
+import { renderWebGamePage } from './pages/webGamePage.js';
 import { ImageViewerController } from './viewers/imageViewer.js';
 import { AudioPlayerController } from './viewers/audioViewer.js';
 import { FguiViewerController } from './viewers/fguiViewer.js';
@@ -56,8 +62,11 @@ let sceneHomeShown = false; // 右侧是否显示场景主页
 let currentSceneCatId = null; // 当前场景目录列表页的场景分类 id(null = 不在场景目录页;'' = 未分类)
 let fguiPreviewShown = false; // 场景管理内 FGUI 界面预览子页是否显示
 let pendingFguiBin = null; // 从场景管理进入 FGUI 预览时待加载的 .bin 路径(用后清空)
+let fguiEditorShown = false; // FGUI 编辑器独立页是否显示
+let pendingFguiEditorBin = null; // 进入 FGUI 编辑器时待加载的 .bin 路径(用后清空)
 let settingsShown = false; // 右侧是否显示系统设置页
 let settingsReturn = null; // 打开设置前的主区状态快照,关闭后恢复
+let webGameShown = false; // 网络资源抓取页是否显示
 
 // ---- 主区多标签页(资源/功能页标签,可切换/关闭) ----
 const mainTabs = []; // [{key, id, kind, params, label, icon}]
@@ -151,6 +160,16 @@ function applyTabState(t) {
     renderMainArea();
     return;
   }
+  if (t.kind === 'fgui-editor') {
+    fguiEditorShown = true;
+    renderMainArea();
+    return;
+  }
+  if (t.kind === 'webgame') {
+    webGameShown = true;
+    renderMainArea();
+    return;
+  }
   renderMainArea();
 }
 
@@ -180,6 +199,10 @@ function syncTabFromState() {
   let tab = null;
   if (fguiPreviewShown) {
     tab = ensureTab(`scene-fgui-${pendingFguiBin || ''}`, { kind: 'scene', params: { mode: 'fgui', binPath: pendingFguiBin || '' }, label: pendingFguiBin ? pkgNameOf(pendingFguiBin) : 'FGUI 预览', icon: '🧩' });
+  } else if (fguiEditorShown) {
+    tab = ensureTab('fgui-editor', { kind: 'fgui-editor', params: {}, label: 'FGUI编辑器', icon: '🧩' });
+  } else if (webGameShown) {
+    tab = ensureTab('webgame', { kind: 'webgame', params: {}, label: '网络资源抓取', icon: '🌐' });
   } else if (currentTool || toolboxHomeShown) {
     tab = ensureTab(`toolbox-${currentTool || '__home__'}`, { kind: 'toolbox', params: { tool: currentTool }, label: currentTool ? toolLabel(currentTool) : '资源工具箱', icon: '🧰' });
   } else if (settingsShown) {
@@ -276,17 +299,11 @@ export function initUI(pv) {
     const id = e.detail && e.detail.id;
     if (id) openTool(id);
   });
-  // 场景管理主页「FGUI 界面预览」卡片 / 场景条目「FGUI 预览」→ 进入预览子页(binPath 可选,进入后自动加载)
+  // 场景管理主页「FGUI 编辑器」入口卡片 / 场景条目 → 进入 FGUI 编辑器(binPath 可选,进入后自动加载)
   document.addEventListener('scene:navigate', (e) => {
     const to = e.detail && e.detail.to;
-    if (to === 'fgui-preview') {
-      pendingFguiBin = (e.detail && e.detail.binPath) || null;
-      clearOverlays();
-      fguiPreviewShown = true;
-      sceneHomeShown = false;
-      if (!expandedCats.has('__scene__')) expandedCats.add('__scene__');
-      renderTree();
-      renderMainArea();
+    if (to === 'fgui-preview' || to === 'fgui-editor') {
+      enterFguiEditor((e.detail && e.detail.binPath) || null);
     }
   });
   bindBrandHome();
@@ -300,7 +317,7 @@ export function initUI(pv) {
 
 // ---------------- 资源树(分类 + 条目合并) ----------------
 
-const expandedCats = new Set(['all']); // 展开的分类 id('all' / '' / 分类id);默认展开类型根节点以便分类目录可见
+const expandedCats = new Set(['__webgame__', '__webgame_fav__']); // 展开的分类 id('all' / '' / 分类id);「XX资源」根默认折叠, 网络资源抓取/网址收藏夹默认展开(可折叠)
 
 let dragCatId = null;    // 当前拖拽中的分类 id
 let dragItemId = null;   // 当前拖拽中的条目 id
@@ -366,7 +383,7 @@ function renderSearchResults() {
   if (sceneHomeShown || currentSceneCatId != null || fguiPreviewShown) {
     showPage('scene');
     renderSceneSearchResults(lq, currentSceneCatId, {
-      onOpenFgui: openFguiPreviewFromScene,
+      onOpenFgui: openFguiEditorFromScene,
       onOpenPath: (s) => { if (s.filePath) window.api.openPath(s.filePath); },
     });
     renderBreadcrumb();
@@ -435,13 +452,32 @@ function renderTree() {
   // 「游戏场景管理」根菜单(展开后显示场景分类树 + 未分类场景)
   renderSceneSection(tree);
 
+  // 分格线:场景管理与网络资源抓取之间
+  const sepWg = document.createElement('div');
+  sepWg.className = 'tree-section-sep';
+  tree.appendChild(sepWg);
+
+  // 「网络资源抓取」根菜单(内嵌浏览器逆向分析网络资源)
+  renderWebGameSection(tree);
+
   // 分格线:场景管理与工具箱之间
   const sep3 = document.createElement('div');
   sep3.className = 'tree-section-sep';
   tree.appendChild(sep3);
 
-  // 「资源工具箱」根菜单(展开后显示文件格式转换 / 图片编辑 等子菜单)
+  // 「资源工具箱」根菜单(展开后显示文件格式转换 / 图片编辑 / FGUI 编辑器 等子菜单)
   renderToolboxSection(tree);
+}
+
+/** FGUI 编辑器入口(资源工具箱子节点): 进入独立 FGUI 编辑器页 */
+function enterFguiEditor(binPath) {
+  clearOverlays();
+  fguiEditorShown = true;
+  sceneHomeShown = false;
+  currentSceneCatId = null;
+  pendingFguiEditorBin = binPath || null;
+  renderTree();
+  renderMainArea();
 }
 
 /** 资源工具箱侧栏根节点 + 子菜单 */
@@ -551,6 +587,199 @@ function renderToolboxSection(parent) {
   });
   wrap.appendChild(fguiNode);
   fguiNode.addEventListener('click', () => openTool('fgui'));
+
+  // 「FGUI 编辑器」叶子节点(独立 FGUI 包可视化编辑器)
+  const editorNode = makeTreeNode({
+    icon: '✏️',
+    name: 'FGUI编辑器',
+    nodeId: '__fgui_editor__',
+    active: fguiEditorShown,
+    paddingLeft: 22,
+    hasChildren: false,
+    isOpen: false,
+  });
+  wrap.appendChild(editorNode);
+  editorNode.addEventListener('click', () => enterFguiEditor());
+}
+
+/** 网络资源抓取页入口: 进入独立网络资源抓取页 */
+function enterWebGame() {
+  clearOverlays();
+  webGameShown = true;
+  renderTree();
+  renderMainArea();
+}
+
+/** 网络资源抓取侧栏根节点 + 最近网址 + 网址收藏夹分类树 */
+function renderWebGameSection(parent) {
+  // ⚠️ 不能在这里强制 add __webgame__/__webgame_fav__(否则折叠箭头点了无效): 默认展开由 expandedCats 初始值提供, 用户折叠/展开状态要能持久
+  const rootOpen = expandedCats.has('__webgame__');
+  const root = makeTreeNode({
+    icon: '🌐',
+    name: '网络资源抓取',
+    nodeId: '__webgame__',
+    active: webGameShown,
+    paddingLeft: 8,
+    hasChildren: true,
+    isOpen: rootOpen,
+  });
+  parent.appendChild(root);
+  root.querySelector('.cat-arrow').addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleExpand('__webgame__');
+    renderTree();
+  });
+  root.addEventListener('click', () => enterWebGame());
+  // 根节点右键:打开抓取页 / 清空捕获 / 新建收藏夹目录
+  root.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    showContextMenu(e.clientX, e.clientY, [
+      { label: '打开抓取页', onClick: enterWebGame },
+      { label: '新建收藏夹目录', onClick: () => addWebBookmarkCategoryDialog('') },
+      { label: '清空捕获记录', onClick: async () => { await window.api.webClearCaptured(); toast('已清空捕获记录'); } },
+    ]);
+  });
+  if (!rootOpen) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'tree-items';
+  parent.appendChild(wrap);
+
+  // 最近打开的游戏(settings.webGameHistory, 点击进入并回填 URL)
+  const history = ((state.settings && state.settings.webGameHistory) || []).slice(0, 8);
+  if (history.length) {
+    const hLabel = makeTreeNode({
+      icon: '🕹', name: '最近打开', nodeId: '__webgame_hist__', active: false,
+      paddingLeft: 22, hasChildren: true, isOpen: expandedCats.has('__webgame_hist__'),
+    });
+    wrap.appendChild(hLabel);
+    hLabel.querySelector('.cat-arrow').addEventListener('click', (e) => {
+      e.stopPropagation(); toggleExpand('__webgame_hist__'); renderTree();
+    });
+    if (expandedCats.has('__webgame_hist__')) {
+      const subWrap = document.createElement('div');
+      subWrap.className = 'tree-items';
+      wrap.appendChild(subWrap);
+      for (const h of history) {
+        const n = makeTreeNode({
+          icon: '🕹', name: h.title || h.url, nodeId: '__webgame_hist:' + (h.url || ''),
+          active: false, paddingLeft: 36, hasChildren: false, isOpen: false,
+        });
+        n.addEventListener('click', () => {
+          enterWebGame();
+          const pageEl = document.getElementById('page-webgame');
+          if (pageEl && pageEl._webGameSetUrl) pageEl._webGameSetUrl(h.url);
+        });
+        subWrap.appendChild(n);
+      }
+    }
+  }
+
+  // 网址收藏夹分类树(可嵌套): 默认展开, 方便看到管理入口
+  const favLabel = makeTreeNode({
+    icon: '🔖', name: '网址收藏夹', nodeId: '__webgame_fav__', active: false,
+    paddingLeft: 22, hasChildren: true, isOpen: expandedCats.has('__webgame_fav__'),
+  });
+  if (rootOpen) wrap.appendChild(favLabel);
+  favLabel.querySelector('.cat-arrow').addEventListener('click', (e) => {
+    e.stopPropagation(); toggleExpand('__webgame_fav__'); renderTree();
+  });
+  favLabel.addEventListener('click', () => {
+    // 点名称:进入抓取页并显示收藏夹面板
+    enterWebGame();
+    const pageEl = document.getElementById('page-webgame');
+    if (pageEl && pageEl._webGameShowBookmarks) pageEl._webGameShowBookmarks('');
+  });
+  favLabel.addEventListener('contextmenu', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    showContextMenu(e.clientX, e.clientY, [
+      { label: '新建收藏夹目录', onClick: () => addWebBookmarkCategoryDialog('') },
+    ]);
+  });
+  if (expandedCats.has('__webgame_fav__')) {
+    const favWrap = document.createElement('div');
+    favWrap.className = 'tree-items';
+    wrap.appendChild(favWrap);
+    // 未分类网址
+    const uncat = webBookmarksInCategory('');
+    if (uncat.length) {
+      const unc = makeTreeNode({
+        icon: '○', name: '未分类', nodeId: '__webgame_fav_uncat__', active: false,
+        paddingLeft: 36, hasChildren: false, isOpen: false, count: uncat.length,
+      });
+      unc.addEventListener('click', () => {
+        enterWebGame();
+        const pageEl = document.getElementById('page-webgame');
+        if (pageEl && pageEl._webGameShowBookmarks) pageEl._webGameShowBookmarks('');
+      });
+      favWrap.appendChild(unc);
+    }
+    // 分类树(递归)
+    for (const c of getWebBookmarkCategoryChildren('')) {
+      renderWebBookmarkCatNode(favWrap, c, 1);
+    }
+  }
+}
+
+/** 网址收藏夹分类树递归节点 */
+function renderWebBookmarkCatNode(parent, cat, depth) {
+  const bms = webBookmarksInCategory(cat.id);
+  const children = getWebBookmarkCategoryChildren(cat.id);
+  const hasChildren = children.length > 0 || bms.length > 0;
+  const isOpen = expandedCats.has('wbfav:' + cat.id);
+  const node = makeTreeNode({
+    icon: '▣',
+    name: cat.name,
+    nodeId: 'wbfav:' + cat.id,
+    active: false,
+    paddingLeft: 22 + 14 + depth * 14,
+    hasChildren,
+    isOpen,
+    count: bms.length,
+  });
+  parent.appendChild(node);
+  node.querySelector('.cat-arrow').addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!hasChildren) return;
+    toggleExpand('wbfav:' + cat.id);
+    renderTree();
+  });
+  node.addEventListener('click', () => {
+    enterWebGame();
+    const pageEl = document.getElementById('page-webgame');
+    if (pageEl && pageEl._webGameShowBookmarks) pageEl._webGameShowBookmarks(cat.id);
+  });
+  node.addEventListener('contextmenu', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    showContextMenu(e.clientX, e.clientY, [
+      { label: '打开收藏夹', onClick: () => {
+          enterWebGame();
+          const pageEl = document.getElementById('page-webgame');
+          if (pageEl && pageEl._webGameShowBookmarks) pageEl._webGameShowBookmarks(cat.id);
+        } },
+      { label: '新建子目录', onClick: () => addWebBookmarkCategoryDialog(cat.id) },
+      { label: '编辑目录', onClick: () => editWebBookmarkCategoryDialog(cat.id) },
+      { label: '删除目录', danger: true, onClick: () => removeWebBookmarkCategoryDialog(cat.id) },
+    ]);
+  });
+  if (isOpen) {
+    const subWrap = document.createElement('div');
+    subWrap.className = 'tree-items';
+    parent.appendChild(subWrap);
+    for (const c of children) renderWebBookmarkCatNode(subWrap, c, depth + 1);
+    for (const b of bms) {
+      const bn = makeTreeNode({
+        icon: '🔗', name: b.name || b.url, nodeId: 'wbfavurl:' + b.id,
+        active: false, paddingLeft: 22 + 14 + (depth + 1) * 14, hasChildren: false, isOpen: false,
+      });
+      bn.addEventListener('click', () => {
+        enterWebGame();
+        const pageEl = document.getElementById('page-webgame');
+        if (pageEl && pageEl._webGameOpenUrl) pageEl._webGameOpenUrl(b.url);
+      });
+      subWrap.appendChild(bn);
+    }
+  }
 }
 
 /** 游戏场景管理侧栏根节点 + 场景分类树 */
@@ -752,7 +981,7 @@ function makeSceneItemNode(s) {
   `;
   const openSceneMenu = (x, y) => {
     const items = [
-      ...(s.subtype === 'fgui' ? [{ label: '🧩 FGUI 界面预览', onClick: () => openFguiPreviewFromScene(s.id) }] : []),
+      ...(s.subtype === 'fgui' ? [{ label: '✏️ 用FGUI编辑器打开', onClick: () => openFguiEditorFromScene(s.id) }] : []),
       { label: '查看路径', onClick: () => toast(s.filePath || '(无路径)', 'info', 4000) },
       { label: '在文件管理器中显示', onClick: () => window.api.showItem(s.filePath) },
       { label: '编辑场景信息', onClick: () => editSceneDialog(s.id) },
@@ -760,10 +989,10 @@ function makeSceneItemNode(s) {
     ];
     showContextMenu(x, y, items);
   };
-  // FGUI 界面包条目:单击直接在主内容区打开预览;其它类型弹右键菜单
+  // FGUI 界面包条目:单击直接在主内容区用 FGUI 编辑器打开;其它类型弹右键菜单
   el.addEventListener('click', () => {
     if (s.subtype === 'fgui') {
-      openFguiPreviewFromScene(s.id);
+      openFguiEditorFromScene(s.id);
     } else {
       openSceneMenu(window.innerWidth - 240, 120);
     }
@@ -825,14 +1054,21 @@ function openTool(id) {
  * 会被旧状态拦截而"看起来无法切换页面"。统一在此清掉,导航才会真正生效。
  */
 function clearOverlays() {
+  // 离开网络资源抓取页时隐藏浏览器视图(WebContentsView 为 native 叠加, 防止遮挡其它页面)
+  if (webGameShown) {
+    const pageEl = document.getElementById('page-webgame');
+    if (pageEl && pageEl._webGameDetach) pageEl._webGameDetach();
+  }
   currentTool = null;
   toolboxHomeShown = false;
   sceneHomeShown = false;
   currentSceneCatId = null;
   fguiPreviewShown = false;
+  fguiEditorShown = false;
   settingsShown = false;
   favHomeShown = false;
   currentFavCategoryId = null;
+  webGameShown = false;
 }
 
 // ---- 场景分类/场景条目 操作对话框 ----
@@ -879,6 +1115,102 @@ function deleteSceneCategoryDialog(id) {
       if (currentSceneCatId === id) currentSceneCatId = null;
       renderTree(); renderMainArea();
       toast('已删除目录');
+    },
+  });
+}
+
+// ---- 网址收藏夹(网络资源抓取)对话框 ----
+
+function addWebBookmarkCategoryDialog(parentId = '') {
+  promptDialog({
+    title: '新建收藏夹目录',
+    fields: [{ key: 'name', label: '目录名称', type: 'text', value: '' }],
+    onOk: ({ name }) => {
+      if (!name) return toast('目录名称不能为空', 'error');
+      addWebBookmarkCategory({ name, parentId });
+      if (parentId) expandedCats.add('wbfav:' + parentId);
+      expandedCats.add('__webgame_fav__');
+      renderTree();
+      renderMainArea();
+      toast('已创建收藏夹目录');
+    },
+  });
+}
+function editWebBookmarkCategoryDialog(id) {
+  const cat = webBookmarkCategoryById(id);
+  if (!cat) return;
+  promptDialog({
+    title: '编辑收藏夹目录',
+    fields: [{ key: 'name', label: '目录名称', type: 'text', value: cat.name }],
+    onOk: ({ name }) => {
+      if (!name) return toast('目录名称不能为空', 'error');
+      updateWebBookmarkCategory(id, { name });
+      renderTree();
+      renderMainArea();
+      toast('目录已更新');
+    },
+  });
+}
+function removeWebBookmarkCategoryDialog(id) {
+  const cat = webBookmarkCategoryById(id);
+  if (!cat) return;
+  const subs = getWebBookmarkCategoryChildren(id);
+  const bms = webBookmarksInCategory(id);
+  confirmDialog({
+    title: `删除收藏夹目录「${cat.name}」?`,
+    message: `子目录 ${subs.length} 个、网址 ${bms.length} 个将被一并处理(子目录提升到被删目录的父级;网址移到「未分类」)。`,
+    onOk: () => {
+      removeWebBookmarkCategory(id);
+      renderTree(); renderMainArea();
+      toast('已删除收藏夹目录');
+    },
+  });
+}
+
+/** 新增网址收藏条目(默认收藏当前浏览 URL) */
+function addWebBookmarkDialog(categoryId = '', currentUrl = '') {
+  promptDialog({
+    title: '收藏网址',
+    fields: [
+      { key: 'url', label: '网址', type: 'text', value: currentUrl },
+      { key: 'name', label: '名称(可空,默认取网址)', type: 'text', value: '' },
+    ],
+    onOk: ({ url, name }) => {
+      const u = (url || '').trim();
+      if (!u) return toast('网址不能为空', 'error');
+      addWebBookmark({ categoryId, url: u, name: (name || '').trim() });
+      renderTree(); renderMainArea();
+      toast('已收藏网址');
+    },
+  });
+}
+function editWebBookmarkDialog(id) {
+  const bm = webBookmarkById(id);
+  if (!bm) return;
+  promptDialog({
+    title: '编辑收藏网址',
+    fields: [
+      { key: 'name', label: '名称', type: 'text', value: bm.name || '' },
+      { key: 'url', label: '网址', type: 'text', value: bm.url || '' },
+    ],
+    onOk: ({ name, url }) => {
+      if (!(url || '').trim()) return toast('网址不能为空', 'error');
+      updateWebBookmark(id, { name: (name || '').trim() || url, url: (url || '').trim() });
+      renderTree(); renderMainArea();
+      toast('收藏网址已更新');
+    },
+  });
+}
+function removeWebBookmarkDialog(id) {
+  const bm = webBookmarkById(id);
+  if (!bm) return;
+  confirmDialog({
+    title: `删除收藏网址「${bm.name || bm.url}」?`,
+    message: '',
+    onOk: () => {
+      removeWebBookmark(id);
+      renderTree(); renderMainArea();
+      toast('已删除收藏网址');
     },
   });
 }
@@ -1034,16 +1366,9 @@ async function addFguiPackagesDialog(catId) {
 function openRecentPath(path) {
   if (!path) return;
   const norm = String(path).replace(/\\/g, '/');
-  // 1) FGUI 包:直接进入 FGUI 预览(loadPkg 会按路径关联/登记)
+  // 1) FGUI 包:直接进入 FGUI 编辑器(loadPkg 会按路径关联/登记)
   if (/\.bin$/i.test(path)) {
-    clearOverlays();
-    fguiPreviewShown = true;
-    sceneHomeShown = false;
-    currentSceneCatId = null;
-    pendingFguiBin = path;
-    if (!expandedCats.has('__scene__')) expandedCats.add('__scene__');
-    renderTree();
-    renderMainArea();
+    enterFguiEditor(path);
     return;
   }
   // 2) 普通资源条目:按路径匹配(任何分类)
@@ -1055,15 +1380,17 @@ function openRecentPath(path) {
   toast('该资源已不存在或已被移除', 'error');
 }
 
-/** 从场景条目直接进入 FGUI 界面预览(自动加载该条目的 .bin) */
-function openFguiPreviewFromScene(sceneId) {  const s = state.scenes.find((x) => x.id === sceneId);
+/** 从场景条目直接进入 FGUI 编辑器(自动加载该条目的 .bin) */
+function openFguiEditorFromScene(sceneId) {
+  const s = state.scenes.find((x) => x.id === sceneId);
   if (!s || !s.filePath) return;
   clearOverlays();
-  fguiPreviewShown = true;
+  fguiEditorShown = true;
   sceneHomeShown = false;
   currentSceneCatId = null;
-  pendingFguiBin = s.filePath;
+  pendingFguiEditorBin = s.filePath;
   if (!expandedCats.has('__scene__')) expandedCats.add('__scene__');
+  if (!expandedCats.has('__tools__')) expandedCats.add('__tools__');
   renderTree();
   renderMainArea();
 }
@@ -2180,6 +2507,7 @@ export function newCategoryDialog() {
     onOk: ({ name, typeTags }) => {
       if (!name) return toast('目录名称不能为空', 'error');
       addCategory({ name, typeTags });
+      expandedCats.add('all'); // 展开「XX资源」根, 让新建的顶级目录可见
       renderCategories();
       renderMainArea();
       toast('目录已创建');
@@ -2341,8 +2669,10 @@ function showPage(pageId) {
     preview: document.getElementById('page-preview'),
     toolbox: document.getElementById('page-toolbox'),
     scene: document.getElementById('page-scene'),
+    'fgui-editor': document.getElementById('page-fgui-editor'),
     settings: document.getElementById('page-settings'),
     'audio-home': document.getElementById('page-audio-home'),
+    webgame: document.getElementById('page-webgame'),
   };
   for (const [k, el] of Object.entries(pages)) {
     if (el) el.hidden = k !== pageId;
@@ -2428,6 +2758,18 @@ export function renderMainArea() {
     renderBreadcrumb();
     return;
   }
+
+  // ---- FGUI 编辑器(独立页) ----
+  if (fguiEditorShown) {
+    showPage('fgui-editor');
+    const initialBinPath = pendingFguiEditorBin;
+    pendingFguiEditorBin = null;
+    const pageEl = document.getElementById('page-fgui-editor');
+    // 已初始化则保留实例与编辑状态;仅在有待加载 bin 时加载
+    renderFguiEditorPage(pageEl, { initialBinPath });
+    renderBreadcrumb();
+    return;
+  }
   // ---- 场景管理 ----
   if (sceneHomeShown || currentSceneCatId !== null) {
     showPage('scene');
@@ -2442,7 +2784,7 @@ export function renderMainArea() {
         onAddScene: (catId) => addSceneDialog(catId || ''),
         onAddCategory: (parentId) => addSceneCategoryDialog(parentId || ''),
         onAddFguiPackages: (catId) => addFguiPackagesDialog(catId || ''),
-        onFguiPreview: (sceneId) => openFguiPreviewFromScene(sceneId),
+        onFguiPreview: (sceneId) => openFguiEditorFromScene(sceneId),
         onRefresh: () => renderMainArea(),
       });
     } else {
@@ -2452,7 +2794,7 @@ export function renderMainArea() {
           onAddScene: (catId) => addSceneDialog(catId),
           onAddCategory: (parentId) => addSceneCategoryDialog(parentId),
           onAddFguiPackages: (catId) => addFguiPackagesDialog(catId),
-          onFguiPreview: (sceneId) => openFguiPreviewFromScene(sceneId),
+          onFguiPreview: (sceneId) => openFguiEditorFromScene(sceneId),
           onEditScene: (id) => editSceneDialog(id),
           onRemoveScene: (id) => confirmAndRemoveScene(id),
           onMoveScene: (id) => moveSceneDialog(id),
@@ -2474,6 +2816,17 @@ export function renderMainArea() {
       });
     }
     renderBreadcrumb();
+    return;
+  }
+
+  // ---- 网络资源抓取(独立页) ----
+  if (webGameShown) {
+    showPage('webgame');
+    const pageEl = document.getElementById('page-webgame');
+    renderWebGamePage(pageEl, {});
+    renderBreadcrumb();
+    // 上报浏览器视图矩形(WebContentsView 为 native 叠加, 需同步位置与大小)
+    if (pageEl._webGameSyncBounds) pageEl._webGameSyncBounds();
     return;
   }
 
@@ -2799,7 +3152,7 @@ function bindBackSpecial() {
 function updateBackSpecial() {
   const btn = document.getElementById('btn-back-special');
   if (!btn) return;
-  const show = !!currentTool || toolboxHomeShown || sceneHomeShown || currentSceneCatId !== null;
+  const show = !!currentTool || toolboxHomeShown || sceneHomeShown || currentSceneCatId !== null || fguiEditorShown || webGameShown;
   btn.hidden = !show;
 }
 
@@ -2877,6 +3230,20 @@ function renderBreadcrumb() {
     nav.innerHTML = '<span class="crumb" data-crumb="home">主页</span>'
       + '<span class="crumb-sep">/</span>'
       + '<span class="crumb current">资源工具箱</span>';
+    return;
+  }
+  // FGUI 编辑器
+  if (fguiEditorShown) {
+    nav.innerHTML = '<span class="crumb" data-crumb="home">主页</span>'
+      + '<span class="crumb-sep">/</span>'
+      + '<span class="crumb current">FGUI编辑器</span>';
+    return;
+  }
+  // 网络资源抓取
+  if (webGameShown) {
+    nav.innerHTML = '<span class="crumb" data-crumb="home">主页</span>'
+      + '<span class="crumb-sep">/</span>'
+      + '<span class="crumb current">网络资源抓取</span>';
     return;
   }
   // 场景管理

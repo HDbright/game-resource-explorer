@@ -122,11 +122,11 @@ function resolveFontItem(ctx, font) {
   return null;
 }
 
-/** 字形图在导出源工程中的独立 PNG(图集缺失时兜底): <pkg>_src/<pkg>/<path>/<name>.png */
+/** 字形图在导出源工程中的独立 PNG(图集缺失时兜底): FGUI_src/<pkg>/<path>/<name>.png */
 function sourcePngForItem(pkg, item, ctx) {
   const rel = String(item.path || '').replace(/^\/+/, '').replace(/\/+$/, '');
   const baseName = String(item.name || item.id).replace(/\.png$/i, '');
-  const c = path.join(ctx.srcDir, pkg.name + '_src', pkg.name, rel, baseName + '.png');
+  const c = path.join(ctx.srcDir, 'FGUI_src', pkg.name, rel, baseName + '.png');
   try { if (fs.existsSync(c) && fs.statSync(c).isFile()) return c; } catch (e) { /* ignore */ }
   return null;
 }
@@ -204,14 +204,14 @@ function decodeBitmapFontGlyphs(raw, pkg, ctx) {
 
 /**
  * 查找 <字体名>.fnt 文本文件(位图字体的源工程描述文件):
- * 包目录 / 子目录 font、fonts、com/font、组件/font / 导出源工程 <pkg>_src/<pkg>/...。
+ * 包目录 / 子目录 font、fonts、com/font、组件/font / 导出源工程 FGUI_src/<pkg>/...。
  * 发布后的 bin 内嵌字形表通常已足够, 该文件仅作内嵌缺失时的兜底。
  */
 function findFntFile(srcDir, pkgName, fontName) {
   const name = String(fontName || '');
   const names = /\.fnt$/i.test(name) ? [name] : [name + '.fnt', name];
   const roots = [srcDir];
-  if (pkgName) roots.push(path.join(srcDir, pkgName + '_src', pkgName));
+  if (pkgName) roots.push(path.join(srcDir, 'FGUI_src', pkgName));
   const subs = ['', 'font', 'fonts', 'com/font', '组件/font'];
   for (const root of roots) {
     for (const sub of subs) {
@@ -617,6 +617,45 @@ function buildPreviewData(inputPath, opts = {}) {
   const hasAuto = atlasKeys.some((k) => ctx.textures[k] != null);
   const textureSource = hasMissing ? (hasAuto ? 'mixed' : 'manual') : 'auto';
 
+  // 包内资源清单(编辑器资源面板用): 按类型分组精简 items
+  // Image 附带图集 sprite/atlasKey(资源预览裁图用); Sound 附带 file(音频路径)
+  const resources = { images: [], fonts: [], movieclips: [], sounds: [], components: [] };
+  const pushRes = (list, it, extra = {}) => {
+    if (it && it.id) {
+      list.push({
+        id: it.id, name: it.name || '', path: it.path || '',
+        w: it.width != null ? it.width : null, h: it.height != null ? it.height : null,
+        ...extra,
+      });
+    }
+  };
+  for (const it of pkg.items) {
+    if (it.type === 'Image') {
+      let atlasKey = null, sprite = null;
+      const sp = (pkg.sprites || []).find((s) => s.spriteId === it.id);
+      if (sp) {
+        const atlasItem = (pkg.items || []).find((i) => i.type === 'Atlas' && i.id === sp.atlasItemId);
+        const atlasFile = atlasItem ? atlasItem.file : null;
+        const atlasBase = atlasFile ? atlasFile.replace(/\.png$/i, '') : sp.atlasItemId;
+        atlasKey = `${pkg.name}_${atlasBase}`;
+        sprite = { atlasItemId: sp.atlasItemId, x: sp.x, y: sp.y, w: sp.w, h: sp.h, rotated: !!sp.rotated, ow: sp.ow != null ? sp.ow : null, oh: sp.oh != null ? sp.oh : null };
+      }
+      pushRes(resources.images, it, { atlasKey, sprite });
+    }
+    else if (it.type === 'Font') {
+      let fontCount = null;
+      try {
+        const bf = it.props && it.props.bitmapFont;
+        if (bf && typeof bf === 'object') fontCount = Object.keys(bf).length;
+        else if (it.props && typeof it.props.glyphs === 'object') fontCount = Object.keys(it.props.glyphs).length;
+      } catch (e) { /* ignore */ }
+      pushRes(resources.fonts, it, { fontCount });
+    }
+    else if (it.type === 'MovieClip') pushRes(resources.movieclips, it);
+    else if (it.type === 'Sound') pushRes(resources.sounds, it, { file: it.file || null });
+    else if (it.type === 'Component') pushRes(resources.components, it);
+  }
+
   return {
     ok: true,
     srcDir: ctx.srcDir,
@@ -627,6 +666,7 @@ function buildPreviewData(inputPath, opts = {}) {
       atlasKeys,
     },
     components,
+    resources,
     textures: ctx.textures,
     textureSource,
     missingTextures: ctx.missingTextures,
