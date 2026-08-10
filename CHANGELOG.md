@@ -3,7 +3,87 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.7.6`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.7.11`）。
+
+---
+
+## 2026-08-10
+
+### [说明] 发布 v1.7.11(便携版)
+- 真正修复 FGUI 预览中 PNG 预乘 alpha 处理:v1.7.10 把 Pixi v8 常量拼错(`premultiplied-alpha-on-upload` 带 ed 不是有效值),真实 GPU 上仍发白;v1.7.11 改为正确常量 `premultiply-alpha-on-upload`(单数),纹理上传 GPU 时正确预乘。版本号 1.7.10 → 1.7.11。
+
+### [修复] FGUI 界面预览:预乘 alpha 常量拼写错误导致半透明边缘仍发白
+- **现象**:v1.7.10 修改后,用户真实 GPU 环境下所有透明 PNG 图像的边缘仍发白(FairyGUI 编辑器中为半透明自然过渡)。
+- **根因**:Pixi v8 的 `ALPHA_MODES` 有效值为 `'no-premultiply-alpha' | 'premultiply-alpha-on-upload' | 'premultiplied-alpha'`。v1.7.10 误写成 `'premultiplied-alpha-on-upload'`(过去式,不匹配任何常量)→ `GlTextureSystem` 中 `source.alphaMode === "premultiply-alpha-on-upload"` 恒为 false → `gl.pixelStorei(UNPACK_PREMULTIPLY_ALPHA_WEBGL, false)` → 标准非预乘 PNG 以 straight 数据上传,却按预乘公式 `normal = (ONE, ONE_MINUS_SRC_ALPHA)` 混合 → 半透明白边缘像素过亮发白。
+- **改动**(`src/viewers/fguiLayoutPreview.js` `loadTextureFromDataUrl`):`alphaMode` 改为 Pixi v8 正确常量 `'premultiply-alpha-on-upload'`(单数 premultiply),上传时 GPU 预乘,与 normal 混合公式匹配。
+- **排查过程**:swiftshader 软渲染下三种 alphaMode 结果相同无法复现;通过对比用户截图(中央大片白色)、分析图集源 PNG(127079 个半透明白边像素 α∈(30,225) 且 RGB>150)、阅读 `GlTextureSystem.js`/`const.d.ts` 源码,确认常量拼写错误。
+- **验证**:electron 运行时确认三张图集纹理 alphaMode 均为 `premultiply-alpha-on-upload`;头像边缘 avgEdge RGB=[26,28,34] 接近背景深色不发白。
+
+---
+
+## 2026-08-10
+
+### [说明] 发布 v1.7.10(便携版)
+- 修复 FGUI 预览中图集 PNG 的预乘 alpha 误标:半透明边缘像素不再发白,效果贴近 FairyGUI 编辑器。版本号 1.7.9 → 1.7.10。
+
+### [修复] FGUI 界面预览:位图 PNG 强制预乘 alpha 导致图像周围发白
+- **现象**:用户对比 FairyGUI 编辑器与本应用预览器,头像/字形图等"图像周围"出现明显白晕,编辑器中是半透明自然过渡。
+- **根因**:`loadTextureFromDataUrl` 把 PIXI 纹理源 `alphaMode` 强制设为 `'premultiplied-alpha'`(假设数据已预乘),但 FairyGUI 输出的 PNG 是标准非预乘(straight alpha)。GPU 按预乘解读半透明像素(R,G,B 已乘 α)→ 边缘像素过亮显示为白色。
+- **改动**(`src/viewers/fguiLayoutPreview.js`):`alphaMode` 改为 `'premultiplied-alpha-on-upload'`(Pixi v8 默认值,上传 GPU 时自动预乘),保留显式赋值以防默认值变动。
+- **验证**:electron 重新截图 `Bag.bin` 的 `BagView`,头像周围白环消失、"战 1234567.890" 红底黄字清晰、"至尊 级" 棕底红字无白晕。dist 同步清理 100+ 历史 bundle 旧产物。
+
+---
+
+## 2026-08-10
+
+### [说明] 发布 v1.7.9(便携版)
+- 位图字体增加「导出源工程字形 PNG」兜底渲染:已核实 PowerFont3 的 13 个字形(sprite `s7rzi3v..44`/`myfwi47-49`)对应 item 全部位于 `/res/数字/主界面战力数字/`(`0-9.png`/`亿`/`点`/`万`),图集纹理缺失时直接从该目录加载独立 PNG 渲染,字体不退化。版本号 1.7.8 → 1.7.9。
+
+### [新增] FGUI 界面预览:位图字体图集缺失时用导出源工程字形 PNG 兜底
+- **现象**:位图字体(如 `PowerFont3` 战力数字)依赖图集纹理(`Common_atlas0.png`);若图集缺失/路径不符,字形无法渲染,数字退回系统字体。
+- **改动**:
+  - `electron/tools/fgui/previewData.js`:新增 `sourcePngForItem`,`glyphFromSprite` 为每个字形附带 `srcFile`(导出源工程独立 PNG:`<包名>_src/<包名>/<path>/<name>.png`,如 `Common_src/Common/res/数字/主界面战力数字/0.png`)。
+  - `src/viewers/fguiLayoutPreview.js`:`load()` 时收集图集缺失的字形 `srcFile` 并预加载到 `_glyphTexs`;`_buildBitmapText` 图集纹理优先、缺失时退回独立 PNG(整图为 frame,不旋转)。
+- **验证**:electron 真实运行——主路径 11 字形 sprite 不回归;强制置空 `Common_atlas0` 后兜底分支仍渲染 11 字形,`fromSrc:true` 确认使用 `主界面战力数字/*.png` 独立图,且尺寸与图集 frame 一致(数字 18×29、`.` 9×29)。
+
+---
+
+## 2026-08-10
+
+### [说明] 发布 v1.7.8(便携版)
+- FGUI 预览位图字体解析补全「.fnt 文本文件」兜底路径,并完成 PowerFont3(战力数字)端到端运行验证:字形表 → 图集 sprite → 图集 PNG 渲染链路确认生效。版本号 1.7.7 → 1.7.8。
+
+### [新增] FGUI 界面预览:位图字体支持 .fnt 文本文件兜底解析
+- **现象**:部分位图字体(Font 资源,如 `PowerFont3.fnt`)在源工程里是 `.fnt` 文本文件 + `res/数字/xxx/` 目录数字图片;发布后的 bin 里已内嵌字形表(每个字符 → 图集 sprite),但若内嵌字形表缺失/为空,预览将退回系统字体,丢失字体特效。
+- **改动**(`electron/tools/fgui/previewData.js`):
+  - 主路径保持 bin 内嵌字形表解码(`decodeBitmapFontGlyphs`,与导源工程 `restoreSource.decodeFontData` 读取顺序一致)。
+  - 新增兜底:`findFntFile` 在 包目录 / `font`/`fonts`/`com/font`/`组件/font` / 导出源工程 `<包名>_src/<包名>/...` 中查找 `<字体名>.fnt` 文本文件;`parseFntTextFile` 解析 UIBuilder(`char id=N img=<spriteId>`)与 BMFont 标准(`common lineHeight`/`page file`/`char x,y,width,height`)两种格式,page 文件名按 name 匹配包内 Image item 取图集 sprite。
+  - 抽出共用 `glyphFromSprite`(图集解析/纹理探测)供两条路径复用;字形结果结构一致,渲染层无需改动。
+- **验证**:用户 `Common.bin` 的 `PowerFont3.fnt`(位于 `Common_src/Common/com/font/`)解析出 13 字形 `0123456789.万亿`,图集 rect 与内嵌解码完全一致;electron 真实运行确认 `powerLb`("1234567.890")渲染 11 个字形 sprite,三张图集纹理全部加载(`Common_atlas0` 1984×1664 等)。
+
+### [说明] FGUI 预览位图字体渲染端到端验证
+- 按用户提供的解析路径(`ui://<pkgId><fontId>` → Font item → 字形表 → 图集 sprite → 图集 PNG)确认预览器已完整实现并生效:`Bag.bin` 的 `topItem`(跨包引用 Common `UITopItem`)内 `powerLb` 文本 `font="ui://9njo6dpes7rzi45"` 正确解析为 PowerFont3 位图字体,字形 sprite 逐字排布(数字 18×29、`.` 9×29),tint 不生效(全彩字体 channel=0 保持原色)。
+
+---
+
+## 2026-08-10
+
+### [说明] 发布 v1.7.7(便携版)
+- 修复 FGUI 预览中组件 title 文本位置与格式错误,并新增位图字体渲染支持,使 emptyTip/按钮/战力数字等显示更接近 FairyGUI 编辑器效果。版本号 1.7.6 → 1.7.7。
+
+### [新增] FGUI 界面预览:支持位图字体渲染
+- **现象**:`topItem` 中的战力数字等使用 `ui://...` 引用的自定义位图字体(`PowerFont3` 等)时,预览中仍是默认系统字体,看不到字体特效。
+- **根因**:文本渲染层仅支持系统字体(DOM overlay),未解析 FGUI `Font` 资源中的字形表,也没有把字形对应到图集 sprite。
+- **改动**:
+  - `electron/tools/fgui/previewData.js`:新增 `resolveFontItem`/`decodeBitmapFontGlyphs`,在生成文本节点时解析 `ui://<pkgId><fontId>` 位图字体引用,从 `.bin` raw 数据解码出每个字符对应的图集 sprite(`atlasKey`+`rect`)与 `xoffset/yoffset/advance/channel`),写入 `node.font`。
+  - `src/viewers/fguiLayoutPreview.js`:新增 `_buildBitmapText`,按 advance 逐字排布 PIXI sprite,支持旋转图集、单/多行、水平/垂直对齐;单通道灰度字体用文本颜色着色,全彩字体保持原样。
+- **验证**:用户提供的 `Bag.bin`/`Common.bin` 预览中,`powerLb` 的 `1234567.890` 已按 `PowerFont3` 字形渲染(截图 `_tmp_bag_preview.png`)。
+
+### [修复] FGUI 界面预览:组件 title 文本位置与格式错误
+- **现象**:`EmptyTips` 中的 "空空如也" 显示位置偏到左上角;`FrameCom` 等按钮的标题没有字号/颜色/对齐格式,显示为默认小黑字。
+- **根因**:组件的 `props.title` 被合并为一个合成的 `<node>.title` 文本节点,强制放在 `(0,0)` 且 `textFormat=null`,覆盖了 displayList 中真实 `title` 对象的位置与样式。
+- **改动**(`electron/tools/fgui/previewData.js`):合并 title 时,优先查找 displayList 中真实存在的 `name="title"` 文本子节点并更新其 `text`,保留其原有的 `x/y/size/color/align/valign`;找不到真实 title 对象时才回退为旧的合成节点。
+- **验证**:用户 `Bag.bin` 的 `BagView` 预览中,`emptyTip.title` 位于 `[344,34]` 且使用 `size=24 color=#1d3630ff center/middle`;所有按钮标题(一键合成/一键熔炼/GM 等)均带有正确格式(截图 `_tmp_bag_preview.png`)。
 
 ---
 

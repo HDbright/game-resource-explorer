@@ -99,6 +99,211 @@ function gearDisplayOf(props) {
   return null;
 }
 
+/** 解析 FGUI 字体引用: ui://pkgId/fontId(带斜杠) 或 ui://pkgId+itemId(无斜杠拼接, FGUI 字体常用) */
+function resolveFontItem(ctx, font) {
+  if (!font || typeof font !== 'string') return null;
+  const m = /^ui:\/\/(.+)$/.exec(font);
+  if (!m) return null;
+  const rest = m[1];
+  // 形式1: 带斜杠 ui://pkgId/fontId
+  const slash = /^(.+)\/(.+)$/.exec(rest);
+  if (slash) {
+    const pkg = ctx.pkgById.get(slash[1]);
+    if (pkg) {
+      const item = (pkg.items || []).find((i) => i.id === slash[2] || i.name === slash[2]);
+      if (item) return { pkg, item };
+    }
+  }
+  // 形式2: 无斜杠拼接 ui://<pkgId><itemId>(FGUI 字体引用惯例)
+  for (const pkg of ctx.pkgById.values()) {
+    const item = (pkg.items || []).find((i) => (pkg.id + i.id) === rest || i.id === rest);
+    if (item) return { pkg, item };
+  }
+  return null;
+}
+
+/** 字形图在导出源工程中的独立 PNG(图集缺失时兜底): <pkg>_src/<pkg>/<path>/<name>.png */
+function sourcePngForItem(pkg, item, ctx) {
+  const rel = String(item.path || '').replace(/^\/+/, '').replace(/\/+$/, '');
+  const baseName = String(item.name || item.id).replace(/\.png$/i, '');
+  const c = path.join(ctx.srcDir, pkg.name + '_src', pkg.name, rel, baseName + '.png');
+  try { if (fs.existsSync(c) && fs.statSync(c).isFile()) return c; } catch (e) { /* ignore */ }
+  return null;
+}
+
+/** 由 sprite 构造字形(解析图集 item → 纹理 key → 探测 PNG), 内嵌字形表与 .fnt 文本兜底共用 */
+function glyphFromSprite(sp, pkg, ctx) {
+  const atlasItem = (pkg.items || []).find((i) => i.type === 'Atlas' && i.id === sp.atlasItemId);
+  const atlasFile = atlasItem ? atlasItem.file : null;
+  if (!atlasFile) return null;
+  const atlasBase = String(atlasFile).replace(/\.png$/i, '');
+  const atlasKey = `${pkg.name}_${atlasBase}`;
+  if (!(atlasKey in ctx.textures)) {
+    ctx.textures[atlasKey] = probeTexture(ctx.srcDir, pkg.name, atlasBase, ctx.textureDir);
+    if (!ctx.textures[atlasKey]) ctx.missingTextures.push(atlasKey);
+  }
+  const item = (pkg.items || []).find((i) => i.id === sp.spriteId);
+  return {
+    atlasKey,
+    rect: { x: sp.x, y: sp.y, w: sp.w, h: sp.h, rotated: !!sp.rotated },
+    xoffset: 0,
+    yoffset: 0,
+    advance: sp.w != null ? sp.w : 10,
+    channel: 0,
+    srcFile: item ? sourcePngForItem(pkg, item, ctx) : null, // 独立字形 PNG(图集缺失时兜底)
+  };
+}
+
+/**
+ * 解码位图字体(FGUI Font 资源)为可直接渲染的字形表。
+ * 字形贴图是本包图集里的一个 sprite(img 即 spriteId), 与图片走同一套图集解析/纹理探测。
+ * 读取顺序照搬 restoreSource.decodeFontData(保证与导源工程一致)。
+ * @returns {{ttf:boolean,size:number,lineHeight:number,glyphs:object}|null}
+ *   glyphs[char] = { atlasKey, rect:{x,y,w,h,rotated}, xoffset, yoffset, advance, channel }
+ */
+function decodeBitmapFontGlyphs(raw, pkg, ctx) {
+  try {
+    raw.Seek(0, 0);
+    raw.ReadBool(); raw.ReadBool(); raw.ReadBool(); raw.ReadBool(); // ttf, tint, resizable, hasChannel
+    const size = raw.ReadInt();
+    const xadvance = raw.ReadInt();
+    const lineHeight = raw.ReadInt();
+    raw.Seek(0, 1);
+    const charCnt = raw.ReadInt();
+    const glyphs = {};
+    for (let j = 0; j < charCnt; j++) {
+      const nextPos = raw.ReadShort() + raw.pointer;
+      const ch = String.fromCharCode(raw.ReadUshort());
+      const img = raw.ReadS();           // spriteId(图集里的字形 sprite)
+      raw.ReadInt();                     // bx (源内 x, 渲染以 sprite.rect 为准)
+      raw.ReadInt();                     // by
+      const xoffset = raw.ReadInt();     // 字形相对笔点的水平偏移
+      const yoffset = raw.ReadInt();     // 字形相对笔点的垂直偏移
+      raw.ReadInt();                     // gw
+      raw.ReadInt();                     // gh
+      const adv = raw.ReadInt();
+      const channel = raw.ReadByte();
+      const sp = (pkg.sprites || []).find((s) => s.spriteId === img);
+      if (sp) {
+        const g = glyphFromSprite(sp, pkg, ctx);
+        if (g) {
+          g.xoffset = xoffset || 0;
+          g.yoffset = yoffset || 0;
+          g.advance = adv || (sp.w != null ? sp.w : (size ? size * 0.6 : 10));
+          g.channel = channel;
+          glyphs[ch] = g;
+        }
+      }
+      raw.pointer = nextPos;
+    }
+    return { ttf: false, size: size || 0, lineHeight: lineHeight || size || 0, glyphs };
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * 查找 <字体名>.fnt 文本文件(位图字体的源工程描述文件):
+ * 包目录 / 子目录 font、fonts、com/font、组件/font / 导出源工程 <pkg>_src/<pkg>/...。
+ * 发布后的 bin 内嵌字形表通常已足够, 该文件仅作内嵌缺失时的兜底。
+ */
+function findFntFile(srcDir, pkgName, fontName) {
+  const name = String(fontName || '');
+  const names = /\.fnt$/i.test(name) ? [name] : [name + '.fnt', name];
+  const roots = [srcDir];
+  if (pkgName) roots.push(path.join(srcDir, pkgName + '_src', pkgName));
+  const subs = ['', 'font', 'fonts', 'com/font', '组件/font'];
+  for (const root of roots) {
+    for (const sub of subs) {
+      for (const n of names) {
+        const c = sub ? path.join(root, sub, n) : path.join(root, n);
+        try { if (fs.existsSync(c) && fs.statSync(c).isFile()) return c; } catch (e) { /* ignore */ }
+      }
+    }
+  }
+  return null;
+}
+
+/** 取形如 key=value 的字段值, 无匹配返回 null */
+function fntIntOf(re, line) {
+  const m = re.exec(line);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+/**
+ * 解析 .fnt 文本文件为字形表(兜底路径, 兼容两种格式):
+ * - UIBuilder 位图格式(本工程导源工程输出): char id=N img=<spriteId> xoffset=.. yoffset=.. xadvance=..
+ * - BMFont 标准格式: common lineHeight=.. / page id=P file=".." / char id=N x=.. y=.. width=.. height=..
+ *   其中 page 文件名对应包内 Image item(按 name 匹配), 取其图集 sprite 作为字形贴图。
+ */
+function parseFntTextFile(fntPath, pkg, ctx) {
+  try {
+    const txt = fs.readFileSync(fntPath, 'utf8');
+    let lineHeight = 0;
+    let size = 0;
+    const pages = {}; // pageId -> 图片文件名
+    const glyphs = {};
+    for (const rawLine of txt.split('\n')) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      if (line.startsWith('info ')) {
+        const s = fntIntOf(/\bsize=(\d+)/, line);
+        if (s != null) size = s;
+        continue;
+      }
+      if (line.startsWith('common ')) {
+        const lh = fntIntOf(/lineHeight=(\d+)/, line);
+        if (lh != null) lineHeight = lh;
+        continue;
+      }
+      if (line.startsWith('page ')) {
+        const m = /^page\s+id=(\d+)\s+file="([^"]+)"/.exec(line);
+        if (m) pages[parseInt(m[1], 10)] = m[2];
+        continue;
+      }
+      if (!line.startsWith('char ')) continue;
+      const idM = /^char\s+id=(\d+)/.exec(line);
+      if (!idM) continue;
+      const ch = String.fromCharCode(parseInt(idM[1], 10));
+      // 格式1: UIBuilder, img 即图集 spriteId
+      const imgM = /\bimg=(\S+)/.exec(line);
+      let g = null;
+      if (imgM) {
+        const sp = (pkg.sprites || []).find((s) => s.spriteId === imgM[1]);
+        if (sp) g = glyphFromSprite(sp, pkg, ctx);
+      } else {
+        // 格式2: BMFont 标准, page 文件名 → 包内 Image item → 图集 sprite
+        const x = fntIntOf(/\bx=(-?\d+)/, line);
+        const w = fntIntOf(/\bwidth=(\d+)/, line);
+        if (x != null && w != null) {
+          const pageId = fntIntOf(/\bpage=(\d+)/, line) || 0;
+          const pageFile = pages[pageId];
+          if (pageFile) {
+            const base = pageFile.replace(/\.[a-zA-Z0-9]+$/, '');
+            const item = (pkg.items || []).find((i) => i.type === 'Image' && (i.name === base || i.name === pageFile));
+            const sp = item ? (pkg.sprites || []).find((s) => s.spriteId === item.id) : null;
+            if (sp) g = glyphFromSprite(sp, pkg, ctx);
+          }
+        }
+      }
+      if (!g) continue;
+      const xo = fntIntOf(/\bxoffset=(-?\d+)/, line);
+      const yo = fntIntOf(/\byoffset=(-?\d+)/, line);
+      const adv = fntIntOf(/\bxadvance=(-?\d+)/, line);
+      g.xoffset = xo != null ? xo : 0;
+      g.yoffset = yo != null ? yo : 0;
+      g.advance = adv != null ? adv : (g.rect ? g.rect.w : 0);
+      const chnl = fntIntOf(/\bchnl=(-?\d+)/, line);
+      if (chnl != null) g.channel = chnl;
+      glyphs[ch] = g;
+    }
+    if (!Object.keys(glyphs).length) return null;
+    return { ttf: false, size: size || 0, lineHeight: lineHeight || size || 0, glyphs };
+  } catch (e) {
+    return null;
+  }
+}
+
 function textFormatOf(props) {
   const tf = props.textFormat;
   if (!tf) return null;
@@ -110,9 +315,15 @@ function textFormatOf(props) {
     valign: tf.valign != null ? tf.valign : null,
     autoSize: tf.autoSize != null ? tf.autoSize : null,
     lineSpacing: tf.lineSpacing != null ? tf.lineSpacing : null,
+    letterSpacing: tf.letterSpacing != null ? tf.letterSpacing : null,
     bold: tf.bold != null ? tf.bold : null,
     italic: tf.italic != null ? tf.italic : null,
     underline: tf.underline != null ? tf.underline : null,
+    outline: tf.outline != null ? tf.outline : null,
+    outlineColor: tf.outlineColor != null ? tf.outlineColor : null,
+    shadow: tf.shadowOffset != null ? true : null,
+    shadowColor: tf.shadowColor != null ? tf.shadowColor : null,
+    shadowOffset: tf.shadowOffset != null ? tf.shadowOffset : null,
   };
 }
 
@@ -169,10 +380,38 @@ function flattenChild(ctx, child, depth, srcPkgId) {
   // ---- 文本类 ----
   if (type === 'Text' || type === 'RichText' || type === 'InputText') {
     const text = props.text != null ? props.text : null;
+    const tf = textFormatOf(props);
+    // 位图字体(ui://... 指向 FGUI Font 资源): 解出字形表, 让渲染层用图集 sprite 逐字绘制。
+    // 主路径: bin 内嵌字形表(发布时 .fnt 文本 + 数字图片已打进字形表与图集);
+    // 兜底路径: 内嵌缺失/为空时, 读 <字体名>.fnt 文本文件(UIBuilder / BMFont 格式)。
+    let fontGlyphs = null;
+    if (tf.font) {
+      const fr = resolveFontItem(ctx, tf.font);
+      if (fr && fr.item.type === 'Font') {
+        const cacheKey = fr.pkg.id + ':' + fr.item.id;
+        if (!ctx.fontCache) ctx.fontCache = new Map();
+        if (!ctx.fontCache.has(cacheKey)) {
+          let fg = null;
+          const raw = fr.pkg.rawById ? fr.pkg.rawById[fr.item.id] : null;
+          if (raw) fg = decodeBitmapFontGlyphs(raw, fr.pkg, ctx);
+          if (!(fg && fg.glyphs && Object.keys(fg.glyphs).length)) {
+            const fntPath = findFntFile(ctx.srcDir, fr.pkg.name, fr.item.name);
+            if (fntPath) fg = parseFntTextFile(fntPath, fr.pkg, ctx);
+          }
+          ctx.fontCache.set(cacheKey, fg);
+        }
+        const fg = ctx.fontCache.get(cacheKey);
+        if (fg && fg.glyphs && Object.keys(fg.glyphs).length) {
+          fontGlyphs = { type: 'bitmap', fontId: fr.item.id, pkgId: fr.pkg.id,
+                         size: fg.size, lineHeight: fg.lineHeight, glyphs: fg.glyphs };
+        }
+      }
+    }
     return {
       ...base, kind: 'text',
       text: text != null ? text : '',
-      textFormat: textFormatOf(props),
+      textFormat: tf,
+      font: fontGlyphs,
     };
   }
 
@@ -223,6 +462,8 @@ function flattenChild(ctx, child, depth, srcPkgId) {
       ...base, kind: 'image',
       sprite, atlasFile, atlasKey,
       url: props.url != null ? props.url : null,
+      scaleOption: item ? item.scaleOption : null,
+      scale9Grid: item ? item.scale9Grid : null,
     };
   }
 
@@ -254,20 +495,29 @@ function flattenChild(ctx, child, depth, srcPkgId) {
       }
       ctx.visited.delete(key);
     }
-    // 组件自身 title/text 合并为文本节点(最前)
+    // 组件自身 title/text 合并:优先更新 displayList 中真实存在的 'title' 文本对象,
+    // 这样标题会沿用真实对象的位置(x/y)、对齐(align/valign)、字号(size)、颜色(color),
+    // 而不是错误地放到 (0,0) 且丢失所有格式。仅在找不到真实 title 对象时回退为合成节点。
     const t = title != null ? title : (ownText != null ? ownText : null);
     if (t != null) {
-      node.children.unshift({
-        kind: 'text', id: node.id ? node.id + '.title' : null,
-        name: node.name ? node.name + '.title' : null,
-        type: 'Text', x: 0, y: 0,
-        initWidth: node.initWidth != null ? node.initWidth : null,
-        initHeight: node.initHeight != null ? node.initHeight : null,
-        scaleX: null, scaleY: null, pivotX: null, pivotY: null, pivotAsAnchor: null,
-        alpha: null, rotation: null, visible: true, srcPkgId: null, gearDisplay: null,
-        text: String(t),
-        textFormat: null,
-      });
+      const titleChild = node.children.find((c) => c.kind === 'text' && c.name === 'title');
+      if (titleChild) {
+        titleChild.text = String(t);
+        if (titleChild.initWidth == null && node.initWidth != null) titleChild.initWidth = node.initWidth;
+        if (titleChild.initHeight == null && node.initHeight != null) titleChild.initHeight = node.initHeight;
+      } else {
+        node.children.unshift({
+          kind: 'text', id: node.id ? node.id + '.title' : null,
+          name: node.name ? node.name + '.title' : null,
+          type: 'Text', x: 0, y: 0,
+          initWidth: node.initWidth != null ? node.initWidth : null,
+          initHeight: node.initHeight != null ? node.initHeight : null,
+          scaleX: null, scaleY: null, pivotX: null, pivotY: null, pivotAsAnchor: null,
+          alpha: null, rotation: null, visible: true, srcPkgId: null, gearDisplay: null,
+          text: String(t),
+          textFormat: null,
+        });
+      }
     }
   } else if (type === 'Graph') {
     // 第一版: 占位(shapeType 记录)
@@ -315,6 +565,7 @@ function buildPreviewData(inputPath, opts = {}) {
     pkgById: new Map(),
     visited: new Set(),
     textures: {},            // `${pkgName}_${atlasItemId}` -> absPath|null
+    fontCache: new Map(),    // `${pkgId}:${fontId}` -> 已解码字形表(避免重复解码)
     missingTextures: [],
     nodeCount: 0,
     warnings,
@@ -383,4 +634,4 @@ function buildPreviewData(inputPath, opts = {}) {
   };
 }
 
-module.exports = { buildPreviewData, findGameRoot, probeTexture, findDepBin };
+module.exports = { buildPreviewData, findGameRoot, probeTexture, findDepBin, findFntFile, parseFntTextFile };

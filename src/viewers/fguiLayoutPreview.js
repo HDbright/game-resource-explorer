@@ -23,7 +23,21 @@ function cssColor(c) {
 
 const FONT_FAMILY = `system-ui, "Microsoft YaHei", "PingFang SC", sans-serif`;
 
-/** 用 data URL 加载完整解码后的 PIXI.Texture(PixiJS v8 中 Texture.from(url) 异步加载,此处显式等待) */
+/** '#rrggbbaa' → 0xRRGGBB (整数, 供 PIXI tint 用) */
+function colorToInt(c) {
+  if (!c || typeof c !== 'string') return 0xffffff;
+  const m = /^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})?$/.exec(c);
+  if (!m) return 0xffffff;
+  return (parseInt(m[1], 16) << 16) | (parseInt(m[2], 16) << 8) | parseInt(m[3], 16);
+}
+
+/** 用 data URL 加载完整解码后的 PIXI.Texture(PixiJS v8 中 Texture.from(url) 异步加载,此处显式等待)
+ * ⚠ 标准 PNG(图集/导出源工程/位图字形)均为非预乘 alpha(straight)。
+ * 必须设 Pixi v8 常量 'premultiply-alpha-on-upload'(注意是单数 premultiply,
+ * 拼错成 'premultiplied-alpha-on-upload' 会匹配失败 → 数据按 straight 上传却按
+ * 预乘公式 normal 混合 → 半透明白边缘过亮发白)。'premultiplied-alpha'(已预乘假设)
+ * 对 straight 数据同样会导致发白。
+ */
 async function loadTextureFromDataUrl(dataUrl) {
   const img = new Image();
   img.src = dataUrl;
@@ -34,7 +48,7 @@ async function loadTextureFromDataUrl(dataUrl) {
   });
   const tex = PIXI.Texture.from(img);
   if (tex && tex.source && tex.source.alphaMode !== undefined) {
-    tex.source.alphaMode = 'premultiplied-alpha';
+    tex.source.alphaMode = 'premultiply-alpha-on-upload';
   }
   return tex;
 }
@@ -55,6 +69,7 @@ export class FguiLayoutPreview {
     this.selected = null;
     this.activePages = {};    // controllerName -> pageId
     this.textures = {};       // atlasKey -> PIXI.Texture
+    this._glyphTexs = {};     // 位图字体独立字形 PNG 兜底: srcFile -> PIXI.Texture
     this._drag = null;
     this._ro = null;
     this._loadToken = 0;
@@ -270,6 +285,33 @@ export class FguiLayoutPreview {
         console.warn('[fgui-preview] 纹理加载失败:', key, p, err && err.message);
       }
     }));
+
+    // 位图字体字形兜底: 图集纹理缺失时, 从导出源工程加载独立字形 PNG(<pkg>_src/<pkg>/res/.../<字符>.png)
+    this._glyphTexs = {};
+    {
+      const glyphSrcs = new Set();
+      const collect = (n) => {
+        if (!n) return;
+        if (n.kind === 'text' && n.font && n.font.glyphs) {
+          for (const g of Object.values(n.font.glyphs)) {
+            if (g.srcFile && !this.textures[g.atlasKey]) glyphSrcs.add(g.srcFile);
+          }
+        }
+        for (const c of n.children || []) collect(c);
+      };
+      collect(this.comp.root);
+      await Promise.all([...glyphSrcs].map(async (f) => {
+        try {
+          const r = await window.api.readBase64(f);
+          if (r && r.ok) {
+            const t = await loadTextureFromDataUrl(r.dataUrl);
+            if (t) this._glyphTexs[f] = t;
+          }
+        } catch (err) {
+          console.warn('[fgui-preview] 字形源图加载失败:', f, err && err.message);
+        }
+      }));
+    }
     if (token !== this._loadToken) return;
 
     // 清空旧树
@@ -413,30 +455,43 @@ export class FguiLayoutPreview {
     if (node.kind === 'image' && node.sprite) {
       const tex = node.atlasKey ? this.textures[node.atlasKey] : null;
       if (tex) {
-        let spriteTex;
         try {
-          if (node.sprite.rotated) {
-            spriteTex = new PIXI.Texture({
-              source: tex.source,
-              frame: new PIXI.Rectangle(node.sprite.x, node.sprite.y, node.sprite.h, node.sprite.w),
+          const { x, y, w: rw, h: rh, rotated, ow, oh } = node.sprite;
+          const frame = rotated
+            ? new PIXI.Rectangle(x, y, rh, rw)
+            : new PIXI.Rectangle(x, y, rw, rh);
+          const spriteTex = new PIXI.Texture({ source: tex.source, frame });
+          const sw = node.initWidth != null ? node.initWidth : ow;
+          const sh = node.initHeight != null ? node.initHeight : oh;
+          // 9 宫格缩放(按钮背景等):scaleOption===1 且未旋转(旋转图集暂不支持 9-slice)
+          const grid = node.scaleOption === 1 && !rotated && node.scale9Grid;
+          if (grid && ow != null && oh != null) {
+            const left = Math.max(0, grid.x || 0);
+            const top = Math.max(0, grid.y || 0);
+            const right = Math.max(0, (ow - (grid.x + grid.width)) || 0);
+            const bottom = Math.max(0, (oh - (grid.y + grid.height)) || 0);
+            const nine = new PIXI.NineSliceSprite({
+              texture: spriteTex,
+              leftWidth: left,
+              topHeight: top,
+              rightWidth: right,
+              bottomHeight: bottom,
             });
+            nine.width = sw;
+            nine.height = sh;
+            inner.addChild(nine);
+            displayObj = nine;
           } else {
-            spriteTex = new PIXI.Texture({
-              source: tex.source,
-              frame: new PIXI.Rectangle(node.sprite.x, node.sprite.y, node.sprite.w, node.sprite.h),
-            });
+            const spr = new PIXI.Sprite(spriteTex);
+            if (rotated) {
+              spr.rotation = -Math.PI / 2;
+              spr.position.set(0, rh);
+            }
+            spr.width = sw;
+            spr.height = sh;
+            inner.addChild(spr);
+            displayObj = spr;
           }
-          const spr = new PIXI.Sprite(spriteTex);
-          if (node.sprite.rotated) {
-            spr.rotation = -Math.PI / 2;
-            spr.position.set(0, node.sprite.h);
-          }
-          const sw = node.initWidth != null ? node.initWidth : node.sprite.ow;
-          const sh = node.initHeight != null ? node.initHeight : node.sprite.oh;
-          spr.width = sw;
-          spr.height = sh;
-          inner.addChild(spr);
-          displayObj = spr;
         } catch (e) { /* 裁切失败降级 */ }
       }
       if (!displayObj) {
@@ -448,10 +503,16 @@ export class FguiLayoutPreview {
         displayObj = g;
       }
     } else if (node.kind === 'text') {
-      // 文本走 DOM overlay
-      const div = this._makeTextDiv(node, cWX, cWY, w, h);
-      if (div) displayObj = div; // 仅用于命中(div 无 pixi 对象, 命中由 overlay 处理)
-      displayObj = null;
+      // 位图字体(ui:// 指向 FGUI Font 资源): 用图集 sprite 逐字绘制, 不走 DOM overlay
+      if (node.font && node.font.type === 'bitmap') {
+        const cont = this._buildBitmapText(node, w, h);
+        if (cont) { inner.addChild(cont); displayObj = cont; }
+      } else {
+        // 系统字体文本走 DOM overlay
+        const div = this._makeTextDiv(node, cWX, cWY, w, h);
+        if (div) displayObj = div; // 仅用于命中(div 无 pixi 对象, 命中由 overlay 处理)
+        displayObj = null;
+      }
     } else if (node.kind === 'container' || node.kind === 'graph' || node.kind === 'unknown') {
       // 容器: 递归
       for (const ch of node.children || []) {
@@ -473,6 +534,66 @@ export class FguiLayoutPreview {
     return outer;
   }
 
+  /**
+   * 位图字体文本: 用图集 sprite 逐字绘制(字形来自 node.font.glyphs)。
+   * 与图片渲染共用图集纹理; 颜色用 tf.color 着色(channel=0 的可着色字体)。
+   * @returns {PIXI.Container|null}
+   */
+  _buildBitmapText(node, boxW, boxH) {
+    const font = node.font;
+    const glyphs = font.glyphs || {};
+    if (!Object.keys(glyphs).length) return null;
+    const container = new PIXI.Container();
+    const tf = node.textFormat || {};
+    const tint = colorToInt(tf.color);
+    const lineH = font.lineHeight || (tf.size ? tf.size * 1.2 : 20);
+    const align = tf.align || 'left';
+    const valign = tf.valign || 'top';
+    const lines = (node.text || '').split('\n');
+    let penY = 0;
+    for (const line of lines) {
+      // 行宽(用于居中/右对齐)
+      let lineW = 0;
+      for (const ch of line) {
+        const g = glyphs[ch];
+        lineW += g ? g.advance : (font.size ? font.size * 0.5 : 10);
+      }
+      let penX = 0;
+      if (align === 'center' && boxW) penX = (boxW - lineW) / 2;
+      else if (align === 'right' && boxW) penX = boxW - lineW;
+      // 垂直对齐(单行时把整行相对文本框上下偏移)
+      const voff = valign === 'middle' ? (boxH - lineH) / 2
+                 : valign === 'bottom' ? (boxH - lineH)
+                 : 0;
+      for (const ch of line) {
+        const g = glyphs[ch];
+        if (!g) { penX += font.size ? font.size * 0.5 : 10; continue; }
+        // 图集纹理优先; 缺失时退回独立字形 PNG(导出源工程)
+        const srcTex = g.srcFile ? this._glyphTexs[g.srcFile] : null;
+        const tex = (g.atlasKey ? this.textures[g.atlasKey] : null) || srcTex;
+        if (tex) {
+          const { x, y, w: rw, h: rh, rotated } = g.rect;
+          const frame = srcTex === tex
+            ? new PIXI.Rectangle(0, 0, tex.width, tex.height) // 独立字形 PNG: 整图为 frame
+            : (rotated ? new PIXI.Rectangle(x, y, rh, rw) : new PIXI.Rectangle(x, y, rw, rh));
+          try {
+            const gtex = new PIXI.Texture({ source: tex.source, frame });
+            const spr = new PIXI.Sprite(gtex);
+            if (rotated && srcTex !== tex) { spr.rotation = -Math.PI / 2; spr.position.set(0, rh); }
+            spr.x = penX + (g.xoffset || 0);
+            spr.y = penY + voff + (g.yoffset || 0);
+            // 单通道(灰度)位图字体用文本颜色着色;全彩色位图字体(channel=0)保持原样
+            if (tf.color && g.channel !== 0) spr.tint = tint;
+            container.addChild(spr);
+          } catch (e) { /* 单字失败忽略 */ }
+        }
+        penX += g.advance || (g.rect ? g.rect.w : 0);
+      }
+      penY += lineH;
+    }
+    return container;
+  }
+
   _makeTextDiv(node, wX, wY, w, h) {
     if (!this.textLayer) return null;
     const div = document.createElement('div');
@@ -492,10 +613,23 @@ export class FguiLayoutPreview {
     else if (tf.align === 'right') div.style.justifyContent = 'flex-end';
     if (tf.valign === 'middle') div.style.alignItems = 'center';
     else if (tf.valign === 'bottom') div.style.alignItems = 'flex-end';
-    if (tf.lineSpacing) div.style.lineHeight = tf.lineSpacing + 'px';
+    if (tf.lineSpacing && tf.size) div.style.lineHeight = (tf.size + tf.lineSpacing) + 'px';
+    if (tf.letterSpacing != null) div.style.letterSpacing = tf.letterSpacing + 'px';
+    if (tf.font) div.style.fontFamily = `"${tf.font}", ${FONT_FAMILY}`;
+    // 描边/阴影:FairyGUI 常用效果,DOM 用 -webkit-text-stroke / text-shadow 近似
+    if (tf.outline && tf.outlineColor) {
+      div.style.webkitTextStroke = `${tf.outline}px ${cssColor(tf.outlineColor)}`;
+    }
+    if (tf.shadowOffset && tf.shadowColor) {
+      const [sx, sy] = tf.shadowOffset;
+      div.style.textShadow = `${sx}px ${sy}px 0 ${cssColor(tf.shadowColor)}`;
+    }
+    // 自动换行/溢出隐藏(保持 FairyGUI 文本默认行为)
+    div.style.whiteSpace = 'pre-wrap';
+    div.style.overflow = 'hidden';
     div.textContent = node.text || '';
     div.style.display = 'flex';
-    div.style.fontFamily = FONT_FAMILY;
+    div.style.fontFamily = div.style.fontFamily || FONT_FAMILY;
     div.dataset.nodeKey = this.nodeMap.length; // 占位, 选中时按索引
     div.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1149,6 +1283,7 @@ export class FguiLayoutPreview {
     this.comp = null;
     this.nodeMap = [];
     this.textures = {};
+    this._glyphTexs = {};
   }
 }
 

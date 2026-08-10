@@ -557,6 +557,7 @@ export function renderFguiPreviewPage(container, { onBack, initialBinPath } = {}
     }
     // 暴露测试钩子(仅开发/冒烟用)
     window.__fguiPreviewTestLoad = (binPath, texDir) => loadPkg(binPath, texDir);
+    window.__fguiPreview = fguiPreview;
     // 编辑提交 → 写入 <包名>/edit_history.json(编辑历史记录,配合撤销/回撤)
     fguiPreview._onEditCommitted = (info) => {
       if (!curBinPath || !info) return;
