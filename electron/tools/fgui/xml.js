@@ -145,13 +145,18 @@ function emitChild(L, indent, ch, ctrlNames, childIds, srcResolver) {
   const a = new A();
   a.set('id', p.id).set('name', p.name);
   // src: 源工程格式——本包引用保持原样; 跨包引用经 srcResolver 转为 "包名.资源名"(依赖包缺失时保留 pkgId)
+  // pkg/fileName 仅在导出路径(传入 srcResolver)时输出, 不影响预览/探测用的 buildOutputs
   let src = ch.src;
   let pkg = ch.pkgId;
+  let fileName = null;
   if (srcResolver) {
     const r = srcResolver(ch);
-    if (r && r.src != null) { src = r.src; pkg = r.pkg; }
+    if (r && r.src != null) { src = r.src; pkg = r.pkg; fileName = r.fileName; }
   }
-  a.set('src', src).set('pkg', pkg);
+  a.set('src', src);
+  // fileName 仅组件类标签(Component/Button/ComboBox 等扩展组件, 统一映射到 'component')需要
+  if (srcResolver && fileName && tag === 'component') a.set('fileName', fileName);
+  if (srcResolver && pkg) a.set('pkg', pkg);
   a.set('xy', `${_num(p.x || 0)},${_num(p.y || 0)}`);
   if (p.initWidth !== undefined) a.set('size', `${_num(p.initWidth)},${_num(p.initHeight)}`);
   if (p.minWidth !== undefined) {

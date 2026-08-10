@@ -188,6 +188,7 @@ export function renderFguiPreviewPage(container, { onBack, initialBinPath } = {}
         <button class="btn sm" id="fgpv-undo" disabled title="撤销上一步编辑(Ctrl+Z)">↩ 撤销</button>
         <button class="btn sm" id="fgpv-unpack" disabled title="用内置 FGUI 逆向导出功能,把当前包解压到其所在目录下同包子目录(JSON/XML/素材)">📦 解压FGUI包</button>
         <button class="btn sm" id="fgpv-export" disabled title="导出完整 FairyGUI 源工程包:标准 package.xml + 组件 XML + 碎图 + 字体 + 动画,可直接用 FairyGUI 编辑器打开(输出到 <包名>_src 子目录)">📤 导出源工程</button>
+        <button class="btn sm" id="fgpv-opendir" disabled title="用 Windows 资源管理器打开当前 FGUI 包(.bin)所在目录">📂 打开目录</button>
         <button class="btn sm" id="fgpv-snapshot" disabled title="保存当前组件编辑后的布局快照(JSON),自动关联到该 FGUI 包">💾 保存快照</button>
         <button class="btn sm" id="fgpv-texdir" style="display:none" title="自动探测纹理失败时手动指定纹理目录">🔧 选择纹理目录</button>
         <span class="fg-bgbar" id="fgpv-bgbar" style="display:none">
@@ -244,6 +245,7 @@ export function renderFguiPreviewPage(container, { onBack, initialBinPath } = {}
   const undoBtn = container.querySelector('#fgpv-undo');
   const unpackBtn = container.querySelector('#fgpv-unpack');
   const exportBtn = container.querySelector('#fgpv-export');
+  const openDirBtn = container.querySelector('#fgpv-opendir');
   const snapshotBtn = container.querySelector('#fgpv-snapshot');
 
   let payload = null;
@@ -275,6 +277,7 @@ export function renderFguiPreviewPage(container, { onBack, initialBinPath } = {}
     undoBtn.disabled = !loaded || !fguiPreview || !fguiPreview.editMode;
     unpackBtn.disabled = !loaded || !curBinPath;
     exportBtn.disabled = !loaded || !curBinPath;
+    openDirBtn.disabled = !loaded || !curBinPath;
     snapshotBtn.disabled = !loaded || !fguiPreview;
     bgBarEl.style.display = loaded && fguiPreview ? '' : 'none';
     editBtn.classList.toggle('active', loaded && fguiPreview && fguiPreview.editMode);
@@ -739,6 +742,14 @@ export function renderFguiPreviewPage(container, { onBack, initialBinPath } = {}
   };
 
   exportBtn.addEventListener('click', () => exportSourcePkg());
+
+  // 用 Windows 资源管理器打开当前包(.bin)所在目录
+  openDirBtn.addEventListener('click', () => {
+    if (!curBinPath) return;
+    const dir = binDirOf(curBinPath);
+    window.api.openPath(dir);
+    statusEl.textContent = '已打开目录: ' + dir;
+  });
 
   snapshotBtn.addEventListener('click', async () => {
     if (!fguiPreview || !payload) return;

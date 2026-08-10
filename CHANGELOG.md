@@ -3,9 +3,46 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.7.3`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.7.6`）。
 
 ---
+
+## 2026-08-10
+
+### [说明] 发布 v1.7.6(便携版)
+- 在 v1.7.3 基础上累积多轮 FGUI「导出源工程」修复与预览增强:跨包引用 src 统一改为被引用资源 id 并补齐 pkg/fileName、组件目录规范为 com、组件文件按资源名命名、新增「打开目录」按钮。版本号 1.7.3 → 1.7.6。
+
+### [修复] FGUI 导出源工程:跨包图片等非组件引用 src 也改为 id
+- **现象**:上一版仅跨包组件 `src` 用 id,跨包图片仍为 `src="Common.已领取"`(包名.资源名),FairyGUI 源工程中图片无法显示。
+- **改动**(`electron/tools/fgui/restoreSource.js`):`srcResolver` 对跨包引用(组件/图片等)统一取被引用资源的 `id`(`.bin` 中存储的 `ch.src`,如 `j8esi28`/`hp2kbi`)作为 `src`,不再区分类型;`pkg`(包 ID)保留定位跨包文件,`fileName` 仍仅组件标签输出。依赖包内找不到对应项时回退 `包名.资源名`。
+- **验证**:`samples/fgui` 导出后跨包引用共 8 处(6 组件 + 2 图片)`src` 全部为 id,无 `包名.资源名` 残留。
+
+### [修复] FGUI 导出源工程:跨包组件 src 改为被引用组件 id
+- **现象**:导出源工程时,组件 displayList 中引用其它包的组件生成 `src="Common.FrameCom"`(包名.资源名),FairyGUI 编辑器无法正确解析跨包引用。
+- **根因**:`restoreSource.js` 的 `srcResolver` 跨包解析成功时把 `src` 拼成了 `包名.资源名`。
+- **改动**(`electron/tools/fgui/restoreSource.js`):跨包**组件**引用时 `src` 改为被引用组件的 `id`(`.bin` 中存储的 `ch.src` 即该 id,如 `gyk92q`),与同包引用格式一致;`pkg`(包 ID)与 `fileName`(资源名.xml)保留用于定位跨包文件。跨包图片等非组件类型仍维持 `包名.资源名` 格式,避免破坏。
+- **验证**:`samples/fgui` 导出后,`BagView.xml` 中跨包引用形如 `<component id="n0_bqux" name="baseBg" src="gyk92q" fileName="FrameCom.xml" pkg="9njo6dpe" xy="0,1023"/>`(src 为 id 而非 包名.资源名)。
+
+### [修复] FGUI 导出源工程:跨包组件引用补齐 pkg(包ID) 与 fileName 属性
+- **现象**:导出源工程时,组件 displayList 中引用其它包(如 `Common`)的组件/图片仅生成 `src="Common.FrameCom"`,缺 `pkg` 与 `fileName`,FairyGUI 编辑器无法定位跨包资源。
+- **根因**:`restoreSource.js` 的 `srcResolver` 跨包解析成功时返回 `pkg: null`,而 `xml.js` 的 `A.set` 对 null 值跳过,导致 `pkg` 属性被丢弃;且 `fileName` 此前根本未生成。
+- **改动**:
+  - `electron/tools/fgui/restoreSource.js`:`srcResolver` 跨包解析成功时返回 `pkg: dp.id`(依赖包真实 ID)并补 `fileName: "<资源名>.xml"`;依赖 .bin 缺失时回退为原始 `pkgId`。
+  - `electron/tools/fgui/xml.js` `emitChild`:`pkg` 在传入 `srcResolver`(即导出路径)且值有效时输出;`fileName` 仅对组件类标签(Component/Button/ComboBox 等扩展组件,统一映射为 `component`)输出,属性顺序 `src→fileName→pkg→xy`,与 FairyGUI 源工程一致。预览/探测用的 `buildOutputs` 不传 `srcResolver`,输出不变。
+- **验证**:`samples/fgui/ActEmperorArrival` 导出后,`btnGet` 子节点生成 `<component id="n0_mah9" name="btnGet" src="Common.ComBtn0" fileName="ComBtn0.xml" pkg="9njo6dpe" xy="-3,247" scale="0.7,0.7">`,跨包引用全部带 `pkg`(共 8 处)。
+
+### [修复] FGUI 导出源工程:组件目录规范为 com、组件文件按资源名命名
+- **现象**:源工程还原时组件子目录沿用发布包的中文目录名「组件」(如 `/组件/`、`/组件/item/`),组件文件以资源 id 命名(`bqux1.xml`),不符合源工程惯例。
+- **改动**(`electron/tools/fgui/restoreSource.js`):
+  - 还原前就地规范化 `it.path`:目录名中的「组件」统一替换为 `com`,`package.xml` 的 `path` 值与输出目录同步(`/组件/item/` → `/com/item/`,字体等含「组件」的路径一并替换);
+  - 组件 XML 文件名改用资源名(`(it.name||it.id) + '.xml'`,非法字符 `/` `\` 替换为 `_`),与 `package.xml` 中 `name="BagView.xml"` 一致(`bqux1.xml` → `BagView.xml`)。
+- **验证**:ActEmperorArrival(com/ActEmperorArrivalView.xml,path="/com/")、Common(113 组件,子目录 com/item、com/button 等,package.xml 无「组件」字样)通过。
+
+## 2026-08-10
+
+### [新增] FGUI 界面预览「打开目录」按钮
+- FGUI 预览子页工具栏新增「📂 打开目录」按钮,用 Windows 资源管理器打开当前 FGUI 包(.bin)所在目录;未加载包时禁用。
+- 改动:`src/pages/scenePage.js`(工具栏按钮 + `#fgpv-opendir` 事件绑定 + `updateToolbarState` 状态),复用已有 `shell:openPath` IPC。
 
 ## 2026-08-10
 

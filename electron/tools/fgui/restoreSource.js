@@ -255,17 +255,24 @@ function restoreSource(inputFile, outDir, opts = {}) {
       warnings.push(`依赖包 ${dep.name} 未找到(.bin), 跨包引用将保留原始 id, 需一并导出该包`);
     }
   }
-  // srcResolver: 跨包引用 → "包名.资源名"; 本包保持 id/名称
+  // srcResolver: 跨包引用(组件/图片等) → src 统一用被引用资源的 id(与同包引用一致)
+  // 本包保持 id/名称(不传 pkgId)
   const srcResolver = (ch) => {
     if (ch.pkgId) {
       const dp = depPkgs.get(ch.pkgId);
       if (dp) {
         const it = (dp.items || []).find((i) => i.id === ch.src || i.name === ch.src);
-        if (it && it.name) return { src: `${dp.name}.${it.name}`, pkg: null };
+        const cid = it ? it.id : null;
+        const cname = it ? (it.name || it.id) : ch.src;
+        // FairyGUI 源工程要求跨包 src = 被引用资源 id(存储的 ch.src 即该 id),
+        // 而非 "包名.资源名"(图片用包名格式会无法显示); pkg + fileName 保留用于定位跨包文件
+        const src = cid || `${dp.name}.${cname}`; // 依赖包内找不到时回退 "包名.资源名"
+        // pkg 必须为依赖包的真实 ID(dp.id),否则 emitChild 的 A.set 会因 null 丢弃 → 跨包引用缺 pkg
+        return { src, pkg: dp.id, fileName: `${cname}.xml` };
       }
-      return null; // 保留原 src + pkgId
+      return null; // 依赖 .bin 缺失: 保留原 src + pkgId(回退为 ch.pkgId)
     }
-    return { src: ch.src, pkg: null };
+    return { src: ch.src, pkg: null, fileName: null };
   };
 
   // ---- 图集纹理探测 + 解码缓存 ----
@@ -302,6 +309,14 @@ function restoreSource(inputFile, outDir, opts = {}) {
   const itemById = new Map();
   for (const it of pkg.items) itemById.set(it.id, it);
 
+  // ---- 源工程目录名规范: 发布包中的「组件」目录统一输出为 com(用户包内目录可能用中文命名) ----
+  // 就地改写 it.path, emitSourcePackageXml 的 path 值(filePath 输出目录)同步生效
+  for (const it of pkg.items) {
+    if (it.path && String(it.path).includes('组件')) {
+      it.path = String(it.path).replace(/组件/g, 'com');
+    }
+  }
+
   const filePath = (it, name) => {
     let p = it.path;
     if (p == null || p === '') p = '/';
@@ -313,12 +328,13 @@ function restoreSource(inputFile, outDir, opts = {}) {
   fs.writeFileSync(path.join(pkgDir, 'package.xml'), emitSourcePackageXml(pkg), 'utf8');
   files.push({ type: 'package', name: 'package.xml' });
 
-  // ---- 2. 组件 XML ----
+  // ---- 2. 组件 XML(文件名用资源名, 与 package.xml 的 name="xxx.xml" 一致) ----
   const components = [];
   for (const it of pkg.items) {
     if (it.type === 'Component' && it.component) {
       const xml = emitComponentXml(it, it.component, srcResolver);
-      const out = filePath(it, it.id + '.xml');
+      const compFile = ((it.name || it.id) + '.xml').replace(/[\\/]/g, '_');
+      const out = filePath(it, compFile);
       fs.mkdirSync(path.dirname(out), { recursive: true });
       fs.writeFileSync(out, xml, 'utf8');
       components.push(it.name || it.id);
