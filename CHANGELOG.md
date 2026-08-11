@@ -9,6 +9,25 @@
 
 ## 2026-08-12
 
+### [修复] 发布 v1.9.33：Spine 预览「Ot is not a constructor」崩溃修复
+- **症状**: 预览 Spine 动画报「加载失败:Ot is not a constructor」,3.x 与 4.x 资源均可能触发, 缩略图同步失败。
+- **根因(两层)**:
+  1. `spine38Player.js` / `fguiLayoutPreview.js`: pixi 懒加载改造时, 将 `new PIXI.Container()` 机械替换为 `new P().Container()`, 而 `P` 是箭头函数 `() => pixiRef()` — 箭头函数无 `[[Construct]]`, `new P()` 必抛 `"Xxx is not a constructor"`(压缩后即 `Ot is not a constructor`); 即使改成 `P().X()`, `Container/Mesh/MeshGeometry` 等 Pixi 类是 class, 直接调用仍抛 `"Class constructor X cannot be invoked without 'new'"`。正确写法为 `new (P().X)()`。
+  2. `spinePlayer.js`(4.x): 从 `@pixi/spine-pixi` 解构 `SkeletonJson/SkeletonBinary/AtlasAttachmentLoader` — 这些类只是经 `export *` 星级透传自 `@esotericsoftware/spine-core`, 生产构建(Vite/Rollup)会丢弃该透传, 解构得 `undefined` → `new` 时同样报 not a constructor。
+- **修复**:
+  - `spine38Player.js`: 4 处 `new P().X()` → `new (P().X)()`(Container/MeshGeometry/Mesh; `Texture.from` 静态方法保持 `P()` 不变)。
+  - `fguiLayoutPreview.js`: 19 处 `new P().X()` → `new (P().X)()`。
+  - `spinePlayer.js`: 改用官方 `Spine.from({ skeleton, atlas })` 解析并创建实例 — 其内部使用与 `Spine` 类同一 spine-core 实例解析, 既保证解析类可用(不再依赖星级透传导出), 又保证 `skeletonData` 通过 `Spine` 构造函数的 `instanceof SkeletonData` 校验。`@esotericsoftware/spine-core` 加入 package.json 直接依赖(`~4.2.45`, 与 spine-pixi 要求一致)。
+- **验证**: 完整冒烟测试通过 — sample-spine(3.8.99, 走 Spine38Player) 3 动作正常播放渲染; DragonBones 正常; 缩略图 429/429 全部生成成功(此前 2 个失败); 独立 4.x 资源端到端测试(Spine.from + 真实渲染) PASS。
+- **补充(FGUI 相关排查)**:
+  - 定位到 FGUI 冒烟测试检查点过时: 场景主页「FGUI 编辑器」卡片实际打开的是**独立编辑器页**(canvas id `fge-canvas`), 而冒烟脚本仍在检查已废弃的场景内预览子页(`fgpv-canvas`, 现为无入口的死代码路径) → 误报 pvPage=false。已更新 `fgui-smoke-main.js` 检查点至 `fge-*` 并验证通过(pvPage/pvCanvasGL/pvTextLayer 等全 true, 画布 482x610)。
+  - 验证 v1.9.33 下 FGUI 编辑器页完整链路正常: FguiLayoutPreview.init 成功、样例 bin 加载、画布渲染出内容(nonBg 15 万+ 像素)。
+  - `vite.config.js` `emptyOutDir: false → true`: 此前历次构建的旧 chunk 全部残留在 dist 并被打入安装包(asar 43MB→20MB, 含 60+ 冗余 js), 现已干净(仅 2 个 js)。
+
+---
+
+## 2026-08-12
+
 ### [说明] 发布 v1.9.32(便携版)
 - 例行递增版本号并重新打包便携版：1.9.31 → 1.9.32。
 - 本次打包包含截至 v1.9.31 的全部功能与修复（设置页开发者调试 CDP 开关、网络资源抓取内置浏览器 sandbox 修复、另存默认定位输出目录等，详见上方各版本记录），以及自 v1.9.31 以来的工作区累积改动。

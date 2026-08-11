@@ -122,21 +122,20 @@ app.whenReady().then(async () => {
           out.fguiCardOnHome = !!entry;
           if (entry) {
             entry.click();
-            await sleep(900); // 等 FguiLayoutPreview.init(Pixi 应用异步初始化)
-            const canvas = document.getElementById('fgpv-canvas');
+            await sleep(1200); // 等 FguiLayoutPreview.init(Pixi 应用异步初始化)
+            // 场景主页「FGUI 编辑器」卡片 → fgui-editor 独立页(fge-canvas 画布)
+            const canvas = document.getElementById('fge-canvas');
             out.pvPage = !!canvas;
             out.pvCanvasSize = canvas ? canvas.width + 'x' + canvas.height : '';
-            out.pvTextLayer = !!document.getElementById('fgpv-text');
-            out.pvPropPanel = !!document.getElementById('fgpv-props');
-            out.pvCtrlBar = !!document.getElementById('fgpv-ctrls');
-            out.pvCompSelect = !!document.getElementById('fgpv-comp');
+            out.pvTextLayer = !!document.getElementById('fge-text');
+            out.pvPropPanel = !!document.getElementById('fge-props');
+            out.pvCtrlBar = !!document.getElementById('fge-ctrls');
+            out.pvCompSelect = !!document.getElementById('fge-comp');
             try {
               out.pvCanvasGL = !!canvas && !!(canvas.getContext('webgl') || canvas.getContext('webgl2'));
             } catch (e2) { out.pvCanvasGL = false; }
-            // 返回按钮
-            const backBtn = document.getElementById('fgpv-back');
-            out.pvBackBtn = !!backBtn;
-            if (backBtn) { backBtn.click(); await sleep(250); }
+            // 工具栏按钮(替代旧 fgpv-back)
+            out.pvBackBtn = !!document.getElementById('fge-pick');
             out.backToHome = !!document.getElementById('sc-fgui-entry');
           }
         } catch (e) { out.uiChain = 'ERR:' + e.message; }

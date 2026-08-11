@@ -97,7 +97,7 @@ export class FguiLayoutPreview {
     await getPixi(); // 首次使用 FGUI 预览时加载 pixi.js(启动优化)
     const w = this.rootEl.clientWidth || 800;
     const h = this.rootEl.clientHeight || 600;
-    const app = new P().Application();
+    const app = new (P().Application)();
     await app.init({
       view: this.canvas,
       width: w,
@@ -110,17 +110,17 @@ export class FguiLayoutPreview {
       preference: 'webgl',
     });
     this.app = app;
-    this.viewC = new P().Container();
+    this.viewC = new (P().Container)();
     app.stage.addChild(this.viewC);
-    this.highlight = new P().Graphics();
+    this.highlight = new (P().Graphics)();
     this.viewC.addChild(this.highlight);
     this.highlight.visible = false;
-    this._editHandles = new P().Graphics();
+    this._editHandles = new (P().Graphics)();
     this.viewC.addChild(this._editHandles);
     this._editHandles.visible = false;
     this._editHandles.eventMode = 'static';
     // 组件列表定位高亮框(常驻,点击右侧组件列表时画边框,不参与选中)
-    this._compHL = new P().Graphics();
+    this._compHL = new (P().Graphics)();
     this.viewC.addChild(this._compHL);
     this._compHL.visible = false;
     this._compHL.eventMode = 'none';
@@ -460,7 +460,7 @@ export class FguiLayoutPreview {
     const py = node.pivotY != null ? node.pivotY * h : 0;
 
     // 外层: 定位
-    const outer = new P().Container();
+    const outer = new (P().Container)();
     if (node.pivotAsAnchor && (node.pivotX != null)) {
       outer.position.set(node.x, node.y); // xy = 锚点
     } else {
@@ -469,7 +469,7 @@ export class FguiLayoutPreview {
     parentContainer.addChild(outer);
 
     // 内层: 偏移 + 变换
-    const inner = new P().Container();
+    const inner = new (P().Container)();
     inner.position.set(-px, -py);
     if (node.scaleX != null) inner.scale.set(node.scaleX, node.scaleY != null ? node.scaleY : node.scaleX);
     if (node.rotation) inner.rotation = node.rotation * Math.PI / 180;
@@ -490,9 +490,9 @@ export class FguiLayoutPreview {
         try {
           const { x, y, w: rw, h: rh, rotated, ow, oh } = node.sprite;
           const frame = rotated
-            ? new P().Rectangle(x, y, rh, rw)
-            : new P().Rectangle(x, y, rw, rh);
-          const spriteTex = new P().Texture({ source: tex.source, frame });
+            ? new (P().Rectangle)(x, y, rh, rw)
+            : new (P().Rectangle)(x, y, rw, rh);
+          const spriteTex = new (P().Texture)({ source: tex.source, frame });
           const sw = node.initWidth != null ? node.initWidth : ow;
           const sh = node.initHeight != null ? node.initHeight : oh;
           // 9 宫格缩放(按钮背景等):scaleOption===1 且未旋转(旋转图集暂不支持 9-slice)
@@ -502,7 +502,7 @@ export class FguiLayoutPreview {
             const top = Math.max(0, grid.y || 0);
             const right = Math.max(0, (ow - (grid.x + grid.width)) || 0);
             const bottom = Math.max(0, (oh - (grid.y + grid.height)) || 0);
-            const nine = new P().NineSliceSprite({
+            const nine = new (P().NineSliceSprite)({
               texture: spriteTex,
               leftWidth: left,
               topHeight: top,
@@ -514,7 +514,7 @@ export class FguiLayoutPreview {
             inner.addChild(nine);
             displayObj = nine;
           } else {
-            const spr = new P().Sprite(spriteTex);
+            const spr = new (P().Sprite)(spriteTex);
             if (rotated) {
               spr.rotation = -Math.PI / 2;
               spr.position.set(0, rh);
@@ -528,7 +528,7 @@ export class FguiLayoutPreview {
       }
       if (!displayObj) {
         // 缺纹理: 灰色占位框
-        const g = new P().Graphics();
+        const g = new (P().Graphics)();
         g.rect(0, 0, w || 32, h || 32).fill({ color: 0x333a44, alpha: 0.6 });
         g.rect(0, 0, w || 32, h || 32).stroke({ width: 1, color: 0x556070 });
         inner.addChild(g);
@@ -552,7 +552,7 @@ export class FguiLayoutPreview {
       }
       // 空容器/占位给个淡边框(便于看清范围)
       if ((!node.children || !node.children.length) && w > 0 && h > 0 && node.kind === 'unknown') {
-        const g = new P().Graphics();
+        const g = new (P().Graphics)();
         g.rect(0, 0, w, h).stroke({ width: 1, color: 0x445566 });
         inner.addChild(g);
       }
@@ -575,7 +575,7 @@ export class FguiLayoutPreview {
     const font = node.font;
     const glyphs = font.glyphs || {};
     if (!Object.keys(glyphs).length) return null;
-    const container = new P().Container();
+    const container = new (P().Container)();
     const tf = node.textFormat || {};
     const tint = colorToInt(tf.color);
     const lineH = font.lineHeight || (tf.size ? tf.size * 1.2 : 20);
@@ -606,11 +606,11 @@ export class FguiLayoutPreview {
         if (tex) {
           const { x, y, w: rw, h: rh, rotated } = g.rect;
           const frame = srcTex === tex
-            ? new P().Rectangle(0, 0, tex.width, tex.height) // 独立字形 PNG: 整图为 frame
-            : (rotated ? new P().Rectangle(x, y, rh, rw) : new P().Rectangle(x, y, rw, rh));
+            ? new (P().Rectangle)(0, 0, tex.width, tex.height) // 独立字形 PNG: 整图为 frame
+            : (rotated ? new (P().Rectangle)(x, y, rh, rw) : new (P().Rectangle)(x, y, rw, rh));
           try {
-            const gtex = new P().Texture({ source: tex.source, frame });
-            const spr = new P().Sprite(gtex);
+            const gtex = new (P().Texture)({ source: tex.source, frame });
+            const spr = new (P().Sprite)(gtex);
             if (rotated && srcTex !== tex) { spr.rotation = -Math.PI / 2; spr.position.set(0, rh); }
             spr.x = penX + (g.xoffset || 0);
             spr.y = penY + voff + (g.yoffset || 0);

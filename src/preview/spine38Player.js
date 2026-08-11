@@ -140,7 +140,7 @@ const BLEND_MAP = ['normal', 'add', 'multiply', 'screen'];
 export class Spine38Player {
   constructor(app) {
     this.app = app;
-    this.root = new P().Container();
+    this.root = new (P().Container)();
     this.spine = null;
     this.skeleton = null;
     this.state = null;
@@ -486,8 +486,8 @@ export class Spine38Player {
     const texture = this._getPixiTexture(image);
 
     const positions = new Float32Array(numVertices * 2);
-    const geometry = new P().MeshGeometry({ positions, uvs, indices });
-    const mesh = new P().Mesh({ geometry, texture });
+    const geometry = new (P().MeshGeometry)({ positions, uvs, indices });
+    const mesh = new (P().Mesh)({ geometry, texture });
     mesh.blendMode = BLEND_MAP[slot.data.blendMode] || 'normal';
 
     return { slot, att, isRegion, numVertices, geometry, mesh };
@@ -746,7 +746,7 @@ export class Spine38Player {
     }
     this._textureByImage.clear();
     this._loadedImages = [];
-    this.root = new P().Container();
+    this.root = new (P().Container)();
     this.spine = null;
     this.skeleton = null;
     this.state = null;

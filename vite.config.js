@@ -4,7 +4,7 @@ export default defineConfig({
   base: './',
   build: {
     outDir: 'dist',
-    emptyOutDir: false,
+    emptyOutDir: true,
     chunkSizeWarningLimit: 5000,
     rollupOptions: {
       output: {

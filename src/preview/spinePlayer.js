@@ -7,6 +7,14 @@ async function spinePixi() {
   return _spinePixi;
 }
 
+// ⚠️ 历史教训: 不要从这里解构 SkeletonJson / SkeletonBinary / AtlasAttachmentLoader。
+// @pixi/spine-pixi 只是用 `export *` 星级透传 @esotericsoftware/spine-core 的类;
+// 生产构建(Vite/Rollup)时该透传常被 tree-shaking 丢弃 → 解构得到 undefined →
+// new 时抛 "Xxx is not a constructor"(压缩后形如 "Ot is not a constructor")。
+// 正确做法: 用 Spine.from() 解析并创建实例 —— 它内部使用与 Spine 类同一 spine-core
+// 实例解析(AtlasAttachmentLoader/SkeletonJson/SkeletonBinary), 既保证解析类可用,
+// 又保证 skeletonData 能通过 Spine 构造函数的 `instanceof SkeletonData` 校验。
+
 /**
  * Spine 动画播放器(基于 @pixi/spine-pixi 2.x,pixi v8)
  * 手动驱动:autoUpdate=false,由外部循环调用 update(dt)
@@ -25,16 +33,13 @@ export class SpinePlayer {
     this.dispose();
 
     const PIXI = await getPixi();
-    const { SkeletonJson, SkeletonBinary, AtlasAttachmentLoader } = await spinePixi();
 
     // 先加载 json/skel 与 atlas(注册的 spine loader 会把 atlas 解析为 TextureAtlas)
     await PIXI.Assets.load({ src: skeletonUrl });
     await PIXI.Assets.load({ src: atlasUrl });
 
-    const skeletonAsset = PIXI.Assets.get(skeletonUrl);
-    const atlasAsset = PIXI.Assets.get(atlasUrl);
-
     // 兼容 Spine 3.8 格式:skins 为对象 {skinName: {slot: {...}}},新版 spine-core 需要数组格式
+    const skeletonAsset = PIXI.Assets.get(skeletonUrl);
     if (skeletonAsset && skeletonAsset.skins && !Array.isArray(skeletonAsset.skins)) {
       const skins = [];
       for (const skinName of Object.keys(skeletonAsset.skins)) {
@@ -43,17 +48,13 @@ export class SpinePlayer {
       skeletonAsset.skins = skins;
     }
 
-    const parser = skeletonAsset instanceof Uint8Array
-      ? new SkeletonBinary(new AtlasAttachmentLoader(atlasAsset))
-      : new SkeletonJson(new AtlasAttachmentLoader(atlasAsset));
-    const skeletonData = parser.readSkeletonData(skeletonAsset);
-    this.spineData = skeletonData;
-
+    // 用 Spine.from 解析并创建实例(内部用同一 spine-core 实例解析, 见文件头注释)
     const { Spine } = await spinePixi();
-    this.spine = new Spine({ skeletonData, autoUpdate: false });
+    this.spine = Spine.from({ skeleton: skeletonUrl, atlas: atlasUrl });
     this.spine.autoUpdate = false;
+    this.spineData = this.spine.skeleton.data;
 
-    this.actions = skeletonData.animations.map((a) => ({
+    this.actions = (this.spineData.animations || []).map((a) => ({
       name: a.name,
       duration: a.duration || 0,
     }));
