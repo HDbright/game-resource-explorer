@@ -1,6 +1,6 @@
-import * as PIXI from 'pixi.js';
 import { createPlayer } from './preview/playerFactory.js';
 import { typeGroup } from './state.js';
+import { getPixi } from './pixiLazy.js';
 
 function basename(p) {
   return String(p).split(/[\\/]/).pop();
@@ -27,6 +27,7 @@ export class ThumbnailService {
     if (this._app) return this._app;
     if (this._initPromise) return this._initPromise;
     this._initPromise = (async () => {
+      const PIXI = await getPixi(); // 首次生成缩略图时才加载 pixi.js(启动优化)
       const app = new PIXI.Application();
       await app.init({
         width: 96,

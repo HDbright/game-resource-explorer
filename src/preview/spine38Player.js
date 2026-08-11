@@ -1,5 +1,8 @@
-import * as PIXI from 'pixi.js';
 import { probeSkeleton } from './skelProbe.js';
+import { pixiRef } from '../pixiLazy.js';
+
+/** 运行时获取 PIXI(由 createPlayer 先 await getPixi 确保 window.PIXI 就绪) */
+const P = () => pixiRef();
 
 /**
  * 规范化动画约束时间线(ik / transform / path)的非标准结构。
@@ -137,7 +140,7 @@ const BLEND_MAP = ['normal', 'add', 'multiply', 'screen'];
 export class Spine38Player {
   constructor(app) {
     this.app = app;
-    this.root = new PIXI.Container();
+    this.root = new P().Container();
     this.spine = null;
     this.skeleton = null;
     this.state = null;
@@ -441,7 +444,7 @@ export class Spine38Player {
   _getPixiTexture(image) {
     let tex = this._textureByImage.get(image);
     if (!tex) {
-      tex = PIXI.Texture.from(image);
+      tex = P().Texture.from(image);
       tex.source.alphaMode = 'no-premultiply-alpha';
       this._textureByImage.set(image, tex);
     }
@@ -483,8 +486,8 @@ export class Spine38Player {
     const texture = this._getPixiTexture(image);
 
     const positions = new Float32Array(numVertices * 2);
-    const geometry = new PIXI.MeshGeometry({ positions, uvs, indices });
-    const mesh = new PIXI.Mesh({ geometry, texture });
+    const geometry = new P().MeshGeometry({ positions, uvs, indices });
+    const mesh = new P().Mesh({ geometry, texture });
     mesh.blendMode = BLEND_MAP[slot.data.blendMode] || 'normal';
 
     return { slot, att, isRegion, numVertices, geometry, mesh };
@@ -743,7 +746,7 @@ export class Spine38Player {
     }
     this._textureByImage.clear();
     this._loadedImages = [];
-    this.root = new PIXI.Container();
+    this.root = new P().Container();
     this.spine = null;
     this.skeleton = null;
     this.state = null;

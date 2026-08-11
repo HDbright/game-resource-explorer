@@ -31,3 +31,7 @@ Thumbs.db
 
 # Editor memory
 .workbuddy/
+
+# 转换工具测试产物（laya→spine 等中间输出，非源码）
+sk2spine_test/
+electron/tools/out_*/

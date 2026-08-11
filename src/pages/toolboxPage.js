@@ -21,6 +21,7 @@ export function renderToolboxPage(container, tool) {
     spinefix: { title: 'Spine 文件修复', desc: '对 .json / .skel / .atlas 执行诊断与自动修复(JSON 注释/尾逗号/版本字段;atlas 缺图检测),输出修复副本。可单选/多选文件或整个目录(含子目录),记住最近输入目录。', render: renderSpineFixTool },
     imageedit: { title: '图片编辑', desc: '单个或批量处理图片:镜像翻转、旋转、缩放、生成指定大小/样式的缩略图(canvas 处理,导出 PNG/JPEG,可覆盖原文件)。', render: renderImageEditTool },
     fgui: { title: 'FGUI 逆向导出', desc: '把 FairyGUI 发布的 .bin 包批量逆向为可读结构:每个包生成 JSON(完整组件树)+ FGUI 风格 XML(包级 + 每个组件一个)。', render: renderFguiTool },
+    sk2spine: { title: 'Laya .sk → Spine', desc: '把 LayaAir 骨骼动画二进制(.sk,DragonBones 导出)逆向转换为 Spine 可读文件:骨架 .json + 纹理图集 .atlas。可单选/多选文件或整个目录(含子目录);选择时自动探测是否为 .sk 格式。', render: renderSk2SpineTool },
   };
   const cfg = tools[tool] || tools.astc2png;
   const head = document.createElement('div');
@@ -41,6 +42,7 @@ function renderToolboxHome(container) {
     { id: 'spinefix', icon: '🛠', title: 'Spine 文件修复', desc: '对 .json / .skel / .atlas 执行诊断与自动修复(JSON 注释/尾逗号/版本字段;atlas 缺图检测),输出修复副本。可单选/多选文件或整个目录(含子目录),记住最近输入目录。' },
     { id: 'imageedit', icon: '🎨', title: '图片编辑', desc: '单个或批量处理图片:镜像翻转、旋转、缩放、生成指定大小/样式的缩略图(canvas 处理,导出 PNG/JPEG,可覆盖原文件)。' },
     { id: 'fgui', icon: '🧩', title: 'FGUI 逆向导出', desc: '把 FairyGUI 发布的 .bin 包批量逆向为可读结构:每个包生成 JSON(完整组件树)+ FGUI 风格 XML(包级 + 每个组件一个)。可整目录导出。' },
+    { id: 'sk2spine', icon: '🦴', title: 'Laya .sk → Spine', desc: '把 LayaAir 骨骼动画二进制(.sk,DragonBones 导出)逆向转换为 Spine 可读文件:骨架 .json + 纹理图集 .atlas。可单选/多选文件或整个目录(含子目录);选择时自动探测是否为 .sk 格式。' },
   ];
   const head = document.createElement('div');
   head.className = 'tool-head';
@@ -386,6 +388,27 @@ function renderSkelTool(body) {
     apiName: 'skel2json',
     // 选择时探测文件是否确为 Skel 二进制格式(.bin 后缀常为误命名,需校验)
     validateFile: async (p) => window.api.probeSkel({ inputPath: p }),
+  });
+}
+
+// ---- LayaAir .sk → Spine(JSON + .atlas) ----
+
+function renderSk2SpineTool(body) {
+  buildBatchTool(body, {
+    prefix: 'sk2spine',
+    title: 'Laya .sk → Spine',
+    desc: '把 LayaAir 骨骼动画二进制(.sk,DragonBones 导出,LAYAANIMATION:1.7.x)逆向转换为 Spine 可读文件:骨架 .json + 纹理图集 .atlas(自动同源目录输出 .atlas)。可单选/多选文件,或选择整个目录(递归收集含子目录);选择时自动探测是否为 .sk 格式,非 .sk 文件会被跳过;自动记住最近 10 条输入目录,选择时直接定位。',
+    inputLabel: 'LayaAir 骨骼动画 .sk',
+    pickTitle: '选择 .sk 文件(可多选)',
+    pickDirTitle: '选择目录(递归收集其中所有 .sk 文件,含子目录)',
+    filters: [{ name: 'LayaAir 骨骼动画 (.sk)', extensions: ['sk'] }],
+    inputExt: ['sk'],
+    outExt: '.json',
+    apiName: 'sk2spine',
+    runLabel: '转换',
+    doneVerb: '转换',
+    // 选择时探测文件是否确为 LayaAir .sk 二进制格式,非 .sk 文件跳过
+    validateFile: async (p) => window.api.probeSk2spine({ inputPath: p }),
   });
 }
 

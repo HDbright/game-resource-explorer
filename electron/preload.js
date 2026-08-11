@@ -7,8 +7,8 @@ contextBridge.exposeInMainWorld('api', {
   dbRead: () => ipcRenderer.invoke('db:read'),
   dbWrite: (data) => ipcRenderer.invoke('db:write', data),
 
-  // 目录选择 / 扫描
-  pickDirs: () => ipcRenderer.invoke('dir:pick'),
+  // 目录选择 / 扫描(opts: { title?, multi? })
+  pickDirs: (opts) => ipcRenderer.invoke('dir:pick', opts),
   scanDir: (dir, recursive) => ipcRenderer.invoke('dir:scan', dir, recursive),
 
   // 系统交互
@@ -24,6 +24,10 @@ contextBridge.exposeInMainWorld('api', {
   // 应用信息
   appInfo: () => ipcRenderer.invoke('app:info'),
 
+  // ---- 开发者调试服务(CDP)开关 ----
+  cdpGetState: () => ipcRenderer.invoke('cdp:getState'),
+  cdpSetState: (payload) => ipcRenderer.invoke('cdp:setState', payload),
+
   // ---- 资源工具箱:通用文件 I/O ----
   pickFiles: (opts) => ipcRenderer.invoke('fs:pickFiles', opts),
   collectFiles: (args) => ipcRenderer.invoke('tool:collectFiles', args),
@@ -37,6 +41,8 @@ contextBridge.exposeInMainWorld('api', {
   skel2json: (args) => ipcRenderer.invoke('tool:skel2json', args),
   probeSkel: (args) => ipcRenderer.invoke('tool:probeSkel', args),
   spineFix: (args) => ipcRenderer.invoke('tool:spinefix', args),
+  sk2spine: (args) => ipcRenderer.invoke('tool:sk2spine', args),
+  probeSk2spine: (args) => ipcRenderer.invoke('tool:probeSk2spine', args),
 
   // ---- FGUI 逆向:探测 / 单包解析 / 目录批量导出 / 源工程还原 ----
   fguiProbe: (args) => ipcRenderer.invoke('fgui:probe', args),
@@ -62,6 +68,16 @@ contextBridge.exposeInMainWorld('api', {
   webOpenDevTools: (action) => ipcRenderer.invoke('web:devtools', action || 'open'),
   webCloseDevTools: () => ipcRenderer.invoke('web:devtools', 'close'),
   webClose: () => ipcRenderer.invoke('web:close'),
+  // 多标签页
+  webNewTab: (url) => ipcRenderer.invoke('web:newTab', url),
+  webOpenOrSwitch: (url) => ipcRenderer.invoke('web:openOrSwitch', url), // 已打开相同 URL → 切换; 否则新开
+  webSwitchTab: (id) => ipcRenderer.invoke('web:switchTab', id),
+  webCloseTab: (id) => ipcRenderer.invoke('web:closeTab', id),
+  webGetUrl: () => ipcRenderer.invoke('web:getUrl'),
+  onWebTabs: (cb) => ipcRenderer.on('web:tabs', (_e, d) => cb(d)),
+  // 网页悬浮窗(切到其它模块时浏览器视图迁入独立窗口, 可拖拽/最小化/关闭)
+  webFloatOut: () => ipcRenderer.invoke('web:floatOut'),
+  webFloatBack: () => ipcRenderer.invoke('web:floatBack'),
   webSetBounds: (rect) => ipcRenderer.invoke('web:setBounds', rect),
   webSetAudioMuted: (muted) => ipcRenderer.invoke('web:setAudioMuted', muted),
   webGetCaptured: () => ipcRenderer.invoke('web:getCaptured'),
@@ -69,6 +85,8 @@ contextBridge.exposeInMainWorld('api', {
   webProbe: (p) => ipcRenderer.invoke('web:probe', p),
   webDownload: (args) => ipcRenderer.invoke('web:download', args),
   webFetchText: (args) => ipcRenderer.invoke('web:fetchText', args),
+  // 缩略图兜底: 用网页分区 session 下载图片转 data URL(共享登录态/Referer)
+  webThumbFetch: (args) => ipcRenderer.invoke('web:thumbFetch', args),
   // 资源悬浮预览: 独立窗口(像 DevTools detach)
   webPreviewShow: (payload) => ipcRenderer.invoke('web:previewShow', payload),
   webPreviewHide: () => ipcRenderer.invoke('web:previewHide'),
@@ -80,6 +98,9 @@ contextBridge.exposeInMainWorld('api', {
   onWebCaptured: (cb) => ipcRenderer.on('web:captured', (_e, d) => cb(d)),
   onWebProgress: (cb) => ipcRenderer.on('web:progress', (_e, d) => cb(d)),
   onWebDownloadDone: (cb) => ipcRenderer.on('web:downloadDone', (_e, d) => cb(d)),
+
+  // ---- 开发工具箱:API 管理 接口测试 ----
+  apiTest: (args) => ipcRenderer.invoke('api:test', args),
 });
 
 // 冒烟测试标志(仅开发时传入 --smoke,通过 URL 参数传递,见 main.js)

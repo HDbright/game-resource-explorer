@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #17181d;
+    font-family: "Microsoft YaHei", "Segoe UI", sans-serif; }
+  * { box-sizing: border-box; }
+  /* 标题栏: app-region drag 提供原生窗口拖拽(可移动悬浮窗) */
+  #titlebar {
+    height: 32px; display: flex; align-items: center; padding: 0 6px 0 10px;
+    background: #23262e; border-bottom: 1px solid rgba(255,255,255,0.08);
+    -webkit-app-region: drag; user-select: none; cursor: move;
+  }
+  #titlebar .t-icon { font-size: 13px; margin-right: 6px; }
+  #titlebar .t-title { flex: 1; font-size: 12px; color: rgba(255,255,255,0.85);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #titlebar .t-btn {
+    -webkit-app-region: no-drag; cursor: pointer; width: 28px; height: 24px;
+    display: flex; align-items: center; justify-content: center;
+    border: none; background: transparent; color: rgba(255,255,255,0.75);
+    border-radius: 4px; font-size: 13px; line-height: 1; margin-left: 2px;
+  }
+  #titlebar .t-btn:hover { background: rgba(255,255,255,0.12); color: #fff; }
+  #titlebar .t-btn.min:hover { background: #3a4456; }
+  #titlebar .t-btn.close:hover { background: #d23f3f; }
+  /* 内容区: 网页视图挂载处 */
+  #content { position: absolute; top: 32px; left: 0; right: 0; bottom: 0; background: #101216; }
+  /* 还原按钮: 仅迷你模式显示 */
+  #btn-restore { display: none; }
+  #btn-restore:hover { background: #3a8c5c; }
+  /* ===== 迷你模式: 在原位置缩小的悬浮按钮(仅「还原 ▶」+「关闭 ✕」), 标题栏可拖拽 ===== */
+  body.mini #titlebar { height: 32px; justify-content: center; gap: 4px; padding: 0 6px; }
+  body.mini #titlebar .t-icon, body.mini #titlebar .t-title,
+  body.mini #titlebar #btn-min { display: none; }
+  body.mini #btn-restore { display: flex; }
+  body.mini #content { display: none; }
+</style>
+</head>
+<body>
+  <div id="titlebar">
+    <span class="t-icon">🌐</span>
+    <span class="t-title" id="t-title">网页悬浮窗</span>
+    <button class="t-btn" id="btn-restore" title="还原悬浮窗">▶</button>
+    <button class="t-btn min" id="btn-min" title="最小化为悬浮按钮">─</button>
+    <button class="t-btn close" id="btn-close" title="关闭悬浮窗">✕</button>
+  </div>
+  <div id="content"></div>
+  <script>
+    const el = document.getElementById('t-title');
+    window.floatApi.onInfo((d) => {
+      if (d && d.title) el.textContent = d.title;
+    });
+    // 最小化 → 原位置缩小为迷你按钮; 还原 → 恢复; 关闭 → 真正关闭悬浮窗
+    document.getElementById('btn-min').addEventListener('click', () => window.floatApi.minimize());
+    document.getElementById('btn-restore').addEventListener('click', () => window.floatApi.restore());
+    document.getElementById('btn-close').addEventListener('click', () => window.floatApi.close());
+    window.floatApi.onMode((d) => {
+      document.body.classList.toggle('mini', !!(d && d.mini));
+    });
+  </script>
+</body>
+</html>

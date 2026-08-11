@@ -1,0 +1,1748 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title data-i18n="ui.title">Acme AI API 参考</title>
+<style>
+/* ============================================================
+   Design tokens — Stripe-inspired. Dark by default.
+   ============================================================ */
+:root {
+  --bg: #0b0f1c;
+  --bg-soft: #0f1526;
+  --surface: #111828;
+  --surface-2: #0d1424;
+  --border: rgba(148, 163, 214, 0.14);
+  --border-strong: rgba(148, 163, 214, 0.26);
+  --text: #e7ebf6;
+  --text-2: #a7b1cd;
+  --text-3: #7b87a9;
+  --accent: #6d5cff;
+  --accent-2: #8271ff;
+  --accent-soft: rgba(109, 92, 255, 0.15);
+  --accent-border: rgba(109, 92, 255, 0.45);
+  --get: #2fcf6f;
+  --post: #6d5cff;
+  --put: #3aa0ff;
+  --delete: #ff5d7e;
+  --path-param: #ffb86c;
+  --topbar-bg: rgba(11, 15, 28, 0.82);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-lg: rgba(50, 50, 93, 0.28) 0px 18px 40px -18px, rgba(0, 0, 0, 0.35) 0px 12px 24px -12px;
+  /* Code panel is dark in BOTH themes (Stripe convention) */
+  --code-bg: #0a0e1a;
+  --code-border: rgba(148, 163, 214, 0.18);
+  --code-fg: #dbe2f2;
+  --code-muted: #8b95b5;
+}
+[data-theme="light"] {
+  --bg: #ffffff;
+  --bg-soft: #f6f9fc;
+  --surface: #ffffff;
+  --surface-2: #f6f9fc;
+  --border: #e5edf5;
+  --border-strong: #d3deea;
+  --text: #061b31;
+  --text-2: #4a5b74;
+  --text-3: #8a97ab;
+  --accent: #533afd;
+  --accent-2: #665efd;
+  --accent-soft: rgba(83, 58, 253, 0.08);
+  --accent-border: rgba(83, 58, 253, 0.35);
+  --get: #0e9f52;
+  --post: #533afd;
+  --put: #1971c2;
+  --delete: #e0355e;
+  --path-param: #d97706;
+  --topbar-bg: rgba(255, 255, 255, 0.86);
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --shadow-lg: rgba(50, 50, 93, 0.12) 0px 18px 40px -18px, rgba(0, 0, 0, 0.06) 0px 12px 24px -12px;
+}
+/* Syntax highlighting — fixed palette for dark panels */
+.hl-cm  { color: #5d6b8c; font-style: italic; }
+.hl-st  { color: #6ee7a0; }
+.hl-kw  { color: #a7a5ff; }
+.hl-bd  { color: #7cb8ff; }
+.hl-nu  { color: #ffb86c; }
+.hl-va  { color: #e6b37c; }
+.hl-key { color: #7cb8ff; }
+
+/* ============================================================
+   Base
+   ============================================================ */
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--text);
+  background: var(--bg);
+  transition: background 0.2s ease, color 0.2s ease;
+  min-width: 320px;
+}
+code, pre, kbd, .method, .path, .type-pill, .mono {
+  font-family: "SF Mono", "Cascadia Code", "JetBrains Mono", "Fira Code", Consolas, "Liberation Mono", Menlo, monospace;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+::selection { background: var(--accent-soft); }
+svg { display: block; }
+
+/* ============================================================
+   Top bar
+   ============================================================ */
+.topbar {
+  position: sticky; top: 0; z-index: 60;
+  background: var(--topbar-bg);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--border);
+}
+.topbar-inner {
+  max-width: 1520px; margin: 0 auto;
+  display: flex; align-items: center; gap: 14px;
+  height: 57px; padding: 0 20px;
+}
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text); }
+.brand:hover { text-decoration: none; }
+.brand-logo svg { width: 26px; height: 26px; }
+.brand-name { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+.brand-tag {
+  font-size: 12.5px; color: var(--text-2);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 2px 9px; margin-left: 2px; white-space: nowrap;
+}
+.version-pill {
+  font-family: "SF Mono", Consolas, monospace; font-size: 10.5px;
+  color: var(--accent); background: var(--accent-soft);
+  border: 1px solid var(--accent-border); border-radius: 4px;
+  padding: 1px 6px; white-space: nowrap;
+}
+.search {
+  flex: 1; max-width: 380px; margin-left: auto;
+  display: flex; align-items: center; gap: 8px;
+  height: 34px; padding: 0 10px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg-soft); color: var(--text-3);
+}
+.search:focus-within { border-color: var(--accent-border); box-shadow: 0 0 0 3px var(--accent-soft); }
+.search svg { width: 15px; height: 15px; flex: none; }
+.search input {
+  flex: 1; min-width: 0; background: none; border: none; outline: none;
+  color: var(--text); font-size: 13.5px; font-family: inherit;
+}
+.search input::placeholder { color: var(--text-3); }
+.search kbd {
+  font-size: 10.5px; color: var(--text-3);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 1px 5px; white-space: nowrap;
+}
+.topbar-actions { display: flex; align-items: center; gap: 8px; }
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; border-radius: 6px;
+  border: 1px solid var(--border); background: transparent;
+  color: var(--text-2); cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.icon-btn:hover { background: var(--bg-soft); color: var(--text); border-color: var(--border-strong); }
+.icon-btn svg { width: 16px; height: 16px; }
+.lang-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 34px; padding: 0 11px; border-radius: 6px;
+  border: 1px solid var(--border); background: transparent;
+  color: var(--text-2); font-size: 12px; font-weight: 600; letter-spacing: 0.02em;
+  cursor: pointer; font-family: inherit;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.lang-btn:hover { background: var(--bg-soft); color: var(--text); border-color: var(--border-strong); }
+.menu-btn { display: none; }
+.i-moon { display: none; }
+[data-theme="light"] .i-moon { display: block; }
+[data-theme="light"] .i-sun { display: none; }
+
+/* ============================================================
+   Layout — classic three-column docs
+   ============================================================ */
+.layout {
+  display: grid;
+  grid-template-columns: 252px minmax(0, 1fr) 428px;
+  grid-template-areas: "sidebar content rail";
+  max-width: 1520px; margin: 0 auto;
+}
+.sidebar { grid-area: sidebar; align-self: start; position: sticky; top: 57px; height: calc(100vh - 57px); overflow-y: auto; border-right: 1px solid var(--border); }
+.content { grid-area: content; padding: 52px 48px 120px; }
+.code-rail { grid-area: rail; align-self: start; border-left: 1px solid var(--border); }
+.rail-sticky { position: sticky; top: 57px; max-height: calc(100vh - 57px); overflow-y: auto; padding: 26px 22px 64px; max-width: 800px; margin-inline: auto; }
+
+@media (max-width: 1360px) {
+  .layout { grid-template-columns: 232px minmax(0, 1fr) 400px; }
+}
+@media (max-width: 1180px) {
+  .layout { grid-template-columns: 232px minmax(0, 1fr); grid-template-areas: "sidebar content" "rail rail"; }
+  .code-rail { border-left: none; border-top: 1px solid var(--border); }
+  .rail-sticky { position: static; max-height: none; padding: 40px 0 90px; }
+  .content { padding: 44px 32px 60px; }
+}
+@media (max-width: 880px) {
+  .layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "content" "rail"; }
+  .content { padding: 34px 20px 56px; }
+  .menu-btn { display: inline-flex; }
+  .search { display: none; }
+  .sidebar {
+    position: fixed; top: 57px; left: 0; bottom: 0; width: 284px;
+    height: auto; background: var(--bg); z-index: 45;
+    transform: translateX(-105%); transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: var(--shadow-lg); border-right: 1px solid var(--border);
+  }
+  .sidebar.open { transform: none; }
+  .rail-sticky { padding: 32px 0 72px; }
+}
+@media (max-width: 560px) {
+  .brand-tag { display: none; }
+  .version-pill { display: none; }
+}
+.scrim {
+  position: fixed; inset: 57px 0 0 0; background: rgba(4, 8, 20, 0.5);
+  z-index: 40; opacity: 0; pointer-events: none; transition: opacity 0.25s;
+}
+.scrim.show { opacity: 1; pointer-events: auto; }
+
+/* ============================================================
+   Sidebar nav
+   ============================================================ */
+.nav { padding: 18px 12px 24px; }
+.nav-group { margin-bottom: 14px; }
+.nav-group-title {
+  display: flex; align-items: center; justify-content: space-between; width: 100%;
+  padding: 6px 10px; background: none; border: none; border-radius: 5px;
+  color: var(--text-3); font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.06em; cursor: pointer;
+  font-family: inherit; transition: color 0.15s;
+}
+.nav-group-title:hover { color: var(--text-2); }
+.nav-group-title svg { width: 13px; height: 13px; transition: transform 0.2s; }
+.nav-group.collapsed .nav-group-title svg { transform: rotate(-90deg); }
+.nav-group.collapsed .nav-links { display: none; }
+.nav-links { display: flex; flex-direction: column; gap: 1px; margin-top: 5px; }
+.nav-link {
+  display: block; padding: 6px 10px 6px 12px; border-radius: 5px;
+  font-size: 13.5px; color: var(--text-2);
+  border-left: 2px solid transparent; transition: background 0.15s, color 0.15s;
+}
+.nav-link:hover { color: var(--text); background: var(--bg-soft); text-decoration: none; }
+.nav-link.active { color: var(--accent); background: var(--accent-soft); border-left-color: var(--accent); font-weight: 500; }
+.sidebar-foot {
+  padding: 16px 22px 22px; border-top: 1px solid var(--border);
+  font-size: 12px; color: var(--text-3); display: flex; gap: 14px;
+}
+.sidebar-foot a { color: var(--text-3); }
+.sidebar-foot a:hover { color: var(--accent); }
+
+/* ============================================================
+   Content — typography & sections
+   ============================================================ */
+.content-inner { max-width: 800px; }
+h1 {
+  font-size: 34px; line-height: 1.16; letter-spacing: -0.03em;
+  font-weight: 500; margin: 0 0 14px; color: var(--text);
+}
+h2 {
+  font-size: 24px; line-height: 1.25; letter-spacing: -0.02em;
+  font-weight: 500; margin: 0 0 12px; color: var(--text);
+}
+h3 {
+  font-size: 15px; font-weight: 600; margin: 28px 0 10px; color: var(--text);
+}
+p { margin: 0 0 14px; color: var(--text-2); }
+.lead { font-size: 16.5px; line-height: 1.6; color: var(--text-2); max-width: 64ch; }
+.doc-section {
+  padding-bottom: 52px; margin-bottom: 52px;
+  border-bottom: 1px solid var(--border);
+  scroll-margin-top: 88px;
+}
+.doc-section:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+code.inline {
+  font-size: 12.5px; color: var(--accent);
+  background: var(--accent-soft); border: 1px solid var(--accent-border);
+  padding: 1.5px 6px; border-radius: 4px; white-space: nowrap;
+}
+p code.inline, li code.inline { color: var(--text); background: var(--bg-soft); border-color: var(--border); }
+
+/* Base URL card */
+.base-url {
+  display: flex; align-items: center; gap: 14px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface); padding: 13px 16px; margin: 22px 0;
+  box-shadow: var(--shadow);
+}
+.base-url .label {
+  font-size: 11px; color: var(--text-3); font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.06em; white-space: nowrap;
+}
+.base-url code { font-size: 13.5px; color: var(--text); overflow-x: auto; white-space: nowrap; }
+.base-url .copy-btn { margin-left: auto; }
+
+/* Callouts */
+.callout {
+  display: flex; gap: 11px; align-items: flex-start;
+  padding: 12px 14px; border-radius: 6px; margin: 20px 0;
+  border: 1px solid var(--accent-border); background: var(--accent-soft);
+  font-size: 13.5px; color: var(--text-2);
+}
+.callout svg { width: 16px; height: 16px; flex: none; margin-top: 2px; color: var(--accent); }
+.callout strong { color: var(--text); font-weight: 600; }
+.callout.warn { border-color: rgba(255, 184, 108, 0.4); background: rgba(255, 184, 108, 0.09); }
+.callout.warn svg { color: var(--path-param); }
+
+/* Steps */
+.steps { counter-reset: step; list-style: none; padding: 0; margin: 0 0 10px; }
+.steps li {
+  counter-increment: step; display: flex; gap: 13px; align-items: baseline;
+  padding: 9px 0; font-size: 14px; color: var(--text-2);
+}
+.steps li::before {
+  content: counter(step); flex: none;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent);
+  font-family: "SF Mono", Consolas, monospace; font-size: 12px; font-weight: 600;
+  display: grid; place-items: center; transform: translateY(3px);
+}
+
+/* Mini code block (inline snippet) */
+.mini-code {
+  font-family: "SF Mono", Consolas, monospace; font-size: 12.5px;
+  background: var(--code-bg); color: var(--code-fg);
+  border: 1px solid var(--code-border); border-radius: 6px;
+  padding: 12px 14px; overflow-x: auto; margin: 14px 0; line-height: 1.7;
+}
+
+/* ============================================================
+   Endpoint cards
+   ============================================================ */
+.endpoint {
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface); margin: 22px 0 30px;
+  box-shadow: var(--shadow); overflow: hidden;
+}
+.endpoint-head {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 13px 18px; border-bottom: 1px solid var(--border);
+}
+.method {
+  display: inline-flex; align-items: center;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+  padding: 3px 8px; border-radius: 4px; border: 1px solid;
+}
+.method.get    { color: var(--get);    background: color-mix(in srgb, var(--get) 12%, transparent);    border-color: color-mix(in srgb, var(--get) 38%, transparent); }
+.method.post   { color: var(--post);   background: color-mix(in srgb, var(--post) 14%, transparent);   border-color: color-mix(in srgb, var(--post) 42%, transparent); }
+.method.put    { color: var(--put);    background: color-mix(in srgb, var(--put) 12%, transparent);    border-color: color-mix(in srgb, var(--put) 38%, transparent); }
+.method.delete { color: var(--delete); background: color-mix(in srgb, var(--delete) 12%, transparent); border-color: color-mix(in srgb, var(--delete) 38%, transparent); }
+.path { font-size: 13px; color: var(--text); white-space: nowrap; overflow-x: auto; }
+.path-param { color: var(--path-param); font-weight: 600; }
+.endpoint-body { padding: 6px 18px 18px; }
+.endpoint-body h3 {
+  font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-3); font-weight: 600; margin: 24px 0 10px;
+}
+.endpoint-desc { margin: 14px 0 0; }
+
+/* Parameter / response tables */
+.table-wrap {
+  overflow-x: auto; border: 1px solid var(--border);
+  border-radius: 6px; margin: 4px 0 0; background: var(--surface);
+}
+.param-table { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 600px; }
+.param-table th {
+  text-align: left; font-size: 11px; font-weight: 600; letter-spacing: 0.05em;
+  text-transform: uppercase; color: var(--text-3);
+  padding: 10px 14px; border-bottom: 1px solid var(--border-strong);
+  background: var(--bg-soft); white-space: nowrap;
+}
+.param-table td { padding: 11px 14px; border-bottom: 1px solid var(--border); vertical-align: top; color: var(--text-2); }
+.param-table tr:last-child td { border-bottom: none; }
+.param-table td code { font-size: 12.5px; color: var(--text); white-space: nowrap; }
+.param-table .desc code { color: var(--text-2); }
+.type-pill {
+  font-size: 11px; color: var(--text-2);
+  background: var(--bg-soft); border: 1px solid var(--border);
+  padding: 1.5px 7px; border-radius: 4px; white-space: nowrap;
+}
+.req { color: var(--accent); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.opt { color: var(--text-3); font-size: 11px; white-space: nowrap; }
+.def { color: var(--text-3); font-size: 12px; white-space: nowrap; }
+.def::before { content: "· "; }
+
+/* Field list (response description) */
+.field-list { list-style: none; margin: 4px 0 0; padding: 0; }
+.field-list li {
+  display: grid; grid-template-columns: 132px 62px 1fr; gap: 12px;
+  align-items: baseline; padding: 7px 0;
+  border-bottom: 1px solid var(--border); font-size: 13.5px;
+}
+.field-list li:last-child { border-bottom: none; }
+.field-list .fname { font-family: "SF Mono", Consolas, monospace; font-size: 12.5px; color: var(--text); overflow-x: auto; }
+.field-list .ftype { font-size: 11px; color: var(--text-3); font-family: "SF Mono", Consolas, monospace; }
+.field-list .fdesc { color: var(--text-2); }
+@media (max-width: 560px) {
+  .field-list li { grid-template-columns: 1fr; gap: 1px; }
+  .field-list .ftype { display: none; }
+}
+
+/* Feedback */
+.feedback {
+  display: flex; align-items: center; gap: 10px; margin-top: 44px;
+  padding-top: 22px; border-top: 1px solid var(--border);
+  font-size: 13.5px; color: var(--text-2);
+}
+.feedback button {
+  font-family: inherit; font-size: 12.5px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface);
+  color: var(--text-2); padding: 4px 12px; border-radius: 5px;
+  transition: border-color 0.15s, color 0.15s;
+}
+.feedback button:hover { border-color: var(--accent-border); color: var(--accent); }
+.feedback .fb-ok { color: var(--get); }
+
+/* ============================================================
+   Code rail (right column)
+   ============================================================ */
+.rail-label {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--text-3); margin: 0 0 14px;
+}
+.code-panel {
+  border: 1px solid var(--code-border); border-radius: 8px;
+  background: var(--code-bg); overflow: hidden; margin-bottom: 26px;
+  box-shadow: var(--shadow); transition: border-color 0.2s, box-shadow 0.2s;
+}
+.code-panel.active {
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 1px var(--accent-border), var(--shadow);
+}
+.code-tabs {
+  display: flex; align-items: center; gap: 2px;
+  padding: 0 6px; border-bottom: 1px solid var(--code-border);
+  background: rgba(255, 255, 255, 0.02);
+}
+.code-title {
+  font-family: "SF Mono", Consolas, monospace; font-size: 11px;
+  color: var(--code-muted); padding: 0 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.code-tab {
+  appearance: none; border: none; background: none; cursor: pointer;
+  font-family: "SF Mono", Consolas, monospace; font-size: 12px;
+  color: var(--code-muted); padding: 10px 11px; margin-bottom: -1px;
+  border-bottom: 2px solid transparent; transition: color 0.15s;
+}
+.code-tab:hover { color: #cdd5ea; }
+.code-tab.active { color: #ffffff; border-bottom-color: var(--accent); }
+.copy-btn {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
+  font-family: "SF Mono", Consolas, monospace; font-size: 11.5px;
+  color: var(--code-muted); background: none; border: none;
+  padding: 6px 8px; border-radius: 5px; cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.copy-btn svg { width: 13px; height: 13px; }
+.copy-btn:hover { color: #ffffff; background: rgba(255, 255, 255, 0.06); }
+.copy-btn .ic-check { display: none; }
+.copy-btn.ok { color: var(--get); }
+.copy-btn.ok .ic-copy { display: none; }
+.copy-btn.ok .ic-check { display: block; }
+.copy-btn.ok:hover { color: var(--get); background: rgba(47, 207, 111, 0.08); }
+.code-panel pre {
+  margin: 0; padding: 16px 18px; overflow-x: auto;
+  font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+  font-size: 12.5px; line-height: 1.75; color: var(--code-fg);
+}
+.code-panel pre[hidden] { display: none; }
+.resp-block { border-top: 1px solid var(--code-border); }
+.resp-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 16px; font-family: "SF Mono", Consolas, monospace;
+  font-size: 11.5px; color: var(--code-muted);
+}
+.resp-head .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--get); flex: none; }
+.resp-head .status { color: var(--get); }
+.resp-block pre { border-top: 1px solid rgba(148, 163, 214, 0.1); }
+
+/* Scrollbars */
+.sidebar::-webkit-scrollbar, .rail-sticky::-webkit-scrollbar, pre::-webkit-scrollbar { width: 8px; height: 8px; }
+.sidebar::-webkit-scrollbar-thumb, .rail-sticky::-webkit-scrollbar-thumb, pre::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
+.sidebar::-webkit-scrollbar-thumb:hover, .rail-sticky::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}
+</style>
+</head>
+<body>
+
+<!-- ===================== Top bar ===================== -->
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="icon-btn menu-btn" id="menuBtn" aria-label="打开导航">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+    </button>
+    <a class="brand" href="#introduction">
+      <span class="brand-logo">
+        <svg viewBox="0 0 26 26" fill="none" aria-hidden="true">
+          <defs>
+            <linearGradient id="lgBrand" x1="0" y1="0" x2="26" y2="26" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#635bff"/><stop offset="1" stop-color="#533afd"/>
+            </linearGradient>
+          </defs>
+          <rect width="26" height="26" rx="7" fill="url(#lgBrand)"/>
+          <path d="M15.9 6.4 9.6 14h3.6l-1.9 5.6 6.3-7.6h-3.6l1.9-5.6Z" fill="#fff"/>
+        </svg>
+      </span>
+      <span class="brand-name">Acme&nbsp;AI</span>
+      <span class="brand-tag" data-i18n="brand.tag">API 参考</span>
+      <span class="version-pill">v1</span>
+    </a>
+    <div class="search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="searchInput" type="text" placeholder="搜索文档…" aria-label="搜索文档" data-i18n="search.placeholder" data-i18n-attr="placeholder">
+      <kbd>⌘K</kbd>
+    </div>
+    <div class="topbar-actions">
+      <a class="icon-btn" href="https://github.com" target="_blank" rel="noopener" aria-label="GitHub">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .3C5.4.3 0 5.7 0 12.3c0 5.3 3.4 9.8 8.2 11.4.6.1.8-.3.8-.6v-2c-3.3.7-4-1.6-4-1.6-.6-1.4-1.3-1.8-1.3-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.6 1.7.2 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6 4.8-1.6 8.2-6.1 8.2-11.4C24 5.7 18.6.3 12 .3Z"/></svg>
+      </a>
+      <button class="lang-btn" id="langToggle" aria-label="切换语言">EN</button>
+      <button class="icon-btn" id="themeToggle" aria-label="切换主题">
+        <svg class="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M5.3 5.3l1.7 1.7M17 17l1.7 1.7M18.7 5.3 17 7M7 17l-1.7 1.7"/></svg>
+        <svg class="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.4 14.2A8.6 8.6 0 0 1 9.8 3.6a8.6 8.6 0 1 0 10.6 10.6Z"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<!-- ===================== Layout ===================== -->
+<div class="layout">
+
+  <!-- Left: navigation -->
+  <aside class="sidebar" id="sidebar">
+    <nav class="nav" aria-label="文档导航">
+      <div class="nav-group">
+        <button class="nav-group-title" aria-expanded="true" data-i18n="nav.getting-started">
+          快速开始
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <div class="nav-links">
+          <a class="nav-link" href="#introduction" data-i18n="nav.introduction">简介</a>
+          <a class="nav-link" href="#authentication" data-i18n="nav.authentication">身份认证</a>
+        </div>
+      </div>
+      <div class="nav-group">
+        <button class="nav-group-title" aria-expanded="true" data-i18n="nav.api-ref">
+          API 参考
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <div class="nav-links">
+          <a class="nav-link" href="#chat-completions" data-i18n="nav.chat">聊天补全</a>
+          <a class="nav-link" href="#models" data-i18n="nav.models">模型</a>
+          <a class="nav-link" href="#error-handling" data-i18n="nav.errors">错误处理</a>
+        </div>
+      </div>
+    </nav>
+    <div class="sidebar-foot">
+      <a href="#introduction" data-i18n="sidebar.status">状态</a>
+      <a href="#error-handling" data-i18n="sidebar.changelog">更新日志</a>
+      <a href="mailto:support@acme-ai.dev" data-i18n="sidebar.support">支持</a>
+    </div>
+  </aside>
+  <div class="scrim" id="scrim"></div>
+
+  <!-- Center: documentation -->
+  <main class="content">
+    <div class="content-inner">
+
+      <!-- ============ Introduction ============ -->
+      <section class="doc-section" id="introduction">
+        <h1 data-i18n="intro.title">Acme AI API 参考</h1>
+        <p class="lead" data-i18n="intro.lead">使用 Acme AI 构建智能应用。本文档涵盖 <code class="inline">v1</code> API 的全部端点、参数与响应。所有请求均通过 HTTPS 发送至下方 Base URL，每个响应均为 JSON 对象。</p>
+
+        <div class="base-url">
+          <span class="label">Base URL</span>
+          <code>https://api.acme-ai.dev/v1</code>
+          <button class="copy-btn" data-copy="https://api.acme-ai.dev/v1" aria-label="复制 Base URL">
+            <svg class="ic-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+            <svg class="ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.5 5 5 10-11"/></svg>
+            <span data-i18n="ui.copy">复制</span>
+          </button>
+        </div>
+
+        <div class="callout">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M12 11v5"/></svg>
+          <div data-i18n="intro.callout"><strong>速率限制。</strong>免费版每分钟 60 次请求。速率限制随套餐升级，可通过 <code class="inline">X-RateLimit-*</code> 响应头查看当前配额。</div>
+        </div>
+
+        <h3 data-i18n="intro.quickstart">快速开始</h3>
+        <ol class="steps">
+          <li><span data-i18n="intro.step1"><strong style="color:var(--text)">创建 API 密钥</strong>：在「控制台」创建密钥，并导出为 <code class="inline">ACME_API_KEY</code> 环境变量。</span></li>
+          <li><span data-i18n="intro.step2"><strong style="color:var(--text)">发送第一个请求</strong>：调用「<a href="#chat-completions">聊天补全</a>」端点。</span></li>
+          <li><span data-i18n="intro.step3"><strong style="color:var(--text)">解析响应</strong>：补全文本位于 <code class="inline">choices[0].message.content</code>。</span></li>
+          <li><span data-i18n="intro.step4"><strong style="color:var(--text)">处理错误</strong>：所有失败均返回结构化错误对象，参见「<a href="#error-handling">错误处理</a>」。</span></li>
+        </ol>
+      </section>
+
+      <!-- ============ Authentication ============ -->
+      <section class="doc-section" id="authentication">
+        <h2 data-i18n="auth.title">身份认证</h2>
+        <p data-i18n="auth.p1">API 使用密钥进行身份认证。你可以在「<strong style="color:var(--text)">控制台 → API 密钥</strong>」页面管理密钥，并通过 <code class="inline">Authorization</code> 请求头以 <code class="inline">Bearer</code> 方案传递：</p>
+
+        <div class="mini-code">Authorization: Bearer sk-••••••••••••••••••••</div>
+
+        <p data-i18n="auth.p2">建议将密钥保存在环境变量中，由 SDK 自动读取：</p>
+        <div class="mini-code">export ACME_API_KEY="sk-xxxxxxxxxxxxxxxx"</div>
+
+        <div class="callout warn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2.5 20h19L12 3Z"/><path d="M12 10v4M12 17.5h.01"/></svg>
+          <div data-i18n="auth.warn"><strong>请妥善保管密钥。</strong>切勿将 API 密钥嵌入客户端代码、公开仓库或任何用户可能提取的位置。密钥按账户计费并受速率限制——泄露密钥即泄露账单。</div>
+        </div>
+
+        <h3 data-i18n="auth.requirements">要求</h3>
+        <ul style="margin:0;padding-left:20px;color:var(--text-2)">
+          <li data-i18n="auth.req1">所有请求必须通过 <code class="inline">HTTPS</code> 发起。</li>
+          <li data-i18n="auth.req2">未携带有效密钥的请求将返回 <code class="inline">401 authentication_error</code>。</li>
+          <li data-i18n="auth.req3">密钥归属于你的组织，请求费用计入所属组织。</li>
+        </ul>
+      </section>
+
+      <!-- ============ Chat Completions ============ -->
+      <section class="doc-section" id="chat-completions">
+        <h2 data-i18n="chat.title">聊天补全</h2>
+        <p data-i18n="chat.p1">给定对话历史，模型返回下一条消息。这是对话与指令跟随场景的主要接口。</p>
+
+        <article class="endpoint">
+          <header class="endpoint-head">
+            <span class="method post">POST</span>
+            <code class="path">/v1/chat/completions</code>
+          </header>
+          <div class="endpoint-body">
+            <p class="endpoint-desc" data-i18n="chat.desc">为给定的聊天对话创建模型响应。</p>
+
+            <h3 data-i18n="h3.params">请求参数</h3>
+            <div class="table-wrap">
+              <table class="param-table">
+                <thead>
+                  <tr>
+                    <th data-i18n="tbl.p">参数</th><th data-i18n="tbl.t">类型</th>
+                    <th data-i18n="tbl.r">是否必填</th><th data-i18n="tbl.d">说明</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><code>model</code></td><td><span class="type-pill">string</span></td><td><span class="req" data-i18n="tbl.required">必需</span></td>
+                    <td class="desc" data-i18n="chat.model.desc">使用的模型 ID。可用选项参见「<a href="#models">模型</a>」端点。</td>
+                  </tr>
+                  <tr>
+                    <td><code>messages</code></td><td><span class="type-pill">array</span></td><td><span class="req" data-i18n="tbl.required">必需</span></td>
+                    <td class="desc" data-i18n="chat.messages.desc">构成对话的消息列表。每项为包含 <code class="inline">role</code>（<code class="inline">system</code>、<code class="inline">user</code> 或 <code class="inline">assistant</code>）与 <code class="inline">content</code>（字符串）的对象。</td>
+                  </tr>
+                  <tr>
+                    <td><code>temperature</code></td><td><span class="type-pill">number</span></td><td><span class="opt" data-i18n="tbl.optional">可选</span><span class="def" data-i18n="tbl.default1">默认 1</span></td>
+                    <td class="desc" data-i18n="chat.temperature.desc">采样温度，取值 0 到 2。值越高输出越随机，值越低越确定。</td>
+                  </tr>
+                  <tr>
+                    <td><code>top_p</code></td><td><span class="type-pill">number</span></td><td><span class="opt" data-i18n="tbl.optional">可选</span><span class="def" data-i18n="tbl.default1">默认 1</span></td>
+                    <td class="desc" data-i18n="chat.top_p.desc">核采样：仅考虑累积概率达到 <code class="inline">top_p</code> 的 token。建议只调整 <code class="inline">temperature</code> 或 <code class="inline">top_p</code> 之一。</td>
+                  </tr>
+                  <tr>
+                    <td><code>max_tokens</code></td><td><span class="type-pill">integer</span></td><td><span class="opt" data-i18n="tbl.optional">可选</span><span class="def" data-i18n="tbl.default4096">默认 4096</span></td>
+                    <td class="desc" data-i18n="chat.max_tokens.desc">生成的最大 token 数（含输入 token）。超出该上限的请求会被截断。</td>
+                  </tr>
+                  <tr>
+                    <td><code>stream</code></td><td><span class="type-pill">boolean</span></td><td><span class="opt" data-i18n="tbl.optional">可选</span><span class="def" data-i18n="tbl.defaultfalse">默认 false</span></td>
+                    <td class="desc" data-i18n="chat.stream.desc">为 <code class="inline">true</code> 时，部分增量以 Server-Sent Events 流式返回，而非单个 JSON 响应。</td>
+                  </tr>
+                  <tr>
+                    <td><code>stop</code></td><td><span class="type-pill">array | string</span></td><td><span class="opt" data-i18n="tbl.optional">可选</span></td>
+                    <td class="desc" data-i18n="chat.stop.desc">最多 4 个停止序列，API 在遇到这些序列时停止生成。返回文本不含停止序列。</td>
+                  </tr>
+                  <tr>
+                    <td><code>user</code></td><td><span class="type-pill">string</span></td><td><span class="opt" data-i18n="tbl.optional">可选</span></td>
+                    <td class="desc" data-i18n="chat.user.desc">代表终端用户的唯一标识，用于滥用监测与安全控制。</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h3 data-i18n="h3.response">响应</h3>
+            <ul class="field-list">
+              <li><span class="fname">id</span><span class="ftype">string</span><span class="fdesc" data-i18n="chat.field.id">聊天补全的唯一标识。</span></li>
+              <li><span class="fname">object</span><span class="ftype">string</span><span class="fdesc" data-i18n="chat.field.object">始终为 <code class="inline">chat.completion</code>。</span></li>
+              <li><span class="fname">created</span><span class="ftype">integer</span><span class="fdesc" data-i18n="chat.field.created">补全创建时的 Unix 时间戳（秒）。</span></li>
+              <li><span class="fname">model</span><span class="ftype">string</span><span class="fdesc" data-i18n="chat.field.model">生成响应的模型。</span></li>
+              <li><span class="fname">choices[]</span><span class="ftype">array</span><span class="fdesc" data-i18n="chat.field.choices">生成的补全列表，通常只有一个。</span></li>
+              <li><span class="fname">choices[].message</span><span class="ftype">object</span><span class="fdesc" data-i18n="chat.field.message">助手消息，包含 <code class="inline">role</code> 与 <code class="inline">content</code>。</span></li>
+              <li><span class="fname">choices[].finish_reason</span><span class="ftype">string</span><span class="fdesc" data-i18n="chat.field.finish"><code class="inline">stop</code>、<code class="inline">length</code> 或 <code class="inline">content_filter</code>。</span></li>
+              <li><span class="fname">usage</span><span class="ftype">object</span><span class="fdesc" data-i18n="chat.field.usage">Token 用量：<code class="inline">prompt_tokens</code>、<code class="inline">completion_tokens</code>、<code class="inline">total_tokens</code>。</span></li>
+            </ul>
+          </div>
+        </article>
+
+        <h3 data-i18n="chat.streaming">流式输出</h3>
+        <p data-i18n="chat.streaming.p">设置 <code class="inline">stream: true</code> 以接收增量结果。每个事件为包含部分补全的 <code class="inline">data:</code> 行，流以 <code class="inline">data: [DONE]</code> 结束。流式是低延迟聊天体验的推荐模式。</p>
+      </section>
+
+      <!-- ============ Models ============ -->
+      <section class="doc-section" id="models">
+        <h2 data-i18n="models.title">模型</h2>
+        <p data-i18n="models.p1">列出并描述平台可用的模型。模型 ID 稳定——固定 ID 将持续提供同一模型，直至弃用（至少提前 90 天公告）。</p>
+
+        <article class="endpoint">
+          <header class="endpoint-head">
+            <span class="method get">GET</span>
+            <code class="path">/v1/models</code>
+          </header>
+          <div class="endpoint-body">
+            <p class="endpoint-desc" data-i18n="models.list.desc">列出你的组织可用的模型。</p>
+            <h3 data-i18n="h3.params">请求参数</h3>
+            <div class="table-wrap">
+              <table class="param-table">
+                <thead>
+                  <tr>
+                    <th data-i18n="tbl.p">参数</th><th data-i18n="tbl.t">类型</th>
+                    <th data-i18n="tbl.r">是否必填</th><th data-i18n="tbl.d">说明</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><code>limit</code></td><td><span class="type-pill">integer</span></td><td><span class="opt" data-i18n="tbl.optional">可选</span><span class="def" data-i18n="tbl.default20">默认 20</span></td>
+                    <td class="desc" data-i18n="models.limit.desc">返回的最大模型数量。</td>
+                  </tr>
+                  <tr>
+                    <td><code>organization</code></td><td><span class="type-pill">string</span></td><td><span class="opt" data-i18n="tbl.optional">可选</span></td>
+                    <td class="desc" data-i18n="models.org.desc">按组织 ID 过滤结果。</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <h3 data-i18n="h3.response">响应</h3>
+            <ul class="field-list">
+              <li><span class="fname">object</span><span class="ftype">string</span><span class="fdesc" data-i18n="models.field.object">始终为 <code class="inline">list</code>。</span></li>
+              <li><span class="fname">data[]</span><span class="ftype">array</span><span class="fdesc" data-i18n="models.field.data">模型对象列表，每个对象包含 <code class="inline">id</code>、<code class="inline">object</code>、<code class="inline">created</code> 与 <code class="inline">owned_by</code>。</span></li>
+            </ul>
+          </div>
+        </article>
+
+        <article class="endpoint">
+          <header class="endpoint-head">
+            <span class="method get">GET</span>
+            <code class="path">/v1/models/<span class="path-param">{model_id}</span></code>
+          </header>
+          <div class="endpoint-body">
+            <p class="endpoint-desc" data-i18n="models.retrieve.desc">获取单个模型的元数据。</p>
+            <h3 data-i18n="h3.params">请求参数</h3>
+            <div class="table-wrap">
+              <table class="param-table">
+                <thead>
+                  <tr>
+                    <th data-i18n="tbl.p">参数</th><th data-i18n="tbl.t">类型</th>
+                    <th data-i18n="tbl.r">是否必填</th><th data-i18n="tbl.d">说明</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><code>model_id</code></td><td><span class="type-pill">string</span></td><td><span class="req" data-i18n="tbl.required">必需</span></td>
+                    <td class="desc" data-i18n="models.model-id.desc">要检索的模型，以路径参数形式提供。不存在时返回 <code class="inline">404 not_found_error</code>。</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <h3 data-i18n="h3.response">响应</h3>
+            <ul class="field-list">
+              <li><span class="fname">id</span><span class="ftype">string</span><span class="fdesc" data-i18n="models.field.id">模型标识符，如 <code class="inline">acme-chat-4</code>。</span></li>
+              <li><span class="fname">object</span><span class="ftype">string</span><span class="fdesc" data-i18n="models.field.object2">始终为 <code class="inline">model</code>。</span></li>
+              <li><span class="fname">created</span><span class="ftype">integer</span><span class="fdesc" data-i18n="models.field.created">模型创建时的 Unix 时间戳。</span></li>
+              <li><span class="fname">owned_by</span><span class="ftype">string</span><span class="fdesc" data-i18n="models.field.owned">拥有该模型的组织。</span></li>
+            </ul>
+          </div>
+        </article>
+      </section>
+
+      <!-- ============ Error Handling ============ -->
+      <section class="doc-section" id="error-handling">
+        <h2 data-i18n="errors.title">错误处理</h2>
+        <p data-i18n="errors.p1">所有错误响应均为包含单个 <code class="inline">error</code> 键的 JSON 对象。该对象始终包含 <code class="inline">message</code> 与 <code class="inline">type</code>；<code class="inline">code</code> 与 <code class="inline">param</code> 在适用时设置。HTTP 状态码反映错误类别。</p>
+
+        <div class="table-wrap">
+          <table class="param-table">
+            <thead>
+              <tr>
+                <th data-i18n="tbl.st">状态码</th><th data-i18n="tbl.cd">错误码</th><th data-i18n="tbl.d">说明</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><span class="method delete" style="letter-spacing:0">400</span></td><td><code>invalid_request_error</code></td><td class="desc" data-i18n="errors.400">请求格式错误或包含无效参数。</td></tr>
+              <tr><td><span class="method delete" style="letter-spacing:0">401</span></td><td><code>authentication_error</code></td><td class="desc" data-i18n="errors.401">API 密钥缺失、无效或已过期。</td></tr>
+              <tr><td><span class="method delete" style="letter-spacing:0">403</span></td><td><code>permission_error</code></td><td class="desc" data-i18n="errors.403">你的密钥无权访问该资源。</td></tr>
+              <tr><td><span class="method delete" style="letter-spacing:0">404</span></td><td><code>not_found_error</code></td><td class="desc" data-i18n="errors.404">请求的资源不存在。</td></tr>
+              <tr><td><span class="method get" style="letter-spacing:0">429</span></td><td><code>rate_limit_error</code></td><td class="desc" data-i18n="errors.429">请求过于频繁。请在 <code class="inline">X-RateLimit-Reset</code> 响应头指示的时间后重试。</td></tr>
+              <tr><td><span class="method get" style="letter-spacing:0">500</span></td><td><code>internal_server_error</code></td><td class="desc" data-i18n="errors.500">服务器意外错误。请使用指数退避重试（1s → 2s → 4s）。</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 data-i18n="errors.retry">重试建议</h3>
+        <p data-i18n="errors.retry.p">对于瞬时错误（<code class="inline">429</code>、<code class="inline">5xx</code>、网络超时），请使用带抖动的指数退避重试。切勿重试 <code class="inline">4xx</code> 错误——请修复请求。右侧示例展示了如何将结构化错误呈现给用户。</p>
+      </section>
+
+      <div class="feedback">
+        <span data-i18n="feedback.label">此页面有帮助吗？</span>
+        <button type="button" data-i18n="feedback.yes">有帮助</button>
+        <button type="button" data-i18n="feedback.no">没帮助</button>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- Right: code samples -->
+  <aside class="code-rail" aria-label="代码示例">
+    <div class="rail-sticky">
+      <p class="rail-label" data-i18n="rail.label">代码示例</p>
+
+      <div class="code-panel" data-endpoint="chat-completions">
+        <div class="code-tabs">
+          <span class="code-title">POST /v1/chat/completions</span>
+          <button class="code-tab active" data-lang="python">Python</button>
+          <button class="code-tab" data-lang="javascript">JavaScript</button>
+          <button class="code-tab" data-lang="curl">cURL</button>
+          <button class="copy-btn" aria-label="复制代码">
+            <svg class="ic-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+            <svg class="ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.5 5 5 10-11"/></svg>
+            <span data-i18n="ui.copy">复制</span>
+          </button>
+        </div>
+        <pre data-lang="python"></pre>
+        <pre data-lang="javascript" hidden></pre>
+        <pre data-lang="curl" hidden></pre>
+        <div class="resp-block">
+          <div class="resp-head"><span class="dot"></span><span data-i18n="resp.head.ok">响应 —</span> <span class="status">200 OK</span></div>
+          <pre data-lang="json"></pre>
+        </div>
+      </div>
+
+      <div class="code-panel" data-endpoint="models">
+        <div class="code-tabs">
+          <span class="code-title">GET /v1/models</span>
+          <button class="code-tab active" data-lang="python">Python</button>
+          <button class="code-tab" data-lang="javascript">JavaScript</button>
+          <button class="code-tab" data-lang="curl">cURL</button>
+          <button class="copy-btn" aria-label="复制代码">
+            <svg class="ic-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+            <svg class="ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.5 5 5 10-11"/></svg>
+            <span data-i18n="ui.copy">复制</span>
+          </button>
+        </div>
+        <pre data-lang="python"></pre>
+        <pre data-lang="javascript" hidden></pre>
+        <pre data-lang="curl" hidden></pre>
+        <div class="resp-block">
+          <div class="resp-head"><span class="dot"></span><span data-i18n="resp.head.ok">响应 —</span> <span class="status">200 OK</span></div>
+          <pre data-lang="json"></pre>
+        </div>
+      </div>
+
+      <div class="code-panel" data-endpoint="error-handling">
+        <div class="code-tabs">
+          <span class="code-title" data-i18n="rail.title.errors">错误响应</span>
+          <button class="code-tab active" data-lang="python">Python</button>
+          <button class="code-tab" data-lang="javascript">JavaScript</button>
+          <button class="code-tab" data-lang="curl">cURL</button>
+          <button class="copy-btn" aria-label="复制代码">
+            <svg class="ic-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+            <svg class="ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.5 5 5 10-11"/></svg>
+            <span data-i18n="ui.copy">复制</span>
+          </button>
+        </div>
+        <pre data-lang="python"></pre>
+        <pre data-lang="javascript" hidden></pre>
+        <pre data-lang="curl" hidden></pre>
+        <div class="resp-block">
+          <div class="resp-head"><span class="dot"></span><span data-i18n="resp.head.err">错误响应 —</span> <span class="status" data-i18n="resp.status.err">401 未授权</span></div>
+          <pre data-lang="json"></pre>
+        </div>
+      </div>
+
+    </div>
+  </aside>
+
+</div>
+
+<!-- ===================== Code sources — 中文（默认） ===================== -->
+<script type="text/plain" id="src-chat-completions-python-zh">
+import os
+import requests
+
+API_KEY = os.getenv("ACME_API_KEY")
+
+resp = requests.post(
+    "https://api.acme-ai.dev/v1/chat/completions",
+    headers={
+        "Authorization": f"Bearer {API_KEY}",
+        "Content-Type": "application/json",
+    },
+    json={
+        "model": "acme-chat-4",
+        "messages": [
+            {"role": "system", "content": "你是一个乐于助人的助手。"},
+            {"role": "user", "content": "用 5 个词解释量子计算。"},
+        ],
+        "temperature": 0.7,
+        "max_tokens": 64,
+    },
+    timeout=30,
+)
+resp.raise_for_status()
+
+reply = resp.json()["choices"][0]["message"]["content"]
+print(reply)
+</script>
+<script type="text/plain" id="src-chat-completions-javascript-zh">
+const API_KEY = process.env.ACME_API_KEY;
+
+const resp = await fetch("https://api.acme-ai.dev/v1/chat/completions", {
+  method: "POST",
+  headers: {
+    Authorization: `Bearer ${API_KEY}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    model: "acme-chat-4",
+    messages: [
+      { role: "system", content: "你是一个乐于助人的助手。" },
+      { role: "user", content: "用 5 个词解释量子计算。" },
+    ],
+    temperature: 0.7,
+    max_tokens: 64,
+  }),
+});
+
+if (!resp.ok) throw new Error(`API 错误：${resp.status}`);
+const data = await resp.json();
+console.log(data.choices[0].message.content);
+</script>
+<script type="text/plain" id="src-chat-completions-curl-zh">
+curl https://api.acme-ai.dev/v1/chat/completions \
+  -H "Authorization: Bearer $ACME_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "acme-chat-4",
+    "messages": [
+      {"role": "system", "content": "你是一个乐于助人的助手。"},
+      {"role": "user", "content": "用 5 个词解释量子计算。"}
+    ],
+    "temperature": 0.7,
+    "max_tokens": 64
+  }'
+</script>
+<script type="text/plain" id="src-chat-completions-resp-zh">
+{
+  "id": "chatcmpl-9zKqT2hG",
+  "object": "chat.completion",
+  "created": 1728403200,
+  "model": "acme-chat-4",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "量子计算利用量子比特。",
+        "refusal": null
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 18,
+    "completion_tokens": 7,
+    "total_tokens": 25
+  }
+}
+</script>
+
+<script type="text/plain" id="src-models-python-zh">
+import os
+import requests
+
+API_KEY = os.getenv("ACME_API_KEY")
+
+resp = requests.get(
+    "https://api.acme-ai.dev/v1/models",
+    headers={"Authorization": f"Bearer {API_KEY}"},
+    timeout=15,
+)
+resp.raise_for_status()
+
+for model in resp.json()["data"]:
+    print(model["id"], model["owned_by"])
+</script>
+<script type="text/plain" id="src-models-javascript-zh">
+const resp = await fetch("https://api.acme-ai.dev/v1/models", {
+  headers: { Authorization: `Bearer ${process.env.ACME_API_KEY}` },
+});
+
+if (!resp.ok) throw new Error(`API 错误：${resp.status}`);
+const { data } = await resp.json();
+data.forEach((model) => console.log(model.id, model.owned_by));
+</script>
+<script type="text/plain" id="src-models-curl-zh">
+curl https://api.acme-ai.dev/v1/models \
+  -H "Authorization: Bearer $ACME_API_KEY"
+</script>
+<script type="text/plain" id="src-models-resp-zh">
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "acme-chat-4",
+      "object": "model",
+      "created": 1728403200,
+      "owned_by": "acme"
+    },
+    {
+      "id": "acme-embed-2",
+      "object": "model",
+      "created": 1727395200,
+      "owned_by": "acme"
+    },
+    {
+      "id": "acme-vision-1",
+      "object": "model",
+      "created": 1726000000,
+      "owned_by": "acme"
+    }
+  ]
+}
+</script>
+
+<script type="text/plain" id="src-error-handling-python-zh">
+import os
+import requests
+
+API_KEY = os.getenv("ACME_API_KEY")
+
+resp = requests.post(
+    "https://api.acme-ai.dev/v1/chat/completions",
+    headers={"Authorization": f"Bearer {API_KEY}"},
+    json={
+        "model": "unknown-model",
+        "messages": [{"role": "user", "content": "你好"}],
+    },
+)
+
+if not resp.ok:
+    err = resp.json().get("error", {})
+    print(
+        f"{err.get('type', 'unknown')}: "
+        f"{err.get('message', resp.text)}"
+    )
+    raise SystemExit(1)
+</script>
+<script type="text/plain" id="src-error-handling-javascript-zh">
+const resp = await fetch("https://api.acme-ai.dev/v1/chat/completions", {
+  method: "POST",
+  headers: {
+    Authorization: `Bearer ${process.env.ACME_API_KEY}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    model: "unknown-model",
+    messages: [{ role: "user", content: "你好" }],
+  }),
+});
+
+if (!resp.ok) {
+  const { error } = await resp.json();
+  console.error(`${error.type}: ${error.message}`);
+}
+</script>
+<script type="text/plain" id="src-error-handling-curl-zh">
+# 故意触发身份认证错误
+curl https://api.acme-ai.dev/v1/chat/completions \
+  -H "Authorization: Bearer sk-invalid-key" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "acme-chat-4", "messages": [{"role": "user", "content": "你好"}]}'
+</script>
+<script type="text/plain" id="src-error-handling-resp-zh">
+{
+  "error": {
+    "message": "API 密钥不正确：sk-***。你可以在 https://acme-ai.dev/keys 找到你的 API 密钥。",
+    "type": "authentication_error",
+    "code": null,
+    "param": null
+  }
+}
+</script>
+
+<!-- ===================== Code sources — English ===================== -->
+<script type="text/plain" id="src-chat-completions-python-en">
+import os
+import requests
+
+API_KEY = os.getenv("ACME_API_KEY")
+
+resp = requests.post(
+    "https://api.acme-ai.dev/v1/chat/completions",
+    headers={
+        "Authorization": f"Bearer {API_KEY}",
+        "Content-Type": "application/json",
+    },
+    json={
+        "model": "acme-chat-4",
+        "messages": [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "Explain quantum computing in 5 words."},
+        ],
+        "temperature": 0.7,
+        "max_tokens": 64,
+    },
+    timeout=30,
+)
+resp.raise_for_status()
+
+reply = resp.json()["choices"][0]["message"]["content"]
+print(reply)
+</script>
+<script type="text/plain" id="src-chat-completions-javascript-en">
+const API_KEY = process.env.ACME_API_KEY;
+
+const resp = await fetch("https://api.acme-ai.dev/v1/chat/completions", {
+  method: "POST",
+  headers: {
+    Authorization: `Bearer ${API_KEY}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    model: "acme-chat-4",
+    messages: [
+      { role: "system", content: "You are a helpful assistant." },
+      { role: "user", content: "Explain quantum computing in 5 words." },
+    ],
+    temperature: 0.7,
+    max_tokens: 64,
+  }),
+});
+
+if (!resp.ok) throw new Error(`API error: ${resp.status}`);
+const data = await resp.json();
+console.log(data.choices[0].message.content);
+</script>
+<script type="text/plain" id="src-chat-completions-curl-en">
+curl https://api.acme-ai.dev/v1/chat/completions \
+  -H "Authorization: Bearer $ACME_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "acme-chat-4",
+    "messages": [
+      {"role": "system", "content": "You are a helpful assistant."},
+      {"role": "user", "content": "Explain quantum computing in 5 words."}
+    ],
+    "temperature": 0.7,
+    "max_tokens": 64
+  }'
+</script>
+<script type="text/plain" id="src-chat-completions-resp-en">
+{
+  "id": "chatcmpl-9zKqT2hG",
+  "object": "chat.completion",
+  "created": 1728403200,
+  "model": "acme-chat-4",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Quantum computing uses qubits.",
+        "refusal": null
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 18,
+    "completion_tokens": 7,
+    "total_tokens": 25
+  }
+}
+</script>
+
+<script type="text/plain" id="src-models-python-en">
+import os
+import requests
+
+API_KEY = os.getenv("ACME_API_KEY")
+
+resp = requests.get(
+    "https://api.acme-ai.dev/v1/models",
+    headers={"Authorization": f"Bearer {API_KEY}"},
+    timeout=15,
+)
+resp.raise_for_status()
+
+for model in resp.json()["data"]:
+    print(model["id"], model["owned_by"])
+</script>
+<script type="text/plain" id="src-models-javascript-en">
+const resp = await fetch("https://api.acme-ai.dev/v1/models", {
+  headers: { Authorization: `Bearer ${process.env.ACME_API_KEY}` },
+});
+
+if (!resp.ok) throw new Error(`API error: ${resp.status}`);
+const { data } = await resp.json();
+data.forEach((model) => console.log(model.id, model.owned_by));
+</script>
+<script type="text/plain" id="src-models-curl-en">
+curl https://api.acme-ai.dev/v1/models \
+  -H "Authorization: Bearer $ACME_API_KEY"
+</script>
+<script type="text/plain" id="src-models-resp-en">
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "acme-chat-4",
+      "object": "model",
+      "created": 1728403200,
+      "owned_by": "acme"
+    },
+    {
+      "id": "acme-embed-2",
+      "object": "model",
+      "created": 1727395200,
+      "owned_by": "acme"
+    },
+    {
+      "id": "acme-vision-1",
+      "object": "model",
+      "created": 1726000000,
+      "owned_by": "acme"
+    }
+  ]
+}
+</script>
+
+<script type="text/plain" id="src-error-handling-python-en">
+import os
+import requests
+
+API_KEY = os.getenv("ACME_API_KEY")
+
+resp = requests.post(
+    "https://api.acme-ai.dev/v1/chat/completions",
+    headers={"Authorization": f"Bearer {API_KEY}"},
+    json={
+        "model": "unknown-model",
+        "messages": [{"role": "user", "content": "Hi"}],
+    },
+)
+
+if not resp.ok:
+    err = resp.json().get("error", {})
+    print(
+        f"{err.get('type', 'unknown')}: "
+        f"{err.get('message', resp.text)}"
+    )
+    raise SystemExit(1)
+</script>
+<script type="text/plain" id="src-error-handling-javascript-en">
+const resp = await fetch("https://api.acme-ai.dev/v1/chat/completions", {
+  method: "POST",
+  headers: {
+    Authorization: `Bearer ${process.env.ACME_API_KEY}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    model: "unknown-model",
+    messages: [{ role: "user", content: "Hi" }],
+  }),
+});
+
+if (!resp.ok) {
+  const { error } = await resp.json();
+  console.error(`${error.type}: ${error.message}`);
+}
+</script>
+<script type="text/plain" id="src-error-handling-curl-en">
+# Intentionally triggers an authentication error
+curl https://api.acme-ai.dev/v1/chat/completions \
+  -H "Authorization: Bearer sk-invalid-key" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "acme-chat-4", "messages": [{"role": "user", "content": "Hi"}]}'
+</script>
+<script type="text/plain" id="src-error-handling-resp-en">
+{
+  "error": {
+    "message": "Incorrect API key provided: sk-***. You can find your API key at https://acme-ai.dev/keys.",
+    "type": "authentication_error",
+    "code": null,
+    "param": null
+  }
+}
+</script>
+
+<script>
+/* ============================================================
+   Acme AI API Reference — app logic (zero dependencies)
+   ============================================================ */
+(function () {
+  "use strict";
+
+  var root = document.documentElement;
+  var SRC = {};
+
+  /* ---------- Theme (dark default, persisted) ---------- */
+  var savedTheme = null;
+  try { savedTheme = localStorage.getItem("acme-api-theme"); } catch (e) {}
+  if (savedTheme === "light" || savedTheme === "dark") root.dataset.theme = savedTheme;
+
+  var themeToggle = document.getElementById("themeToggle");
+  themeToggle.addEventListener("click", function () {
+    root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
+    try { localStorage.setItem("acme-api-theme", root.dataset.theme); } catch (e) {}
+  });
+
+  /* ============================================================
+     i18n — zh default, en toggle, persisted
+     ============================================================ */
+  var I18N = {
+    "ui.title":   { zh: "Acme AI API 参考", en: "Acme AI API Reference" },
+    "ui.copy":    { zh: "复制", en: "Copy" },
+    "brand.tag":  { zh: "API 参考", en: "API Reference" },
+    "search.placeholder": { zh: "搜索文档…", en: "Search docs…" },
+
+    "nav.getting-started": { zh: "快速开始", en: "Getting Started" },
+    "nav.api-ref":   { zh: "API 参考", en: "API Reference" },
+    "nav.introduction": { zh: "简介", en: "Introduction" },
+    "nav.authentication": { zh: "身份认证", en: "Authentication" },
+    "nav.chat":      { zh: "聊天补全", en: "Chat Completions" },
+    "nav.models":    { zh: "模型", en: "Models" },
+    "nav.errors":    { zh: "错误处理", en: "Error Handling" },
+    "sidebar.status":    { zh: "状态", en: "Status" },
+    "sidebar.changelog": { zh: "更新日志", en: "Changelog" },
+    "sidebar.support":   { zh: "支持", en: "Support" },
+
+    "intro.title": { zh: "Acme AI API 参考", en: "Acme AI API Reference" },
+    "intro.lead": {
+      zh: "使用 Acme AI 构建智能应用。本文档涵盖 <code class=\"inline\">v1</code> API 的全部端点、参数与响应。所有请求均通过 HTTPS 发送至下方 Base URL，每个响应均为 JSON 对象。",
+      en: "Build intelligent applications with Acme AI. This reference documents every endpoint, parameter, and response in the <code class=\"inline\">v1</code> API. All requests are made over HTTPS against the base URL below, and every response is a JSON object."
+    },
+    "intro.callout": {
+      zh: "<strong>速率限制。</strong>免费版每分钟 60 次请求。速率限制随套餐升级，可通过 <code class=\"inline\">X-RateLimit-*</code> 响应头查看当前配额。",
+      en: "<strong>Rate limits.</strong> The free tier allows 60 requests per minute. Rate limits scale with your plan — check the <code class=\"inline\">X-RateLimit-*</code> response headers for your current allowance."
+    },
+    "intro.quickstart": { zh: "快速开始", en: "Quick start" },
+    "intro.step1": {
+      zh: "<strong style=\"color:var(--text)\">创建 API 密钥</strong>：在「控制台」创建密钥，并导出为 <code class=\"inline\">ACME_API_KEY</code> 环境变量。",
+      en: "<strong style=\"color:var(--text)\">Create an API key</strong> in the Dashboard and export it as <code class=\"inline\">ACME_API_KEY</code>."
+    },
+    "intro.step2": {
+      zh: "<strong style=\"color:var(--text)\">发送第一个请求</strong>：调用「<a href=\"#chat-completions\">聊天补全</a>」端点。",
+      en: "<strong style=\"color:var(--text)\">Send your first request</strong> — a chat completion against the <a href=\"#chat-completions\">Chat Completions</a> endpoint."
+    },
+    "intro.step3": {
+      zh: "<strong style=\"color:var(--text)\">解析响应</strong>：补全文本位于 <code class=\"inline\">choices[0].message.content</code>。",
+      en: "<strong style=\"color:var(--text)\">Parse the response</strong> — completion text lives at <code class=\"inline\">choices[0].message.content</code>."
+    },
+    "intro.step4": {
+      zh: "<strong style=\"color:var(--text)\">处理错误</strong>：所有失败均返回结构化错误对象，参见「<a href=\"#error-handling\">错误处理</a>」。",
+      en: "<strong style=\"color:var(--text)\">Handle errors</strong> — every failure returns a structured error object; see <a href=\"#error-handling\">Error Handling</a>."
+    },
+
+    "auth.title": { zh: "身份认证", en: "Authentication" },
+    "auth.p1": {
+      zh: "API 使用密钥进行身份认证。你可以在「<strong style=\"color:var(--text)\">控制台 → API 密钥</strong>」页面管理密钥，并通过 <code class=\"inline\">Authorization</code> 请求头以 <code class=\"inline\">Bearer</code> 方案传递：",
+      en: "The API uses API keys to authenticate requests. You can manage keys from the <strong style=\"color:var(--text)\">Dashboard → API Keys</strong> page. Keys are passed in the <code class=\"inline\">Authorization</code> header using the <code class=\"inline\">Bearer</code> scheme:"
+    },
+    "auth.p2": {
+      zh: "建议将密钥保存在环境变量中，由 SDK 自动读取：",
+      en: "We recommend storing the key in an environment variable and letting your SDK pick it up automatically:"
+    },
+    "auth.warn": {
+      zh: "<strong>请妥善保管密钥。</strong>切勿将 API 密钥嵌入客户端代码、公开仓库或任何用户可能提取的位置。密钥按账户计费并受速率限制——泄露密钥即泄露账单。",
+      en: "<strong>Keep your key secret.</strong> Never embed API keys in client-side code, public repositories, or any place a user could extract them. Keys are billed and rate-limited per account — a leaked key is a leaked bill."
+    },
+    "auth.requirements": { zh: "要求", en: "Requirements" },
+    "auth.req1": { zh: "所有请求必须通过 <code class=\"inline\">HTTPS</code> 发起。", en: "All requests must be made over <code class=\"inline\">HTTPS</code>." },
+    "auth.req2": { zh: "未携带有效密钥的请求将返回 <code class=\"inline\">401 authentication_error</code>。", en: "Requests without a valid key return <code class=\"inline\">401 authentication_error</code>." },
+    "auth.req3": { zh: "密钥归属于你的组织，请求费用计入所属组织。", en: "Keys are scoped to your organization — requests are billed to the owning organization." },
+
+    "h3.params":  { zh: "请求参数", en: "Request parameters" },
+    "h3.response":{ zh: "响应", en: "Response" },
+    "tbl.p": { zh: "参数", en: "Parameter" },
+    "tbl.t": { zh: "类型", en: "Type" },
+    "tbl.r": { zh: "是否必填", en: "Required" },
+    "tbl.d": { zh: "说明", en: "Description" },
+    "tbl.st": { zh: "状态码", en: "Status" },
+    "tbl.cd": { zh: "错误码", en: "Code" },
+    "tbl.required": { zh: "必需", en: "Required" },
+    "tbl.optional": { zh: "可选", en: "Optional" },
+    "tbl.default1": { zh: "默认 1", en: "Default 1" },
+    "tbl.default20": { zh: "默认 20", en: "Default 20" },
+    "tbl.default4096": { zh: "默认 4096", en: "Default 4096" },
+    "tbl.defaultfalse": { zh: "默认 false", en: "Default false" },
+
+    "chat.title": { zh: "聊天补全", en: "Chat Completions" },
+    "chat.p1": {
+      zh: "给定对话历史，模型返回下一条消息。这是对话与指令跟随场景的主要接口。",
+      en: "Given a conversation history, the model returns the next message. This is the primary interface for conversational and instruction-following use cases."
+    },
+    "chat.desc": { zh: "为给定的聊天对话创建模型响应。", en: "Creates a model response for the given chat conversation." },
+    "chat.model.desc": {
+      zh: "使用的模型 ID。可用选项参见「<a href=\"#models\">模型</a>」端点。",
+      en: "ID of the model to use. See the <a href=\"#models\">Models</a> endpoint for available options."
+    },
+    "chat.messages.desc": {
+      zh: "构成对话的消息列表。每项为包含 <code class=\"inline\">role</code>（<code class=\"inline\">system</code>、<code class=\"inline\">user</code> 或 <code class=\"inline\">assistant</code>）与 <code class=\"inline\">content</code>（字符串）的对象。",
+      en: "A list of messages comprising the conversation. Each item is an object with <code class=\"inline\">role</code> (<code class=\"inline\">system</code>, <code class=\"inline\">user</code>, or <code class=\"inline\">assistant</code>) and <code class=\"inline\">content</code> (string)."
+    },
+    "chat.temperature.desc": {
+      zh: "采样温度，取值 0 到 2。值越高输出越随机，值越低越确定。",
+      en: "Sampling temperature between 0 and 2. Higher values make output more random, lower values more deterministic."
+    },
+    "chat.top_p.desc": {
+      zh: "核采样：仅考虑累积概率达到 <code class=\"inline\">top_p</code> 的 token。建议只调整 <code class=\"inline\">temperature</code> 或 <code class=\"inline\">top_p</code> 之一。",
+      en: "Nucleus sampling: consider only tokens whose cumulative probability reaches <code class=\"inline\">top_p</code>. We recommend altering <code class=\"inline\">temperature</code> or <code class=\"inline\">top_p</code>, not both."
+    },
+    "chat.max_tokens.desc": {
+      zh: "生成的最大 token 数（含输入 token）。超出该上限的请求会被截断。",
+      en: "Maximum number of tokens to generate in the completion, including input tokens. Requests that exceed this are truncated."
+    },
+    "chat.stream.desc": {
+      zh: "为 <code class=\"inline\">true</code> 时，部分增量以 Server-Sent Events 流式返回，而非单个 JSON 响应。",
+      en: "When true, partial message deltas are streamed back as Server-Sent Events instead of a single JSON response."
+    },
+    "chat.stop.desc": {
+      zh: "最多 4 个停止序列，API 在遇到这些序列时停止生成。返回文本不含停止序列。",
+      en: "Up to 4 sequences where the API will stop generating further tokens. Returned text will not contain the stop sequence."
+    },
+    "chat.user.desc": {
+      zh: "代表终端用户的唯一标识，用于滥用监测与安全控制。",
+      en: "A unique identifier representing your end user, used for abuse monitoring and safety controls."
+    },
+    "chat.field.id": { zh: "聊天补全的唯一标识。", en: "A unique identifier for the chat completion." },
+    "chat.field.object": { zh: "始终为 <code class=\"inline\">chat.completion</code>。", en: "Always <code class=\"inline\">chat.completion</code>." },
+    "chat.field.created": { zh: "补全创建时的 Unix 时间戳（秒）。", en: "Unix timestamp (seconds) of when the completion was created." },
+    "chat.field.model": { zh: "生成响应的模型。", en: "The model that generated the response." },
+    "chat.field.choices": { zh: "生成的补全列表，通常只有一个。", en: "A list of generated completions — usually one." },
+    "chat.field.message": { zh: "助手消息，包含 <code class=\"inline\">role</code> 与 <code class=\"inline\">content</code>。", en: "Assistant message, containing <code class=\"inline\">role</code> and <code class=\"inline\">content</code>." },
+    "chat.field.finish": { zh: "<code class=\"inline\">stop</code>、<code class=\"inline\">length</code> 或 <code class=\"inline\">content_filter</code>。", en: "<code class=\"inline\">stop</code>, <code class=\"inline\">length</code>, or <code class=\"inline\">content_filter</code>." },
+    "chat.field.usage": { zh: "Token 用量：<code class=\"inline\">prompt_tokens</code>、<code class=\"inline\">completion_tokens</code>、<code class=\"inline\">total_tokens</code>。", en: "Token usage: <code class=\"inline\">prompt_tokens</code>, <code class=\"inline\">completion_tokens</code>, <code class=\"inline\">total_tokens</code>." },
+    "chat.streaming": { zh: "流式输出", en: "Streaming" },
+    "chat.streaming.p": {
+      zh: "设置 <code class=\"inline\">stream: true</code> 以接收增量结果。每个事件为包含部分补全的 <code class=\"inline\">data:</code> 行，流以 <code class=\"inline\">data: [DONE]</code> 结束。流式是低延迟聊天体验的推荐模式。",
+      en: "Set <code class=\"inline\">stream: true</code> to receive partial deltas. Each event is a <code class=\"inline\">data:</code> line containing a partial completion; the stream terminates with <code class=\"inline\">data: [DONE]</code>. Streams are the recommended pattern for low-latency chat experiences."
+    },
+
+    "models.title": { zh: "模型", en: "Models" },
+    "models.p1": {
+      zh: "列出并描述平台可用的模型。模型 ID 稳定——固定 ID 将持续提供同一模型，直至弃用（至少提前 90 天公告）。",
+      en: "List and describe the models available on the platform. Model IDs are stable — a pinned ID will keep serving the same model until deprecated (announced at least 90 days in advance)."
+    },
+    "models.list.desc": { zh: "列出你的组织可用的模型。", en: "Lists the models available to your organization." },
+    "models.limit.desc": { zh: "返回的最大模型数量。", en: "Maximum number of models to return." },
+    "models.org.desc": { zh: "按组织 ID 过滤结果。", en: "Filter results to a specific organization by ID." },
+    "models.field.object": { zh: "始终为 <code class=\"inline\">list</code>。", en: "Always <code class=\"inline\">list</code>." },
+    "models.field.data": { zh: "模型对象列表，每个对象包含 <code class=\"inline\">id</code>、<code class=\"inline\">object</code>、<code class=\"inline\">created</code> 与 <code class=\"inline\">owned_by</code>。", en: "A list of model objects, each with <code class=\"inline\">id</code>, <code class=\"inline\">object</code>, <code class=\"inline\">created</code>, and <code class=\"inline\">owned_by</code>." },
+    "models.retrieve.desc": { zh: "获取单个模型的元数据。", en: "Retrieves metadata for a single model." },
+    "models.model-id.desc": { zh: "要检索的模型，以路径参数形式提供。不存在时返回 <code class=\"inline\">404 not_found_error</code>。", en: "The model to retrieve, provided as a path parameter. Returns <code class=\"inline\">404 not_found_error</code> if it does not exist." },
+    "models.field.id": { zh: "模型标识符，如 <code class=\"inline\">acme-chat-4</code>。", en: "The model identifier, e.g. <code class=\"inline\">acme-chat-4</code>." },
+    "models.field.object2": { zh: "始终为 <code class=\"inline\">model</code>。", en: "Always <code class=\"inline\">model</code>." },
+    "models.field.created": { zh: "模型创建时的 Unix 时间戳。", en: "Unix timestamp of when the model was created." },
+    "models.field.owned": { zh: "拥有该模型的组织。", en: "The organization that owns the model." },
+
+    "errors.title": { zh: "错误处理", en: "Error Handling" },
+    "errors.p1": {
+      zh: "所有错误响应均为包含单个 <code class=\"inline\">error</code> 键的 JSON 对象。该对象始终包含 <code class=\"inline\">message</code> 与 <code class=\"inline\">type</code>；<code class=\"inline\">code</code> 与 <code class=\"inline\">param</code> 在适用时设置。HTTP 状态码反映错误类别。",
+      en: "Every error response is a JSON object with a single <code class=\"inline\">error</code> key. The object always includes <code class=\"inline\">message</code> and <code class=\"inline\">type</code>; <code class=\"inline\">code</code> and <code class=\"inline\">param</code> are set when applicable. The HTTP status code reflects the error class."
+    },
+    "errors.400": { zh: "请求格式错误或包含无效参数。", en: "The request was malformed or contains invalid parameters." },
+    "errors.401": { zh: "API 密钥缺失、无效或已过期。", en: "The API key is missing, invalid, or expired." },
+    "errors.403": { zh: "你的密钥无权访问该资源。", en: "Your key does not have permission for this resource." },
+    "errors.404": { zh: "请求的资源不存在。", en: "The requested resource does not exist." },
+    "errors.429": { zh: "请求过于频繁。请在 <code class=\"inline\">X-RateLimit-Reset</code> 响应头指示的时间后重试。", en: "Too many requests. Retry after the time in the <code class=\"inline\">X-RateLimit-Reset</code> header." },
+    "errors.500": { zh: "服务器意外错误。请使用指数退避重试（1s → 2s → 4s）。", en: "Unexpected server error. Retry with exponential backoff (1s → 2s → 4s)." },
+    "errors.retry": { zh: "重试建议", en: "Retry guidance" },
+    "errors.retry.p": {
+      zh: "对于瞬时错误（<code class=\"inline\">429</code>、<code class=\"inline\">5xx</code>、网络超时），请使用带抖动的指数退避重试。切勿重试 <code class=\"inline\">4xx</code> 错误——请修复请求。右侧示例展示了如何将结构化错误呈现给用户。",
+      en: "For transient failures (<code class=\"inline\">429</code>, <code class=\"inline\">5xx</code>, network timeouts), retry with exponential backoff and jitter. Never retry <code class=\"inline\">4xx</code> errors — fix the request instead. The sample on the right shows how to surface the structured error to your users."
+    },
+
+    "feedback.label": { zh: "此页面有帮助吗？", en: "Was this page helpful?" },
+    "feedback.yes": { zh: "有帮助", en: "Yes" },
+    "feedback.no": { zh: "没帮助", en: "No" },
+    "feedback.thanks": { zh: "感谢你的反馈！", en: "Thanks for the feedback!" },
+
+    "rail.label": { zh: "代码示例", en: "Code samples" },
+    "rail.title.errors": { zh: "错误响应", en: "Error responses" },
+    "resp.head.ok": { zh: "响应 —", en: "Response —" },
+    "resp.head.err": { zh: "错误响应 —", en: "Error response —" },
+    "resp.status.err": { zh: "401 未授权", en: "401 Unauthorized" }
+  };
+
+  var curLang = "zh";
+  var savedLang = null;
+  try { savedLang = localStorage.getItem("acme-api-lang"); } catch (e) {}
+  if (savedLang === "zh" || savedLang === "en") curLang = savedLang;
+
+  var langToggle = document.getElementById("langToggle");
+
+  function applyLang(lang) {
+    curLang = lang;
+    root.setAttribute("lang", lang === "zh" ? "zh-CN" : "en");
+    document.querySelectorAll("[data-i18n]").forEach(function (el) {
+      var key = el.getAttribute("data-i18n");
+      var entry = I18N[key];
+      if (!entry) return;
+      var attr = el.getAttribute("data-i18n-attr");
+      if (attr === "placeholder") { el.setAttribute("placeholder", entry[lang]); }
+      else if (attr === "title") { el.setAttribute("title", entry[lang]); }
+      else { el.innerHTML = entry[lang]; }
+    });
+    langToggle.textContent = lang === "zh" ? "EN" : "中文";
+    renderAllCode();
+  }
+
+  langToggle.addEventListener("click", function () {
+    var next = curLang === "zh" ? "en" : "zh";
+    applyLang(next);
+    try { localStorage.setItem("acme-api-lang", next); } catch (e) {}
+  });
+
+  /* ---------- Collapsible nav groups ---------- */
+  document.querySelectorAll(".nav-group-title").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      btn.closest(".nav-group").classList.toggle("collapsed");
+      btn.setAttribute("aria-expanded", !btn.closest(".nav-group").classList.contains("collapsed"));
+    });
+  });
+
+  /* ---------- Syntax highlighting (mini tokenizer) ---------- */
+  function escapeHtml(s) {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  var HL = {
+    python: [
+      { cls: "st", re: /"""(?:[^"\\]|\\.|"(?!"")|""(?!"))*"""|'''(?:[^'\\]|\\.|'(?!'')|''(?!'))*'''|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'/ },
+      { cls: "cm", re: /#[^\n]*/ },
+      { cls: "nu", re: /\b\d+(?:\.\d+)?\b/ },
+      { cls: "kw", re: /\b(?:def|class|return|import|from|as|if|elif|else|for|while|in|not|and|or|try|except|finally|with|lambda|pass|break|continue|global|nonlocal|yield|async|await|raise|assert|del|is|None|True|False)\b/ },
+      { cls: "bd", re: /\b(?:print|len|range|type|str|int|float|bool|list|dict|tuple|set|enumerate|zip|sorted|open|getattr|isinstance|super|json|os|sys|requests|input|map|filter|exit)\b/ }
+    ],
+    javascript: [
+      { cls: "st", re: /`(?:\\.|[^`\\])*`|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'/ },
+      { cls: "cm", re: /\/\/[^\n]*|\/\*[\s\S]*?\*\// },
+      { cls: "nu", re: /\b\d+(?:\.\d+)?\b/ },
+      { cls: "kw", re: /\b(?:const|let|var|function|return|import|from|export|default|if|else|for|while|class|new|async|await|try|catch|finally|throw|typeof|instanceof|in|of|switch|case|break|continue|delete|void|true|false|null|undefined|this|super)\b/ },
+      { cls: "bd", re: /\b(?:console|fetch|JSON|Promise|Object|Array|String|Number|Boolean|Math|Date|process|env|require|module|exports|Error)\b/ }
+    ],
+    bash: [
+      { cls: "st", re: /"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'/ },
+      { cls: "cm", re: /#[^\n]*/ },
+      { cls: "va", re: /\$\{?\w+\}?/ },
+      { cls: "nu", re: /\b\d+(?:\.\d+)?\b/ },
+      { cls: "kw", re: /\b(?:curl|python|node|jq|echo|export|cd|mkdir|npm|pip|install|run)\b/ }
+    ],
+    json: [
+      { cls: "key", re: /"(?:\\.|[^"\\])*"(?=\s*:)/ },
+      { cls: "st", re: /"(?:\\.|[^"\\])*"/ },
+      { cls: "nu", re: /-?\b\d+(?:\.\d+)?\b/ },
+      { cls: "kw", re: /\b(?:true|false|null)\b/ }
+    ]
+  };
+
+  function highlight(code, lang) {
+    var esc = escapeHtml(code);
+    var rules = HL[lang] || [];
+    if (!rules.length) return esc;
+    var master = new RegExp(rules.map(function (r) { return "(" + r.re.source + ")"; }).join("|"), "gm");
+    var out = "", last = 0, m;
+    while ((m = master.exec(esc)) !== null) {
+      out += esc.slice(last, m.index);
+      var cls = null;
+      for (var i = 0; i < rules.length; i++) {
+        if (m[i + 1] !== undefined) { cls = rules[i].cls; break; }
+      }
+      if (cls) { out += '<span class="hl-' + cls + '">' + m[0] + "</span>"; }
+      else { out += m[0]; }
+      last = m.index + m[0].length;
+      if (m[0].length === 0) master.lastIndex++;
+    }
+    out += esc.slice(last);
+    return out;
+  }
+
+  /* ---------- Collect code sources from text/plain blocks ---------- */
+  document.querySelectorAll('script[type="text/plain"]').forEach(function (s) {
+    SRC[s.id] = s.textContent.replace(/^\n/, "");
+  });
+
+  /* ---------- Copy to clipboard ---------- */
+  function copyText(text, btn) {
+    function ok() {
+      btn.classList.add("ok");
+      setTimeout(function () { btn.classList.remove("ok"); }, 1600);
+    }
+    function fallback() {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); ok(); } catch (e) {}
+      ta.remove();
+    }
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(ok, fallback);
+    } else { fallback(); }
+  }
+  document.querySelectorAll(".copy-btn[data-copy]").forEach(function (btn) {
+    btn.addEventListener("click", function () { copyText(btn.getAttribute("data-copy"), btn); });
+  });
+
+  /* ---------- Code panels: tabs + rendering + copy ---------- */
+  function codeSource(ep, langName) {
+    return SRC["src-" + ep + "-" + langName + "-" + curLang];
+  }
+  function renderOne(panel, langName) {
+    var src = codeSource(panel.dataset.endpoint, langName);
+    var pre = panel.querySelector('pre[data-lang="' + langName + '"]');
+    if (!src || !pre || pre.getAttribute("data-rendered")) return;
+    pre.innerHTML = highlight(src, langName === "curl" ? "bash" : langName);
+    pre.setAttribute("data-rendered", "1");
+  }
+  function renderAllCode() {
+    document.querySelectorAll(".code-panel").forEach(function (panel) {
+      panel.querySelectorAll("pre").forEach(function (p) { p.removeAttribute("data-rendered"); });
+      var activeTab = panel.querySelector(".code-tab.active");
+      renderOne(panel, activeTab.getAttribute("data-lang"));
+      var respPre = panel.querySelector('pre[data-lang="json"]');
+      var respSrc = codeSource(panel.dataset.endpoint, "resp");
+      if (respSrc && respPre && !respPre.getAttribute("data-rendered")) {
+        respPre.innerHTML = highlight(respSrc, "json");
+        respPre.setAttribute("data-rendered", "1");
+      }
+    });
+  }
+
+  document.querySelectorAll(".code-panel").forEach(function (panel) {
+    var ep = panel.dataset.endpoint;
+    var tabs = Array.prototype.slice.call(panel.querySelectorAll(".code-tab"));
+    var copyBtn = panel.querySelector(".copy-btn");
+
+    tabs.forEach(function (tab) {
+      tab.addEventListener("click", function () {
+        tabs.forEach(function (t) { t.classList.remove("active"); });
+        tab.classList.add("active");
+        panel.querySelectorAll("pre[data-lang]").forEach(function (p) {
+          p.hidden = p.getAttribute("data-lang") !== tab.getAttribute("data-lang");
+        });
+        renderOne(panel, tab.getAttribute("data-lang"));
+      });
+    });
+
+    copyBtn.addEventListener("click", function () {
+      var langName = panel.querySelector(".code-tab.active").getAttribute("data-lang");
+      var src = codeSource(ep, langName);
+      if (src) copyText(src, copyBtn);
+    });
+  });
+
+  /* ---------- Scroll spy: nav highlight + rail panel sync ---------- */
+  var sections = Array.prototype.slice.call(document.querySelectorAll("section[id]"));
+  var railPanels = {};
+  document.querySelectorAll(".code-panel").forEach(function (p) { railPanels[p.dataset.endpoint] = p; });
+  var activeId = null;
+
+  function setActive(id) {
+    if (id === activeId) return;
+    activeId = id;
+    document.querySelectorAll(".nav-link").forEach(function (a) {
+      a.classList.toggle("active", a.getAttribute("href") === "#" + id);
+    });
+    document.querySelectorAll(".code-panel").forEach(function (p) {
+      p.classList.toggle("active", p.dataset.endpoint === id);
+    });
+    // 注意：这里绝不调用任何 scrollIntoView / scrollTo —— 那会滚动页面主体，
+    // 与锚点平滑滚动竞争，导致点击导航后页面被瞬间拉回顶部（跳回简介页）。
+  }
+
+  /* 联动右侧代码面板：只滚动 rail 容器自身，绝不触碰页面主体 */
+  function scrollRailTo(id) {
+    var panel = railPanels[id];
+    var rail = document.querySelector(".rail-sticky");
+    if (!panel || !rail) return;
+    var top = panel.offsetTop - 34;
+    if (top < 0) top = 0;
+    rail.scrollTop = top;
+  }
+
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (e.isIntersecting) setActive(e.target.id);
+    });
+  }, { rootMargin: "-15% 0px -75% 0px" });
+  sections.forEach(function (s) { io.observe(s); });
+  setActive(sections[0].id);
+
+  /* ---------- Search filters nav links ---------- */
+  var searchInput = document.getElementById("searchInput");
+  searchInput.addEventListener("input", function () {
+    var q = searchInput.value.trim().toLowerCase();
+    document.querySelectorAll(".nav-link").forEach(function (a) {
+      a.style.display = a.textContent.toLowerCase().indexOf(q) !== -1 ? "" : "none";
+    });
+  });
+  document.addEventListener("keydown", function (e) {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      e.preventDefault();
+      searchInput.focus();
+    }
+  });
+
+  /* ---------- Mobile drawer ---------- */
+  var sidebar = document.getElementById("sidebar");
+  var scrim = document.getElementById("scrim");
+  document.getElementById("menuBtn").addEventListener("click", function () {
+    sidebar.classList.add("open");
+    scrim.classList.add("show");
+  });
+  function closeNav() {
+    sidebar.classList.remove("open");
+    scrim.classList.remove("show");
+  }
+  scrim.addEventListener("click", closeNav);
+  document.querySelectorAll(".nav-link").forEach(function (a) {
+    a.addEventListener("click", function () {
+      closeNav();
+      var id = a.getAttribute("href").slice(1);
+      if (id) scrollRailTo(id);
+    });
+  });
+
+  /* ---------- Feedback ---------- */
+  document.querySelectorAll(".feedback button").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var box = b.closest(".feedback");
+      box.innerHTML = '<span class="fb-ok" data-i18n="feedback.thanks">感谢你的反馈！</span>';
+      var el = box.querySelector("[data-i18n]");
+      var key = el.getAttribute("data-i18n");
+      el.innerHTML = I18N[key][curLang];
+    });
+  });
+
+  /* ---------- Init (apply persisted language over Chinese default) ---------- */
+  applyLang(curLang);
+})();
+</script>
+</body>
+</html>

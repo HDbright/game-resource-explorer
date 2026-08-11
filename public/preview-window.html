@@ -110,12 +110,14 @@
       bodyEl.appendChild(saveBtn(rec));
     } else if (type === 'audio') {
       const au = document.createElement('audio'); au.controls = true; au.src = rec.url;
-      au.onerror = async () => { if (au.dataset.fb) return; au.dataset.fb = '1'; const r = await previewApi.downloadDataUrl({ url: rec.url, referrer: rec.referrer || '', type }); if (r && r.ok) au.src = r.dataUrl; };
+      au.autoplay = true; au.play && au.play().catch(() => {});
+      au.onerror = async () => { if (au.dataset.fb) return; au.dataset.fb = '1'; const r = await previewApi.downloadDataUrl({ url: rec.url, referrer: rec.referrer || '', type }); if (r && r.ok) { au.src = r.dataUrl; au.play && au.play().catch(() => {}); } };
       bodyEl.appendChild(au);
       bodyEl.appendChild(saveBtn(rec));
     } else if (type === 'video') {
       const v = document.createElement('video'); v.controls = true; v.src = rec.url;
-      v.onerror = async () => { if (v.dataset.fb) return; v.dataset.fb = '1'; const r = await previewApi.downloadDataUrl({ url: rec.url, referrer: rec.referrer || '', type }); if (r && r.ok) v.src = r.dataUrl; };
+      v.autoplay = true; v.play && v.play().catch(() => {});
+      v.onerror = async () => { if (v.dataset.fb) return; v.dataset.fb = '1'; const r = await previewApi.downloadDataUrl({ url: rec.url, referrer: rec.referrer || '', type }); if (r && r.ok) { v.src = r.dataUrl; v.play && v.play().catch(() => {}); } };
       bodyEl.appendChild(v);
       bodyEl.appendChild(saveBtn(rec));
     } else if (type === 'font') {
@@ -126,6 +128,12 @@
       row.appendChild(saveBtn(rec));
       bodyEl.appendChild(row);
     } else if (type === 'spine' || type === 'spine-json' || type === 'spine-skel' || type === 'spine-atlas') {
+      // 动画: 优先显示组内图集预览图(png), 保留下载入库/保存入口
+      if (rec.thumb) {
+        const img = document.createElement('img'); img.className = 'media'; img.src = rec.thumb; img.alt = '';
+        img.onerror = async () => { if (img.dataset.fb) return; img.dataset.fb = '1'; const r = await previewApi.downloadDataUrl({ url: rec.thumb, referrer: rec.referrer || '', type: 'image' }); if (r && r.ok) img.src = r.dataUrl; };
+        bodyEl.appendChild(img);
+      }
       const row = document.createElement('div'); row.className = 'actions';
       row.appendChild(btn('🦴 下载并加入资源库', 'primary', () => previewApi.action({ action: 'spine', payload: rec })));
       row.appendChild(saveBtn(rec));

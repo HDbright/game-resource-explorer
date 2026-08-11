@@ -45,6 +45,10 @@ function defaultDb() {
     scenes: [],
     webBookmarkCategories: [],
     webBookmarks: [],
+    // 开发工具箱:API 管理(分类树可嵌套 + 项目 + API 数据字典)
+    apiCategories: [],
+    apiProjects: [],
+    apiEndpoints: [],
   };
 }
 
@@ -133,6 +137,41 @@ function open() {
       name TEXT NOT NULL,
       url TEXT NOT NULL,
       remark TEXT DEFAULT '',
+      created_at INTEGER DEFAULT 0,
+      updated_at INTEGER DEFAULT 0
+    );
+    -- 开发工具箱:API 管理(分类树可嵌套 + 项目 + API 数据字典)
+    CREATE TABLE IF NOT EXISTS api_categories(
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      remark TEXT DEFAULT '',
+      parent_id TEXT DEFAULT '',
+      sort INTEGER DEFAULT 0,
+      created_at INTEGER DEFAULT 0,
+      updated_at INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS api_projects(
+      id TEXT PRIMARY KEY,
+      category_id TEXT DEFAULT '',
+      name TEXT NOT NULL,
+      base_url TEXT DEFAULT '',
+      remark TEXT DEFAULT '',
+      sort INTEGER DEFAULT 0,
+      created_at INTEGER DEFAULT 0,
+      updated_at INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS api_endpoints(
+      id TEXT PRIMARY KEY,
+      project_id TEXT DEFAULT '',
+      name TEXT NOT NULL,
+      method TEXT DEFAULT 'GET',
+      path TEXT DEFAULT '',
+      desc TEXT DEFAULT '',
+      params TEXT DEFAULT '[]',
+      headers TEXT DEFAULT '[]',
+      body TEXT DEFAULT '',
+      response TEXT DEFAULT '',
+      sort INTEGER DEFAULT 0,
       created_at INTEGER DEFAULT 0,
       updated_at INTEGER DEFAULT 0
     );
@@ -237,6 +276,28 @@ function readDb() {
     d.webBookmarks = conn.prepare(
       'SELECT id, category_id AS categoryId, name, url, remark, created_at AS createdAt, updated_at AS updatedAt FROM web_bookmarks'
     ).all();
+    d.apiCategories = conn.prepare(
+      'SELECT id, name, remark, parent_id AS parentId, sort, created_at AS createdAt, updated_at AS updatedAt FROM api_categories ORDER BY sort'
+    ).all();
+    d.apiProjects = conn.prepare(
+      'SELECT id, category_id AS categoryId, name, base_url AS baseUrl, remark, sort, created_at AS createdAt, updated_at AS updatedAt FROM api_projects ORDER BY sort'
+    ).all();
+    d.apiEndpoints = conn.prepare(
+      'SELECT id, project_id AS projectId, name, method, path, desc, params, headers, body, response, sort, created_at AS createdAt, updated_at AS updatedAt FROM api_endpoints ORDER BY sort'
+    ).all();
+    for (const ep of (d.apiEndpoints || [])) {
+      if (typeof ep.params === 'string') {
+        try { ep.params = JSON.parse(ep.params || '[]'); } catch (err) { ep.params = []; }
+      }
+      if (!Array.isArray(ep.params)) ep.params = [];
+      if (typeof ep.headers === 'string') {
+        try { ep.headers = JSON.parse(ep.headers || '[]'); } catch (err) { ep.headers = []; }
+      }
+      if (!Array.isArray(ep.headers)) ep.headers = [];
+      if (!ep.desc) ep.desc = '';
+      if (!ep.body) ep.body = '';
+      if (!ep.response) ep.response = '';
+    }
   } catch (err) {
     console.error('[db] read error:', err);
   }
@@ -248,7 +309,7 @@ function writeDb(state) {
   const conn = open();
   conn.exec('BEGIN');
   try {
-    conn.exec('DELETE FROM settings; DELETE FROM categories; DELETE FROM items; DELETE FROM fav_categories; DELETE FROM fav_items; DELETE FROM scene_categories; DELETE FROM scenes; DELETE FROM web_bookmark_categories; DELETE FROM web_bookmarks;');
+    conn.exec('DELETE FROM settings; DELETE FROM categories; DELETE FROM items; DELETE FROM fav_categories; DELETE FROM fav_items; DELETE FROM scene_categories; DELETE FROM scenes; DELETE FROM web_bookmark_categories; DELETE FROM web_bookmarks; DELETE FROM api_categories; DELETE FROM api_projects; DELETE FROM api_endpoints;');
     const setSetting = conn.prepare('INSERT OR REPLACE INTO settings(key, value) VALUES (?, ?)');
     for (const [k, v] of Object.entries(state.settings || {})) {
       setSetting.run(k, JSON.stringify(v));
@@ -319,6 +380,31 @@ function writeDb(state) {
     );
     for (const b of state.webBookmarks || []) {
       insBm.run(b.id, b.categoryId || '', b.name || '', b.url || '', b.remark || '', b.createdAt || 0, b.updatedAt || 0);
+    }
+    const insApiCat = conn.prepare(
+      'INSERT INTO api_categories(id, name, remark, parent_id, sort, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    );
+    for (const ac of state.apiCategories || []) {
+      insApiCat.run(ac.id, ac.name || '', ac.remark || '', ac.parentId || '', ac.sort || 0, ac.createdAt || 0, ac.updatedAt || 0);
+    }
+    const insApiProj = conn.prepare(
+      'INSERT INTO api_projects(id, category_id, name, base_url, remark, sort, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    for (const p of state.apiProjects || []) {
+      insApiProj.run(p.id, p.categoryId || '', p.name || '', p.baseUrl || '', p.remark || '', p.sort || 0, p.createdAt || 0, p.updatedAt || 0);
+    }
+    const insApiEp = conn.prepare(
+      'INSERT INTO api_endpoints(id, project_id, name, method, path, desc, params, headers, body, response, sort, created_at, updated_at) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    for (const e of state.apiEndpoints || []) {
+      insApiEp.run(
+        e.id, e.projectId || '', e.name || '', e.method || 'GET', e.path || '', e.desc || '',
+        JSON.stringify(Array.isArray(e.params) ? e.params : []),
+        JSON.stringify(Array.isArray(e.headers) ? e.headers : []),
+        e.body || '', e.response || '',
+        e.sort || 0, e.createdAt || 0, e.updatedAt || 0
+      );
     }
     conn.exec('COMMIT');
     return true;

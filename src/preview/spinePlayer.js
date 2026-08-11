@@ -1,5 +1,11 @@
-import * as PIXI from 'pixi.js';
-import { Spine, SkeletonJson, SkeletonBinary, AtlasAttachmentLoader, SpineDebugRenderer } from '@pixi/spine-pixi';
+import { getPixi } from '../pixiLazy.js';
+
+// @pixi/spine-pixi 与 pixi.js 一样体积较大, 首次创建播放器时才动态导入
+let _spinePixi = null;
+async function spinePixi() {
+  if (!_spinePixi) _spinePixi = await import('@pixi/spine-pixi');
+  return _spinePixi;
+}
 
 /**
  * Spine 动画播放器(基于 @pixi/spine-pixi 2.x,pixi v8)
@@ -17,6 +23,9 @@ export class SpinePlayer {
 
   async load({ skeletonUrl, atlasUrl }) {
     this.dispose();
+
+    const PIXI = await getPixi();
+    const { SkeletonJson, SkeletonBinary, AtlasAttachmentLoader } = await spinePixi();
 
     // 先加载 json/skel 与 atlas(注册的 spine loader 会把 atlas 解析为 TextureAtlas)
     await PIXI.Assets.load({ src: skeletonUrl });
@@ -40,6 +49,7 @@ export class SpinePlayer {
     const skeletonData = parser.readSkeletonData(skeletonAsset);
     this.spineData = skeletonData;
 
+    const { Spine } = await spinePixi();
     this.spine = new Spine({ skeletonData, autoUpdate: false });
     this.spine.autoUpdate = false;
 
@@ -114,9 +124,10 @@ export class SpinePlayer {
     if (this.spine) this.spine.state.timeScale = s;
   }
 
-  setShowBones(show) {
+  async setShowBones(show) {
     if (!this.spine) return;
     if (show && !this.debugRenderer) {
+      const { SpineDebugRenderer } = await spinePixi();
       this.debugRenderer = new SpineDebugRenderer();
       this.debugRenderer.drawBones = true;
       this.debugRenderer.drawMeshHull = false;

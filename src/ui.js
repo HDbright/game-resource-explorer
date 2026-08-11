@@ -34,6 +34,7 @@ import { renderSceneHome, renderSceneFolderPage, renderFguiPreviewPage, promptRe
 import { renderFguiEditorPage } from './pages/fguiEditorPage.js';
 import { renderSettingsPage } from './pages/settingsPage.js';
 import { renderWebGamePage } from './pages/webGamePage.js';
+import { renderApiPage } from './pages/apiPage.js';
 import { ImageViewerController } from './viewers/imageViewer.js';
 import { AudioPlayerController } from './viewers/audioViewer.js';
 import { FguiViewerController } from './viewers/fguiViewer.js';
@@ -67,6 +68,7 @@ let pendingFguiEditorBin = null; // 进入 FGUI 编辑器时待加载的 .bin �
 let settingsShown = false; // 右侧是否显示系统设置页
 let settingsReturn = null; // 打开设置前的主区状态快照,关闭后恢复
 let webGameShown = false; // 网络资源抓取页是否显示
+let apiDocShown = false; // 开发工具箱 API 管理页是否显示
 
 // ---- 主区多标签页(资源/功能页标签,可切换/关闭) ----
 const mainTabs = []; // [{key, id, kind, params, label, icon}]
@@ -170,6 +172,11 @@ function applyTabState(t) {
     renderMainArea();
     return;
   }
+  if (t.kind === 'api-doc') {
+    apiDocShown = true;
+    renderMainArea();
+    return;
+  }
   renderMainArea();
 }
 
@@ -203,6 +210,8 @@ function syncTabFromState() {
     tab = ensureTab('fgui-editor', { kind: 'fgui-editor', params: {}, label: 'FGUI编辑器', icon: '🧩' });
   } else if (webGameShown) {
     tab = ensureTab('webgame', { kind: 'webgame', params: {}, label: '网络资源抓取', icon: '🌐' });
+  } else if (apiDocShown) {
+    tab = ensureTab('api-doc', { kind: 'api-doc', params: {}, label: 'API 管理', icon: '📖' });
   } else if (currentTool || toolboxHomeShown) {
     tab = ensureTab(`toolbox-${currentTool || '__home__'}`, { kind: 'toolbox', params: { tool: currentTool }, label: currentTool ? toolLabel(currentTool) : '资源工具箱', icon: '🧰' });
   } else if (settingsShown) {
@@ -251,12 +260,19 @@ function toolLabel(tool) {
 export function initUI(pv) {
   preview = pv;
   // 需求:默认不展开任何分类/子目录(收藏夹根与收藏分类均默认折叠,点击箭头才展开)
-  // 侧栏隐藏状态记忆(同步顶栏「资源树」按钮图标)
-  if (localStorage.getItem('sidebarHidden') === '1') {
-    const sb = document.getElementById('sidebar');
-    if (sb) sb.classList.add('hidden');
-  }
-  syncTreeToggleIcon();
+  // ⚠ 启动性能:Electron 渲染进程 localStorage 首次访问需初始化 LevelDB, 实测可达数秒,
+  //   阻塞首屏 → 侧栏隐藏状态改为空闲时再读取应用(首屏先按展开显示)
+  const applySidebarState = () => {
+    try {
+      if (localStorage.getItem('sidebarHidden') === '1') {
+        const sb = document.getElementById('sidebar');
+        if (sb) sb.classList.add('hidden');
+      }
+    } catch (e) { /* ignore */ }
+    syncTreeToggleIcon();
+  };
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(() => applySidebarState());
+  else setTimeout(applySidebarState, 60);
   // 图片 / 音频查看器
   imageViewer = new ImageViewerController();
   const imgWrap = document.getElementById('pv-image-view');
@@ -311,13 +327,12 @@ export function initUI(pv) {
   bindBackSpecial();
   bindFolderToolbar();
   bindPreviewPageNav();
-  renderCategories();
-  renderMainArea();
+  // 注:首次渲染(renderCategories/renderMainArea)由 main() 统一调用一次, 避免重复
 }
 
 // ---------------- 资源树(分类 + 条目合并) ----------------
 
-const expandedCats = new Set(['__webgame__', '__webgame_fav__']); // 展开的分类 id('all' / '' / 分类id);「XX资源」根默认折叠, 网络资源抓取/网址收藏夹默认展开(可折叠)
+const expandedCats = new Set(['__webgame__', '__webgame_fav__', '__devtools__']); // 展开的分类 id('all' / '' / 分类id);「XX资源」根默认折叠, 网络资源抓取/网址收藏夹/开发工具箱默认展开(可折叠)
 
 let dragCatId = null;    // 当前拖拽中的分类 id
 let dragItemId = null;   // 当前拖拽中的条目 id
@@ -467,6 +482,14 @@ function renderTree() {
 
   // 「资源工具箱」根菜单(展开后显示文件格式转换 / 图片编辑 / FGUI 编辑器 等子菜单)
   renderToolboxSection(tree);
+
+  // 分格线:工具箱与开发工具箱之间
+  const sepDev = document.createElement('div');
+  sepDev.className = 'tree-section-sep';
+  tree.appendChild(sepDev);
+
+  // 「开发工具箱」根菜单(展开后显示 API 管理等开发辅助工具)
+  renderDevToolsSection(tree);
 }
 
 /** FGUI 编辑器入口(资源工具箱子节点): 进入独立 FGUI 编辑器页 */
@@ -602,10 +625,66 @@ function renderToolboxSection(parent) {
   editorNode.addEventListener('click', () => enterFguiEditor());
 }
 
+/** 开发工具箱 API 管理入口(侧栏子节点): 进入内嵌 API 文档页 */
+function enterApiDoc() {
+  clearOverlays();
+  apiDocShown = true;
+  renderTree();
+  renderMainArea();
+}
+
+/** 开发工具箱侧栏根节点 + 子菜单(API 管理) */
+function renderDevToolsSection(parent) {
+  // ⚠️ 不能在渲染函数里强制 add __devtools__(折叠箭头会失效): 默认展开由 expandedCats 初始值提供, 用户可自由折叠/展开
+  const rootOpen = expandedCats.has('__devtools__');
+  const root = makeTreeNode({
+    icon: '🛠️',
+    name: '开发工具箱',
+    nodeId: '__devtools__',
+    active: apiDocShown,
+    paddingLeft: 8,
+    hasChildren: true,
+    isOpen: rootOpen,
+  });
+  parent.appendChild(root);
+  // 箭头点击:展开/折叠开发工具箱
+  root.querySelector('.cat-arrow').addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleExpand('__devtools__');
+    renderTree();
+  });
+  // 名称点击:进入默认子模块(API 管理)
+  root.addEventListener('click', () => enterApiDoc());
+
+  if (!rootOpen) return;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'tree-items';
+  parent.appendChild(wrap);
+
+  // 「API 管理」叶子节点(内嵌 API 参考文档)
+  const apiNode = makeTreeNode({
+    icon: '📖',
+    name: 'API 管理',
+    nodeId: '__devtool:api',
+    active: apiDocShown,
+    paddingLeft: 22,
+    hasChildren: false,
+    isOpen: false,
+  });
+  wrap.appendChild(apiNode);
+  apiNode.addEventListener('click', () => enterApiDoc());
+}
+
 /** 网络资源抓取页入口: 进入独立网络资源抓取页 */
 function enterWebGame() {
-  clearOverlays();
-  webGameShown = true;
+  // ⚠️ v1.9.27 修复: 已在抓取页时不得重复 clearOverlays()。
+  // clearOverlays 会触发 _webGameDetach→webFloatOut, 把已打开的网页视图迁出主窗口,
+  // 导致浏览器显示区黑屏 + 弹出悬浮窗(点击收藏夹目录/历史/网址节点都会复现)。
+  if (!webGameShown) {
+    clearOverlays();
+    webGameShown = true;
+  }
   renderTree();
   renderMainArea();
 }
@@ -685,10 +764,10 @@ function renderWebGameSection(parent) {
     e.stopPropagation(); toggleExpand('__webgame_fav__'); renderTree();
   });
   favLabel.addEventListener('click', () => {
-    // 点名称:进入抓取页并显示收藏夹面板
+    // 点名称:进入抓取页并显示收藏夹面板(全部); keepBrowser 保留浏览器视图(网页已打开时不黑屏)
     enterWebGame();
     const pageEl = document.getElementById('page-webgame');
-    if (pageEl && pageEl._webGameShowBookmarks) pageEl._webGameShowBookmarks('');
+    if (pageEl && pageEl._webGameShowBookmarks) pageEl._webGameShowBookmarks('all', { keepBrowser: true });
   });
   favLabel.addEventListener('contextmenu', (e) => {
     e.preventDefault(); e.stopPropagation();
@@ -700,21 +779,7 @@ function renderWebGameSection(parent) {
     const favWrap = document.createElement('div');
     favWrap.className = 'tree-items';
     wrap.appendChild(favWrap);
-    // 未分类网址
-    const uncat = webBookmarksInCategory('');
-    if (uncat.length) {
-      const unc = makeTreeNode({
-        icon: '○', name: '未分类', nodeId: '__webgame_fav_uncat__', active: false,
-        paddingLeft: 36, hasChildren: false, isOpen: false, count: uncat.length,
-      });
-      unc.addEventListener('click', () => {
-        enterWebGame();
-        const pageEl = document.getElementById('page-webgame');
-        if (pageEl && pageEl._webGameShowBookmarks) pageEl._webGameShowBookmarks('');
-      });
-      favWrap.appendChild(unc);
-    }
-    // 分类树(递归)
+    // 分类树(递归); 无「未分类」节点(收藏必须选分类)
     for (const c of getWebBookmarkCategoryChildren('')) {
       renderWebBookmarkCatNode(favWrap, c, 1);
     }
@@ -747,7 +812,8 @@ function renderWebBookmarkCatNode(parent, cat, depth) {
   node.addEventListener('click', () => {
     enterWebGame();
     const pageEl = document.getElementById('page-webgame');
-    if (pageEl && pageEl._webGameShowBookmarks) pageEl._webGameShowBookmarks(cat.id);
+    // keepBrowser: 点击分类目录仅切换侧栏收藏夹视图, 已打开的网页保持显示(不黑屏)
+    if (pageEl && pageEl._webGameShowBookmarks) pageEl._webGameShowBookmarks(cat.id, { keepBrowser: true });
   });
   node.addEventListener('contextmenu', (e) => {
     e.preventDefault(); e.stopPropagation();
@@ -755,7 +821,7 @@ function renderWebBookmarkCatNode(parent, cat, depth) {
       { label: '打开收藏夹', onClick: () => {
           enterWebGame();
           const pageEl = document.getElementById('page-webgame');
-          if (pageEl && pageEl._webGameShowBookmarks) pageEl._webGameShowBookmarks(cat.id);
+          if (pageEl && pageEl._webGameShowBookmarks) pageEl._webGameShowBookmarks(cat.id, { keepBrowser: true });
         } },
       { label: '新建子目录', onClick: () => addWebBookmarkCategoryDialog(cat.id) },
       { label: '编辑目录', onClick: () => editWebBookmarkCategoryDialog(cat.id) },
@@ -1069,6 +1135,7 @@ function clearOverlays() {
   favHomeShown = false;
   currentFavCategoryId = null;
   webGameShown = false;
+  apiDocShown = false;
 }
 
 // ---- 场景分类/场景条目 操作对话框 ----
@@ -1158,7 +1225,7 @@ function removeWebBookmarkCategoryDialog(id) {
   const bms = webBookmarksInCategory(id);
   confirmDialog({
     title: `删除收藏夹目录「${cat.name}」?`,
-    message: `子目录 ${subs.length} 个、网址 ${bms.length} 个将被一并处理(子目录提升到被删目录的父级;网址移到「未分类」)。`,
+    message: `子目录 ${subs.length} 个、网址 ${bms.length} 个将被一并处理(子目录提升到被删目录的父级;网址移到父分类)。`,
     onOk: () => {
       removeWebBookmarkCategory(id);
       renderTree(); renderMainArea();
@@ -1823,6 +1890,95 @@ function moveCategoryDialog(cat) {
           renderCategories();
           renderMainArea();
           toast('目录已移动');
+        },
+      },
+    ]),
+  });
+}
+
+/** 批量删除目录(主页管理模式): 按默认语义删除目录下所有动画和子目录(仅从列表移除,不删磁盘文件) */
+function batchDeleteCategories(ids) {
+  const cats = ids.map((id) => categoryById(id)).filter(Boolean);
+  if (!cats.length) return;
+  let nItems = 0, nSubs = 0;
+  for (const c of cats) {
+    const desc = getCategoryDescendants(c.id);
+    nItems += state.items.filter((i) => i.categoryId === c.id || desc.includes(i.categoryId)).length;
+    nSubs += getCategoryChildren(c.id).length;
+  }
+  confirmDialog({
+    title: `删除选中的 ${cats.length} 个目录?`,
+    message: `将删除 ${cats.length} 个目录${nSubs ? '、' + nSubs + ' 个子目录' : ''}和 ${nItems} 个动画资源,<br/>仅从列表移除,<b>不会删除</b>磁盘上的文件。`,
+    onOk: () => {
+      for (const c of cats) {
+        removeCategoryAdvanced(c.id, { deleteItems: true, subAction: 'parent', subTargetId: '' });
+      }
+      renderMainArea();
+      renderCategories();
+      toast('目录已删除');
+    },
+  });
+}
+
+/** 批量移动目录(主页管理模式): 选择目标目录后统一移动 */
+function batchMoveCategoriesDialog(ids) {
+  const cats = ids.map((id) => categoryById(id)).filter(Boolean);
+  if (!cats.length) return;
+  // 目标排除: 选中的目录本身及其子孙
+  const exclude = new Set();
+  for (const c of cats) {
+    exclude.add(c.id);
+    for (const d of getCategoryDescendants(c.id)) exclude.add(d);
+  }
+  const body = document.createElement('div');
+  body.className = 'modal-body';
+  const tip = document.createElement('div');
+  tip.className = 'form-row';
+  tip.innerHTML = `<span class="ro">将选中的 <b>${cats.length}</b> 个目录移动到:</span>`;
+  body.appendChild(tip);
+
+  const list = document.createElement('div');
+  list.className = 'fav-pick-list';
+  let checked = false;
+  const pick = (value, label) => {
+    const lb = document.createElement('label');
+    lb.className = 'fav-pick-item';
+    const rb = document.createElement('input');
+    rb.type = 'radio';
+    rb.name = 'batch-movecat';
+    rb.value = value;
+    if (!checked) { rb.checked = true; checked = true; }
+    const sp = document.createElement('span');
+    sp.textContent = label;
+    lb.appendChild(rb);
+    lb.appendChild(sp);
+    list.appendChild(lb);
+  };
+  pick('', '移至顶级(不作为子目录)');
+  for (const c of state.categories) {
+    if (exclude.has(c.id)) continue;
+    pick(c.id, categoryPath(c.id));
+  }
+  body.appendChild(list);
+
+  const { close } = openModal({
+    title: '移动目录',
+    body,
+    foot: footButtons([
+      { text: '取消', cls: '', onClick: () => close() },
+      {
+        text: '确定',
+        cls: 'primary',
+        onClick: () => {
+          const selected = list.querySelector('input:checked');
+          if (!selected) return;
+          const target = selected.value;
+          for (const c of cats) updateCategory(c.id, { parentId: target });
+          close();
+          if (target) expandedCats.add(target);
+          renderCategories();
+          renderMainArea();
+          toast(`已移动 ${cats.length} 个目录`);
         },
       },
     ]),
@@ -2556,6 +2712,7 @@ function deleteCategoryDialog(id) {
   rbDel.type = 'radio';
   rbDel.name = 'delcat-anim';
   rbDel.value = 'delete';
+  rbDel.checked = true; // 默认: 删除目录下的所有动画和子目录(仅从列表移除,不删磁盘文件)
   optDel.appendChild(rbDel);
   optDel.appendChild(document.createTextNode('删除目录下的所有动画(仅从列表移除,不删磁盘文件)和子目录'));
   const optMove = document.createElement('label');
@@ -2564,7 +2721,6 @@ function deleteCategoryDialog(id) {
   rbMove.type = 'radio';
   rbMove.name = 'delcat-anim';
   rbMove.value = 'move';
-  rbMove.checked = true;
   optMove.appendChild(rbMove);
   optMove.appendChild(document.createTextNode('将目录下的动画移动到「未分类」'));
   body.appendChild(optDel);
@@ -2673,6 +2829,7 @@ function showPage(pageId) {
     settings: document.getElementById('page-settings'),
     'audio-home': document.getElementById('page-audio-home'),
     webgame: document.getElementById('page-webgame'),
+    api: document.getElementById('page-api'),
   };
   for (const [k, el] of Object.entries(pages)) {
     if (el) el.hidden = k !== pageId;
@@ -2824,9 +2981,19 @@ export function renderMainArea() {
     showPage('webgame');
     const pageEl = document.getElementById('page-webgame');
     renderWebGamePage(pageEl, {});
+    // 供 webGamePage 收藏夹增删改/移动后刷新侧栏树(网址/计数/分类结构)
+    if (!pageEl._webGameTreeRefresher) pageEl._webGameTreeRefresher = () => renderTree();
     renderBreadcrumb();
     // 上报浏览器视图矩形(WebContentsView 为 native 叠加, 需同步位置与大小)
     if (pageEl._webGameSyncBounds) pageEl._webGameSyncBounds();
+    return;
+  }
+
+  // ---- 开发工具箱:API 管理(独立页, 内嵌 api-doc.html) ----
+  if (apiDocShown) {
+    showPage('api');
+    renderApiPage(document.getElementById('page-api'), {});
+    renderBreadcrumb();
     return;
   }
 
@@ -2917,6 +3084,9 @@ export function renderMainArea() {
       onItemMenu: (it, e) => openItemMenu(e.clientX, e.clientY, it),
       onCatMenu: (cat, e) => openCategoryMenu(e.clientX, e.clientY, cat),
       onRefresh: () => renderMainArea(),
+      // 主页目录管理模式: 批量删除 / 移动
+      onManageDelete: (ids) => batchDeleteCategories(ids),
+      onManageMove: (ids) => batchMoveCategoriesDialog(ids),
     });
   } else if (currentCategoryId === 'all' || currentCategoryId === '') {
     if (tab === 'audio') {
@@ -3128,6 +3298,7 @@ function bindBrandHome() {
       currentSceneCatId = null;
       fguiPreviewShown = false;
       pendingFguiBin = null;
+      apiDocShown = false;
       renderMainArea();
       renderCategories();
       syncTabs();
@@ -3152,7 +3323,7 @@ function bindBackSpecial() {
 function updateBackSpecial() {
   const btn = document.getElementById('btn-back-special');
   if (!btn) return;
-  const show = !!currentTool || toolboxHomeShown || sceneHomeShown || currentSceneCatId !== null || fguiEditorShown || webGameShown;
+  const show = !!currentTool || toolboxHomeShown || sceneHomeShown || currentSceneCatId !== null || fguiEditorShown || webGameShown || apiDocShown;
   btn.hidden = !show;
 }
 
@@ -3185,6 +3356,11 @@ function bindBreadcrumb() {
       clearOverlays();
       toolboxHomeShown = true;
       currentTool = null;
+      renderMainArea(); renderCategories();
+    } else if (crumb.dataset.devtoolRoot !== undefined) {
+      // 回到开发工具箱(当前唯一子模块:API 管理)
+      clearOverlays();
+      apiDocShown = true;
       renderMainArea(); renderCategories();
     } else if (crumb.dataset.sceneRoot !== undefined) {
       // 回到场景管理主页
@@ -3244,6 +3420,15 @@ function renderBreadcrumb() {
     nav.innerHTML = '<span class="crumb" data-crumb="home">主页</span>'
       + '<span class="crumb-sep">/</span>'
       + '<span class="crumb current">网络资源抓取</span>';
+    return;
+  }
+  // 开发工具箱
+  if (apiDocShown) {
+    nav.innerHTML = '<span class="crumb" data-crumb="home">主页</span>'
+      + '<span class="crumb-sep">/</span>'
+      + '<span class="crumb" data-devtool-root>开发工具箱</span>'
+      + '<span class="crumb-sep">/</span>'
+      + '<span class="crumb current">API 管理</span>';
     return;
   }
   // 场景管理

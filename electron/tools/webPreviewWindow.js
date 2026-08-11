@@ -6,8 +6,23 @@
  * - 交互:主窗口悬停资源行 → show 显示并推送内容(首次右上角, 之后恢复上次位置, 不随鼠标移动);
  *   移出(未置顶)自动隐藏;点击进入窗口自动置顶常驻;窗口内 📌 按钮切换 alwaysOnTop。
  */
-const { BrowserWindow, screen } = require('electron');
+const { BrowserWindow, screen, app } = require('electron');
 const path = require('path');
+const fs = require('fs');
+
+// 预览窗位置/大小持久化(userData/web-preview-state.json), 重启后恢复
+let stateTimer = null;
+function loadState() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'web-preview-state.json'), 'utf8')) || {};
+  } catch (e) { return {}; }
+}
+function saveState(s) {
+  clearTimeout(stateTimer);
+  stateTimer = setTimeout(() => {
+    try { fs.writeFileSync(path.join(app.getPath('userData'), 'web-preview-state.json'), JSON.stringify(s)); } catch (e) { /* ignore */ }
+  }, 300);
+}
 
 let win = null;
 let ready = false;
@@ -16,9 +31,11 @@ let lastPos = null;   // 记住上次位置(拖动后/隐藏时), 再显示时�
 
 function ensure() {
   if (win && !win.isDestroyed()) return win;
+  const st = loadState();
+  if (st.x != null && st.y != null) lastPos = [st.x, st.y]; // 恢复上次位置(手动预览/无鼠标时使用)
   win = new BrowserWindow({
-    width: 420,
-    height: 360,
+    width: st.width || 420,   // 恢复上次大小(用户调整过)
+    height: st.height || 360,
     minWidth: 260,
     minHeight: 180,
     title: '资源预览',
@@ -30,11 +47,23 @@ function ensure() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      // 共享网页抓取分区 session(persist:webgame): 预览窗内 <audio>/<video>/<img> 直连外链
+      // 时携带抓取页的 cookie/登录态, 避免无登录态/防盗链资源 403
+      partition: 'persist:webgame',
     },
   });
   ready = false;
   win.loadFile(path.join(__dirname, '../../dist/preview-window.html'));
   win.webContents.on('did-finish-load', () => { ready = true; });
+  // 位置/大小变化即持久化(resize/move/close 节流写文件)
+  const persist = () => {
+    if (!win || win.isDestroyed()) return;
+    const b = win.getBounds();
+    saveState({ x: b.x, y: b.y, width: b.width, height: b.height });
+  };
+  win.on('resize', persist);
+  win.on('move', persist);
+  win.on('close', persist);
   win.on('closed', () => {
     win = null;
     ready = false;
@@ -55,15 +84,28 @@ async function whenReady() {
 
 /**
  * 显示并推送内容(不抢焦点, 避免打断主窗口输入)。
- * 位置策略: 窗口已可见 → 原地不动(只更新内容, 不随鼠标移动);
- * 首次显示 → 屏幕右上角; 之后隐藏/拖动过 → 恢复到上次位置。
+ * 位置策略:
+ * - 窗口已可见 → 原地不动(只更新内容, 不跳动, 便于用户拖动后保持);
+ * - 不可见 + 提供了鼠标位置(悬停资源行) → 定位到**鼠标右下方**, 不遮挡光标所在行的
+ *   缩略图/文件名; 右侧/下方放不下则翻转到光标左侧/上方, 并限制在鼠标所在显示器内;
+ * - 无鼠标位置(手动预览等) → 恢复到上次位置(lastPos), 首次则屏幕右上角。
  */
 async function show(payload) {
   const w = await whenReady();
   if (!w.isVisible()) {
     const [cw, ch] = w.getSize();
     let x, y;
-    if (lastPos) {
+    const m = payload && payload.mouse;
+    if (m && m.x != null && m.y != null) {
+      const mx = Math.round(m.x), my = Math.round(m.y);
+      const wa = screen.getDisplayNearestPoint({ x: mx, y: my }).workArea;
+      x = mx + 18;              // 光标右侧(不遮挡光标所在行的缩略图/文件名)
+      y = my + 14;              // 光标下方
+      if (x + cw > wa.x + wa.width) x = mx - cw - 12; // 右侧放不下 → 光标左侧
+      if (y + ch > wa.y + wa.height) y = Math.max(wa.y, my - ch - 10); // 下方放不下 → 光标上方
+      x = Math.min(Math.max(x, wa.x), wa.x + wa.width - cw);
+      y = Math.min(Math.max(y, wa.y), wa.y + wa.height - ch);
+    } else if (lastPos) {
       [x, y] = lastPos;
     } else {
       const wa = screen.getPrimaryDisplay().workArea;

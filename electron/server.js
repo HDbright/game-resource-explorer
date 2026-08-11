@@ -86,9 +86,22 @@ function createServer({ dist, roots }) {
     }
   });
 
+  // 固定端口: 保证渲染端 origin(含端口)稳定 → localStorage 按 origin 隔离的持久化状态
+  // (悬浮预览开关/仅下载不入库/类型筛选/搜索词/侧栏隐藏/音频模式等)重启后能恢复。
+  // 端口被占用时递增重试(最多 30 次), 冲突时该次会话 localStorage 不跨启动保留, 罕见可接受。
+  const BASE_PORT = 13456;
   const ready = new Promise((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => resolve(server.address().port));
+    const tryListen = (port, attempt) => {
+      server.once('error', (e) => {
+        if (e.code === 'EADDRINUSE' && attempt < 30) {
+          tryListen(port + 1, attempt + 1);
+        } else {
+          reject(e);
+        }
+      });
+      server.listen(port, '127.0.0.1', () => resolve(server.address().port));
+    };
+    tryListen(BASE_PORT, 0);
   });
 
   return {

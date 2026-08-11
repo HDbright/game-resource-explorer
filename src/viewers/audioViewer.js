@@ -37,6 +37,21 @@ export class AudioPlayerController {
     this.audio.preload = 'metadata';
     this._bindEls(els, key);
 
+    // 重启恢复上次选择: 播放模式 / 倍速 / 音量(localStorage 启动时已初始化过)
+    try {
+      const m = localStorage.getItem('audio-mode');
+      if (m && /^(single|loop|dirOrder|dirLoop|listOrder|listLoop)$/.test(m)) this.mode = m;
+      const r = parseFloat(localStorage.getItem('audio-rate'));
+      if (isFinite(r)) this.rate = Math.min(Math.max(r, 0.25), 4);
+      const v = parseInt(localStorage.getItem('audio-volume'), 10);
+      if (isFinite(v)) this.audio.volume = Math.min(Math.max(v / 100, 0), 1);
+    } catch (e) { /* ignore */ }
+    this._eachEls((e) => {
+      if (e.volume) e.volume.value = String(Math.round(this.audio.volume * 100));
+      if (e.rate) e.rate.value = String(this.rate);
+      if (e.mode) e.mode.value = this.mode;
+    });
+
     this.audio.addEventListener('timeupdate', () => this._syncProgress());
     this.audio.addEventListener('loadedmetadata', () => this._syncProgress());
     this.audio.addEventListener('play', () => this._syncButtons('⏸', '暂停'));
@@ -180,18 +195,21 @@ export class AudioPlayerController {
 
   setVolume(v) {
     this.audio.volume = Math.min(Math.max(v / 100, 0), 1);
+    try { localStorage.setItem('audio-volume', String(Math.round(this.audio.volume * 100))); } catch (e) { /* ignore */ }
   }
 
   setRate(r) {
     this.rate = Math.min(Math.max(r, 0.25), 4);
     this._applyRate();
     this._eachEls((e) => { if (e.rate) e.rate.value = String(this.rate); });
+    try { localStorage.setItem('audio-rate', String(this.rate)); } catch (e) { /* ignore */ }
   }
 
   setMode(m) {
     this.mode = m || 'single';
     this._applyMode();
     this._eachEls((e) => { if (e.mode) e.mode.value = this.mode; });
+    try { localStorage.setItem('audio-mode', this.mode); } catch (e) { /* ignore */ }
   }
 
   _applyRate() {

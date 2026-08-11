@@ -3,9 +3,13 @@ import {
   TYPE_LABEL, formatSize, TYPE_GROUPS, itemTags, getFavHomeData, favCategoryById,
   categoryTypeTagNames, state,
 } from '../state.js';
+import { toast } from '../dialogs.js';
 
 /** 类型主页中分类目录树的折叠状态(按 catId 记忆,跨类型共享无碍) */
 const typeCatExpanded = new Set();
+
+/** 全局主页「目录管理」模式状态: 勾选目录 → 批量删除/移动 */
+const homeManage = { active: false, sel: new Set() };
 
 /** 资源悬停提示(多行):名称/类型/分类/标签/备注/文件 */
 function itemTooltip(it) {
@@ -53,9 +57,14 @@ function renderGlobalHome(container, actions) {
     { group: '3d', label: '3D 资源', num: data.byType['3d'] || 0, cls: 'd3', size: null },
     { group: 'total', label: '资源总数', num: data.total, cls: 'total', size: data.byType.totalSize },
   ];
+  const mgmt = homeManage.active;
+  const cats = data.categories || [];
 
   container.innerHTML = `
-    <div class="home-title">游戏资源管理</div>
+    <div class="home-title-row">
+      <div class="home-title">游戏资源管理</div>
+      ${cats.length ? `<button class="btn sm ${mgmt ? 'active' : ''}" id="home-mgmt-btn" title="管理模式: 勾选目录后批量删除 / 移动">${mgmt ? '✓ 完成管理' : '🛠 管理'}</button>` : ''}
+    </div>
     <div class="home-subtitle">管理您的动画 / 图片 / 音频 / 3D 游戏资源 · 共 ${data.total} 项资源</div>
 
     <div class="home-cards">
@@ -69,10 +78,20 @@ function renderGlobalHome(container, actions) {
     </div>
 
     <div class="home-section">
-      <div class="home-section-title">📁 目录快捷入口</div>
+      <div class="home-section-title">📁 目录快捷入口
+        ${mgmt ? `<label class="home-mgmt-selectall"><input type="checkbox" id="home-mgmt-all" /> 全选</label>` : ''}
+      </div>
+      ${mgmt ? `
+        <div class="home-mgmt-bar">
+          <span class="hm-count" id="home-mgmt-count">已选 0 个目录</span>
+          <span class="wg-tbsep"></span>
+          <button class="btn sm" id="home-mgmt-move" disabled title="把选中的目录移动到其它目录下">📂 移动</button>
+          <button class="btn sm danger" id="home-mgmt-del" disabled title="删除选中的目录及其下动画和子目录(仅从列表移除,不删磁盘文件)">🗑 删除</button>
+        </div>` : ''}
       <div class="quick-cats" id="home-quick-cats">
-        ${data.categories.length ? data.categories.map(({ cat, count, totalSize }) => `
-          <div class="quick-cat" data-act="cat" data-cat="${cat.id}">
+        ${cats.length ? cats.map(({ cat, count, totalSize }) => `
+          <div class="quick-cat ${mgmt ? 'mgmt' : ''}" data-act="cat" data-cat="${cat.id}">
+            ${mgmt ? `<input type="checkbox" class="qc-check" data-check="${cat.id}" ${homeManage.sel.has(cat.id) ? 'checked' : ''} />` : ''}
             <span class="qc-icon">📂</span>
             <span>${escapeHtml(cat.name)}</span>
             <span class="qc-count">${count} 项${totalSize ? ' · ' + formatSize(totalSize) : ''}</span>
@@ -95,6 +114,55 @@ function renderGlobalHome(container, actions) {
       </div>
     </div>
   `;
+
+  // ---- 目录管理模式交互 ----
+  const mgmtBtn = container.querySelector('#home-mgmt-btn');
+  if (mgmtBtn) {
+    mgmtBtn.addEventListener('click', () => {
+      homeManage.active = !homeManage.active;
+      homeManage.sel.clear();
+      actions.onRefresh && actions.onRefresh();
+    });
+  }
+  if (mgmt) {
+    const syncSelUI = () => {
+      const cnt = container.querySelector('#home-mgmt-count');
+      if (cnt) cnt.textContent = `已选 ${homeManage.sel.size} 个目录`;
+      const all = container.querySelector('#home-mgmt-all');
+      if (all) { all.checked = cats.length > 0 && homeManage.sel.size === cats.length; }
+      const del = container.querySelector('#home-mgmt-del');
+      const mv = container.querySelector('#home-mgmt-move');
+      const has = homeManage.sel.size > 0;
+      if (del) del.disabled = !has;
+      if (mv) mv.disabled = !has;
+    };
+    const allEl = container.querySelector('#home-mgmt-all');
+    if (allEl) {
+      allEl.addEventListener('change', (e) => {
+        if (e.target.checked) cats.forEach(({ cat }) => homeManage.sel.add(cat.id));
+        else homeManage.sel.clear();
+        container.querySelectorAll('.qc-check').forEach((cb) => { cb.checked = homeManage.sel.has(cb.dataset.check); });
+        syncSelUI();
+      });
+    }
+    container.querySelectorAll('.qc-check').forEach((cb) => {
+      cb.addEventListener('change', () => {
+        const id = cb.dataset.check;
+        if (cb.checked) homeManage.sel.add(id);
+        else homeManage.sel.delete(id);
+        syncSelUI();
+      });
+    });
+    container.querySelector('#home-mgmt-del').addEventListener('click', () => {
+      if (!homeManage.sel.size) { toast('请先勾选目录', 'warn'); return; }
+      actions.onManageDelete && actions.onManageDelete([...homeManage.sel]);
+    });
+    container.querySelector('#home-mgmt-move').addEventListener('click', () => {
+      if (!homeManage.sel.size) { toast('请先勾选目录', 'warn'); return; }
+      actions.onManageMove && actions.onManageMove([...homeManage.sel]);
+    });
+    syncSelUI();
+  }
 }
 
 /** 首页「最近打开」列表(含打开时间;点击再次打开) */
@@ -269,6 +337,7 @@ function bindHomeEvents(container, actions) {
       return;
     }
     if (act === 'cat') {
+      if (homeManage.active) return; // 管理模式: 勾选优先, 点击不跳转
       actions.onOpenCat && actions.onOpenCat(el.dataset.cat);
       return;
     }

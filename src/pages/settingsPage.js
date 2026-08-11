@@ -83,6 +83,23 @@ export function renderSettingsPage(container, opts = {}) {
           <button class="btn primary" id="ap-save">保存设置</button>
         </div>
       </section>
+
+      <section class="settings-card">
+        <h3>开发者调试 (Chrome DevTools)</h3>
+        <div class="form-row">
+          <label class="f-label">调试服务</label>
+          <label class="ss-check"><input type="checkbox" id="cdp-enable" /> 启用 Chrome DevTools 调试端口 (CDP)</label>
+        </div>
+        <div class="form-row">
+          <label class="f-label">调试端口</label>
+          <input id="cdp-port" class="text-input" type="number" min="1024" max="65535" placeholder="9222" />
+          <span class="cdp-status" id="cdp-status"></span>
+        </div>
+        <p class="settings-hint">启用后应用将自动重启,并开放本地调试端口,供 Chrome DevTools / AI 连接器(chrome-devtools)调试本应用的内置浏览器与页面。默认端口 9222,保存即重启生效。⚠️ 调试端口无访问认证,任何本机程序均可连接,仅限开发调试使用,勿在共享环境开启。</p>
+        <div class="settings-actions">
+          <button class="btn primary" id="cdp-save">保存并重启</button>
+        </div>
+      </section>
     </div>
   `;
 
@@ -155,6 +172,42 @@ export function renderSettingsPage(container, opts = {}) {
     // 通知播放器立即刷新队列显示
     document.dispatchEvent(new CustomEvent('audio:fieldsChanged'));
     toast('设置已保存');
+  });
+
+  // ---- 开发者调试 (CDP) ----
+  const cdpEnable = container.querySelector('#cdp-enable');
+  const cdpPort = container.querySelector('#cdp-port');
+  const cdpStatus = container.querySelector('#cdp-status');
+  (async () => {
+    try {
+      const st = await window.api.cdpGetState();
+      cdpEnable.checked = !!st.enabled;
+      cdpPort.value = st.port || 9222;
+      cdpPort.disabled = !st.enabled;
+      cdpStatus.textContent = st.enabled
+        ? (st.listening ? '● 已生效,可连接' : '○ 待重启生效')
+        : '关闭';
+      cdpStatus.className = 'cdp-status ' + (st.enabled ? (st.listening ? 'ok' : 'warn') : 'off');
+    } catch (e) { /* 忽略 */ }
+  })();
+  cdpEnable.addEventListener('change', () => {
+    cdpPort.disabled = !cdpEnable.checked;
+    cdpStatus.textContent = cdpEnable.checked ? '○ 保存后重启生效' : '关闭';
+    cdpStatus.className = 'cdp-status ' + (cdpEnable.checked ? 'warn' : 'off');
+  });
+  container.querySelector('#cdp-save').addEventListener('click', async () => {
+    const enabled = cdpEnable.checked;
+    const port = parseInt(cdpPort.value, 10);
+    if (enabled && (!Number.isFinite(port) || port < 1024 || port > 65535)) {
+      return toast('调试端口需在 1024-65535 之间', 'warn');
+    }
+    try {
+      await window.api.cdpSetState({ enabled, port: enabled ? port : 9222 });
+      toast('已保存,应用即将重启以应用调试服务…', 'warn');
+      setTimeout(() => { /* 等 relaunch */ }, 500);
+    } catch (err) {
+      toast('切换失败: ' + err.message, 'error');
+    }
   });
 
   // 返回

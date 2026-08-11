@@ -4,7 +4,10 @@
  * - 按 FGUI RenderNode 树渲染: Image/Loader 贴图集裁切, Text/RichText 用 DOM overlay
  * - 交互: 滚轮缩放 / 拖拽平移 / 点选高亮+属性面板 / 控制器(controller)页切换
  */
-import * as PIXI from 'pixi.js';
+import { getPixi, pixiRef } from '../pixiLazy.js';
+
+/** 运行时获取 PIXI(init 先 await getPixi 确保 window.PIXI 就绪) */
+const P = () => pixiRef();
 
 const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
 
@@ -31,7 +34,7 @@ function colorToInt(c) {
   return (parseInt(m[1], 16) << 16) | (parseInt(m[2], 16) << 8) | parseInt(m[3], 16);
 }
 
-/** 用 data URL 加载完整解码后的 PIXI.Texture(PixiJS v8 中 Texture.from(url) 异步加载,此处显式等待)
+/** 用 data URL 加载完整解码后的 P().Texture(PixiJS v8 中 Texture.from(url) 异步加载,此处显式等待)
  * ⚠ 标准 PNG(图集/导出源工程/位图字形)均为非预乘 alpha(straight)。
  * 必须设 Pixi v8 常量 'premultiply-alpha-on-upload'(注意是单数 premultiply,
  * 拼错成 'premultiplied-alpha-on-upload' 会匹配失败 → 数据按 straight 上传却按
@@ -46,7 +49,7 @@ async function loadTextureFromDataUrl(dataUrl) {
     img.onload = () => resolve();
     img.onerror = () => reject(new Error('图片解码失败'));
   });
-  const tex = PIXI.Texture.from(img);
+  const tex = P().Texture.from(img);
   if (tex && tex.source && tex.source.alphaMode !== undefined) {
     tex.source.alphaMode = 'premultiply-alpha-on-upload';
   }
@@ -68,8 +71,8 @@ export class FguiLayoutPreview {
     this.nodeMap = [];        // [{node, obj, outer}] 命中测试表
     this.selected = null;
     this.activePages = {};    // controllerName -> pageId
-    this.textures = {};       // atlasKey -> PIXI.Texture
-    this._glyphTexs = {};     // 位图字体独立字形 PNG 兜底: srcFile -> PIXI.Texture
+    this.textures = {};       // atlasKey -> P().Texture
+    this._glyphTexs = {};     // 位图字体独立字形 PNG 兜底: srcFile -> P().Texture
     this._drag = null;
     this._ro = null;
     this._loadToken = 0;
@@ -91,9 +94,10 @@ export class FguiLayoutPreview {
     this.propPanel = refs.propPanel;
     this.ctrlBar = refs.ctrlBar;
 
+    await getPixi(); // 首次使用 FGUI 预览时加载 pixi.js(启动优化)
     const w = this.rootEl.clientWidth || 800;
     const h = this.rootEl.clientHeight || 600;
-    const app = new PIXI.Application();
+    const app = new P().Application();
     await app.init({
       view: this.canvas,
       width: w,
@@ -106,17 +110,17 @@ export class FguiLayoutPreview {
       preference: 'webgl',
     });
     this.app = app;
-    this.viewC = new PIXI.Container();
+    this.viewC = new P().Container();
     app.stage.addChild(this.viewC);
-    this.highlight = new PIXI.Graphics();
+    this.highlight = new P().Graphics();
     this.viewC.addChild(this.highlight);
     this.highlight.visible = false;
-    this._editHandles = new PIXI.Graphics();
+    this._editHandles = new P().Graphics();
     this.viewC.addChild(this._editHandles);
     this._editHandles.visible = false;
     this._editHandles.eventMode = 'static';
     // 组件列表定位高亮框(常驻,点击右侧组件列表时画边框,不参与选中)
-    this._compHL = new PIXI.Graphics();
+    this._compHL = new P().Graphics();
     this.viewC.addChild(this._compHL);
     this._compHL.visible = false;
     this._compHL.eventMode = 'none';
@@ -456,7 +460,7 @@ export class FguiLayoutPreview {
     const py = node.pivotY != null ? node.pivotY * h : 0;
 
     // 外层: 定位
-    const outer = new PIXI.Container();
+    const outer = new P().Container();
     if (node.pivotAsAnchor && (node.pivotX != null)) {
       outer.position.set(node.x, node.y); // xy = 锚点
     } else {
@@ -465,7 +469,7 @@ export class FguiLayoutPreview {
     parentContainer.addChild(outer);
 
     // 内层: 偏移 + 变换
-    const inner = new PIXI.Container();
+    const inner = new P().Container();
     inner.position.set(-px, -py);
     if (node.scaleX != null) inner.scale.set(node.scaleX, node.scaleY != null ? node.scaleY : node.scaleX);
     if (node.rotation) inner.rotation = node.rotation * Math.PI / 180;
@@ -486,9 +490,9 @@ export class FguiLayoutPreview {
         try {
           const { x, y, w: rw, h: rh, rotated, ow, oh } = node.sprite;
           const frame = rotated
-            ? new PIXI.Rectangle(x, y, rh, rw)
-            : new PIXI.Rectangle(x, y, rw, rh);
-          const spriteTex = new PIXI.Texture({ source: tex.source, frame });
+            ? new P().Rectangle(x, y, rh, rw)
+            : new P().Rectangle(x, y, rw, rh);
+          const spriteTex = new P().Texture({ source: tex.source, frame });
           const sw = node.initWidth != null ? node.initWidth : ow;
           const sh = node.initHeight != null ? node.initHeight : oh;
           // 9 宫格缩放(按钮背景等):scaleOption===1 且未旋转(旋转图集暂不支持 9-slice)
@@ -498,7 +502,7 @@ export class FguiLayoutPreview {
             const top = Math.max(0, grid.y || 0);
             const right = Math.max(0, (ow - (grid.x + grid.width)) || 0);
             const bottom = Math.max(0, (oh - (grid.y + grid.height)) || 0);
-            const nine = new PIXI.NineSliceSprite({
+            const nine = new P().NineSliceSprite({
               texture: spriteTex,
               leftWidth: left,
               topHeight: top,
@@ -510,7 +514,7 @@ export class FguiLayoutPreview {
             inner.addChild(nine);
             displayObj = nine;
           } else {
-            const spr = new PIXI.Sprite(spriteTex);
+            const spr = new P().Sprite(spriteTex);
             if (rotated) {
               spr.rotation = -Math.PI / 2;
               spr.position.set(0, rh);
@@ -524,7 +528,7 @@ export class FguiLayoutPreview {
       }
       if (!displayObj) {
         // 缺纹理: 灰色占位框
-        const g = new PIXI.Graphics();
+        const g = new P().Graphics();
         g.rect(0, 0, w || 32, h || 32).fill({ color: 0x333a44, alpha: 0.6 });
         g.rect(0, 0, w || 32, h || 32).stroke({ width: 1, color: 0x556070 });
         inner.addChild(g);
@@ -548,7 +552,7 @@ export class FguiLayoutPreview {
       }
       // 空容器/占位给个淡边框(便于看清范围)
       if ((!node.children || !node.children.length) && w > 0 && h > 0 && node.kind === 'unknown') {
-        const g = new PIXI.Graphics();
+        const g = new P().Graphics();
         g.rect(0, 0, w, h).stroke({ width: 1, color: 0x445566 });
         inner.addChild(g);
       }
@@ -565,13 +569,13 @@ export class FguiLayoutPreview {
   /**
    * 位图字体文本: 用图集 sprite 逐字绘制(字形来自 node.font.glyphs)。
    * 与图片渲染共用图集纹理; 颜色用 tf.color 着色(channel=0 的可着色字体)。
-   * @returns {PIXI.Container|null}
+   * @returns {P().Container|null}
    */
   _buildBitmapText(node, boxW, boxH) {
     const font = node.font;
     const glyphs = font.glyphs || {};
     if (!Object.keys(glyphs).length) return null;
-    const container = new PIXI.Container();
+    const container = new P().Container();
     const tf = node.textFormat || {};
     const tint = colorToInt(tf.color);
     const lineH = font.lineHeight || (tf.size ? tf.size * 1.2 : 20);
@@ -602,11 +606,11 @@ export class FguiLayoutPreview {
         if (tex) {
           const { x, y, w: rw, h: rh, rotated } = g.rect;
           const frame = srcTex === tex
-            ? new PIXI.Rectangle(0, 0, tex.width, tex.height) // 独立字形 PNG: 整图为 frame
-            : (rotated ? new PIXI.Rectangle(x, y, rh, rw) : new PIXI.Rectangle(x, y, rw, rh));
+            ? new P().Rectangle(0, 0, tex.width, tex.height) // 独立字形 PNG: 整图为 frame
+            : (rotated ? new P().Rectangle(x, y, rh, rw) : new P().Rectangle(x, y, rw, rh));
           try {
-            const gtex = new PIXI.Texture({ source: tex.source, frame });
-            const spr = new PIXI.Sprite(gtex);
+            const gtex = new P().Texture({ source: tex.source, frame });
+            const spr = new P().Sprite(gtex);
             if (rotated && srcTex !== tex) { spr.rotation = -Math.PI / 2; spr.position.set(0, rh); }
             spr.x = penX + (g.xoffset || 0);
             spr.y = penY + voff + (g.yoffset || 0);
@@ -900,7 +904,7 @@ export class FguiLayoutPreview {
     node.initHeight = h;
     if (!entry) entry = this.nodeMap.find((x) => x.node === node);
     if (!entry) return;
-    if (entry.obj && entry.obj instanceof PIXI.Sprite) {
+    if (entry.obj && entry.obj instanceof P().Sprite) {
       entry.obj.width = w;
       entry.obj.height = h;
     }
@@ -1201,7 +1205,7 @@ export class FguiLayoutPreview {
       if (orig.initHeight === undefined) orig.initHeight = node.initHeight;
       node.initWidth = nw;
       node.initHeight = nh;
-      if (entry && entry.obj && entry.obj instanceof PIXI.Sprite) {
+      if (entry && entry.obj && entry.obj instanceof P().Sprite) {
         entry.obj.width = nw;
         entry.obj.height = nh;
       }

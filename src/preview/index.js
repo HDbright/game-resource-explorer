@@ -1,5 +1,5 @@
-import * as PIXI from 'pixi.js';
 import { createPlayer } from './playerFactory.js';
+import { getPixi } from '../pixiLazy.js';
 
 function basename(p) {
   return String(p).split(/[\\/]/).pop();
@@ -35,14 +35,29 @@ export class PreviewController {
     this.fitPolicy = '100'; // 'fit' | '100' | 'fixed' | 'dynamic',由 UI 的 zoom-mode 同步
   }
 
-  async init(canvas, wrap) {
+  /**
+   * 惰性初始化(优化启动速度): 首屏不阻塞, 记录画布后创建 WebGL 渲染器;
+   * 首次真正需要预览(loadItem)时也会自动 ensure。
+   */
+  init(canvas, wrap) {
     this.canvas = canvas;
     this.wrap = wrap;
+    return this.ensureInit();
+  }
+
+  ensureInit() {
+    if (this._initPromise) return this._initPromise;
+    this._initPromise = this._doInit();
+    return this._initPromise;
+  }
+
+  async _doInit() {
+    const PIXI = await getPixi(); // 首次需要预览时才加载 pixi.js(启动优化)
     const app = new PIXI.Application();
     await app.init({
-      view: canvas,
-      width: canvas.clientWidth || 800,
-      height: canvas.clientHeight || 600,
+      view: this.canvas,
+      width: this.canvas ? this.canvas.clientWidth || 800 : 800,
+      height: this.canvas ? this.canvas.clientHeight || 600 : 600,
       background: 0x22242b,
       antialias: true,
       resolution: Math.min(window.devicePixelRatio || 1, 2),
@@ -57,6 +72,8 @@ export class PreviewController {
     this._bindEvents();
     this.lastT = performance.now();
     requestAnimationFrame(this._loop);
+    // 初始化完成后应用挂起的背景色(启动时 main 在 init 前调用 setBgColor)
+    if (this._pendingBgColor) this.setBgColor(this._pendingBgColor);
   }
 
   _bindEvents() {
@@ -143,6 +160,7 @@ export class PreviewController {
   // ---------------- 加载 ----------------
 
   async loadItem(item) {
+    await this.ensureInit(); // 首屏后可能尚未初始化(启动优化), 首次预览前确保渲染器就绪
     const token = ++this.loadToken;
     this.disposePlayer();
     this.currentItemId = item.id;
@@ -263,6 +281,7 @@ export class PreviewController {
   }
 
   setBgColor(color) {
+    this._pendingBgColor = color;
     if (this.app) this.app.renderer.background.color = parseInt(color.replace('#', ''), 16);
   }
 

@@ -57,6 +57,10 @@ export const state = {
   // 网址收藏夹(网络资源抓取:分类树可嵌套 + 网址条目)
   webBookmarkCategories: [],
   webBookmarks: [],
+  // 开发工具箱:API 管理(分类树可嵌套 + 项目 + API 数据字典)
+  apiCategories: [],
+  apiProjects: [],
+  apiEndpoints: [],
 };
 
 // ---------------- 资源类型分组 ----------------
@@ -146,6 +150,9 @@ export async function loadState() {
   state.favItems = Array.isArray(data.favItems) ? data.favItems : [];
   state.sceneCategories = Array.isArray(data.sceneCategories) ? data.sceneCategories : [];
   state.scenes = Array.isArray(data.scenes) ? data.scenes : [];
+  state.apiCategories = Array.isArray(data.apiCategories) ? data.apiCategories : [];
+  state.apiProjects = Array.isArray(data.apiProjects) ? data.apiProjects : [];
+  state.apiEndpoints = Array.isArray(data.apiEndpoints) ? data.apiEndpoints : [];
   // 兼容字段:旧库无 tags 时补 []
   for (const it of state.items) {
     if (!Array.isArray(it.tags)) it.tags = [];
@@ -970,7 +977,7 @@ export function removeWebBookmarkCategory(id) {
     if (c.parentId === id) c.parentId = parentPid;
   }
   for (const b of state.webBookmarks) {
-    if (b.categoryId === id) b.categoryId = '';
+    if (b.categoryId === id) b.categoryId = parentPid; // 网址提升到父分类(无未分类概念)
   }
   saveState();
 }
@@ -1011,4 +1018,143 @@ export function webBookmarkById(id) {
 export function webBookmarksInCategory(catId) {
   const target = catId === 'all' ? null : (catId || '');
   return state.webBookmarks.filter((b) => (catId === 'all') || (b.categoryId || '') === target);
+}
+
+// ---------------- 开发工具箱:API 管理 ----------------
+// 三级模型: apiCategories(分类树,可嵌套) → apiProjects(项目,挂在分类下) → apiEndpoints(API 数据字典,挂在项目下)
+
+/** 新增 API 分类(可嵌套: parentId 指向父分类, '' = 顶级) */
+export function addApiCategory({ name, remark = '', parentId = '' }) {
+  const cat = {
+    id: uid('apc'),
+    name,
+    remark,
+    parentId: parentId || '',
+    sort: state.apiCategories.length,
+    createdAt: now(),
+    updatedAt: now(),
+  };
+  state.apiCategories.push(cat);
+  saveState();
+  return cat;
+}
+
+export function updateApiCategory(id, patch) {
+  const cat = state.apiCategories.find((c) => c.id === id);
+  if (!cat) return null;
+  Object.assign(cat, patch, { updatedAt: now() });
+  saveState();
+  return cat;
+}
+
+export function apiCategoryById(id) {
+  return state.apiCategories.find((c) => c.id === id) || null;
+}
+
+/** 某分类的直接子分类(按数组顺序,即渲染顺序) */
+export function getApiCategoryChildren(parentId) {
+  const pid = parentId || '';
+  return state.apiCategories.filter((c) => (c.parentId || '') === pid);
+}
+
+/** 删除 API 分类:子分类提升到被删分类的父级,项目移到「未分类」(categoryId='') */
+export function removeApiCategory(id) {
+  const cat = state.apiCategories.find((c) => c.id === id);
+  if (!cat) return;
+  const parentPid = cat.parentId || '';
+  state.apiCategories = state.apiCategories.filter((c) => c.id !== id);
+  for (const c of state.apiCategories) {
+    if (c.parentId === id) c.parentId = parentPid;
+  }
+  for (const p of state.apiProjects) {
+    if (p.categoryId === id) p.categoryId = '';
+  }
+  saveState();
+}
+
+/** 新增 API 项目(挂在分类下) */
+export function addApiProject({ categoryId = '', name, baseUrl = '', remark = '' }) {
+  const proj = {
+    id: uid('app'),
+    categoryId: categoryId || '',
+    name: name || '未命名项目',
+    baseUrl: baseUrl || '',
+    remark,
+    sort: state.apiProjects.length,
+    createdAt: now(),
+    updatedAt: now(),
+  };
+  state.apiProjects.push(proj);
+  saveState();
+  return proj;
+}
+
+export function updateApiProject(id, patch) {
+  const proj = state.apiProjects.find((p) => p.id === id);
+  if (!proj) return null;
+  Object.assign(proj, patch, { updatedAt: now() });
+  saveState();
+  return proj;
+}
+
+export function apiProjectById(id) {
+  return state.apiProjects.find((p) => p.id === id) || null;
+}
+
+/** 某分类(含未分类 ''/'all')下的 API 项目 */
+export function apiProjectsInCategory(catId) {
+  const target = catId === 'all' ? null : (catId || '');
+  return state.apiProjects.filter((p) => (catId === 'all') || (p.categoryId || '') === target);
+}
+
+/** 删除 API 项目:同时删除其下全部数据字典接口 */
+export function removeApiProject(id) {
+  state.apiProjects = state.apiProjects.filter((p) => p.id !== id);
+  state.apiEndpoints = state.apiEndpoints.filter((e) => e.projectId !== id);
+  saveState();
+}
+
+/** 新增 API 数据字典接口(挂在项目下) */
+export function addApiEndpoint({ projectId, name = '', method = 'GET', path = '', desc = '', params = [], headers = [], body = '', response = '' }) {
+  const ep = {
+    id: uid('ape'),
+    projectId: projectId || '',
+    name: name || '未命名接口',
+    method: (method || 'GET').toUpperCase(),
+    path: path || '',
+    desc: desc || '',
+    params: Array.isArray(params) ? params : [],
+    headers: Array.isArray(headers) ? headers : [],
+    body: body || '',
+    response: response || '',
+    sort: state.apiEndpoints.length,
+    createdAt: now(),
+    updatedAt: now(),
+  };
+  state.apiEndpoints.push(ep);
+  saveState();
+  return ep;
+}
+
+export function updateApiEndpoint(id, patch) {
+  const ep = state.apiEndpoints.find((e) => e.id === id);
+  if (!ep) return null;
+  if (patch.method) patch.method = String(patch.method).toUpperCase();
+  Object.assign(ep, patch, { updatedAt: now() });
+  saveState();
+  return ep;
+}
+
+export function apiEndpointById(id) {
+  return state.apiEndpoints.find((e) => e.id === id) || null;
+}
+
+/** 某项目下的数据字典接口 */
+export function apiEndpointsInProject(projectId) {
+  return state.apiEndpoints.filter((e) => e.projectId === projectId);
+}
+
+export function removeApiEndpoint(id) {
+  state.apiEndpoints = state.apiEndpoints.filter((e) => e.id !== id);
+  saveState();
 }

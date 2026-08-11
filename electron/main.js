@@ -10,10 +10,13 @@ const { encodePng } = require('./png');
 const { astcToPng } = require('./tools/astc');
 const { skelToJson, probeSkeleton } = require('./tools/skel');
 const { spineFix } = require('./tools/spineFix');
+const { skToSpine, probeLayaSk } = require('./tools/layaSk2Spine');
 const fgui = require('./tools/fgui');
 const { buildPreviewData, findGameRoot } = require('./tools/fgui/previewData');
 const { webGame, downloadResource, probeFile, classify, typeDir, fileNameFromUrl, safeName } = require('./tools/webGame');
 const webPreviewWindow = require('./tools/webPreviewWindow');
+const { apiTest } = require('./tools/apiTest');
+const devCdp = require('./tools/devCdp');
 
 // ---- 通用:扩展名 → MIME / 下载到临时目录 → data URL / 抓取文本(主窗口与悬浮预览窗共用) ----
 const MIME_EXT = {
@@ -69,6 +72,13 @@ if (isSmoke || process.env.SKELETON_VIEWER_SOFTWARE === '1') {
 // 固定 userData 目录(开发/打包一致);游戏资源管理器新路径
 app.setName('游戏资源管理器');
 app.setPath('userData', path.join(app.getPath('appData'), 'game-resource-explorer'));
+
+// 开发者调试服务(CDP): 启动早期读开关标志, 已启用则挂 --remote-debugging-port
+// (必须 ready 前执行; 设置页开关通过 relaunch 重启生效, 详见 tools/devCdp.js)
+const cdpStartup = devCdp.applyOnStartup();
+if (cdpStartup.applied) {
+  console.log(`[devCdp] enabled, remote-debugging-port=${cdpStartup.port}`);
+}
 
 const DIST_DIR = path.join(__dirname, '..', 'dist');
 const SAMPLES_DIR = fs.existsSync(path.join(__dirname, '..', 'samples'))
@@ -250,6 +260,7 @@ async function createWindow() {
     backgroundColor: '#1b1d23',
     title: `游戏资源管理器 v${appVersion}`,
     autoHideMenuBar: true,
+    show: false, // 首帧可绘制(骨架屏就绪)后再显示, 消除启动黑屏
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -258,6 +269,23 @@ async function createWindow() {
       backgroundThrottling: false,
       spellcheck: false,
     },
+  });
+  // 内容就绪(至少骨架屏可绘制)再显示窗口; 兜底 5 秒强制显示, 防止异常时窗口永不出现
+  let shown = false;
+  const showWin = () => {
+    if (shown || !win || win.isDestroyed()) return;
+    shown = true;
+    win.show();
+  };
+  win.once('ready-to-show', showWin);
+  setTimeout(showWin, 5000);
+
+  // 主窗口关闭 → 清理附属窗口(悬浮预览窗 / 网页悬浮窗 / 内嵌浏览器)并彻底退出。
+  // ⚠ 不能只依赖 window-all-closed: 悬浮窗等仍开着时该事件不触发, 会导致进程残留。
+  win.on('closed', () => {
+    try { webPreviewWindow.close(); } catch (e) { /* ignore */ }
+    try { webGame.destroy(); } catch (e) { /* ignore */ } // 内部会销毁 floatWin
+    try { app.quit(); } catch (e) { /* ignore */ }
   });
 
   const url = await server.url;
@@ -394,15 +422,24 @@ async function runSmoke() {
 }
 
 app.whenReady().then(async () => {
+  const _t0 = Date.now();
+  const _T = (l) => console.log('[main-init]', Date.now() - _t0, 'ms', l);
   migrateFromJson(); // 旧版 data.json → SQLite
+  _T('migrateFromJson');
   db = readDb();
+  _T('readDb');
   seedSamples();
+  _T('seedSamples');
   enrichItemsMeta();
+  _T('enrichItemsMeta');
   refreshRoots();
+  _T('refreshRoots');
 
   server = createServer({ dist: DIST_DIR, roots: () => roots });
   await server.ready;
+  _T('server ready');
 
+  // 先注册全部 IPC handler(渲染端启动 loadState 立即调 db:read, 必须在 createWindow 前就绪)
   ipcMain.handle('db:read', () => db);
   ipcMain.handle('db:write', (_e, data) => {
     db = data;
@@ -411,11 +448,13 @@ app.whenReady().then(async () => {
     return true;
   });
   ipcMain.handle('db:stats', () => dbStats());
-  ipcMain.handle('dir:pick', async () => {
+  ipcMain.handle('dir:pick', async (_e, opts) => {
     if (!win) return { canceled: true, filePaths: [] };
+    // opts: { title?, multi?, defaultPath? } —— 「另存..」等场景可传自定义标题/单选/默认目录
     const r = await dialog.showOpenDialog(win, {
-      title: '选择包含游戏资源的目录(可多选)',
-      properties: ['openDirectory', 'multiSelections'],
+      title: (opts && opts.title) || '选择包含游戏资源的目录(可多选)',
+      defaultPath: (opts && opts.defaultPath) || undefined,
+      properties: ['openDirectory'].concat((opts && opts.multi) ? ['multiSelections'] : []),
     });
     return { canceled: r.canceled, filePaths: r.filePaths };
   });
@@ -423,7 +462,7 @@ app.whenReady().then(async () => {
     try {
       return scanDir(dir, !!recursive);
     } catch (err) {
-      return [];
+      return { ok: false, error: err.message };
     }
   });
   ipcMain.handle('fs:stat', (_e, p) => {
@@ -496,6 +535,27 @@ app.whenReady().then(async () => {
     samplesDir: SAMPLES_DIR,
     dbFile: dbFile(),
   }));
+
+  // ============ 开发者调试服务(CDP)开关 ============
+  // 查询: 开关状态 + 端口 + 当前是否真的在监听
+  ipcMain.handle('cdp:getState', async () => {
+    const st = devCdp.readState();
+    const listening = st.enabled ? await devCdp.probePort(st.port) : false;
+    return { enabled: st.enabled, port: st.port, listening };
+  });
+  // 切换: 写标志后自动重启生效(CDP 端口只能在进程启动时开启)
+  ipcMain.handle('cdp:setState', (_e, { enabled, port } = {}) => {
+    devCdp.saveState({ enabled: !!enabled, port });
+    setTimeout(() => {
+      try {
+        app.relaunch({ args: devCdp.relaunchArgs() });
+        app.quit();
+      } catch (err) {
+        console.log('[devCdp] relaunch failed', err.message);
+      }
+    }, 300);
+    return { ok: true };
+  });
 
   // ============ 资源工具箱:文件选取 / 通用读写 ============
   ipcMain.handle('fs:pickFiles', async (_e, opts = {}) => {
@@ -588,6 +648,26 @@ app.whenReady().then(async () => {
       return { ok: true, ...r };
     } catch (err) {
       return { ok: false, error: err.message };
+    }
+  });
+  // LayaAir 骨骼动画(.sk)→ Spine 可读文件(.json 骨架 + .atlas 纹理图集)逆向转换
+  ipcMain.handle('tool:sk2spine', async (_e, { inputPath, outputPath }) => {
+    try {
+      const r = skToSpine(inputPath, outputPath);
+      return r; // 已含 { ok, jsonPath, atlasPath, version, warn, stats }
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+  // 探测文件是否为 LayaAir 骨骼动画二进制(.sk)
+  ipcMain.handle('tool:probeSk2spine', async (_e, { inputPath }) => {
+    try {
+      const bytes = fs.readFileSync(inputPath);
+      const probe = probeLayaSk(bytes);
+      if (!probe.ok) return { ok: false, reason: probe.reason };
+      return { ok: true, version: probe.version };
+    } catch (err) {
+      return { ok: false, reason: err.message };
     }
   });
 
@@ -812,6 +892,41 @@ app.whenReady().then(async () => {
   ipcMain.handle('web:close', () => {
     try { webGame.close(); return { ok: true }; } catch (err) { return { ok: false, error: err.message }; }
   });
+  // 多标签: 新开 / 切换 / 关闭标签页 + 获取当前网址(收藏夹预填用)
+  ipcMain.handle('web:newTab', (_e, url) => {
+    try { return webGame.newTab(url); } catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('web:openOrSwitch', (_e, url) => {
+    try { return webGame.openOrSwitch(url); } catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('web:switchTab', (_e, id) => {
+    try { return webGame.switchTab(id); } catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('web:closeTab', (_e, id) => {
+    try { return webGame.closeTab(id); } catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('web:getUrl', () => {
+    try { return { ok: true, url: webGame.getCurrentUrl() }; } catch (err) { return { ok: false, error: err.message }; }
+  });
+  // 网页悬浮窗(切到其它模块时浏览器视图迁入独立窗口): 浮出 / 收回 / 最小化 / 关闭
+  ipcMain.handle('web:floatOut', () => {
+    try { return webGame.floatOut(); } catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('web:floatBack', () => {
+    try { return webGame.floatBack(); } catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('float:minimize', () => {
+    try { return webGame.floatMinimize(); } catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('float:close', () => {
+    try { return webGame.floatClose(); } catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('float:restore', () => {
+    try { return webGame.floatRestore(); } catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('float:miniMoveBy', (_e, p) => {
+    try { return webGame.floatMiniMoveBy(p && p.dx, p && p.dy); } catch (err) { return { ok: false, error: err.message }; }
+  });
   ipcMain.handle('web:setBounds', (_e, rect) => {
     try { return webGame.setBounds(rect); } catch (err) { return { ok: false, error: err.message }; }
   });
@@ -849,6 +964,21 @@ app.whenReady().then(async () => {
   ipcMain.handle('web:fetchText', async (_e, args) => {
     if (!args || !args.url) return { ok: false, error: '缺少 url' };
     return fetchTextOf(args);
+  });
+  // 缩略图兜底: 用网页分区 session(persist:webgame)下载图片转 data URL,
+  // 与网页共享登录态/Referer —— 解决渲染端 <img> 直连跨 session 无 cookie / 防盗链 403。
+  ipcMain.handle('web:thumbFetch', async (_e, args) => {
+    if (!args || !args.url) return { ok: false, error: '缺少 url' };
+    try { return await webGame.fetchToDataUrl(args); } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  // ---- 开发工具箱:API 管理 接口测试(主进程代发 HTTP 请求, 渲染端 CSP 无法直连外部) ----
+  ipcMain.handle('api:test', async (_e, args) => {
+    try {
+      return await apiTest(args || {});
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
   });
 
   // ---- 资源悬浮预览: 独立窗口(像 DevTools detach 一样脱离主窗口, 可自由悬浮到浏览器区上方) ----

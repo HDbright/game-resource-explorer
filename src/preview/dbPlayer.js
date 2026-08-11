@@ -1,4 +1,7 @@
-import * as PIXI from 'pixi.js';
+import { pixiRef } from '../pixiLazy.js';
+
+/** 运行时获取 PIXI(由 createPlayer 先 await getPixi 确保 window.PIXI 就绪) */
+const P = () => pixiRef();
 
 let dbBundlePromise = null;
 
@@ -64,7 +67,7 @@ export class DbPlayer {
     const atlasData = await atlasRes.json();
     const imagePath = atlasData.imagePath || atlasUrl.replace(/\.[^.]+$/, '') + '.png';
     const texImageUrl = new URL(imagePath, atlasUrl).href;
-    const texture = await PIXI.Assets.load({ src: texImageUrl });
+    const texture = await P().Assets.load({ src: texImageUrl });
     factory.parseTextureAtlasData(atlasData, texture);
     this.loadedUrls.push(texImageUrl);
 
@@ -199,7 +202,7 @@ export class DbPlayer {
     }
     for (const url of this.loadedUrls) {
       try {
-        PIXI.Assets.unload(url);
+        P().Assets.unload(url);
       } catch (err) {
         /* ignore */
       }

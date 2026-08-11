@@ -1,5 +1,4 @@
 import './style.css';
-import * as PIXI from 'pixi.js';
 
 import {
   loadState, state, itemById, setSetting, saveState,
@@ -17,8 +16,7 @@ import { PreviewController } from './preview/index.js';
 import { initUI, renderCategories, renderItems, renderMainArea, selectItem, updatePlaybackUI, updateStatusBar } from './ui.js';
 import { thumbnailService } from './thumbnails.js';
 
-// 供 DragonBones UMD 运行时在全局访问 PIXI
-window.PIXI = PIXI;
+// 供 DragonBones UMD 运行时在全局访问 PIXI(由 pixiLazy.getPixi 首次加载时设置)
 
 const preview = new PreviewController();
 window.__preview = preview;
@@ -28,9 +26,8 @@ async function main() {
 
   const canvas = document.getElementById('pv-canvas');
   const wrap = document.getElementById('pv-canvas-wrap');
-  await preview.init(canvas, wrap);
 
-  // 应用已保存的设置
+  // 应用已保存的设置(背景色在预览渲染器就绪后自动生效)
   preview.setBgColor(state.settings.bgColor || '#22242b');
 
   // 截图默认保存路径:未设置时使用图片库目录/Spine截图
@@ -57,6 +54,13 @@ async function main() {
   }
   renderCategories(lastCat || 'all');
   renderMainArea();
+
+  // 首屏已渲染, 移除启动骨架屏(消除黑屏等待; 若渲染异常保留骨架不碍事)
+  const splashEl = document.getElementById('splash');
+  if (splashEl) splashEl.remove();
+
+  // 首屏渲染完成后再后台初始化预览渲染器(创建 WebGL 较耗时, 不阻塞界面显示)
+  preview.init(canvas, wrap).catch((err) => console.error('预览渲染器初始化失败:', err));
 
   // 状态栏定时刷新
   setInterval(updateStatusBar, 250);

@@ -2,6 +2,7 @@ import { SpinePlayer } from './spinePlayer.js';
 import { Spine38Player } from './spine38Player.js';
 import { DbPlayer } from './dbPlayer.js';
 import { probeSkeleton, isLegacy } from './skelProbe.js';
+import { getPixi } from '../pixiLazy.js';
 
 function basename(p) {
   return String(p).split(/[\\/]/).pop();
@@ -17,6 +18,7 @@ function basename(p) {
  */
 export async function createPlayer(app, item) {
   const root = `${location.origin}/a/${item.id}`;
+  await getPixi(); // 首次创建播放器时加载 pixi.js 并确保 window.PIXI(DragonBones UMD / player 运行时)
 
   if (item.type === 'spine') {
     const skeletonUrl = `${root}/${encodeURIComponent(basename(item.filePath))}`;

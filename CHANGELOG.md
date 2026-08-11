@@ -3,9 +3,320 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.1`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.32`）。
 
 ---
+
+## 2026-08-12
+
+### [说明] 发布 v1.9.32(便携版)
+- 例行递增版本号并重新打包便携版：1.9.31 → 1.9.32。
+- 本次打包包含截至 v1.9.31 的全部功能与修复（设置页开发者调试 CDP 开关、网络资源抓取内置浏览器 sandbox 修复、另存默认定位输出目录等，详见上方各版本记录），以及自 v1.9.31 以来的工作区累积改动。
+
+---
+
+## 2026-08-11
+
+### [新增] v1.9.31: 设置页新增「开发者调试」开关 — 常规启动后一键开启 Chrome DevTools(CDP) 调试服务
+- 需求: 常规启动(双击 exe, 不带命令行参数)后, 希望在应用内通过开关开启 chrome-devtools 连接器的调试服务(CDP 端口)。
+- 方案: Chromium 的 `--remote-debugging-port` 只能在**进程启动时**生效, 运行时无法动态开启 → 用「持久化标志 + 自动重启」:
+  - 开关状态存 `userData/dev-cdp.json`(`{ enabled, port }`, 默认关/9222)。
+  - 主进程启动早期(ready 前)同步读标志, 已启用则 `appendSwitch('remote-debugging-port', port)` + `appendSwitch('remote-allow-origins', '*')`。
+  - 切换开关 → IPC 写标志 → `app.relaunch({ args: 过滤掉旧调试参数 })` 自动重启生效, 参数统一由标志文件控制。
+- 新增 `electron/tools/devCdp.js`: `readState` / `applyOnStartup` / `saveState` / `probePort`(TCP 探测端口是否真在监听) / `relaunchArgs`。
+- main.js: `cdp:getState`(返回 enabled/port/listening)、`cdp:setState`(写标志 + 300ms 后 relaunch); preload 暴露 `cdpGetState`/`cdpSetState`。
+- settingsPage.js 新增「开发者调试 (Chrome DevTools)」卡片: 启用开关 + 端口输入(1024-65535, 随开关禁用) + 状态徽标(● 已生效,可连接 / ○ 待重启生效 / 关闭) + 「保存并重启」按钮; style.css 加 `.cdp-status` 三态色。
+- ⚠️ 安全提示已写入 UI: CDP 端口无访问认证, 任何本机程序可连接, 仅限本机开发调试, 勿在共享环境开启。
+- 验证: 设置页开开关 → 保存并重启 → 新进程(无命令行调试参数)读标志自动开 9222 → `curl /json/version` 与 chrome-devtools 连接器均连上; `cdp:getState` 返回 `{enabled:true,port:9222,listening:true}`。
+
+## 2026-08-11
+
+### [修复] v1.9.30: 网络资源抓取内置浏览器打不开网页(渲染进程被杀)
+- 现象: 内置浏览器(WebContentsView)打开任意网页(http/https 均如此)都失败——`did-start-loading` 后立即 `render-process-gone {reason:'killed', exitCode:1}`, 标签停留在「新标签」, 捕获列表无资源; 应用主窗口(非 sandbox)正常。
+- 根因: `_createTab` 的 `webPreferences` 设了 `sandbox: true`, 在本机无 GPU(软渲染 `--disable-gpu` / `SKELETON_VIEWER_SOFTWARE=1`)环境下, sandboxed 渲染进程无法正常初始化被系统杀死; 主窗口 BrowserWindow 默认非 sandbox 所以不受影响。
+- 修复: `electron/tools/webGame.js` `_createTab` 的 `sandbox: true → false`(nodeIntegration 仍为 false + contextIsolation 仍为 true, 无安全降级; 远程网页无 node 访问能力)。
+- 顺带: `_createTab` 增加 `did-fail-load` / `did-finish-load` / `render-process-gone` / `did-start-loading` 主进程日志, 便于日后排查网页加载失败。
+- 验证: 打开 `https://www.chuangciyingyu.com/release/client/web/index.html` → 主进程 `did-finish-load` 触发, CDP target 标题「闯词Ai-游戏化背单词」, 捕获列表 33 条/共 76 条(Spine / 配置等)。
+
+## 2026-08-11
+
+### [新增] v1.9.29: 「另存..」默认定位输出目录 + 捕获列表播放按钮改悬浮线条风格
+- 需求: ① 「另存为」弹出的路径选择窗口默认保存地址设置为输出目录(`webGameSaveDir`)里设置的路径; ② 捕获列表 `#wg-list` 快捷预览播放按钮不再挤占缩略图和文件名位置, 改为透明背景、悬浮在缩略图上的简洁线条风格播放按钮。
+- 实现:
+  - `electron/main.js`: `dir:pick` 支持可选参数 `defaultPath`(目录选择对话框默认定位目录)。
+  - `src/pages/webGamePage.js`:
+    - `saveAsRec` 调 `pickDirs({ ..., defaultPath: downloadRoot || undefined })` —— 另存对话框默认打开输出目录; 未设置输出目录时回退系统默认。
+    - `renderList` 行模板: 播放按钮与缩略图包进固定 28×28 的 `.wg-thumbwrap` 插槽; 播放按钮改为内联 SVG 线条三角图标(无填充、stroke 2), 不再占据独立 22px 空间。
+  - `src/style.css`: `.wg-thumbwrap`(relative 28×28 插槽, 所有行对齐); `.wg-thumb` 绝对定位填满插槽; `.wg-playbtn` 绝对悬浮于缩略图上、透明背景、悬停行显示、hover 加轻微暗色遮罩 + 图标投影保证对比度。
+- 验证: 3 文件 `node --check` 通过; vite build 通过。
+
+## 2026-08-11
+
+### [新增] v1.9.28: 捕获列表右键菜单增加「另存..」
+- 需求: 网络资源抓取模块捕获列表 `#wg-list` 右键菜单增加「另存..」, 点击弹出目录选择器, 保存到用户指定位置。
+- 实现:
+  - `src/pages/webGamePage.js`: `ctxActions(rec)` 在「保存此资源...」后新增 `📁 另存..` 菜单项 → `saveAsRec(rec)`: 弹目录选择器(单选) → 以资源原文件名(重名自动 `1_`/`2_` 前缀)下载到所选目录 → spine 组配套文件一并另存 → 更新行状态/`rec.path`(可「打开下载目录」) → 非「仅下载不入库」时照常入库。不改变顶栏输出目录 `downloadRoot`。
+  - `electron/main.js` + `electron/preload.js`: `dir:pick` 支持可选参数 `{ title?, multi? }`(原有调用不传参行为不变)。
+- 验证: 3 文件 `node --check` 通过; vite build 通过。
+
+## 2026-08-11
+
+### [修复] v1.9.27: 有网页打开时点击侧栏收藏夹目录, 网页显示区保持内容不黑屏
+- 需求: 网络资源抓取模块中如果有网页打开的情况下, 点击左侧树状菜单栏的网址收藏夹目录(非收藏网址), 显示的网页内容要保持不变, 而不是将网页显示区变成黑屏。
+- 现象: 点击侧栏「网址收藏夹」根节点/分类目录时, 网页显示区变黑(且可能闪出网页悬浮窗)。
+- 根因:
+  - `src/ui.js` `enterWebGame()` 无条件调用 `clearOverlays()`, 而 `clearOverlays` 在已处于抓取页(`webGameShown=true`)时仍触发 `_webGameDetach()→webFloatOut()`, 把网页视图迁出主窗口; 随后 `renderMainArea→syncBounds` 又将其迁回, 最后 `setPanel('bookmark')` 再以 `webSetBounds(0×0)` 隐藏视图 → 浏览器区黑屏。
+  - `setPanel('bookmark')` 按原设计隐藏浏览器视图, 左树点击分类目录时并不需要隐藏。
+- 改动:
+  - `src/ui.js` `enterWebGame()`: **已在抓取页时跳过 `clearOverlays()`**(仅首次进入才清状态/触发 detach); 收藏夹根节点/分类节点/右键「打开收藏夹」点击传入 `{ keepBrowser: true }`。
+  - `src/pages/webGamePage.js`: `setPanel(panel, keepBrowserInPanel)` 新增参数——`keepBrowser` 时收藏夹面板下**保留浏览器视图**(走 `_webGameSyncBounds` 而非 `0×0`); `_webGameSyncBounds` 在 `keepBrowser` 时不再提前返回(窗口 resize/拖分割条仍跟随); `_webGameShowBookmarks(catId, opts)` 透传 `keepBrowser`。
+  - 内部侧栏 tab「🔖 网址收藏夹」仍按原逻辑隐藏浏览器(用户主动聚焦收藏夹面板), 不受影响。
+- 验证: 3 文件 `node --check` 通过; vite build 通过。
+
+## 2026-08-11
+
+### [修复] v1.9.26: 侧栏收藏夹点击不再出现左上角小窗 + 已打开网址点击改为切换标签页
+- 需求: ① 有网页打开时点击侧栏「网址收藏夹」/收藏夹子目录节点, 网页内容缩小为应用左上角悬浮小窗——任何时候都不应出现; ② 有网页打开时点击侧栏收藏夹中该网页的网址, 应切换到已打开的标签页而非新开。
+- 实现:
+  - `electron/tools/webGame.js`: `syncBounds` 的 **width/height clamp 由 80 改为允许 0** —— 收藏夹面板切换时 `webSetBounds(0×0)` 隐藏浏览器视图, 此前被 clamp 成 80×80 左上角小窗(WebContentsView 0×0 合法隐藏, 非活动 tab 本就用 0×0); 新增 **`openOrSwitch(url)`**(`normUrl` 规范化比较忽略尾斜杠/hash): 已打开相同 URL 标签页 → 切换过去, 否则新开。
+  - `electron/main.js` + `electron/preload.js`: 新增 `web:openOrSwitch` IPC 与 `webOpenOrSwitch` API。
+  - `src/pages/webGamePage.js`: `openUrl`(侧栏收藏夹网址/最近历史/收藏夹行点击)改走 **openOrSwitch**(切换优先); 右键「▶ 新标签打开」保留强制新开(openUrlNewTab)。
+- 验证: 4 文件 `node --check` 通过; vite build 通过; 完整冒烟 PASS。
+
+## 2026-08-11
+
+### [修复] v1.9.25: 悬浮窗关闭后左上角残留小窗 + 切走页面停止网页媒体播放
+- 需求: ① 网页悬浮窗点关闭后, 应用窗口左上角出现一个小窗口, 应不显示; ② 打开网页时切换到别的页面, 应停止网页中的媒体播放(参考 Chrome 后台标签页处理)。
+- 实现(`electron/tools/webGame.js`):
+  - floatClose 关闭悬浮窗时, 视图迁回主窗口后 **setBounds(0×0) 隐藏**(此前保留悬浮窗内坐标 → 主窗口左上角残留小窗); 切回抓取页时 syncBounds 恢复显示。
+  - 新增 `pauseMedia()`: 向活动标签页注入 JS 暂停全部 `video/audio`(参考 Chrome 切走标签页时后台页媒体处理); **floatOut(切离抓取页)与 floatClose(关闭悬浮窗)时调用**, 切换到其它页面即停止网页媒体播放; 悬浮窗还原后由用户手动继续播放。
+- 验证: webGame.js `node --check` 通过; vite build 通过; 完整冒烟 PASS。
+
+## 2026-08-11
+
+### [修复] v1.9.24: 悬浮窗关闭/最小化行为调整 + 资源列表类型筛选失效
+- 需求: ① 悬浮窗点击关闭应真正关闭; 最小化应在原位置缩小为只有「还原+关闭」两个按钮; ② 资源列表类型按钮没选中时也显示资源、点击类型按钮无法筛选。
+- 实现:
+  - `electron/tools/webGame.js` + `public/float-window.html`: **关闭(✕) → 真正关闭悬浮窗**(网页视图迁回主窗口 + 销毁悬浮窗, 退出悬浮模式; 再切模块可重新悬浮); **最小化(─) → 在原位置居中缩小为 64×32 迷你按钮**(不再跳主窗口右上角), 迷你按钮仅含 **▶ 还原 + ✕ 关闭** 两按钮, 标题栏原生 `app-region: drag` 拖拽(移除上版 JS 拖拽)。
+  - `src/pages/webGamePage.js`: **`shownRecords` 始终按类型筛选 chips 过滤** — 修复「仅下载不入库」勾选时列表无视类型筛选显示全部、导致点击类型按钮无法筛选; 「仅下载不入库」现在只影响下载后是否入库, 不影响列表显示; 「下载全部」仍下载全部可下载类型。
+- 验证: webGame.js/webGamePage.js `node --check` 通过; vite build 通过; 完整冒烟 PASS。
+
+## 2026-08-11
+
+### [修复] v1.9.23: localStorage 持久化失效根因(端口随机) + 网页悬浮窗迷你按钮
+- 需求: ① 网页悬浮窗最小化/关闭后无法恢复悬浮模式——最小化应缩小为可拖拽小按钮, 点击还原; ② 悬浮预览开关/仅下载不入库/类型筛选勾选状态未持久化。
+- 根因(问题②③): `electron/server.js` `server.listen(0)` **端口随机** → 渲染端 origin(含端口)每次启动不同 → **localStorage 按 origin 隔离, 全部持久化状态(悬浮预览/仅下载不入库/类型筛选/搜索词/侧栏/音频模式等)重启后丢失**。
+- 修复:
+  - `electron/server.js`: **固定端口 13456**(EADDRINUSE 时 +1 重试, 最多 30 次) → origin 稳定, localStorage 持久化全部恢复生效。
+  - 网页悬浮窗迷你按钮(`electron/tools/webGame.js` + `electron/main.js` + `electron/floatPreload.js` + `public/float-window.html`): 最小化/关闭按钮不再最小化到任务栏/隐藏, 而是**收起为 64×36 迷你按钮**(默认停靠主窗口右上角内侧, alwaysOnTop 悬停其上), 标题栏 JS 拖拽移动(原生 drag 不派发点击, 改 JS pointer 拖拽并区分"未移动=点击"), **点击还原**为迷你化前的大小/位置; 切回网页抓取页自动复位。
+- 验证: server 端口两次启动均 13456(固定 OK); 4 个文件 `node --check` 通过; vite build 通过; 完整冒烟 PASS。
+
+## 2026-08-11
+
+### [新增] v1.9.22: 资源行播放按钮 — 悬停显示, 点击在悬浮预览窗播放(不受开关限制)
+- 需求: 悬停资源列表的音频/视频/动画/图片等资源时显示小播放按钮, 点击在悬浮预览窗中播放预览; 悬浮预览开关关闭时播放按钮也能弹出预览窗。
+- 实现:
+  - `src/pages/webGamePage.js` + `src/style.css`: 资源行新增 **`▶` 播放按钮**(`.wg-playbtn`, 行悬停时显示圆形按钮), 点击 `showPreview(rec)` **显式触发**(绕过 `wg-pv-enabled` 开关; 原悬停自动预览仍受开关控制)。
+  - `public/preview-window.html`: 音频/视频渲染加 **autoplay 自动播放**(`play().catch` 兜底, 直连失败仍走 downloadDataUrl 兜底并恢复播放); **Spine 动画**优先显示组内图集预览图(`rec.thumb` + 兜底), 并保留下载入库/保存入口。
+  - `electron/tools/webPreviewWindow.js`: 预览窗 `partition: 'persist:webgame'` — 共享网页抓取分区 session, 预览窗内 `<audio>/<video>/<img>` 直连外链携带 cookie/登录态, 避免需登录态/防盗链资源 403。
+- 验证: webPreviewWindow.js/webGamePage.js `node --check` 通过; vite build 通过; 完整冒烟 PASS。
+
+## 2026-08-11
+
+### [新增] v1.9.21: 悬浮窗位置/大小持久化(重启恢复)
+- 需求: 悬浮窗的位置和缩放大小也要能记住。
+- 实现(主进程持久化到 userData JSON 文件, 300ms 节流):
+  - `electron/tools/webGame.js`: 网页悬浮窗(floatWin)创建时从 `userData/webgame-float-state.json` 恢复位置+大小(resize/move/close 事件保存); 恢复位置若不在任何显示器可见区(显示器变更)则回退默认左上角。
+  - `electron/tools/webPreviewWindow.js`: 资源悬浮预览窗创建时恢复**大小**(用户调整过)与上次位置(lastPos, 用于手动预览/无鼠标定位); resize/move/close 事件持久化到 `userData/web-preview-state.json`; 悬停跟随鼠标定位(v1.9.19)不受影响。
+- 验证: webGame.js/webPreviewWindow.js `node --check` 通过; vite build 通过; 完整冒烟 PASS。
+
+## 2026-08-11
+
+### [新增] v1.9.20: 运行状态持久化 — 重启记住上次的选择/勾选
+- 需求: 程序运行中的各种选择和勾选状态(如网络资源抓取的「仅下载不入库」「悬浮预览」、资源列表类型筛选等)重启后要能恢复。
+- 实现(localStorage, 启动时已初始化过, 页面级读取无卡顿):
+  - `src/pages/webGamePage.js`: 新增持久化 **`wg-only-url`(仅下载不入库勾选)**、**`wg-filter-types`(类型筛选 chips 选择数组 JSON)**、**`wg-search`(文件名搜索词)**; 页面初始化时恢复(过滤集合与 TYPE_GROUP 取交集校验)。
+  - `src/viewers/audioViewer.js`: 音频播放器新增持久化 **`audio-mode`(播放模式)/`audio-rate`(倍速)/`audio-volume`(音量)**, init 恢复并同步控件, setMode/setRate/setVolume 变更即存。
+  - 既有已持久化: 悬浮预览开关 `wg-pv-enabled`、输出目录/最近网址/历史/代理(settings)、目录列表页视图/排序、场景页分割尺寸、工具箱输入历史。
+- 验证: webGamePage.js/audioViewer.js `node --check` 通过; vite build 通过; 完整冒烟 PASS。
+
+## 2026-08-11
+
+### [新增] v1.9.19: 资源悬浮预览窗默认位置改为鼠标右下方(不遮挡缩略图/文件名)
+- 需求: 悬浮预览窗开启后默认位置不要放在应用窗口右上角, 改为鼠标右边、不遮挡资源文件缩略图和文件名的位置。
+- 实现:
+  - `electron/tools/webPreviewWindow.js`: `show()` 位置策略改造——不可见时若带 `payload.mouse`(悬停资源行) → 定位到**光标右下方**(x+18 / y+14), 右侧/下方放不下则翻转到光标左侧/上方, 并 clamp 到鼠标所在显示器 workArea(`getDisplayNearestPoint`); 窗口已可见不动(拖动中不跳动); 无鼠标位置(手动预览等)仍用 lastPos/右上角兜底。
+  - `src/pages/webGamePage.js`: 记录悬停鼠标屏幕坐标(`pvMouse = e.screenX/Y`, mouseenter 传入), 预览窗 payload 带 `mouse`; 右键「👁 预览」用菜单弹出位置(`ctxMenuPos`)。
+- 验证: webPreviewWindow.js/webGamePage.js `node --check` 通过; vite build 通过; 完整冒烟 PASS。
+
+## 2026-08-11
+
+### [修复] v1.9.18: 关闭窗口后进程残留(不彻底退出) + 启动 handler 顺序
+- 需求: 点击关闭窗口后, 任务管理器里进程仍残留, 需确保关闭后彻底退出。
+- 根因: 退出依赖 `window-all-closed` 事件, 但**主窗口关闭时网页悬浮窗(v1.9.14 floatWin)/悬浮预览窗等附属窗口仍开着 → 事件不触发 → 进程残留**。
+- 修复:
+  - `electron/main.js`: 主窗口 `win.on('closed')` 主动清理附属窗口(`webPreviewWindow.close()` + `webGame.destroy()` 内部销毁 floatWin)并 `app.quit()`, 不再依赖 window-all-closed; 保留原 window-all-closed 兜底。
+  - 顺带修复 v1.9.16 重构引入的 **双重 `createWindow` 调用 + IPC handler 注册顺序错误**(渲染端启动 `db:read` 在 handler 注册前调用报错): 删除提前的 createWindow, 所有 handler 先注册、`createWindow` 移到 whenReady 末尾(唯一一次调用)。
+- 验证: **真实关闭测试**(后台软件模式启动 → 枚举窗口发 WM_CLOSE 等效点击 ✕) → electron 进程数归零, 彻底退出; 冒烟(含 db:read 无报错)PASS。
+
+## 2026-08-11
+
+### [修复] v1.9.17: 启动黑屏优化(窗口出现前不再显示黑屏)
+- 现象: v1.9.16 修复 6.5s 阻塞后, 打开窗口仍有约 2 秒黑屏(深色背景等待内容)。
+- 定位(主进程启动探针): 主进程初始化仅 23ms; 黑屏来自 **createWindow 约 3.5 秒**(渲染进程冷启动 + HTML/JS 加载期间窗口已显示深色背景)。
+- 修复:
+  - `index.html`: body 增加 **启动骨架屏 `#splash`**(纯内联 CSS: 🎮 图标 + 「游戏资源管理器」标题 + 加载动画, CSP 允许 unsafe-inline)——渲染进程首帧即可绘制, JS 未就绪时不再显示纯黑背景。
+  - `electron/main.js`(主进程): 窗口 `show: false` + `ready-to-show` 后再显示(首帧可绘制=骨架屏就绪), **窗口出现即见内容/骨架, 全程无黑屏**; 5 秒兜底强制显示防异常; 保留启动探针(`[main-init]` 各阶段耗时, 后续优化参考)。
+  - `src/main.js`(渲染端): 首屏渲染完成后移除 `#splash`。
+- 验证: 语法 `node --check` + vite build 通过; 完整冒烟 PASS(createWindow 约 3.5s 为渲染进程冷启动, 黑屏已由「窗口延后显示 + 骨架屏」消除)。
+
+## 2026-08-11
+
+### [修复] v1.9.16: 启动过慢(打开后要等好几秒才显示界面)
+- 现象: 打开应用后需等数秒才显示界面内容, 比之前慢很多。
+- 根因(冒烟探针逐段定位): `initUI` 内 `localStorage.getItem('sidebarHidden')` **首次访问耗时约 6.5 秒**——Electron 渲染进程 localStorage 首次访问需初始化 LevelDB, 该机器上极慢, 直接阻塞首屏渲染(启动 gap 4.9s 全在此)。
+- 修复:
+  - `src/ui.js`: 侧栏隐藏状态改为 **requestIdleCallback/空闲时读取应用**(首屏先按展开显示, 不再阻塞); 移除 initUI 末尾重复的 `renderCategories/renderMainArea`(由 main 统一渲染一次)。
+  - `src/main.js`: **预览渲染器(PIXI.Application/WebGL)延迟到首屏渲染后后台初始化**(`preview.init` 不阻塞, `loadItem` 首次预览时自动 ensure)。
+  - **pixi.js 918KB 动态导入**: 新建 `src/pixiLazy.js`(`getPixi`/`pixiRef`), 移除全部 7 处静态 `import * as PIXI`(main/preview/index/spinePlayer/spine38Player/dbPlayer/thumbnails/fguiLayoutPreview), 首次预览/缩略图/FGUI 编辑时才加载, 首屏只加载 438KB index; `@pixi/spine-pixi` 同步动态导入; window.PIXI 由 getPixi 首次加载时设置(DragonBones UMD 兼容)。
+- 验证: 冒烟探针显示启动到渲染端首日志 gap 由 **~4.9 秒降至 ~4ms**(localStorage 不再阻塞); 9 个 JS `node --check` 通过; vite build 通过; 完整冒烟(含动画预览触发 pixi 动态加载 / DragonBones 运行时)PASS。
+
+## 2026-08-11
+
+### [新增] v1.9.15: 资源首页 — 删除目录默认项调整 + 目录管理模式(批量勾选/删除/移动)
+- 需求: ① 资源首页右键删除目录时, 默认选项改为第一项「删除目录下的所有动画和子目录(仅从列表移除,不删磁盘文件)」; ② 首页增加「管理」按钮, 管理模式可勾选目录、批量勾选/全选后进行删除和移动。
+- 实现:
+  - `src/ui.js`: 删除目录对话框(`deleteCategoryDialog`)默认选中由「移动到未分类」改为第一项「删除所有动画和子目录」(`rbDel.checked = true`, 子目录区块联动自动隐藏); 新增 `batchDeleteCategories`(批量删除, 按默认语义 `removeCategoryAdvanced({deleteItems:true, subAction:'parent'})`, 确认框统计目录/子目录/动画数)与 `batchMoveCategoriesDialog`(批量移动, 目标排除选中目录及其子孙, 支持移至顶级); renderMainArea 全局主页分支传入 `onManageDelete/onManageMove`。
+  - `src/pages/homePage.js`: 全局主页新增模块级管理模式状态 `homeManage`; 标题行增加「🛠 管理」按钮(管理时变「✓ 完成管理」); 管理模式下目录快捷入口每项前显示勾选框 + 「全选」+ 操作条(已选计数/📂 移动/🗑 删除, 未勾选时禁用); 管理模式点击目录不跳转。
+  - `src/style.css`: `.home-title-row`(管理按钮右对齐)/`.home-mgmt-bar`/`.home-mgmt-selectall`/`.quick-cat.mgmt`/`.qc-check` 样式。
+- 验证: homePage.js/ui.js `node --check` 通过; vite build + 完整冒烟 PASS。
+
+## 2026-08-11
+
+### [新增] v1.9.14: 网页悬浮窗 — 可拖拽移动 / 最小化 / 关闭
+- 需求: 网络资源抓取打开网页后切到其它模块, 网页以小窗口悬浮在应用左上角; 为该小窗口增加**拖拽移动位置 / 最小化 / 关闭**功能。
+- 根因: 原 detach 用 `webSetBounds(0×0)` 隐藏浏览器视图, 但 syncBounds 将宽高 clamp 到最小 80 → 变成左上角 80×80 小窗且无法控制。
+- 实现(借鉴 v1.9.0 悬浮预览窗的独立窗口方案, 解决「DOM 浮层盖不住 native WebContentsView」):
+  - `electron/tools/webGame.js`: 新增网页悬浮窗 `floatWin`(frameless BrowserWindow + `float-window.html` 自绘标题栏, `-webkit-app-region: drag` 原生支持拖拽); `_moveView` 把活动 tab 的 WebContentsView 在主窗口与悬浮窗间迁移(`removeChildView`/`addChildView`); `floatOut`(切走时迁入悬浮窗并显示, 推送标题)/`floatBack`(切回抓取页时迁回主窗口并隐藏悬浮窗)/`floatMinimize`/`floatClose`(隐藏, 视图保留); `syncBounds` 悬浮时忽略主窗口布局; 窗口 resize 同步视图 bounds; tab 记录所在窗口, closeTab/close/destroy 兼容悬浮窗。
+  - `electron/main.js`: 新增 `web:floatOut/floatBack` + `float:minimize/close` handler; `electron/preload.js` 暴露 `webFloatOut/webFloatBack`; 新建 `electron/floatPreload.js`(悬浮窗专用) 与 `public/float-window.html`(标题栏: 🌐 标题 + ─ 最小化 + ✕ 关闭, 按钮 no-drag)。
+  - `src/pages/webGamePage.js`: `_webGameDetach` 由 `webSetBounds(0×0)` 改为 `webFloatOut()`; 回到抓取页时 `_webGameSyncBounds → webSetBounds → floatBack` 自动收回。
+- 验证: 5 个 JS `node --check` 通过; vite build 通过(dist/float-window.html 已生成); 完整冒烟 PASS。
+
+## 2026-08-11
+
+### [新增] v1.9.13: 捕获列表右键菜单增加「打开下载目录」
+- 需求: 资源列表右键菜单增加「打开下载目录」, 已下载的资源可用系统文件管理器打开其所在目录。
+- 实现: `src/pages/webGamePage.js` —— `ctxActions` 动态生成: 资源已下载(`rec.downloaded` 或 `rec.path`, 含 spine 组连带下载的配套)时插入「📂 打开下载目录」(位于「复制 URL」前), 点击调 `openDownloadDir(rec)` → `window.api.openPath(rec.path 所在目录)`, 未下载的资源不显示该菜单项。
+- 验证: webGamePage.js `node --check` 通过; vite build + 完整冒烟 PASS。
+
+## 2026-08-11
+
+### [新增] v1.9.12: 骨骼动画资源 — 预览图 + 配套整组保存 + 按域名/URL 路径归档
+- 需求: ① 参考 `AIXdownload` 插件(content/anim-hook.js, 主世界注入 hook 引擎+扫描场景资源)监测骨骼动画资源的方法, 在资源列表显示**骨骼动画预览图片**; ② 保存 spine 资源时将 `.atlas/.png/.skel` 等配套文件**一起保存到同一目录**; ③ 保存时**先以网站域名建目录**, 再按资源 URL 相对路径归档。
+- 实现(`src/pages/webGamePage.js`):
+  - 归类修正扩展(借鉴插件「资源组」思路): 提取 `urlKeyOf` 复用; spine 组/Spine 类型记录取**同组(同目录同 base 名)第一个 .png 作为预览图**(`rec.thumb`); 组内 `.atlas/.atlas.txt/.png/.astc` 标记 `groupOnly`(随主文件整组保存、不再单独入库, 避免重复 spine 条目; 主文件 = `.skel/.json/.bin/.sk`)。
+  - 资源列表缩略图: 由 `isImageUrl(r.url)` 改为 `r.thumb || isImageUrl(r.url)`, 兜底 `webThumbFetch` 改下载 `data-thumb`(预览图 URL)本身。
+  - 下载保存: 目录改为 `{输出目录}/{网站域名}/{URL 相对路径目录}`, 去掉原 gameName/type 层(`typeDirName` 删除); spine 主文件下载后 `downloadSpineGroup` 把同组配套 `.atlas/.atlas.txt/.png/.skel/.bin/.sk` 一并下载到**同一目录**(已下载/重名自动跳过或加序号)。
+  - 入库: `importToLibrary` 对 `groupOnly` 记录直接跳过(只保存文件)。
+- 验证: `node --check` 通过; 预览图/groupOnly 单元验证 7 例全对(主文件有图非配套、atlas/png 配套、.sk 主文件、普通图片不受影响); vite build + 完整冒烟 PASS。
+
+## 2026-08-11
+
+### [新增] v1.9.11: 网络资源抓取 — 「打开目录」按钮 + 下载选中去高亮
+- 需求: ① 「下载选中」按钮前增加「打开目录」按钮(用系统文件管理器打开下载目录); ② 「下载选中」不再高亮。
+- 实现: `src/pages/webGamePage.js` —— 操作栏新增 `#wg-open-dir` 按钮(位于「⬇ 下载选中」前), 点击调 `window.api.openPath(downloadRoot)`(复用现有 `shell:openPath` IPC, 未设置输出目录时提示);「⬇ 下载选中」移除 `primary` 高亮类(与其它普通按钮一致)。
+- 验证: webGamePage.js `node --check` 通过; vite build 通过; 完整冒烟 PASS。
+
+## 2026-08-11
+
+### [新增] v1.9.10: 捕获列表 .sk 文件归类到 Spine 类型
+- 需求: 资源列表中 `.sk` 类型的文件归类到 spine 类型(部分游戏用 `.sk` 表示 spine 骨骼数据)。
+- 实现: `electron/tools/webGame.js` EXT_TYPE 新增 `[/\.sk(\?|$)/i, 'spine']`(`.skel` 规则在前不受影响;直接归 `spine` 使类型筛选 chip / 下载目录 / 入库 Spine 分支全部生效)。
+- 验证: classify 单元验证 10 例全对(`.sk`/`.sk?query` → spine;`.skel` → spine-skel;`.risk`/`.task`/`.ask` 不误伤);`node --check` + vite build 通过。
+
+## 2026-08-11
+
+### [新增] v1.9.9: 网址收藏夹取消「未分类」+ 收藏必须选分类
+- 需求: ① 取消网址收藏夹的「未分类」节点; ② 收藏网址时必须选择分类, 若无分类则要求手动输入分类名称(自动新建)。
+- 实现:
+  - `src/ui.js`: 侧栏「网址收藏夹」移除「未分类」节点(及 v1.9.8 的 renameUncatDialog); 根节点点击进入收藏夹面板「全部」视图; 删除分类提示文案改为「网址移到父分类」。
+  - `src/state.js`: `removeWebBookmarkCategory` 删除分类时网址 `categoryId` 提升到父分类(原置空为未分类)。
+  - `src/pages/webGamePage.js`: 收藏夹面板新增「全部」虚拟视图(`curBmCat='all'`, 顶部显示「全部」, 列出全部分类网址); 收藏网址对话框**分类必选**——有分类时 select 选择(可「➕ 新建分类...」二次输入名称自动建分类), 无分类时直接输入分类名称新建; 「移动到...」移除「未分类」选项(无分类时提示先创建); 面板「＋ 新建目录」在全部视图下建于顶级; `catPathName` 支持递归路径与「全部」。
+- 验证: 三个 JS `node --check` 通过; vite build 通过; 完整冒烟(含 webgame 页 + 收藏夹 CRUD)全部 PASS。
+
+## 2026-08-11
+
+### [新增] v1.9.8: 网址收藏夹 — 点击新标签打开 + 移动到分类 + 「未分类」可重命名
+- 需求: ① 收藏夹列表点击网址项由复制改为**新标签页打开**; ② 收藏夹列表右键菜单增加「移动到...」; ③ 侧栏树中「未分类」与分类目录平级且可重命名为普通分类。
+- 实现:
+  - `src/pages/webGamePage.js`: 收藏夹行点击 → `openUrl`(新标签打开, 复制移入右键菜单); 右键菜单新增「📂 移动到...」→ `moveBookmarkDialog`(select 列出全部分类含未分类, `updateWebBookmark` 改 `categoryId`, 支持嵌套分类路径名 `catPathName`); 新增 `refreshTree()`——收藏增/改/删/移/建目录后回调 `container._webGameTreeRefresher` 同步左侧树(计数与结构)。
+  - `src/ui.js`: 侧栏「未分类」节点**始终显示**(与分类目录平级, 不再仅在有网址时出现) + 右键「重命名(转为普通分类)」→ `renameUncatDialog`(创建新分类并把未分类网址全部移入); `renderWebGamePage` 调用后挂接 `pageEl._webGameTreeRefresher = renderTree`。
+- 验证: 两个 JS `node --check` 通过; vite build 通过; 完整冒烟(含 webgame 页 + 收藏夹 CRUD)全部 PASS。
+
+## 2026-08-11
+
+### [新增] v1.9.7: 网络资源抓取 — 多标签页浏览 + 收藏夹增强
+- 需求: ① 收藏网址对话框默认预填浏览器当前网址; ② 点击收藏夹中的网址 → **新开网页标签页**打开; 收藏夹列表右键菜单含 复制网址/修改/删除。
+- 多标签实现(主进程 `electron/tools/webGame.js` 重构): `WebGameView` 由单 `WebContentsView` 升级为 `tabs: Map<id,{view,url,title}>` 多标签;`_createTab` 统一创建(继承静音/弹窗拦截/标题导航事件, 事件内 `emitTabs` 推送标签列表);`syncBounds` 仅活动标签显示在浏览器矩形、其余 0×0 隐藏(满足 WebContentsView 叠放约束);新增 `newTab`(收藏/侧栏打开)/`switchTab`/`closeTab`(关闭活动标签自动切到相邻)/`getCurrentUrl`(收藏预填)/`getTabs`;`open` 语义=当前标签导航或首开;`close`=关闭全部标签。`main.js` 新增 `web:newTab/switchTab/closeTab/getUrl` handler;`preload.js` 暴露 `webNewTab/webSwitchTab/webCloseTab/webGetUrl/onWebTabs`。
+- 渲染端(`src/pages/webGamePage.js`): 顶栏下新增标签条 `#wg-tabs`(点击切换/×关闭/＋新开空白标签聚焦地址栏, 空标签自动隐藏);`onWebStatus navigated` 同步地址栏; 收藏网址对话框(`#wg-bm-add-url`)打开时 `webGetUrl` 预填当前网址; 收藏夹行右键菜单(复制网址/新标签打开/修改/删除, 右键菜单通用化为 `showMenu`); 修复遗留 bug——收藏列表「▶ 打开」调用的 `openUrl` 此前未定义; 收藏夹/侧栏收藏夹节点/最近历史打开网址统一走 `openUrl`(新开标签, 主窗口未激活过则兜底 `webOpen` 首开)。`src/style.css` 新增 `.wg-tabs/.wg-tab/.wg-tab-add` 标签条样式。
+- 验证: 4 个 JS `node --check` 通过; vite build 通过; 完整冒烟(含 webgame 页 + 收藏夹 CRUD)全部 PASS。
+
+## 2026-08-11
+
+### [新增] v1.9.6: API 管理模块 — 项目管理 + API 数据字典 + 接口测试
+- 需求: 「API 管理」内新增项目管理功能: ①建立/管理子分类; ②为分类中的项目建立/管理 API 数据字典; ③API 接口测试。
+- 数据层(三级模型): `api_categories`(分类树,可嵌套) → `api_projects`(项目,挂分类下) → `api_endpoints`(数据字典接口)。
+  - `electron/db.js`: 新建三表 + readDb 读取(JSON 列解析) + writeDb 全量事务写入 + 默认值。
+  - `src/state.js`: state 三数组 + loadState 兼容 + CRUD(add/update/remove/byId/children/inCategory/inProject; 删分类子分类提升+项目移未分类; 删项目级联删接口)。
+- 接口测试(渲染端 CSP 无法直连外网): 新增 `electron/tools/apiTest.js`(Node http/https, rejectUnauthorized:false, 请求头/请求体/超时/可选代理/重定向≤5次/响应体 2MB 截断) → `electron/main.js` 注册 `api:test` → `preload.js` 暴露 `apiTest`。
+- UI(`src/pages/apiPage.js` 重构 + `src/style.css`): 双标签页「🗂 项目管理 / 📖 API 文档」(文档 tab 保留原 iframe)。
+  - 项目管理: 左栏分类树(可嵌套/折叠/右键菜单) + 未分类节点; 总览统计; 分类视图(项目卡片); 项目视图(Base URL + 数据字典列表 + 接口详情表单)。
+  - 接口详情: 名称/方法/路径/说明/请求参数表(名/类型/必填/说明)/请求头表/请求体/响应示例, 保存按钮。
+  - 接口测试面板: URL(默认 baseUrl+path)/方法/请求头("Name: Value" 行)/请求体/超时/代理, 发送后展示状态码/耗时/大小/响应头/格式化响应体/复制。
+- 验证: 6 个 JS `node --check` 通过; vite build 通过; 冒烟扩展(devtools-smoke-main.js): 分类→项目→接口 CRUD + **真实请求本地 server 返回 200** + 文档 tab, **PASS**; 冒烟数据自动清理。
+
+## 2026-08-11
+
+### [新增] v1.9.5: 开发工具箱模块 — API 管理(内嵌 API 参考文档)
+- 需求: 新增侧栏「开发工具箱」根节点, 将 `E:\MyProject\api_page\index.html`(Stripe 风格 API 参考文档, 零外部依赖) 移植为子节点模块「API 管理」。
+- 实现:
+  - 侧栏树新增「🛠️ 开发工具箱」根节点(`__devtools__`, 默认展开可折叠, 初始值加入 `expandedCats`) + 子节点「📖 API 管理」(`__devtool:api`); 点击根/子节点 → `enterApiDoc()`。
+  - 源文档原样复制到 `public/api-doc.html`(vite 构建随 dist 输出, 本地 HTTP 服务直接可访问)。
+  - 新增独立页 `#page-api` + `src/pages/apiPage.js`(`renderApiPage`): 以 iframe(`./api-doc.html`) 隔离嵌入, 文档自身样式/脚本/主题/语言切换 100% 保真, 与主应用互不污染; 懒加载 + 复用实例(保留滚动位置/语言/主题状态)。
+  - 全链路接入: `showPage('api')` / `renderMainArea` 分支 / `clearOverlays` / `updateBackSpecial` / 面包屑「主页/开发工具箱/API 管理」/ 主区多标签「API 管理」(`syncTabFromState` + `applyTabState`)。
+  - `src/style.css`: `.page-api` / `.api-doc-wrap` / `.api-doc-frame` 布局样式。
+- 验证: 语法 `node --check` 通过; vite build 通过; 新增 `scripts/devtools-smoke-main.js` + `run_devtools_smoke.js` 冒烟 **PASS**(侧栏节点/页面显示/iframe 加载文档标题与导航/标签条/面包屑/返回回首页)。
+
+## 2026-08-11
+
+### [新增] v1.9.4: 捕获列表资源归类修正(.bin/.fui → FGUI; spine 配套资源 → Spine)
+- 需求:① `.bin`/`.fui` 归类到 FGUI 类型;② 部分 `.bin` 实为 spine `.skel` 改后缀,其**同名**(同目录同 base 名)的 `.bin/.skel/.atlas/.atlas.txt/.astc/.png` 统一归类到 Spine 类型。
+- 实现:
+  - `electron/tools/webGame.js`:EXT_TYPE 新增 `\.fui → fgui`(.bin 保留 'bin',由渲染端分组判定)。
+  - `src/pages/webGamePage.js`:新增 `fixRecordTypes()`——按(目录,base 名)分组,组内含 `.skel`/`.atlas(.txt)` 判为 spine 组,组内 `SPINE_SIB_EXT`(.bin/.skel/.atlas/.atlas.txt/.astc/.png)全部归 `spine`;非 spine 组的 `.bin/.fui` 归 `fgui`;`onWebCaptured` 新记录与 `init()` 初始加载后全量重算。缩略图条件由 `r.type==='image'` 改为 `isImageUrl(r.url)`(归为 spine 的图片仍显示缩略图)。入库 `importToLibrary` 类型优先级改为**修正后的明确类型优先**(KNOWN_TYPES 含 fgui/spine 等),避免 skel 改名 bin 下载探测为 'bin' 走错 FGUI 分支;json→config 等仍保留下载后探测升级能力。
+- 验证:语法 `node --check` 通过;归类算法单元验证通过(hero 组→spine、ui_pkg.bin/.fui→fgui、普通 png→image、跨目录同名互不影响);vite build 通过。
+
+## 2026-08-11
+
+### [新增] v1.9.3: 网络资源抓取捕获列表增加文件名搜索过滤
+- 需求:在筛选行「悬浮预览」开关(`#wg-pv-switch`)前增加搜索框,按文件名过滤捕获列表。
+- 实现:
+  - `src/pages/webGamePage.js`:筛选行新增 `#wg-search`(`type=search`, placeholder「🔍 搜索文件名...」);`shownRecords()` 增加搜索过滤——`searchText` 与 `fileNameOf(url)` 忽略大小写 `includes` 匹配,与类型 chips 筛选/**仅下载不入库**模式叠加;`input` 事件实时 `renderList()`(条数统计/全选计数基于过滤后集合自动同步)。
+  - `src/style.css`:新增 `.wg-search`(深色输入框,placeholder 弱化,聚焦描边高亮,`flex:0 1 150px` 不挤占右侧开关)。
+- 验证:webGamePage.js `node --check` 通过;vite build 通过。
+
+## 2026-08-11
+
+### [修复] v1.9.2: 捕获列表图片缩略图无法显示 + 悬浮预览开关
+- 现象:网络资源抓取捕获列表中,图片类型缩略图空白(直连失败时兜底崩溃);且悬浮预览窗无总开关。
+- 缩略图修复根因:①直连失败兜底调用已被 v1.9.0 删除的 `loadMediaPreview` → 抛 ReferenceError,兜底失效(必现 bug);②`<img src=原始URL>` 在主窗口默认 session 加载,与网页 `persist:webgame` 分区 session(登录态/cookie)隔离,且直连无 Referer → 需登录态/防盗链的图 403。
+- 实现:
+  - `electron/tools/webGame.js`:新增 `WebGameView.fetchToDataUrl()`——用 `ses.fetch(url, {credentials:'include', headers:{referer}})`(**与网页共享 cookie/登录态/Referer**)下载并转 base64 data URL,4MB 上限(最大 8MB),mime 优先扩展名表 `THUMB_MIME`(防 CDN 返回 text/plain)。
+  - `electron/main.js`:新增 `web:thumbFetch` handler 调 `webGame.fetchToDataUrl`。
+  - `electron/preload.js`:暴露 `webThumbFetch`。
+  - `src/pages/webGamePage.js`:缩略图 error 兜底改调 `webThumbFetch` + `dataset.tried` 防重试死循环 + `thumbCache` 内存缓存;新增 `#wg-pv-switch`「悬浮预览」开关(`#wg-onlyurl` 前,默认开,localStorage `wg-pv-enabled` 持久化),关闭时取消待弹计时器并 `webPreviewClose` 关闭当前窗,`schedulePreview` 开头 `if (!pvEnabled) return`;右键「👁 预览」手动打开不受开关影响。
+  - `src/style.css`:新增 `.wg-filter-pv`(与 `.wg-filter-onlyurl` 同款),`margin-left:auto` 移到开关组,整体右对齐。
+- 验证:四个 JS 文件 `node --check` 通过;vite build 通过。
 
 ## 2026-08-10
 
