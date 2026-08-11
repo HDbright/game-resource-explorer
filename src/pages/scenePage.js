@@ -112,15 +112,6 @@ export function renderSceneHome(container, { onOpenCat, onAddScene, onAddCategor
   } else {
     treeEl._onOpenCat = onOpenCat;
     for (const c of cats.filter((x) => !x.parentId)) renderSceneCatInList(treeEl, c, 0);
-    // 未分类
-    const unc = scenesInCategory('');
-    if (unc.length) {
-      const un = document.createElement('div');
-      un.className = 'cat-row root';
-      un.innerHTML = `<span class="cat-row-arrow">○</span><span class="cat-row-name">未分类</span><span class="cat-row-count">${unc.length}</span>`;
-      un.addEventListener('click', () => onOpenCat(''));
-      treeEl.appendChild(un);
-    }
   }
   // 最近添加(按 createdAt 倒序取前 10)
   const recent = [...scenes].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 10);
@@ -137,6 +128,11 @@ export function renderSceneHome(container, { onOpenCat, onAddScene, onAddCategor
         <span class="rec-path" title="${escHtml(s.filePath)}">${escHtml(s.filePath)}</span>
       `;
       row.addEventListener('click', () => {
+        // FGUI 界面包:单击直接用 FGUI 编辑器打开该包文件
+        if (s.subtype === 'fgui' && onFguiPreview) {
+          onFguiPreview(s.id);
+          return;
+        }
         const items = [
           ...(s.subtype === 'fgui' ? [{ label: '✏️ 用FGUI编辑器打开', onClick: () => onFguiPreview && onFguiPreview(s.id) }] : []),
           { label: '在文件管理器中显示', onClick: () => window.api.showItem(s.filePath) },

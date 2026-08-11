@@ -9,6 +9,19 @@
 
 ## 2026-08-12
 
+### [新增] 发布 v1.9.34：侧栏系统设置入口、场景管理未分类移除、FGUI 导出源、场景首页 FGUI 包快速打开、Laya sk→Spine 入口
+- **侧栏新增「系统设置」入口**: 左侧树底部(开发工具箱下方)新增「⚙️ 系统设置」叶子节点, 点击进入设置页。
+- **移除游戏场景管理下的「未分类」节点**: 侧栏场景树与场景管理主页分类树中的「未分类」目录节点一并去除。
+- **资源工具箱「FGUI导出」→「FGUI导出源」**: 侧栏菜单改名; 工具页由"逆向导出 JSON+XML"改为**导出源工程**——选择含 .bin 的目录后逐包调用 `fguiExportSource`, 输出到各包同目录 `FGUI_src/<包名>`(package.xml + 组件 XML + 碎图 + 字体 + 动画, 可直接用 FairyGUI 编辑器打开); 已存在源工程时弹确认覆盖; 支持批量与最近目录记忆。
+- **场景管理首页「最近添加」点击 FGUI 包直接用 FGUI 编辑器打开**: `subtype==='fgui'` 的条目单击不再弹右键菜单, 直接进入 FGUI 编辑器加载该包; 其它条目仍弹右键菜单。
+- **资源工具箱「文件格式转换」子菜单新增「Laya .sk 转 Spine」入口**: 直达已有的 sk2spine 工具页(骨架 .json + 图集 .atlas)。
+- 主冒烟 `toolhome` 步骤同步: 检查「FGUI导出源」叶子与页面标题, 并修正 `entries===5 → 6` 的遗留误判(实际 6 张工具卡片)。
+- ⚠️ 已知: 冒烟 `delcat` 步骤 mode2 失败为既有测试与实现语义不匹配(对话框默认"删除动画", 测试期望默认"移入未分类"), 与本次改动无关。
+
+---
+
+## 2026-08-12
+
 ### [修复] 发布 v1.9.33：Spine 预览「Ot is not a constructor」崩溃修复
 - **症状**: 预览 Spine 动画报「加载失败:Ot is not a constructor」,3.x 与 4.x 资源均可能触发, 缩略图同步失败。
 - **根因(两层)**:
@@ -23,6 +36,7 @@
   - 定位到 FGUI 冒烟测试检查点过时: 场景主页「FGUI 编辑器」卡片实际打开的是**独立编辑器页**(canvas id `fge-canvas`), 而冒烟脚本仍在检查已废弃的场景内预览子页(`fgpv-canvas`, 现为无入口的死代码路径) → 误报 pvPage=false。已更新 `fgui-smoke-main.js` 检查点至 `fge-*` 并验证通过(pvPage/pvCanvasGL/pvTextLayer 等全 true, 画布 482x610)。
   - 验证 v1.9.33 下 FGUI 编辑器页完整链路正常: FguiLayoutPreview.init 成功、样例 bin 加载、画布渲染出内容(nonBg 15 万+ 像素)。
   - `vite.config.js` `emptyOutDir: false → true`: 此前历次构建的旧 chunk 全部残留在 dist 并被打入安装包(asar 43MB→20MB, 含 60+ 冗余 js), 现已干净(仅 2 个 js)。
+  - **zip 不再打包 electron.exe**: 「游戏资源管理器.exe」是 electron.exe 的副本 + rcedit 注入图标, 运行时自包含(靠同目录 resources/app.asar + DLL), 不依赖 electron.exe。已实测: 移除 electron.exe 后 exe 正常启动。`pack-manual.js` zip 阶段排除 electron.exe → **便携版 zip 249MB→152MB(省 97MB)**。
 
 ---
 

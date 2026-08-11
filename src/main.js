@@ -1309,20 +1309,20 @@ function installSmoke() {
         out.afterToolboxHidden = document.getElementById('page-toolbox').hidden;
         out.breadcrumb = (document.getElementById('breadcrumb').textContent || '').trim();
         out.enteredSub = document.querySelectorAll('.tool-grid').length === 0 && !document.getElementById('page-toolbox').hidden;
-        // 侧栏「资源工具箱」下应有「FGUI导出」叶子菜单 → 点击进入 FGUI 逆向导出功能页
+        // 侧栏「资源工具箱」下应有「FGUI导出源」叶子菜单 → 点击进入 FGUI 导出源功能页
         const tbRoot2 = [...document.querySelectorAll('.cat-node')]
           .find((el) => (el.querySelector('.cat-name') || {}).textContent === '资源工具箱');
         const tbArrow = tbRoot2 ? tbRoot2.querySelector('.cat-arrow') : null;
         if (tbArrow && tbArrow.textContent === '▶') tbArrow.click(); // 展开工具箱(未展开时)
         await sleep(150);
         const fguiLeaf = [...document.querySelectorAll('.cat-node')]
-          .find((el) => (el.querySelector('.cat-name') || {}).textContent === 'FGUI导出');
+          .find((el) => (el.querySelector('.cat-name') || {}).textContent === 'FGUI导出源');
         out.fguiLeafFound = !!fguiLeaf;
         if (fguiLeaf) fguiLeaf.click();
         await sleep(250);
         out.fguiPageTitle = (document.querySelector('#page-toolbox .tool-title') || {}).textContent || '';
-        out.fguiOk = out.fguiLeafFound && out.fguiPageTitle === 'FGUI 逆向导出';
-        out.ok = out.toolboxVisible && out.homeGrid === 1 && out.entries === 5 && out.enteredSub && out.fguiOk;
+        out.fguiOk = out.fguiLeafFound && out.fguiPageTitle === 'FGUI 导出源';
+        out.ok = out.toolboxVisible && out.homeGrid === 1 && out.entries === 6 && out.enteredSub && out.fguiOk;
         return out;
       }
       case 'batchui': {

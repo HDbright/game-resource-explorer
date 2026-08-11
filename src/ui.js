@@ -254,7 +254,7 @@ function previewTypeIcon(type) {
 }
 
 function toolLabel(tool) {
-  return ({ astc2png: 'ASTC→PNG', skel2json: 'SKEL→JSON', spinefix: 'Spine 修复', imageedit: '图片编辑' })[tool] || tool;
+  return ({ astc2png: 'ASTC→PNG', skel2json: 'SKEL→JSON', spinefix: 'Spine 修复', imageedit: '图片编辑', sk2spine: 'Laya .sk → Spine' })[tool] || tool;
 }
 
 export function initUI(pv) {
@@ -490,6 +490,24 @@ function renderTree() {
 
   // 「开发工具箱」根菜单(展开后显示 API 管理等开发辅助工具)
   renderDevToolsSection(tree);
+
+  // 分格线:开发工具箱与系统设置之间
+  const sepSet = document.createElement('div');
+  sepSet.className = 'tree-section-sep';
+  tree.appendChild(sepSet);
+
+  // 「系统设置」叶子节点(独立入口)
+  const settingsNode = makeTreeNode({
+    icon: '⚙️',
+    name: '系统设置',
+    nodeId: '__settings__',
+    active: settingsShown,
+    paddingLeft: 8,
+    hasChildren: false,
+    isOpen: false,
+  });
+  tree.appendChild(settingsNode);
+  settingsNode.addEventListener('click', () => openSettings());
 }
 
 /** FGUI 编辑器入口(资源工具箱子节点): 进入独立 FGUI 编辑器页 */
@@ -545,7 +563,7 @@ function renderToolboxSection(parent) {
     icon: '🔁',
     name: '文件格式转换',
     nodeId: '__tools_conv__',
-    active: ['astc2png', 'skel2json', 'spinefix'].includes(currentTool || ''),
+    active: ['astc2png', 'skel2json', 'spinefix', 'sk2spine'].includes(currentTool || ''),
     paddingLeft: 22,
     hasChildren: convHas,
     isOpen: convOpen,
@@ -569,6 +587,7 @@ function renderToolboxSection(parent) {
       { id: 'astc2png', icon: '🖼', name: 'astc 转 png' },
       { id: 'skel2json', icon: '📦', name: 'skel 转 json' },
       { id: 'spinefix', icon: '🛠', name: 'spine 文件修复' },
+      { id: 'sk2spine', icon: '🦴', name: 'Laya .sk 转 Spine' },
     ];
     for (const l of leaves) {
       const n = makeTreeNode({
@@ -598,10 +617,10 @@ function renderToolboxSection(parent) {
   wrap.appendChild(imgNode);
   imgNode.addEventListener('click', () => openTool('imageedit'));
 
-  // 「FGUI 逆向导出」叶子节点(指向 FGUI 逆向导出功能页)
+  // 「FGUI 导出源」叶子节点(导出标准 FairyGUI 源工程: package.xml + 组件 XML + 碎图 + 字体)
   const fguiNode = makeTreeNode({
     icon: '🧩',
-    name: 'FGUI导出',
+    name: 'FGUI导出源',
     nodeId: '__tool:fgui',
     active: currentTool === 'fgui',
     paddingLeft: 22,
@@ -889,29 +908,6 @@ function renderSceneSection(parent) {
   const wrap = document.createElement('div');
   wrap.className = 'tree-items';
   parent.appendChild(wrap);
-
-  // 未分类场景:若有场景条目显示
-  const uncatScenes = scenesInCategory('');
-  if (uncatScenes.length > 0) {
-    const unc = makeTreeNode({
-      icon: '○',
-      name: '未分类',
-      nodeId: '__scene_uncat__',
-      active: currentSceneCatId === '',
-      paddingLeft: 22,
-      hasChildren: false,
-      isOpen: false,
-      count: uncatScenes.length,
-    });
-    unc.addEventListener('click', () => {
-      clearOverlays();
-      sceneHomeShown = false;
-      currentSceneCatId = '';
-      renderTree();
-      renderMainArea();
-    });
-    wrap.appendChild(unc);
-  }
 
   // 场景分类树(递归)
   for (const c of getSceneCategoryChildren('')) {
@@ -3393,6 +3389,7 @@ function renderBreadcrumb() {
       skel2json: 'SKEL → JSON',
       spinefix: 'Spine 文件修复',
       imageedit: '图片编辑',
+      sk2spine: 'Laya .sk → Spine',
     };
     nav.innerHTML = '<span class="crumb" data-crumb="home">主页</span>'
       + '<span class="crumb-sep">/</span>'

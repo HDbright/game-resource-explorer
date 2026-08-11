@@ -20,7 +20,7 @@ export function renderToolboxPage(container, tool) {
     skel2json: { title: 'SKEL → JSON', desc: '把 Spine 二进制骨架(.skel)转为 JSON(自动探测 3.x / 4.x 版本,调用对应运行时解析)。', render: renderSkelTool },
     spinefix: { title: 'Spine 文件修复', desc: '对 .json / .skel / .atlas 执行诊断与自动修复(JSON 注释/尾逗号/版本字段;atlas 缺图检测),输出修复副本。可单选/多选文件或整个目录(含子目录),记住最近输入目录。', render: renderSpineFixTool },
     imageedit: { title: '图片编辑', desc: '单个或批量处理图片:镜像翻转、旋转、缩放、生成指定大小/样式的缩略图(canvas 处理,导出 PNG/JPEG,可覆盖原文件)。', render: renderImageEditTool },
-    fgui: { title: 'FGUI 逆向导出', desc: '把 FairyGUI 发布的 .bin 包批量逆向为可读结构:每个包生成 JSON(完整组件树)+ FGUI 风格 XML(包级 + 每个组件一个)。', render: renderFguiTool },
+    fgui: { title: 'FGUI 导出源', desc: '把 FairyGUI 发布的 .bin 包批量还原为标准源工程:每个包在其同目录生成 FGUI_src/<包名>(package.xml + 组件 XML + 碎图 + 字体 + 动画),可直接用 FairyGUI 编辑器打开。', render: renderFguiTool },
     sk2spine: { title: 'Laya .sk → Spine', desc: '把 LayaAir 骨骼动画二进制(.sk,DragonBones 导出)逆向转换为 Spine 可读文件:骨架 .json + 纹理图集 .atlas。可单选/多选文件或整个目录(含子目录);选择时自动探测是否为 .sk 格式。', render: renderSk2SpineTool },
   };
   const cfg = tools[tool] || tools.astc2png;
@@ -41,7 +41,7 @@ function renderToolboxHome(container) {
     { id: 'skel2json', icon: '📦', title: 'SKEL → JSON', desc: '把 Spine 二进制骨架(.skel)转为 JSON(自动探测 3.x / 4.x 版本,调用对应运行时解析)。可单选/多选文件或整个目录(含子目录),记住最近输入目录。' },
     { id: 'spinefix', icon: '🛠', title: 'Spine 文件修复', desc: '对 .json / .skel / .atlas 执行诊断与自动修复(JSON 注释/尾逗号/版本字段;atlas 缺图检测),输出修复副本。可单选/多选文件或整个目录(含子目录),记住最近输入目录。' },
     { id: 'imageedit', icon: '🎨', title: '图片编辑', desc: '单个或批量处理图片:镜像翻转、旋转、缩放、生成指定大小/样式的缩略图(canvas 处理,导出 PNG/JPEG,可覆盖原文件)。' },
-    { id: 'fgui', icon: '🧩', title: 'FGUI 逆向导出', desc: '把 FairyGUI 发布的 .bin 包批量逆向为可读结构:每个包生成 JSON(完整组件树)+ FGUI 风格 XML(包级 + 每个组件一个)。可整目录导出。' },
+    { id: 'fgui', icon: '🧩', title: 'FGUI 导出源', desc: '把 FairyGUI 发布的 .bin 包批量还原为标准源工程:每个包在其同目录生成 FGUI_src/<包名>(package.xml + 组件 XML + 碎图 + 字体 + 动画),可直接用 FairyGUI 编辑器打开。' },
     { id: 'sk2spine', icon: '🦴', title: 'Laya .sk → Spine', desc: '把 LayaAir 骨骼动画二进制(.sk,DragonBones 导出)逆向转换为 Spine 可读文件:骨架 .json + 纹理图集 .atlas。可单选/多选文件或整个目录(含子目录);选择时自动探测是否为 .sk 格式。' },
   ];
   const head = document.createElement('div');
@@ -412,7 +412,7 @@ function renderSk2SpineTool(body) {
   });
 }
 
-// ---- FGUI 逆向导出(目录 → 目录) ----
+// ---- FGUI 导出源(批量还原标准 FairyGUI 源工程到每个包同目录 FGUI_src/<包名>) ----
 
 function renderFguiTool(body) {
   const px = 'fgui';
@@ -432,15 +432,8 @@ function renderFguiTool(body) {
         <span class="hist-hint">(点击定位到该目录)</span>
       </div>
       <div class="field-row">
-        <label class="field-label">输出目录</label>
         <div class="field-ctrl">
-          <input type="text" id="${px}-outdir" placeholder="选择输出目录(每个包生成 .json + .xml)..." readonly />
-          <button class="btn" id="${px}-outdir-pick">选择目录...</button>
-        </div>
-      </div>
-      <div class="field-row">
-        <div class="field-ctrl">
-          <button class="btn primary" id="${px}-run" disabled>开始逆向导出</button>
+          <button class="btn primary" id="${px}-run" disabled>开始导出源工程</button>
           <span class="status" id="${px}-status"></span>
         </div>
       </div>
@@ -448,7 +441,6 @@ function renderFguiTool(body) {
     </div>
   `;
   const indirEl = body.querySelector(`#${px}-indir`);
-  const outdirEl = body.querySelector(`#${px}-outdir`);
   const countEl = body.querySelector(`#${px}-count`);
   const runBtn = body.querySelector(`#${px}-run`);
   const statusEl = body.querySelector(`#${px}-status`);
@@ -494,40 +486,44 @@ function renderFguiTool(body) {
     await refreshCount();
   });
 
-  body.querySelector(`#${px}-outdir-pick`).addEventListener('click', async () => {
-    const r = await window.api.pickFiles({
-      title: '选择 FGUI 逆向导出输出目录',
-      directory: true,
-    });
-    if (r.canceled || !r.filePaths.length) return;
-    outdirEl.value = r.filePaths[0];
-  });
-
   runBtn.addEventListener('click', async () => {
     if (!inputDir) { toast('请先选择输入目录', 'error'); return; }
-    let outDir = outdirEl.value;
-    if (!outDir) {
-      // 默认输出到输入目录下的 fgui_out
-      outDir = inputDir.replace(/[\\/]+$/, '') + '/fgui_out';
-      outdirEl.value = outDir;
-    }
+    const r = await window.api.collectFiles({ paths: [inputDir], extensions: ['bin'] });
+    const bins = (r.ok ? (r.files || []) : []).filter(Boolean);
+    if (!bins.length) { toast('目录中没有 .bin 文件', 'error'); return; }
     runBtn.disabled = true;
-    statusEl.textContent = '正在导出...';
-    setResult(body, `#${px}-result`, { type: 'busy', msg: '正在解析并写入文件...' });
+    statusEl.textContent = `正在导出源工程(0/${bins.length})...`;
+    setResult(body, `#${px}-result`, { type: 'busy', msg: '正在解析并还原 FairyGUI 源工程...' });
+    let okCount = 0;
+    const errs = [];
     try {
-      const res = await window.api.fguiBatchExport({ inputDir, outputDir: outDir });
-      if (res && res.ok) {
-        statusEl.textContent = '';
-        let msg = `✅ 导出完成:成功 ${res.total} 个包`;
-        if (res.failed > 0) msg += `,失败 ${res.failed} 个`;
-        msg += ` → ${escHtml(outDir)}`;
-        setResult(body, `#${px}-result`, { type: res.failed ? 'warn' : 'ok', msg });
-        if (res.errors && res.errors.length) {
-          setResult(body, `#${px}-result`, { type: 'warn', msg: res.errors.map((e) => `${escHtml(e.file)}:${escHtml(e.error)}`).join('<br/>') });
-        }
-      } else {
-        statusEl.textContent = '';
-        setResult(body, `#${px}-result`, { type: 'err', msg: '✗ ' + ((res && res.error) || '导出失败') });
+      for (let i = 0; i < bins.length; i++) {
+        const bin = bins[i];
+        statusEl.textContent = `正在导出源工程(${i + 1}/${bins.length})...`;
+        // 输出到 bin 同目录 FGUI_src/<包名>
+        const binDir = bin.replace(/[\\/]+[^\\/]+$/, '');
+        const outRoot = binDir + '/FGUI_src';
+        // 已存在该包源工程时确认是否覆盖
+        const base = bin.split(/[\\/]/).pop() || '';
+        const pkgName = base.replace(/\.[^.]+$/, '');
+        try {
+          const st = await window.api.statFile(outRoot + '/' + pkgName + '/package.xml');
+          if (st && st.size != null) {
+            const go = window.confirm(`「FGUI_src/${pkgName}」目录已存在该包的源工程,是否覆盖?\n${outRoot}/${pkgName}`);
+            if (!go) { errs.push({ file: base, error: '已取消(目录已存在)' }); continue; }
+          }
+        } catch (e) { /* ignore */ }
+        const res = await window.api.fguiExportSource({ inputPath: bin, outputDir: outRoot });
+        if (res && res.ok) okCount++;
+        else errs.push({ file: base, error: (res && res.error) || '导出失败' });
+      }
+      statusEl.textContent = '';
+      let msg = `✅ 导出源工程完成:成功 ${okCount} 个包`;
+      if (errs.length) msg += `,失败/跳过 ${errs.length} 个`;
+      msg += `(输出到各包同目录 FGUI_src/<包名>)`;
+      setResult(body, `#${px}-result`, { type: errs.length ? 'warn' : 'ok', msg });
+      if (errs.length) {
+        setResult(body, `#${px}-result`, { type: 'warn', msg: errs.map((e) => `${escHtml(e.file)}:${escHtml(e.error)}`).join('<br/>') });
       }
     } catch (e) {
       statusEl.textContent = '';
