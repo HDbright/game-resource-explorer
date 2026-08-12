@@ -3,11 +3,22 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.57`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.58`）。
 
 ---
 
 ## 2026-08-12
+
+### [修复] 发布 v1.9.58：Laya .sk→Spine 转换图集出现重复区域 + mesh UV 错位
+- 用户报障:hedao.sk 转换出的 .atlas 里 Hd_2/Hd_5/Hd_19、Hd_3/Hd_12、Hd_7/Hd_15/Hd_16、Hd_9/Hd_14、Hd_10/Hd_17 出现重复(相同矩形)。
+- 根因①(重复):`electron/tools/layaSk2Spine.js` 的 `modelToAtlas` 按「display 名称」去重生成 region,而该 .sk 里多个插槽的 mesh 引用**完全相同的 UV 区域**(如 Hd_2/Hd_5/Hd_19 的 UV 包围盒相同),于是图集出现多个相同矩形的 region;兜底嵌入纹理循环也会补出与 display 区域同矩形的碎图。
+- 根因②(隐性问题):mesh 的 uvs 直接写整页归一化(0..1 覆盖整张贴图页),而 Spine 3.8 的 mesh uvs 语义是**区域内 0..1**(渲染时 `u + regionUVs*(u2-u)`),导致 mesh 只采样 region 的局部子区域,贴图错位(不报错但渲染错误)。
+- 修复:
+  - 新增 `assignRegionNames(model)`:按 UV 包围盒(×页尺寸取整)**矩形去重**——同矩形的多 display 共用同一 region 名;同名但矩形不同(如 Hd_9 出现两次)自动加后缀,保证每个矩形独立区域。
+  - `modelToAtlas` 改用预分配 region 名;兜底嵌入纹理仅当「名称未被引用且矩形未覆盖」时才补。
+  - `displayToAttachment` 的 mesh/skinnedmesh region 指向去重后的 region 名,uvs 经 `remapUvs` 重映射为 region 内 0..1。
+  - `skToSpine` 入口调用 `assignRegionNames`。
+- 实测 hedao.sk:atlas 从 21 区域(5 组重复矩形)→ **15 区域 0 重复**;所有 mesh 附件 region 引用齐全、uvs 均为 0..1;已重新生成 `E:\backup\webdown\闯词\骨骼动画\hedao.json/.atlas`,并同步技能 `laya-sk-to-spine` 副本。
 
 ### [新增] 发布 v1.9.57：资源列表标识细化(图集徽章) + 列表显示带后缀文件名 + 缩略图扩展名彩色区分
 - **类型徽章细化**:图片资源若带同名 `.atlas` / `.plist` 图集配套文件,列表(详情/列表/图标三种视图)中的「图片」徽章自动细化为紫色「图集」徽章(`src/pages/folderPage.js` 渲染后异步检测 `findAtlasCompanion`,带缓存;`src/atlasView.js` 新增,兼容 `foo.atlas`/`foo.png.atlas`/`foo.plist`/`foo.png.plist`)。

@@ -630,23 +630,19 @@ function modelToAtlas(model) {
   const regions = new Map();
   const addRegion = (name, r) => { if (name && !regions.has(name)) regions.set(name, r); };
 
-  // 1) 每个 display 按 uv 包围盒生成 region
+  // 1) 每个 display 按 uv 包围盒生成 region(assignRegionNames 已按矩形去重:
+  //    多个插槽引用同一区域时共用同名 region,图集不再出现相同矩形重复项)
   for (const skin of model.skins || []) {
     for (const slot of skin.slots || []) {
       for (const disp of slot.displays || []) {
-        const name = disp.attachmentName;
+        const name = disp._regionName || disp.attachmentName;
         if (!name || regions.has(name)) continue;
-        const uvs = disp.uvs || [];
-        if (uvs.length >= 8) {
-          let minU = 1e9, maxU = -1e9, minV = 1e9, maxV = -1e9;
-          for (let i = 0; i < uvs.length; i += 2) {
-            minU = Math.min(minU, uvs[i]); maxU = Math.max(maxU, uvs[i]);
-            minV = Math.min(minV, uvs[i + 1]); maxV = Math.max(maxV, uvs[i + 1]);
-          }
-          const x = Math.max(0, Math.round(minU * pageW));
-          const y = Math.max(0, Math.round(minV * pageH));
-          const w = Math.max(1, Math.round((maxU - minU) * pageW));
-          const h = Math.max(1, Math.round((maxV - minV) * pageH));
+        const bb = disp._bbox;
+        if (bb) {
+          const x = Math.max(0, Math.round(bb.minU * pageW));
+          const y = Math.max(0, Math.round(bb.minV * pageH));
+          const w = Math.max(1, Math.round((bb.maxU - bb.minU) * pageW));
+          const h = Math.max(1, Math.round((bb.maxV - bb.minV) * pageH));
           addRegion(name, { x, y, w, h, fw: w, fh: h, fx: 0, fy: 0 });
         } else {
           // 退化:uv 不足(非常规网格)→ 退化为同名嵌入纹理;仍缺失则给 1x1 占位避免硬崩
@@ -657,9 +653,19 @@ function modelToAtlas(model) {
       }
     }
   }
-  // 2) 兜底:保留嵌入纹理里没有被任何 display 直接引用的区域(如独立的图集碎图)
+  // 2) 兜底:保留嵌入纹理里没有被任何 display 引用的区域(如独立的图集碎图);
+  //    仅当「名称未被任何附件引用」且「矩形尚未被其他 region 覆盖」时才补,避免相同矩形重复
+  const referencedNames = new Set();
+  for (const skin of model.skins || []) for (const slot of skin.slots || []) for (const disp of slot.displays || []) {
+    if (disp._regionName) referencedNames.add(disp._regionName);
+  }
+  const rectSet = new Set();
+  for (const r of regions.values()) rectSet.add(`${r.x},${r.y},${r.w}x${r.h}`);
   for (const t of model.textures) {
+    const key = `${t.x},${t.y},${t.w}x${t.h}`;
+    if (rectSet.has(key) && !referencedNames.has(t.regionName)) continue; // 矩形已有同名不同区域覆盖,且无附件引用该名
     addRegion(t.regionName, { x: t.x, y: t.y, w: t.w, h: t.h, fw: t.frameW, fh: t.frameH, fx: t.frameX, fy: t.frameY });
+    rectSet.add(key);
   }
 
   const out = [pageSrc, `size: ${pageW},${pageH}`, 'format: RGBA8888', 'filter: Linear,Linear', 'pma: false'];
@@ -684,6 +690,65 @@ function nextPow2(n) {
   return p;
 }
 function r1(v) { return Math.round(v * 10) / 10; }
+
+// ---------------- 图集区域分配(按矩形去重) ----------------
+// 给每个 display 分配 atlas region 名与 UV 包围盒:
+//  - 有 UV 的 mesh:按 UV 包围盒(×页尺寸取整)去重 —— 多个插槽引用同一纹理区域时(如 hedao.sk 的
+//    Hd_2/Hd_5/Hd_19 共用同一区域)共用同一个 region 名,图集不再出现相同矩形的重复区域。
+//  - 同名但矩形不同(源数据同名冲突,如 Hd_9 出现两次且 UV 不同)时给后出现者加后缀,保证每矩形独立区域。
+//  - 无 UV(图片型):region 名 = 附件名(引用嵌入纹理)。
+function assignRegionNames(model) {
+  let pageW = 0, pageH = 0;
+  for (const t of model.textures || []) { pageW = Math.max(pageW, t.x + t.w); pageH = Math.max(pageH, t.y + t.h); }
+  pageW = nextPow2(pageW); pageH = nextPow2(pageH);
+  const rectName = new Map(); // rectKey -> regionName
+  const nameRect = new Map(); // regionName -> rectKey(同名冲突检测)
+  let seq = 0;
+  for (const skin of model.skins || []) {
+    for (const slot of skin.slots || []) {
+      for (const disp of slot.displays || []) {
+        disp._regionName = disp.attachmentName || null;
+        disp._bbox = null;
+        const uvs = disp.uvs || [];
+        if (uvs.length < 8) continue; // 图片型:引用嵌入纹理
+        let minU = 1e9, maxU = -1e9, minV = 1e9, maxV = -1e9;
+        for (let i = 0; i < uvs.length; i += 2) {
+          minU = Math.min(minU, uvs[i]); maxU = Math.max(maxU, uvs[i]);
+          minV = Math.min(minV, uvs[i + 1]); maxV = Math.max(maxV, uvs[i + 1]);
+        }
+        const x = Math.max(0, Math.round(minU * pageW));
+        const y = Math.max(0, Math.round(minV * pageH));
+        const w = Math.max(1, Math.round((maxU - minU) * pageW));
+        const h = Math.max(1, Math.round((maxV - minV) * pageH));
+        const key = x + ',' + y + ',' + w + 'x' + h;
+        disp._bbox = { minU, maxU, minV, maxV };
+        if (rectName.has(key)) { disp._regionName = rectName.get(key); continue; }
+        let name = disp.attachmentName;
+        if (nameRect.has(name) && nameRect.get(name) !== key) name = (name || 'region') + '_' + (++seq);
+        rectName.set(key, name);
+        nameRect.set(name, key);
+        disp._regionName = name;
+      }
+    }
+  }
+}
+
+// mesh UV:从整页归一化(0..1 覆盖整张贴图页)重映射到 region 内归一化(0..1 覆盖该 region 矩形)。
+// Spine 3.8 的 mesh uvs 语义是 region 内坐标(渲染时 u + regionUVs * (u2-u)),
+// 若不重映射,mesh 只会采样到 region 的局部子区域,贴图错位。
+function remapUvs(disp) {
+  const uvs = disp.uvs || [];
+  const bb = disp._bbox;
+  const uw = bb ? bb.maxU - bb.minU : 0;
+  const vh = bb ? bb.maxV - bb.minV : 0;
+  if (!bb || uw < 1e-6 || vh < 1e-6) return uvs.map((v) => round3(v));
+  const out = new Array(uvs.length);
+  for (let i = 0; i < uvs.length; i += 2) {
+    out[i] = round3((uvs[i] - bb.minU) / uw);
+    out[i + 1] = round3((uvs[i + 1] - bb.minV) / vh);
+  }
+  return out;
+}
 
 // ---------------- 生成 Spine 骨架 JSON ----------------
 function modelToSpineJson(model, opts) {
@@ -811,26 +876,28 @@ function displayToAttachment(disp, model) {
       const vCount = (disp.uvs.length / 2) | 0;
       return {
         type: 'skinnedmesh',
-        uvs: disp.uvs.map((v) => round3(v)),
+        uvs: remapUvs(disp),
         triangles: disp.triangles,
         vertices: buildSkinnedVertices(disp),
         hull: vCount,
         width: round3(disp.width), height: round3(disp.height),
         // 必须显式指定 region(贴图集区域),否则 Spine 3.8 回退用附件名查 atlas → Region not found
-        region: disp.attachmentName,
+        // 用 assignRegionNames 分配的去重 region 名(多插槽共用同一纹理区域时指向同一 region)
+        region: disp._regionName || disp.attachmentName,
       };
     }
     return {
       type: 'mesh',
-      uvs: disp.uvs.map((v) => round3(v)),
+      uvs: remapUvs(disp),
       triangles: disp.triangles,
       // 真实 Laya 导出中 vertices 段恒为空,顶点坐标实际存在 weights 段;优先用非空者,兼顾 LayaSpineLoader 正向写入(二者皆坐标)。
       vertices: ((disp.vertices.length ? disp.vertices : disp.weights)).map((v) => round3(v)),
       hull: Math.min(8, ((disp.vertices.length ? disp.vertices : disp.weights).length / 2) | 0),
       width: round3(disp.width), height: round3(disp.height),
       // 必须显式指定 region(贴图集区域):Laya 的 uv 已归一化到整张贴图页,
-      // modelToAtlas 会按各 display 的 uv 包围盒生成同名 region,使 mesh 在正确的贴图位置采样
-      region: disp.attachmentName,
+      // modelToAtlas 会按各 display 的 uv 包围盒生成 region,使 mesh 在正确的贴图位置采样;
+      // uvs 已由 remapUvs 重映射为 region 内 0..1(Spine 3.8 的 mesh uvs 语义)
+      region: disp._regionName || disp.attachmentName,
     };
   }
   // region(图片)
@@ -841,7 +908,7 @@ function displayToAttachment(disp, model) {
   att.width = round3(disp.width);
   att.height = round3(disp.height);
   att.path = disp.attachmentName;
-  att.region = disp.attachmentName;
+  att.region = disp._regionName || disp.attachmentName;
   att.color = 'ffffffff';
   return att;
 }
@@ -952,6 +1019,9 @@ function skToSpine(inputPath, outputPath) {
   const probe = probeLayaSk(buffer);
   if (!probe.ok) return { ok: false, error: probe.reason };
   const { model, audio } = parseSkRobust(buffer);
+
+  // 图集区域分配(按矩形去重 + 记录 UV 包围盒),供 modelToAtlas 与 displayToAttachment 使用
+  assignRegionNames(model);
 
   let maxR = 0, maxB = 0;
   for (const t of model.textures) { maxR = Math.max(maxR, t.x + t.w); maxB = Math.max(maxB, t.y + t.h); }
