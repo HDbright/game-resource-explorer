@@ -89,6 +89,7 @@ contextBridge.exposeInMainWorld('api', {
   webTabMenu: (p) => ipcRenderer.invoke('web:tabMenu', p),
   webGetCaptured: () => ipcRenderer.invoke('web:getCaptured'),
   webClearCaptured: () => ipcRenderer.invoke('web:clearCaptured'),
+  webIsFloated: () => ipcRenderer.invoke('web:isFloated'),
   webProbe: (p) => ipcRenderer.invoke('web:probe', p),
   webDownload: (args) => ipcRenderer.invoke('web:download', args),
   webFetchText: (args) => ipcRenderer.invoke('web:fetchText', args),

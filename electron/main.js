@@ -1016,13 +1016,20 @@ app.whenReady().then(async () => {
         });
       }
       const menu = Menu.buildFromTemplate(items);
-      const [wx, wy] = win.getPosition();
-      menu.popup({ x: wx + (p && p.x || 0), y: wy + (p && p.y || 0) });
+      // 传入 window 时, x/y 为「窗口内容区(WebContents)」坐标, 与渲染端 e.clientX/clientY 一致;
+      // 切勿再叠加 win.getPosition()(屏幕坐标), 否则菜单会被推到窗口之外很远的位置。
+      const px = (p && Number.isFinite(p.x)) ? p.x : 0;
+      const py = (p && Number.isFinite(p.y)) ? p.y : 0;
+      menu.popup({ window: win, x: px, y: py });
       return { ok: true };
     } catch (err) { return { ok: false, error: err.message }; }
   });
   ipcMain.handle('web:getCaptured', () => {
     try { return { ok: true, records: webGame.getCaptured() }; } catch (err) { return { ok: false, error: err.message }; }
+  });
+  // 查询网页视图是否处于悬浮状态(渲染端重入网络资源抓取页时判断是否需折叠浏览器区)
+  ipcMain.handle('web:isFloated', () => {
+    try { return { ok: true, floated: webGame.isFloated() }; } catch (err) { return { ok: false, error: err.message }; }
   });
   ipcMain.handle('web:clearCaptured', () => {
     try { return webGame.clearCaptured(); } catch (err) { return { ok: false, error: err.message }; }

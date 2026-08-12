@@ -57,6 +57,12 @@ function relPathForUrl(url, type) {
 export function renderWebGamePage(container, opts = {}) {
   if (container._webGameInited) {
     container._webGameSyncBounds && container._webGameSyncBounds();
+    // 重入: 若视图仍被「移至新窗口」悬浮在外, 折叠主窗口浏览器区(让位给下方侧栏)
+    try {
+      window.api.webIsFloated().then((d) => {
+        if (d && d.floated) container.querySelector('.wg-wrap').classList.add('floated-out');
+      }).catch(() => {});
+    } catch (e) { /* ignore */ }
     return container;
   }
   container._webGameInited = true;
@@ -587,8 +593,21 @@ export function renderWebGamePage(container, opts = {}) {
   };
 
   // ---- 状态/捕获/进度事件 ----
+  // 折叠浏览器区: 仅当「手动移至新窗口」浮出时(manual=true), 把主窗口浏览器区让给下方侧栏;
+  // 其余浮出场景(切到其它模块)页面本就隐藏, 无需折叠。关闭悬浮窗(floatClose)→ state='back' 还原。
+  const applyFloatCollapse = (collapsed) => {
+    const wrap = container.querySelector('.wg-wrap');
+    if (wrap) wrap.classList.toggle('floated-out', !!collapsed);
+  };
   window.api.onWebStatus((s) => {
     lastStatus = s.state || '';
+    if (s.state === 'floated') {
+      if (s.manual) applyFloatCollapse(true);
+    } else if (s.state === 'back') {
+      // 悬浮窗关闭/切回: 还原主窗口浏览器区(先取消折叠, 再恢复视图矩形)
+      applyFloatCollapse(false);
+      container._webGameSyncBounds && container._webGameSyncBounds();
+    }
     if (s.title) statusEl.textContent = s.title;
     else if (s.state === 'loading') statusEl.textContent = '加载中…';
     else if (s.state === 'idle') statusEl.textContent = '就绪';

@@ -1107,11 +1107,12 @@ input[type="color"] { width: 30px; height: 26px; border: 1px solid var(--border)
 .scene-op-col .icon-btn { font-size: 12px; }
 
 /* ===== 系统设置页 ===== */
-.page-settings { padding: 18px 22px; overflow-y: auto; flex: 1; min-height: 0; }
-.page-settings::-webkit-scrollbar { width: 8px; }
-.page-settings::-webkit-scrollbar-track { background: transparent; }
-.page-settings::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
-.page-settings::-webkit-scrollbar-thumb:hover { background: var(--text2); }
+/* ⚠️ 必须用更高特异性覆盖 .content-panel .page 的 overflow:hidden, 否则滚动条不生效 */
+.content-panel .page.page-settings { padding: 18px 22px; overflow-x: hidden; overflow-y: auto; flex: 1; min-height: 0; }
+.content-panel .page.page-settings::-webkit-scrollbar { width: 8px; }
+.content-panel .page.page-settings::-webkit-scrollbar-track { background: transparent; }
+.content-panel .page.page-settings::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+.content-panel .page.page-settings::-webkit-scrollbar-thumb:hover { background: var(--text2); }
 .settings-head { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
 .settings-head h2 { font-size: 18px; font-weight: 600; margin: 0; }
 .settings-body { max-width: 720px; }
@@ -1642,6 +1643,10 @@ input[type="color"] { width: 30px; height: 26px; border: 1px solid var(--border)
 .wg-side {
   display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 6px;
 }
+/* 手动「将标签页移至新窗口」后: 主窗口浏览器区与分隔条折叠, 空出的区域让给下方侧栏;
+   浏览器区的内联 height(分隔条拖动记录)保留, 关闭悬浮窗取消 .floated-out 后比例自动还原。 */
+.wg-wrap.floated-out .wg-browser-scroll { display: none; }
+.wg-wrap.floated-out .wg-hsplit { display: none; }
 /* 资源捕获 / 网址收藏夹 面板切换 */
 .wg-side-tabs { display: flex; gap: 4px; flex: 0 0 auto; }
 .wg-stab {

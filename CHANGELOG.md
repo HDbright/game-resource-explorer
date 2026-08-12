@@ -9,6 +9,11 @@
 
 ## 2026-08-12
 
+### [修复] 发布 v1.9.39：右键菜单位置/悬浮折叠/设置页滚动条
+- **标签右键菜单从鼠标点击处弹出**: 原生 `Menu.popup` 传入 `window` 时 `x/y` 为窗口内容区坐标, 原代码又叠加 `win.getPosition()`(屏幕坐标)导致菜单被推到很远。改为 `menu.popup({ window: win, x: clientX, y: clientY })`。
+- **手动「移至新窗口」后主窗口浏览器区折叠让位给下方侧栏**: `moveTabToNewWindow` 置 `_floatedManual`, 经 `web:status` 透传 `manual`; 渲染端收到 `floated`+manual 时给 `.wg-wrap` 加 `floated-out`(隐藏浏览器区与分隔条, 下方侧栏填满); 关闭悬浮窗(`floatClose`→`back`)或切回时取消, 浏览器区按分隔条记录的 height 自动还原比例。重入页面时按 `web:isFloated` 恢复折叠态。
+- **系统设置页垂直滚动条生效**: `.page-settings` 选择器特异性低于 `.content-panel .page` 的 `overflow:hidden`, 导致 `overflow-y:auto` 被覆盖。改为 `.content-panel .page.page-settings` 提升特异性, 默认窗口大小下底部设置项可滚动浏览。
+
 ### [修复] 发布 v1.9.38：标签右键菜单不被网页遮挡、悬浮窗最大化/最小化改系统行为
 - **标签右键菜单不再被网页遮挡**: 网页抓取标签页右键菜单原用 DOM 浮层(`#wg-ctxmenu`), 但 `WebContentsView`(网页)永远盖在 DOM 之上, 菜单下半部会被网页内容遮住。改为经 `web:tabMenu` 调用主进程原生 `Menu.buildFromTemplate` + `menu.popup()` 在屏幕坐标弹出 —— 原生 OS 菜单始终在最上层, 且天然符合系统样式。
 - **悬浮窗新增最大化/还原按钮(系统风格)**: 独立悬浮窗标题栏改为三按钮(右侧, 系统顺序) `最小化 | 最大化/还原 | 关闭`; 最大化按钮点击在 `maximize()`/`unmaximize()` 间切换, 图标用系统风格 SVG(单框=最大化, 重叠双框=还原), 消除原先不符合系统的 `▶` 播放按钮; 主进程 `maximize`/`unmaximize` 事件经 `float:maxState` 转发给标题栏切换图标。

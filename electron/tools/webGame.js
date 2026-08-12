@@ -221,6 +221,7 @@ class WebGameView {
     this._lastRect = null; // 浏览器视图矩形(给新 tab 用)
     this.floatWin = null;  // 网页悬浮窗(切到其它模块时承载浏览器视图)
     this._floated = false; // 是否处于悬浮状态
+    this._floatedManual = false;   // 是否由「右键菜单-移至新窗口」手动浮出(用于主窗口折叠浏览器区)
     this._floatMini = false;       // 悬浮窗是否处于迷你按钮模式
     this._floatRestoreBounds = null; // 迷你化前的悬浮窗矩形(还原用)
     this._floatTitleBarH = 32; // 悬浮窗标题栏高度(与 float-window.html 一致)
@@ -569,6 +570,7 @@ class WebGameView {
     if (this.floatWin && !this.floatWin.isDestroyed()) this.floatWin.hide();
     this._floated = false;
     this._floatMini = false; // 迷你模式随悬浮模式一起复位
+    this._floatedManual = false; // 手动浮出标志随悬浮模式复位(主窗口浏览器区恢复)
     if (t) this.syncBounds();
     this.emitTabs();
     this.emitStatus({ state: 'back' });
@@ -604,6 +606,7 @@ class WebGameView {
     if (this.floatWin && !this.floatWin.isDestroyed()) this.floatWin.close(); // closed 事件置 null
     this._floated = false;
     this._floatMini = false;
+    this._floatedManual = false; // 关闭悬浮窗 → 手动浮出结束(主窗口浏览器区恢复)
     this.pauseMedia();
     this.emitTabs();
     this.emitStatus({ state: 'back' });
@@ -638,7 +641,7 @@ class WebGameView {
     // 还原后同步网页视图到内容区
     const t = this.active;
     if (t) { try { t.view.setBounds(this._floatViewBounds()); } catch (e) { /* ignore */ } }
-    this.emitStatus({ state: 'floated' });
+    this.emitStatus({ state: 'floated', manual: this._floatedManual });
     return { ok: true };
   }
 
@@ -732,6 +735,9 @@ class WebGameView {
     }
   }
 
+  /** 当前是否处于悬浮状态(渲染端重入页面时判断是否需折叠浏览器区) */
+  isFloated() { return !!this._floated; }
+
   setBounds(rect) {
     if (!this.active) return { ok: false, error: 'not opened' };
     if (this._floated) this.floatBack(); // 回到网页抓取页布局(悬浮窗让位)
@@ -797,6 +803,8 @@ class WebGameView {
     this.activeId = tabId;
     this.emitTabs();
     this.emitStatus({ state: 'navigated', url: tab.url || '' });
+    // 标记为「手动移至新窗口」, floatOut 会据此让主窗口折叠浏览器区(空出的区域让给下方侧栏)
+    this._floatedManual = true;
     return this.floatOut();
   }
 
