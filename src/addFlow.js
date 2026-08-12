@@ -360,7 +360,67 @@ export async function runAddFlow(batch, defaultCategoryId) {
 }
 
 /**
- * 拖拽添加:把外部拖入的文件/目录路径扫描识别后,直接添加到指定分类。
+ * 拖入目录时的加入方式选择对话框。
+ * @returns {Promise<'flat'|'subdirs'|'recursive-dirs'|null>} null=取消
+ */
+function askDirModeDialog(dirCount) {
+  return new Promise((resolve) => {
+    const body = document.createElement('div');
+    body.className = 'modal-body';
+    const tip = document.createElement('div');
+    tip.className = 'form-row';
+    tip.innerHTML = `检测到拖入 <b>${dirCount}</b> 个目录,请选择加入方式:`;
+    body.appendChild(tip);
+    const opts = [
+      { id: 'flat', label: '全部放入当前目录', desc: '递归扫描目录下所有可识别资源,平铺加入当前目录(不建子分类)' },
+      { id: 'subdirs', label: '按直接子目录名建子分类', desc: '仅按拖入目录的直接子目录建立对应分类,子目录内资源归入对应分类(不继续嵌套)' },
+      { id: 'recursive-dirs', label: '递归按目录结构建子分类', desc: '子目录的子目录也逐级建立对应分类,完整还原目录层级' },
+    ];
+    const list = document.createElement('div');
+    list.className = 'fav-pick-list';
+    let checked = false;
+    for (const o of opts) {
+      const lb = document.createElement('label');
+      lb.className = 'fav-pick-item';
+      const rb = document.createElement('input');
+      rb.type = 'radio';
+      rb.name = 'dirmode';
+      rb.value = o.id;
+      if (!checked) { rb.checked = true; checked = true; }
+      const sp = document.createElement('span');
+      sp.textContent = o.label;
+      lb.title = o.desc;
+      lb.appendChild(rb);
+      lb.appendChild(sp);
+      list.appendChild(lb);
+    }
+    body.appendChild(list);
+    const hint = document.createElement('div');
+    hint.className = 'field-hint';
+    hint.textContent = '提示:建子分类时按相对拖入目录的路径结构创建,重复目录名自动复用现有分类;直接拖入的文件不受影响,始终加入当前目录。';
+    body.appendChild(hint);
+    const { close } = openModal({
+      title: '拖入目录的加入方式',
+      body,
+      foot: footButtons([
+        { text: '取消', cls: '', onClick: () => { close(); resolve(null); } },
+        {
+          text: '确定',
+          cls: 'primary',
+          onClick: () => {
+            const sel = list.querySelector('input:checked');
+            close();
+            resolve(sel ? sel.value : 'flat');
+          },
+        },
+      ]),
+    });
+  });
+}
+
+/**
+ * 拖拽添加:把外部拖入的文件/目录路径扫描识别后,添加到指定分类。
+ * 拖入目录时弹窗选择加入方式:平铺 / 仅一层子分类 / 递归按目录结构建子分类。
  * @param {string[]} paths 拖入的绝对路径列表(文件或目录)
  * @param {string} categoryId 目标分类 id(必须已存在)
  * @returns {Promise<number>} 实际新增数量
@@ -373,13 +433,39 @@ export async function addPathsToCategory(paths, categoryId) {
     toast('拖入的资源中没有可识别的文件(spine/龙骨/图片/音频/3D/.sk)', 'error');
     return 0;
   }
+  const roots = (r && r.roots) || [];
+  // 拖入目录 → 询问加入方式(仅文件则直接平铺)
+  let mode = 'flat';
+  if (roots.length) {
+    mode = await askDirModeDialog(roots.length);
+    if (mode === null) return 0; // 用户取消
+  }
+
   const parentCat = state.categories.find((c) => c.id === categoryId);
   const catName = parentCat ? parentCat.name : '未分类';
-  let added = 0, skipped = 0;
+  const inheritTags = parentCat ? (parentCat.typeTags || []) : [];
+  const createdCatIds = [];
+  let added = 0, skipped = 0, dirsCreated = 0;
+
   for (const e of entries) {
-    if (isDuplicateInCategory(e.file, categoryId)) { skipped++; continue; }
+    // 按加入方式计算目标分类(仅目录拖入且非平铺时,按相对拖入根的目录层级建子分类)
+    let targetCatId = categoryId;
+    if (mode !== 'flat' && roots.length) {
+      const root = roots.find((d) => isWithin(e.dir, d));
+      if (root) {
+        let segs = relSegments(e.dir, root);
+        if (mode === 'subdirs') segs = segs.slice(0, 1); // 仅一层子分类
+        if (segs.length) {
+          const { catId: cid, created } = ensureCategoryChain(categoryId, segs, inheritTags);
+          targetCatId = cid;
+          dirsCreated += created.length;
+          createdCatIds.push(...created);
+        }
+      }
+    }
+    if (isDuplicateInCategory(e.file, targetCatId)) { skipped++; continue; }
     addItem({
-      categoryId,
+      categoryId: targetCatId,
       type: e.type,
       filePath: e.file,
       atlasPath: e.atlasPath || null,
@@ -391,8 +477,13 @@ export async function addPathsToCategory(paths, categoryId) {
     added++;
   }
   let msg = added > 0 ? `已拖拽添加 ${added} 个资源到「${catName}」` : `未添加新资源到「${catName}」`;
+  if (mode === 'subdirs') msg = added > 0 ? `已拖拽添加 ${added} 个资源(按直接子目录建子分类)到「${catName}」` : msg;
+  if (mode === 'recursive-dirs') msg = added > 0 ? `已拖拽添加 ${added} 个资源(递归按目录结构建子分类)到「${catName}」` : msg;
+  if (dirsCreated > 0) msg += `,自动创建 ${dirsCreated} 个目录`;
   if (skipped > 0) msg += `,${skipped} 个重复已跳过`;
   toast(msg);
-  window.dispatchEvent(new CustomEvent('items-changed'));
+  window.dispatchEvent(new CustomEvent('items-changed', {
+    detail: createdCatIds.length ? { expand: createdCatIds } : undefined,
+  }));
   return added;
 }

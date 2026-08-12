@@ -490,20 +490,24 @@ app.whenReady().then(async () => {
       return { ok: false, error: err.message };
     }
   });
-  // 拖拽添加:混合路径列表(文件/目录) → 扫描识别条目(目录递归)
+  // 拖拽添加:混合路径列表(文件/目录) → 扫描识别条目(目录递归);roots=拖入的目录路径(供按目录建子分类)
   ipcMain.handle('fs:scanPaths', (_e, { paths } = {}) => {
     try {
       const list = Array.isArray(paths) ? paths : [];
       const out = [];
+      const roots = [];
       for (const p of list) {
         if (typeof p !== 'string' || !p) continue;
+        try {
+          if (fs.statSync(p).isDirectory()) roots.push(p);
+        } catch (err) { /* 非目录/不存在按文件处理 */ }
         const entries = scanPath(p, true);
         for (const e of entries) {
           // 去重(同文件可能因目录嵌套重复出现)
           if (!out.some((x) => x.file === e.file)) out.push(e);
         }
       }
-      return { ok: true, entries: out };
+      return { ok: true, entries: out, roots };
     } catch (err) {
       return { ok: false, error: err.message };
     }
