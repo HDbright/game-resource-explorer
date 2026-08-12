@@ -191,6 +191,32 @@ export async function findAtlasForImage(item) {
   return null;
 }
 
+const _companionCache = new Map(); // key: itemId|filePath → 'atlas' | 'plist' | null
+
+/**
+ * 检测图片资源是否有图集配套文件(同名 .atlas 或 .plist),用于列表「图集」标识。
+ * @returns {Promise<'atlas'|'plist'|null>}
+ */
+export async function findAtlasCompanion(item) {
+  if (!item || item.type !== 'image' || !item.filePath) return null;
+  const key = item.id + '|' + item.filePath;
+  if (_companionCache.has(key)) return _companionCache.get(key);
+  const dir = dirOf(item.filePath);
+  const base = noExtOf(item.filePath);
+  const full = baseOf(item.filePath);
+  const candidates = [
+    `${dir}/${base}.atlas`, `${dir}/${full}.atlas`,
+    `${dir}/${base}.plist`, `${dir}/${full}.plist`,
+  ];
+  let result = null;
+  for (let i = 0; i < candidates.length; i++) {
+    const st = await window.api.statFile(candidates[i]).catch(() => null);
+    if (st && st.size != null) { result = i < 2 ? 'atlas' : 'plist'; break; }
+  }
+  _companionCache.set(key, result);
+  return result;
+}
+
 const _atlasCache = new Map(); // itemId -> { item, atlasPath, pages, page, regions, img }
 
 /** 加载图集数据(解析 atlas + 加载图集大图),带缓存;解析失败时返回 { error } 便于区分「找不到」与「格式不支持」 */

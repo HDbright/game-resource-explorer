@@ -781,6 +781,7 @@ input[type="color"] { width: 30px; height: 26px; border: 1px solid var(--border)
 .res-card .rc-name {
   font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 4px;
 }
+.res-card .rc-name .rc-ext { font-family: var(--mono); font-size: 10px; font-weight: 600; }
 .res-card .rc-tags {
   display: flex; align-items: center; justify-content: center; gap: 4px;
   margin-bottom: 4px; min-height: 18px; overflow: hidden;
@@ -794,6 +795,7 @@ input[type="color"] { width: 30px; height: 26px; border: 1px solid var(--border)
 
 /* 类型徽章扩展 */
 .type-badge.image { background: rgba(229,165,75,.16); color: #eec285; }
+.type-badge.atlas { background: rgba(124,92,255,.2); color: #c9a8ff; }
 .type-badge.audio { background: rgba(178,141,240,.16); color: #c9a8ff; }
 .type-badge.model { background: rgba(76,201,240,.16); color: #8fd9f5; }
 

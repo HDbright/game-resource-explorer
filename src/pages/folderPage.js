@@ -1,6 +1,7 @@
 import { state, getFolderData, sortItems, formatSize, formatDate, TYPE_LABEL, typeGroup, categoryById, getCategoryPathList, itemTags, categoryLabel, favCategoryById, itemById, catVisibleInGroup, categoryTypeTagNames, getCategoryChildren, TYPE_GROUPS } from '../state.js';
 import { thumbnailService } from '../thumbnails.js';
 import { loadSearchHistory, saveSearchHistory, addSearchHistory, removeSearchHistory } from '../searchHistory.js';
+import { findAtlasCompanion } from '../atlasView.js';
 
 /** 搜索模式资源池:catId=null 全库;否则含子分类递归;types=null 全部类型 */
 function collectSearchPool(catId, types) {
@@ -23,6 +24,55 @@ function escapeHtml(s) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+/** 文件路径 basename(最后一段) */
+function basename(p) { return String(p || '').split(/[\\/]/).pop(); }
+/** 列表/详情/缩略图显示的文件名:优先取真实文件名(带后缀),缺文件路径时回退 displayName */
+function itemFileName(it) { return basename(it.filePath) || it.displayName || ''; }
+
+/** 常见扩展名颜色表(缩略图文件名后缀配色) */
+const EXT_COLORS = {
+  png: '#6fd8a0', jpg: '#ffb36b', jpeg: '#ffb36b', gif: '#ff8fd8', webp: '#7fc8ff', bmp: '#b0a8ff', svg: '#ffd76b', tga: '#ff9e9e', astc: '#ff9e9e',
+  json: '#9ad1ff', skel: '#ff9e9e', atlas: '#c9a2ff', plist: '#c9a2ff', bin: '#c9a2ff', fnt: '#9ad1ff', jta: '#9ad1ff',
+  mp3: '#ff9e9e', wav: '#ff9e9e', ogg: '#ff9e9e', flac: '#ff9e9e', m4a: '#ff9e9e', wma: '#ff9e9e',
+  mp4: '#7fc8ff', webm: '#7fc8ff',
+  glb: '#9ad1ff', gltf: '#9ad1ff',
+  sk: '#ffb36b', lsk: '#ffb36b',
+};
+/** 扩展名 → 颜色(常见扩展名固定色,未知扩展名按哈希取色,便于区分) */
+function extColor(ext) {
+  const e = String(ext || '').toLowerCase();
+  if (EXT_COLORS[e]) return EXT_COLORS[e];
+  let h = 0;
+  for (let i = 0; i < e.length; i++) h = (h * 31 + e.charCodeAt(i)) >>> 0;
+  return `hsl(${h % 360}, 70%, 62%)`;
+}
+/** 缩略图卡片名称 HTML:文件名主体 + 彩色扩展名 */
+function nameExtHtml(it) {
+  const fn = itemFileName(it);
+  if (!fn) return '';
+  const dot = fn.lastIndexOf('.');
+  if (dot > 0) {
+    const ext = fn.slice(dot + 1);
+    return `<span class="rc-base">${escapeHtml(fn.slice(0, dot))}</span><span class="rc-ext" style="color:${extColor(ext)}">.${escapeHtml(ext)}</span>`;
+  }
+  return `<span class="rc-base">${escapeHtml(fn)}</span>`;
+}
+
+/** 异步把「图片」类型徽章细化为「图集」(同名 .atlas/.plist 配套) */
+function bindAtlasBadges(container, items) {
+  for (const it of items) {
+    if (it.type !== 'image') continue;
+    findAtlasCompanion(it).then((kind) => {
+      if (!kind) return;
+      container.querySelectorAll(`[data-item="${it.id}"] .type-badge.image`).forEach((el) => {
+        el.textContent = '图集';
+        el.className = 'type-badge atlas';
+        el.title = kind === 'plist' ? '该图片带同名 .plist 图集配套' : '该图片带同名 .atlas 图集配套';
+      });
+    }).catch(() => { /* 检测失败保持「图片」 */ });
+  }
 }
 
 const VIEW_LABEL = { detail: '详情', list: '列表', icon: '图标' };
@@ -391,6 +441,8 @@ export function renderFolderPage(container, opts) {
       }
     }
   }
+  // 图集标识:图片带同名 .atlas/.plist → 「图片」徽章细化为「图集」
+  bindAtlasBadges(container, sorted);
 
   // 恢复滚动位置(编辑模式下点击条目重渲染时滚动条保持原位;新内容高度不足时浏览器自动钳制)
   const newBody = container.querySelector('.folder-body');
@@ -451,7 +503,7 @@ function renderResources(items, viewMode, editMode = false, selectedIds = new Se
           ${items.map((it) => `
             <tr data-item="${it.id}" class="${isSel(it.id).trim()}" title="${escapeHtml(itemTooltip(it))}">
               ${editMode ? `<td><span class="edit-check">${selectedIds.has(it.id) ? '☑' : '☐'}</span></td>` : ''}
-              <td><div class="cell-name"><span class="type-badge ${it.type}">${TYPE_LABEL[it.type] || it.type}</span><span class="cn-main">${escapeHtml(it.displayName || '')}</span></div></td>
+              <td><div class="cell-name"><span class="type-badge ${it.type}">${TYPE_LABEL[it.type] || it.type}</span><span class="cn-main">${escapeHtml(itemFileName(it))}</span></div></td>
               <td>${escapeHtml(it.type === 'spine' ? 'Spine' : it.type === 'dragonbones' ? 'DragonBones' : TYPE_LABEL[it.type])}</td>
               <td class="cell-size">${formatSize(it.size)}</td>
               <td class="cell-date">${formatDate(it.mtime || it.updatedAt)}</td>
@@ -476,7 +528,7 @@ function renderResources(items, viewMode, editMode = false, selectedIds = new Se
         ${items.map((it) => `
           <div class="res-row${isSel(it.id)}" data-item="${it.id}" title="${escapeHtml(itemTooltip(it))}">
             ${editMode ? `<span class="edit-check">${selectedIds.has(it.id) ? '☑' : '☐'}</span>` : `<span class="type-badge ${it.type}">${TYPE_LABEL[it.type] || it.type}</span>`}
-            <span class="r-name">${escapeHtml(it.displayName || '')}</span>
+            <span class="r-name">${escapeHtml(itemFileName(it))}</span>
             <span class="r-tags">${tagChipsHtml(itemTags(it), 2)}</span>
             <span class="r-size">${formatSize(it.size)}</span>
             <span class="r-date">${formatDate(it.mtime || it.updatedAt)}</span>
@@ -506,7 +558,7 @@ function renderResources(items, viewMode, editMode = false, selectedIds = new Se
                 ? `<div class="res-thumb audio-fallback" data-item="${it.id}" style="font-size:36px;color:#4cc9f0">🧊</div>`
                 : `<img class="res-thumb" data-item="${it.id}" alt="" />`}
           </div>
-          <div class="rc-name" title="${escapeHtml(it.displayName || '')}">${escapeHtml(it.displayName || '')}</div>
+          <div class="rc-name" title="${escapeHtml(itemFileName(it))}">${nameExtHtml(it)}</div>
           ${tags.length ? `
           <div class="rc-tags" title="标签:${escapeHtml(tags.join('、'))}">
             <span class="tag-chip">${escapeHtml(tags[0])}</span>
@@ -633,6 +685,9 @@ export function renderFavFolderPage(container, opts) {
     }
   }
 
+  // 图集标识:收藏夹列表同样细化「图片」→「图集」
+  bindAtlasBadges(container, items);
+
   const newBody = container.querySelector('.folder-body');
   if (newBody && savedScroll) newBody.scrollTop = savedScroll;
 }
@@ -658,7 +713,7 @@ function renderFavResources(items, viewMode) {
         <tbody>
           ${items.map((it) => `
             <tr data-item="${it.id}" title="${escapeHtml(itemTooltip(it))}">
-              <td><div class="cell-name"><span class="type-badge ${it.type}">${TYPE_LABEL[it.type] || it.type}</span><span class="cn-main">${escapeHtml(it.displayName || '')}</span></div></td>
+              <td><div class="cell-name"><span class="type-badge ${it.type}">${TYPE_LABEL[it.type] || it.type}</span><span class="cn-main">${escapeHtml(itemFileName(it))}</span></div></td>
               <td>${escapeHtml(it.type === 'spine' ? 'Spine' : it.type === 'dragonbones' ? 'DragonBones' : TYPE_LABEL[it.type])}</td>
               <td class="cell-size">${formatSize(it.size)}</td>
               <td class="cell-date">${formatDate(it.mtime || it.updatedAt)}</td>
@@ -677,7 +732,7 @@ function renderFavResources(items, viewMode) {
         ${items.map((it) => `
           <div class="res-row" data-item="${it.id}" title="${escapeHtml(itemTooltip(it))}">
             <span class="type-badge ${it.type}">${TYPE_LABEL[it.type] || it.type}</span>
-            <span class="r-name">${escapeHtml(it.displayName || '')}</span>
+            <span class="r-name">${escapeHtml(itemFileName(it))}</span>
             <span class="r-tags">${tagChipsHtml(itemTags(it), 2)}</span>
             <span class="r-size">${formatSize(it.size)}</span>
             <span class="r-date">${formatDate(it.mtime || it.updatedAt)}</span>
@@ -700,7 +755,7 @@ function renderFavResources(items, viewMode) {
                 ? `<div class="res-thumb audio-fallback" data-item="${it.id}" style="font-size:36px;color:#4cc9f0">🧊</div>`
                 : `<img class="res-thumb" data-item="${it.id}" alt="" />`}
           </div>
-          <div class="rc-name" title="${escapeHtml(it.displayName || '')}">${escapeHtml(it.displayName || '')}</div>
+          <div class="rc-name" title="${escapeHtml(itemFileName(it))}">${nameExtHtml(it)}</div>
           ${tags.length ? `
           <div class="rc-tags" title="标签:${escapeHtml(tags.join('、'))}">
             <span class="tag-chip">${escapeHtml(tags[0])}</span>

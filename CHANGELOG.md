@@ -3,11 +3,16 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.56`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.57`）。
 
 ---
 
 ## 2026-08-12
+
+### [新增] 发布 v1.9.57：资源列表标识细化(图集徽章) + 列表显示带后缀文件名 + 缩略图扩展名彩色区分
+- **类型徽章细化**:图片资源若带同名 `.atlas` / `.plist` 图集配套文件,列表(详情/列表/图标三种视图)中的「图片」徽章自动细化为紫色「图集」徽章(`src/pages/folderPage.js` 渲染后异步检测 `findAtlasCompanion`,带缓存;`src/atlasView.js` 新增,兼容 `foo.atlas`/`foo.png.atlas`/`foo.plist`/`foo.png.plist`)。
+- **详情/列表模式显示带后缀的文件名**:名称列不再用去扩展名的 displayName,改为显示真实文件名(basename(filePath),如 `new.png`、`hero.skel`);无文件路径时回退 displayName。
+- **缩略图(图标模式)扩展名彩色区分**:文件名主体 + 扩展名拆开显示,扩展名按类型配色(png/jpg/gif/webp 等图片类、atlas/plist/json/skel 等数据类、mp3/wav 等音频类各固定色;未知扩展名按哈希取色),方便一眼区分资源种类。
 
 ### [修复] 发布 v1.9.56：图集拆分不支持 TexturePacker/Cocos2d JSON 格式的 .atlas
 - 用户报障:`E:\backup\webdown\闯词\atlas图集\...\new.png` + `new.atlas` 预览提示「未找到与 new 同名的 .atlas 图集,无法拆分浏览」。
