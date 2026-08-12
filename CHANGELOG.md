@@ -3,11 +3,16 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.52`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.53`）。
 
 ---
 
 ## 2026-08-12
+
+### [修复] 发布 v1.9.53：Laya .sk→Spine 转换后部分附件预览报 "Region not found in atlas"
+- 根因:转换器只为嵌入纹理(仅 12 个)生成 atlas region,但骨架 display 有 19 个;且 mesh/skinnedmesh 附件未写 `region` 字段,Spine 3.8 回退用附件名查 atlas → Hd_12..Hd_19 等查不到区域。
+- 修复 `electron/tools/layaSk2Spine.js`(与技能 `laya-sk-to-spine` 同步):`modelToAtlas` 改为**为每个 skin display 按其 uv 包围盒(×页尺寸)生成同名 region**,兜底保留嵌入纹理里未被 display 直接引用的区域;`displayToAttachment` 给 mesh/skinnedmesh 显式写 `region` 字段(region 类型补 `region` 保留 `path`)。
+- 已用 hedao.sk 复测:atlas 含 Hd_0..Hd_19 共 20 个 region,14 个 mesh 附件全部带 `region`,无附件缺失区域。
 
 ### [新增] 发布 v1.9.52：批量转换完成后增加「打开输出目录」按钮
 - 资源工具箱批量转换(含 Laya .sk→Spine)完成后,只要存在成功项,即在结果区生成「打开输出目录」按钮。

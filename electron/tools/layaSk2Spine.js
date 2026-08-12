@@ -614,32 +614,65 @@ function layaMatrixToSpine(scX, skX, skY, scY, x, y) {
 }
 
 // ---------------- 生成 .atlas 文本 ----------------
+// 关键修复:Laya 的 mesh/region 附件 uv 已归一化到整张贴图页(0..1),
+// 但 Spine 要求每个附件在 atlas 里有"同名 region"作为采样框与归一化基准。
+// 旧实现只按嵌入纹理(model.textures, 仅 12 个)生成 region, 而骨架 display 有 19 个,
+// 导致 Hd_12..Hd_19 这类附件查不到 region → "Region not found in atlas"。
+// 新实现:为每个 skin display 按自身 uv 包围盒(×页尺寸)生成同名 region,
+// 兜底保留嵌入纹理里未被 display 引用的区域, 保证全部附件都能解析。
 function modelToAtlas(model) {
-  const pages = new Map();
-  for (const t of model.textures) {
-    const src = t.textureSrc || 'texture.png';
-    if (!pages.has(src)) pages.set(src, []);
-    pages.get(src).push(t);
-  }
-  const out = [];
-  for (const [src, regs] of pages) {
-    let maxR = 0, maxB = 0;
-    for (const t of regs) { maxR = Math.max(maxR, t.x + t.w); maxB = Math.max(maxB, t.y + t.h); }
-    const sizeW = nextPow2(maxR), sizeH = nextPow2(maxB);
-    out.push(src);
-    out.push(`size: ${sizeW},${sizeH}`);
-    out.push('format: RGBA8888');
-    out.push('filter: Linear,Linear');
-    out.push('pma: false');
-    for (const t of regs) {
-      out.push(t.regionName);
-      out.push('  rotate: false');
-      out.push(`  xy: ${r1(t.x)},${r1(t.y)}`);
-      out.push(`  size: ${r1(t.w)},${r1(t.h)}`);
-      out.push(`  orig: ${r1(t.frameW)},${r1(t.frameH)}`);
-      out.push(`  offset: ${r1(t.frameX)},${r1(t.frameY)}`);
-      out.push('  index: -1');
+  // 页尺寸:沿用嵌入纹理的最大边界(与贴图页一致),Atlas 的 size: 必须匹配 png 实际尺寸
+  const pageSrc = (model.textures.find((t) => t.textureSrc) || {}).textureSrc || 'texture.png';
+  let pageW = 0, pageH = 0;
+  for (const t of model.textures) { pageW = Math.max(pageW, t.x + t.w); pageH = Math.max(pageH, t.y + t.h); }
+  pageW = nextPow2(pageW); pageH = nextPow2(pageH);
+
+  const regions = new Map();
+  const addRegion = (name, r) => { if (name && !regions.has(name)) regions.set(name, r); };
+
+  // 1) 每个 display 按 uv 包围盒生成 region
+  for (const skin of model.skins || []) {
+    for (const slot of skin.slots || []) {
+      for (const disp of slot.displays || []) {
+        const name = disp.attachmentName;
+        if (!name || regions.has(name)) continue;
+        const uvs = disp.uvs || [];
+        if (uvs.length >= 8) {
+          let minU = 1e9, maxU = -1e9, minV = 1e9, maxV = -1e9;
+          for (let i = 0; i < uvs.length; i += 2) {
+            minU = Math.min(minU, uvs[i]); maxU = Math.max(maxU, uvs[i]);
+            minV = Math.min(minV, uvs[i + 1]); maxV = Math.max(maxV, uvs[i + 1]);
+          }
+          const x = Math.max(0, Math.round(minU * pageW));
+          const y = Math.max(0, Math.round(minV * pageH));
+          const w = Math.max(1, Math.round((maxU - minU) * pageW));
+          const h = Math.max(1, Math.round((maxV - minV) * pageH));
+          addRegion(name, { x, y, w, h, fw: w, fh: h, fx: 0, fy: 0 });
+        } else {
+          // 退化:uv 不足(非常规网格)→ 退化为同名嵌入纹理;仍缺失则给 1x1 占位避免硬崩
+          const et = model.textures.find((t) => t.regionName === name);
+          if (et) addRegion(name, { x: et.x, y: et.y, w: et.w, h: et.h, fw: et.frameW, fh: et.frameH, fx: et.frameX, fy: et.frameY });
+          else addRegion(name, { x: 0, y: 0, w: 1, h: 1, fw: 1, fh: 1, fx: 0, fy: 0 });
+        }
+      }
     }
+  }
+  // 2) 兜底:保留嵌入纹理里没有被任何 display 直接引用的区域(如独立的图集碎图)
+  for (const t of model.textures) {
+    addRegion(t.regionName, { x: t.x, y: t.y, w: t.w, h: t.h, fw: t.frameW, fh: t.frameH, fx: t.frameX, fy: t.frameY });
+  }
+
+  const out = [pageSrc, `size: ${pageW},${pageH}`, 'format: RGBA8888', 'filter: Linear,Linear', 'pma: false'];
+  const names = [...regions.keys()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  for (const name of names) {
+    const r = regions.get(name);
+    out.push(name);
+    out.push('  rotate: false');
+    out.push(`  xy: ${r1(r.x)},${r1(r.y)}`);
+    out.push(`  size: ${r1(r.w)},${r1(r.h)}`);
+    out.push(`  orig: ${r1(r.fw)},${r1(r.fh)}`);
+    out.push(`  offset: ${r1(r.fx)},${r1(r.fy)}`);
+    out.push('  index: -1');
   }
   return out.join('\n') + '\n';
 }
@@ -783,6 +816,8 @@ function displayToAttachment(disp, model) {
         vertices: buildSkinnedVertices(disp),
         hull: vCount,
         width: round3(disp.width), height: round3(disp.height),
+        // 必须显式指定 region(贴图集区域),否则 Spine 3.8 回退用附件名查 atlas → Region not found
+        region: disp.attachmentName,
       };
     }
     return {
@@ -793,6 +828,9 @@ function displayToAttachment(disp, model) {
       vertices: ((disp.vertices.length ? disp.vertices : disp.weights)).map((v) => round3(v)),
       hull: Math.min(8, ((disp.vertices.length ? disp.vertices : disp.weights).length / 2) | 0),
       width: round3(disp.width), height: round3(disp.height),
+      // 必须显式指定 region(贴图集区域):Laya 的 uv 已归一化到整张贴图页,
+      // modelToAtlas 会按各 display 的 uv 包围盒生成同名 region,使 mesh 在正确的贴图位置采样
+      region: disp.attachmentName,
     };
   }
   // region(图片)
@@ -803,6 +841,7 @@ function displayToAttachment(disp, model) {
   att.width = round3(disp.width);
   att.height = round3(disp.height);
   att.path = disp.attachmentName;
+  att.region = disp.attachmentName;
   att.color = 'ffffffff';
   return att;
 }
