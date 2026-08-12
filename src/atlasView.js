@@ -99,6 +99,56 @@ export function parseSpineAtlas(text) {
   return pages;
 }
 
+/**
+ * 解析 TexturePacker/Cocos2d/Phaser 的 JSON 格式图集(如 {"frames":{...},"meta":{...}})。
+ * frames 每项: { frame:{x,y,w,h,idx}, rotated?, sourceSize, spriteSourceSize, trimmed? };
+ * meta: { image(页图片名), size:{w,h}|"WxH" }。
+ * @returns {Array<{name:string,w:number,h:number,regions:Array}>} 与 parseSpineAtlas 同构
+ */
+export function parseJsonAtlas(text) {
+  let j = null;
+  try { j = JSON.parse(String(text || '')); } catch (e) { return null; }
+  if (!j || typeof j !== 'object' || !j.frames || typeof j.frames !== 'object') return null;
+  const regions = [];
+  for (const [name, f] of Object.entries(j.frames)) {
+    if (!f || !f.frame) continue;
+    const fr = f.frame;
+    const x = Number(fr.x) || 0, y = Number(fr.y) || 0;
+    const w = Number(fr.w) || 0, h = Number(fr.h) || 0;
+    let rotate = 0;
+    if (f.rotated === true || f.rotated === 'true') rotate = 90;
+    else if (typeof f.rotated === 'number') rotate = Number(f.rotated) || 0;
+    const src = f.sourceSize || {};
+    const trim = f.spriteSourceSize || {};
+    regions.push({
+      name, x, y, w, h, rotate,
+      index: Number(fr.idx) >= 0 ? Number(fr.idx) : -1,
+      ow: Number(src.w) || 0, oh: Number(src.h) || 0,
+      ox: Number(trim.x) || 0, oy: Number(trim.y) || 0,
+    });
+  }
+  if (!regions.length) return null;
+  const meta = j.meta || {};
+  let pageW = 0, pageH = 0;
+  if (meta.size && typeof meta.size === 'object') {
+    pageW = Number(meta.size.w) || 0; pageH = Number(meta.size.h) || 0;
+  } else if (typeof meta.size === 'string') {
+    const m = /(\d+)\s*[xX×]\s*(\d+)/.exec(meta.size);
+    if (m) { pageW = Number(m[1]) || 0; pageH = Number(m[2]) || 0; }
+  }
+  return [{ name: meta.image || 'sheet.png', w: pageW, h: pageH, regions }];
+}
+
+/** 统一入口:自动识别 JSON(以 { 开头)与 Spine 文本两种图集格式 */
+export function parseAtlas(text) {
+  const t = String(text || '');
+  if (t.trimStart().startsWith('{')) {
+    const j = parseJsonAtlas(t);
+    if (j) return j;
+  }
+  return parseSpineAtlas(t);
+}
+
 /** 区域旋转角度(0/90/180/270) */
 function regionDeg(r) { return typeof r.rotate === 'number' ? r.rotate : 0; }
 /** 区域展示尺寸(旋转后宽高交换) */
@@ -143,18 +193,18 @@ export async function findAtlasForImage(item) {
 
 const _atlasCache = new Map(); // itemId -> { item, atlasPath, pages, page, regions, img }
 
-/** 加载图集数据(解析 atlas + 加载图集大图),带缓存 */
+/** 加载图集数据(解析 atlas + 加载图集大图),带缓存;解析失败时返回 { error } 便于区分「找不到」与「格式不支持」 */
 export async function loadAtlasData(item, force = false) {
   if (!force && _atlasCache.has(item.id)) return _atlasCache.get(item.id);
   const atlasPath = await findAtlasForImage(item);
   if (!atlasPath) return null;
   const res = await window.api.readBase64(atlasPath).catch(() => null);
   if (!res || !res.ok) return null;
-  const pages = parseSpineAtlas(decodeBase64Text(res.dataUrl));
-  if (!pages.length) return null;
+  const pages = parseAtlas(decodeBase64Text(res.dataUrl));
+  if (!pages || !pages.length) return { error: '无法解析该 .atlas 格式(仅支持 Spine/TexturePacker 文本与 JSON 图集)' };
   const imgName = baseOf(item.filePath);
   const page = pages.find((p) => baseOf(p.name) === imgName) || pages[0];
-  if (!page || !page.regions.length) return null;
+  if (!page || !page.regions.length) return { error: '图集中没有可拆分的单图区域' };
   const img = await loadImageEl(`${location.origin}/a/${item.id}/${encodeURIComponent(imgName)}`);
   const data = { item, atlasPath, pages, page, regions: page.regions, img };
   _atlasCache.set(item.id, data);
@@ -181,7 +231,8 @@ export async function splitAtlasToFiles(item, opts = {}) {
     toast('图集加载失败:' + (err && err.message ? err.message : err));
     return null;
   }
-  if (!data) { toast('未找到同名 .atlas 图集,或图集解析失败'); return null; }
+  if (!data) { toast('未找到与该图片同名的 .atlas 图集'); return null; }
+  if (data.error) { toast(data.error); return null; }
   const regions = only ? data.regions.filter((r) => r.name === only) : data.regions;
   if (!regions.length) { toast(only ? `图集中未找到单图「${only}」` : '图集中没有可拆分的单图'); return null; }
   const dir = atlasOutDir(item);
@@ -225,6 +276,10 @@ export async function renderAtlasViewerPage(container, opts = {}) {
   }
   if (!data) {
     container.innerHTML = `<div class="folder-empty"><div>未找到与「${escHtml(item.displayName)}」同名的 .atlas 图集,无法拆分浏览。${errMsg ? '<br/>' + escHtml(errMsg) : ''}</div></div>`;
+    return;
+  }
+  if (data.error) {
+    container.innerHTML = `<div class="folder-empty"><div>「${escHtml(item.displayName)}」已找到同名 .atlas,但${escHtml(data.error)}<br/><span style="font-size:12px;color:var(--text2)">${escHtml(baseOf(data.atlasPath))}</span></div></div>`;
     return;
   }
 

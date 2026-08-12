@@ -3,11 +3,17 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.55`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.56`）。
 
 ---
 
 ## 2026-08-12
+
+### [修复] 发布 v1.9.56：图集拆分不支持 TexturePacker/Cocos2d JSON 格式的 .atlas
+- 用户报障:`E:\backup\webdown\闯词\atlas图集\...\new.png` + `new.atlas` 预览提示「未找到与 new 同名的 .atlas 图集,无法拆分浏览」。
+- 根因:该 `.atlas` 是 **TexturePacker/Cocos2d JSON 格式**(`{"frames":{...},"meta":{"image":"new.png"}}`,20 个区域),而 v1.9.55 的解析器只支持 Spine 文本格式,遇到 JSON 把整行当页名 → 解析出 0 个区域 → 误报未找到。
+- 修复 `src/atlasView.js`:新增 `parseJsonAtlas`(frames.frame{x,y,w,h,idx} + rotated + sourceSize/spriteSourceSize + meta.image/size),`parseAtlas` 统一入口按 `{` 开头自动识别 JSON / 文本两种格式;`loadAtlasData` 解析失败时返回 `{error}` 区分「找不到 .atlas」与「格式不支持」,拆分浏览页与右键「拆分图集」分别给出明确提示。
+- 实测:new.atlas(JSON)解析 20 区域(alive.png x332,y0,67×85 正确)、hedao.atlas(文本)仍 12 区域;旋转 JSON 合成样例 rotate=90 正确处理。
 
 ### [新增] 发布 v1.9.55：图片图集拆分浏览/导出 + 侧栏默认折叠
 - **侧栏默认折叠**:`src/ui.js` 的 `expandedCats` 初始 Set 移除 `__webgame__`/`__devtools__`,「网络资源抓取」与「开发工具箱」两个菜单默认折叠(可展开);「网址收藏夹」保持默认展开。
