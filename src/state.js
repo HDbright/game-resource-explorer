@@ -44,6 +44,7 @@ export const DEFAULT_SETTINGS = {
   webGameSaveDir: '', // 抓取资源输出目录
   webGameProxy: '', // 可选代理(如 http://127.0.0.1:7890)
   webGameHistory: [], // 最近打开的游戏 [{url, title, openedAt}] 最新在前,上限 20
+  webgameAutoFloatOnSwitch: false, // 从网页浏览器切到其它模块时,是否自动把网页弹出独立悬浮窗(true=自动浮出; false=仅隐藏,回抓取页仍可见)
 };
 
 export const state = {

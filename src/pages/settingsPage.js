@@ -98,6 +98,19 @@ export function renderSettingsPage(container, opts = {}) {
       </section>
 
       <section class="settings-card">
+        <h3>网络资源抓取</h3>
+        <p class="settings-hint">控制从「网络资源抓取」(网页浏览器)页面切到其它模块时的行为。</p>
+        <div class="form-row">
+          <label class="f-label">自动弹出悬浮窗</label>
+          <label class="ss-check"><input type="checkbox" id="wg-autofloat" ${s.webgameAutoFloatOnSwitch ? 'checked' : ''} /> 切换到别的模块时,自动把网页弹出独立悬浮窗</label>
+        </div>
+        <p class="settings-hint">关闭(默认):切走后网页视图仅隐藏,不弹窗;回到抓取页网页依旧可见,浏览进度不中断。开启:切走后网页自动弹出可拖拽的独立悬浮窗(原行为)。</p>
+        <div class="settings-actions">
+          <button class="btn primary" id="wg-autofloat-save">保存设置</button>
+        </div>
+      </section>
+
+      <section class="settings-card">
         <h3>开发者调试 (Chrome DevTools)</h3>
         <div class="form-row">
           <label class="f-label">调试服务</label>
@@ -192,6 +205,13 @@ export function renderSettingsPage(container, opts = {}) {
   // ---- 资源标签页:同类型新标签开关 ----
   container.querySelector('#ss-newtab-save').addEventListener('click', () => {
     setSetting('openSameTypeNewTab', container.querySelector('#ss-newtab').checked);
+    saveState();
+    toast('设置已保存');
+  });
+
+  // ---- 网络资源抓取:切模块时是否自动弹出悬浮窗 ----
+  container.querySelector('#wg-autofloat-save').addEventListener('click', () => {
+    setSetting('webgameAutoFloatOnSwitch', container.querySelector('#wg-autofloat').checked);
     saveState();
     toast('设置已保存');
   });

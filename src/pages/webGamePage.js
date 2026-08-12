@@ -1177,12 +1177,20 @@ export function renderWebGamePage(container, opts = {}) {
   container._webGameSetUrl = (url) => {
     if (url) { urlEl.value = url; openUrl(url); }
   };
-  // 离开页面时: 浏览器视图迁入独立悬浮窗(可拖拽/最小化/关闭), 防止遮挡其它页; 同步隐藏独立预览窗
-  container._webGameDetach = () => {
-    // 断开弹窗遮挡监听(避免离开抓取页后仍在全局响应)
+  // 离开抓取页的公共拆卸: 断开弹窗遮挡监听 + 隐藏独立预览窗(两种离开方式都需做)
+  const webGameDetachCommon = () => {
     if (container._webGameModalObserver) { try { container._webGameModalObserver.disconnect(); } catch (e) {} container._webGameModalObserver = null; }
     window.api.webPreviewHide();
+  };
+  // 离开页面方式①: 浏览器视图迁入独立悬浮窗(可拖拽/最小化/关闭), 防止遮挡其它页
+  container._webGameDetach = () => {
+    webGameDetachCommon();
     window.api.webFloatOut();
+  };
+  // 离开页面方式②(默认): 浏览器视图仅隐藏(0×0, 留在主窗口), 不弹悬浮窗; 回到抓取页 _webGameSyncBounds 自动恢复矩形
+  container._webGameHideView = () => {
+    webGameDetachCommon();
+    window.api.webSetBounds({ width: 0, height: 0 });
   };
   // 弹窗遮挡修复: 抓取页任意通用弹窗(promptDialog/确认框)打开时, 原生 WebContentsView 会盖住 DOM 浮层,
   // 故监听 #modal-root: 有 .modal-mask 则隐藏网页视图, 全部关闭后由 _webGameSyncBounds 恢复(受面板状态约束)。

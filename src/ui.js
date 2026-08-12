@@ -1148,10 +1148,15 @@ function openTool(id) {
  * 会被旧状态拦截而"看起来无法切换页面"。统一在此清掉,导航才会真正生效。
  */
 function clearOverlays() {
-  // 离开网络资源抓取页时隐藏浏览器视图(WebContentsView 为 native 叠加, 防止遮挡其它页面)
+  // 离开网络资源抓取页时处理浏览器视图(WebContentsView 为 native 叠加, 防止遮挡其它页面)
   if (webGameShown) {
     const pageEl = document.getElementById('page-webgame');
-    if (pageEl && pageEl._webGameDetach) pageEl._webGameDetach();
+    const autoFloat = !!(state.settings && state.settings.webgameAutoFloatOnSwitch); // 默认 false: 切走仅隐藏, 不弹悬浮窗
+    if (autoFloat) {
+      if (pageEl && pageEl._webGameDetach) pageEl._webGameDetach(); // 方式①: 自动浮出独立悬浮窗
+    } else if (pageEl && pageEl._webGameHideView) {
+      pageEl._webGameHideView(); // 方式②: 仅隐藏视图, 回到抓取页仍可见
+    }
   }
   currentTool = null;
   toolboxHomeShown = false;
