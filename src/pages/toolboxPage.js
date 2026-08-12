@@ -336,18 +336,25 @@ function buildBatchTool(body, cfg) {
     const failedHtml = fail.length
       ? `<details class="batch-fail"><summary>失败 ${fail.length} 个(点击展开)</summary><ul>${fail.map((f) => `<li>${escHtml(f)}</li>`).join('')}</ul></details>`
       : '';
-    const outDirBtn = (outDir && okCount)
-      ? `<button class="btn" id="${px}-open-out">打开输出目录</button>`
+    // 收集实际写入的输出目录(去重)。默认输出到源文件同目录时, 可能分布在多个源文件夹, 据此给出「打开所在目录」按钮
+    const outDirSet = [];
+    for (const item of plan) {
+      const d = item.output.replace(/[\\/][^\\/]*$/, '');
+      if (d && !outDirSet.includes(d)) outDirSet.push(d);
+    }
+    const openBtns = okCount
+      ? outDirSet.map((d, i) => `<button class="btn" data-open-dir="${escHtml(d)}" title="${escHtml(d)}">${outDirSet.length > 1 ? '打开所在目录 ' + (i + 1) : '打开输出目录'}</button>`).join('')
       : '';
     resEl.innerHTML = `
       <div class="result-ok">✓ 批量${verb}完成:成功 ${okCount} / 失败 ${fail.length}${skipped ? ' / 跳过 ' + skipped : ''}</div>
       <div class="batch-summary">
-        ${outDir ? `<div class="result-path">输出目录:<code>${escHtml(outDir)}</code></div>` : '<div class="result-path">输出位置:源文件同目录</div>'}
+        ${outDir ? `<div class="result-path">输出目录:<code>${escHtml(outDir)}</code></div>` : (outDirSet.length > 1 ? '<div class="result-path">输出位置:各源文件所在目录(见下方按钮)</div>' : '<div class="result-path">输出位置:源文件同目录</div>')}
         ${failedHtml}
-        <div class="batch-actions">${outDirBtn}</div>
+        <div class="batch-actions">${openBtns}</div>
       </div>`;
-    const openBtn = resEl.querySelector(`#${px}-open-out`);
-    if (openBtn) openBtn.addEventListener('click', () => window.api.openPath(outDir));
+    resEl.querySelectorAll('[data-open-dir]').forEach((btn) => {
+      btn.addEventListener('click', () => window.api.openPath(btn.getAttribute('data-open-dir')));
+    });
     runBtn.disabled = false;
     toast(`批量${verb}完成:成功 ${okCount},失败 ${fail.length}`);
   });
