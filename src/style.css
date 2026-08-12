@@ -1643,10 +1643,11 @@ input[type="color"] { width: 30px; height: 26px; border: 1px solid var(--border)
 .wg-side {
   display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 6px;
 }
-/* 手动「将标签页移至新窗口」后: 主窗口浏览器区压缩到约1%, 空出区域让给下方侧栏;
-   浏览器区的内联 height(分隔条拖动记录)保留, 关闭悬浮窗取消 .floated-out 后比例自动还原。 */
-.wg-wrap.floated-out .wg-browser-scroll { flex: 0 0 1%; min-height: 0; overflow: hidden; }
-.wg-wrap.floated-out .wg-hsplit { flex: 0 0 3px; cursor: default; opacity: 0.3; }
+/* 手动「将标签页移至新窗口」后: 主窗口浏览器区完全让给下方侧栏。
+   该原生视图已随标签迁入悬浮窗(其余 tab 视图为 0×0), 主窗口此区无可显示内容,
+   直接隐藏浏览器区与分隔条, 避免残留黑色细条; 关闭悬浮窗取消 .floated-out 后比例自动还原。 */
+.wg-wrap.floated-out .wg-browser-scroll { display: none; }
+.wg-wrap.floated-out .wg-hsplit { display: none; }
 /* 资源捕获 / 网址收藏夹 面板切换 */
 .wg-side-tabs { display: flex; gap: 4px; flex: 0 0 auto; }
 .wg-stab {
