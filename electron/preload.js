@@ -100,6 +100,9 @@ contextBridge.exposeInMainWorld('api', {
   webPreviewHide: () => ipcRenderer.invoke('web:previewHide'),
   webPreviewClose: () => ipcRenderer.invoke('web:previewClose'),
   onWebPreviewAction: (cb) => ipcRenderer.on('web:previewAction', (_e, d) => cb(d)),
+  // 网址收藏对话框(独立原生窗口, 弹窗时网页保持可见)
+  webOpenBookmarkDialog: (opts) => ipcRenderer.invoke('web:openBookmarkDialog', opts),
+  onBookmarkDialogResult: (cb) => ipcRenderer.on('bookmark:dialogResult', (_e, d) => cb(d)),
   onWebPreviewPinState: (cb) => ipcRenderer.on('web:previewPinState', (_e, d) => cb(d)),
   onWebPreviewClosed: (cb) => ipcRenderer.on('web:previewClosed', () => cb()),
   onWebStatus: (cb) => ipcRenderer.on('web:status', (_e, d) => cb(d)),

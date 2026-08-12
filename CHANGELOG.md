@@ -3,11 +3,17 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.32`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.42`）。
 
 ---
 
 ## 2026-08-12
+
+### [修复] 发布 v1.9.42：收藏对话框/收藏夹标签切走后网页显示区变黑
+
+- 原因: 原生 `WebContentsView` 永远压在 DOM 之上, 真实网页像素全部由该原生视图绘制, `#wg-browser` 容器本身为空。v1.9.41 为让 DOM 弹窗不被遮挡, 在弹窗出现时把原生视图收成 `0×0`, 露出空的 `#wg-browser` → 一片黑; 切到「网址收藏夹」标签时 `setPanel('bookmark')` 也直接收起原生视图(其实下方侧栏并不在 WebContentsView 覆盖区), 同样是黑屏。
+- 修复(收藏夹标签): 下方侧栏 DOM 本就不在 WebContentsView 覆盖区, 切到该标签不再收起网页, 改为保持网页可见并让原生视图跟随当前矩形。
+- 修复(收藏对话框): DOM 浮层永远压不住原生视图, 故把「收藏 / 编辑 / 删除 / 移动」对话框改为独立原生窗口(沿用资源预览窗/悬浮窗的 same pattern), 天然盖在 WebContentsView 之上, 弹窗时网页内容全程保持可见。新增 `electron/tools/bookmarkDialog.js` + `bookmarkDialogPreload.js` + `public/bookmark-dialog.html`, 主进程 `web:openBookmarkDialog` 句柄 + `bookmark:dialogResult` 回传渲染端执行实际增删改。新增分类在原生窗口内联输入, 不再嵌套弹窗。
 
 ### [修复] 发布 v1.9.41：特殊页设置入口失效 + 网页收藏对话框被遮挡
 

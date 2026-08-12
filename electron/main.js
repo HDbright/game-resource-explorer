@@ -15,6 +15,7 @@ const fgui = require('./tools/fgui');
 const { buildPreviewData, findGameRoot } = require('./tools/fgui/previewData');
 const { webGame, downloadResource, probeFile, classify, typeDir, fileNameFromUrl, safeName } = require('./tools/webGame');
 const webPreviewWindow = require('./tools/webPreviewWindow');
+const bookmarkDialog = require('./tools/bookmarkDialog');
 const { apiTest } = require('./tools/apiTest');
 const devCdp = require('./tools/devCdp');
 
@@ -982,6 +983,10 @@ app.whenReady().then(async () => {
   ipcMain.handle('web:setBounds', (_e, rect) => {
     try { return webGame.setBounds(rect); } catch (err) { return { ok: false, error: err.message }; }
   });
+  // 打开网址收藏对话框(独立原生窗口, 盖在 WebContentsView 之上, 弹窗时网页保持可见)
+  ipcMain.handle('web:openBookmarkDialog', (_e, opts) => {
+    try { return bookmarkDialog.open(opts, webGame.win); } catch (err) { return { ok: false, error: err.message }; }
+  });
   ipcMain.handle('web:setAudioMuted', (_e, muted) => {
     // 一键静音 / 取消禁音网页音频(muted: boolean) —— 按当前活动标签所属网站(host)静音
     try { return webGame.setAudioMuted(muted); } catch (err) { return { ok: false, error: err.message }; }
@@ -1073,6 +1078,14 @@ app.whenReady().then(async () => {
     } catch (err) {
       return { ok: false, error: err.message };
     }
+  });
+
+  // ---- 网址收藏对话框(独立原生窗口)结果回传主窗口渲染端, 并关闭对话框 ----
+  bookmarkDialog.setNotifyResult((payload) => {
+    try {
+      if (webGame.win && !webGame.win.isDestroyed()) webGame.win.webContents.send('bookmark:dialogResult', payload);
+    } catch (e) { /* ignore */ }
+    try { bookmarkDialog.close(); } catch (e) { /* ignore */ }
   });
 
   // ---- 资源悬浮预览: 独立窗口(像 DevTools detach 一样脱离主窗口, 可自由悬浮到浏览器区上方) ----

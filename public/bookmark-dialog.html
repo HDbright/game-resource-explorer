@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>收藏网址</title>
+<style>
+  :root { --bg:#23262e; --panel:#2b2f3a; --panel2:#333845; --border:#3a4150; --text:#e8eaf0; --text2:#aab2c0; --accent:#5c9cff; --danger:#ff5c5c; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font-family: system-ui, "Segoe UI", "Microsoft YaHei", sans-serif; font-size:13px; }
+  .wrap { display:flex; flex-direction:column; height:100%; }
+  .head { padding:12px 14px 8px; font-size:14px; font-weight:600; border-bottom:1px solid var(--border); }
+  .body { padding:12px 14px; flex:1; overflow:auto; }
+  .row { margin-bottom:10px; }
+  .row label { display:block; margin-bottom:4px; color:var(--text2); }
+  .row input[type=text], .row select { width:100%; padding:7px 8px; background:var(--panel); color:var(--text); border:1px solid var(--border); border-radius:6px; outline:none; }
+  .row input:focus, .row select:focus { border-color:var(--accent); }
+  .msg { color:var(--text2); line-height:1.6; padding:6px 2px; }
+  .foot { padding:10px 14px; border-top:1px solid var(--border); display:flex; justify-content:flex-end; gap:8px; }
+  .btn { padding:7px 16px; border-radius:6px; border:1px solid var(--border); background:var(--panel2); color:var(--text); cursor:pointer; font-size:13px; }
+  .btn:hover { border-color:var(--accent); }
+  .btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .btn.danger { background:var(--danger); border-color:var(--danger); color:#fff; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head" id="bm-title">收藏网址</div>
+  <div class="body" id="bm-body"></div>
+  <div class="foot">
+    <button class="btn" id="bm-cancel">取消</button>
+    <button class="btn primary" id="bm-ok">确定</button>
+  </div>
+</div>
+<script>
+  const api = window.bmApi;
+  let mode = 'add';
+  let opts = {};
+
+  function el(tag, attrs, children) {
+    const e = document.createElement(tag);
+    if (attrs) for (const k in attrs) {
+      if (k === 'class') e.className = attrs[k];
+      else if (k === 'text') e.textContent = attrs[k];
+      else e.setAttribute(k, attrs[k]);
+    }
+    if (children) for (const c of children) e.appendChild(c);
+    return e;
+  }
+
+  function render(o) {
+    opts = o || {};
+    mode = opts.mode || 'add';
+    const body = document.getElementById('bm-body');
+    body.innerHTML = '';
+    document.getElementById('bm-title').textContent =
+      mode === 'add' ? '收藏网址' :
+      mode === 'edit' ? '编辑收藏网址' :
+      mode === 'delete' ? '删除收藏网址' : '移动收藏网址';
+    const okBtn = document.getElementById('bm-ok');
+    okBtn.textContent = mode === 'delete' ? '删除' : '确定';
+    okBtn.className = 'btn ' + (mode === 'delete' ? 'danger' : 'primary');
+
+    if (mode === 'delete') {
+      body.appendChild(el('div', { class: 'msg', text: '确定删除收藏网址「' + (opts.bmName || '') + '」?' }));
+      return;
+    }
+
+    if (mode === 'move') {
+      const row = el('div', { class: 'row' });
+      row.appendChild(el('label', { text: '目标分类' }));
+      const sel = el('select', { id: 'f-cat' });
+      for (const c of (opts.categories || [])) sel.appendChild(el('option', { value: c.value, text: c.label }));
+      if (opts.currentCatId) sel.value = opts.currentCatId;
+      row.appendChild(sel);
+      body.appendChild(row);
+      return;
+    }
+
+    // add / edit 共用表单
+    const urlRow = el('div', { class: 'row' });
+    urlRow.appendChild(el('label', { text: '网址' }));
+    urlRow.appendChild(el('input', { type: 'text', id: 'f-url', value: opts.url || '' }));
+    body.appendChild(urlRow);
+
+    const nameRow = el('div', { class: 'row' });
+    nameRow.appendChild(el('label', { text: '名称(可空, 默认取网址)' }));
+    nameRow.appendChild(el('input', { type: 'text', id: 'f-name', value: opts.name || '' }));
+    body.appendChild(nameRow);
+
+    if (mode === 'add') {
+      if (opts.hasCats) {
+        const catRow = el('div', { class: 'row' });
+        catRow.appendChild(el('label', { text: '分类(必选)' }));
+        const sel = el('select', { id: 'f-cat' });
+        for (const c of (opts.categories || [])) sel.appendChild(el('option', { value: c.value, text: c.label }));
+        sel.appendChild(el('option', { value: '__new__', text: '➕ 新建分类...' }));
+        if (opts.currentCatId) sel.value = opts.currentCatId;
+        catRow.appendChild(sel);
+        body.appendChild(catRow);
+        const newRow = el('div', { class: 'row', id: 'f-newrow', style: 'display:none' });
+        newRow.appendChild(el('label', { text: '新分类名称' }));
+        newRow.appendChild(el('input', { type: 'text', id: 'f-newcat' }));
+        body.appendChild(newRow);
+        sel.addEventListener('change', () => {
+          newRow.style.display = sel.value === '__new__' ? 'block' : 'none';
+        });
+      } else {
+        const newRow = el('div', { class: 'row' });
+        newRow.appendChild(el('label', { text: '分类名称(将新建)' }));
+        newRow.appendChild(el('input', { type: 'text', id: 'f-newcat' }));
+        body.appendChild(newRow);
+      }
+    }
+
+    body.querySelectorAll('input[type=text]').forEach((inp) => {
+      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doSubmit(); } });
+    });
+    setTimeout(() => { try { document.getElementById('f-url').focus(); } catch (e) {} }, 50);
+  }
+
+  function doSubmit() {
+    if (mode === 'delete') { api.submit({ mode, bmId: opts.bmId }); return; }
+    if (mode === 'move') {
+      const sel = document.getElementById('f-cat');
+      api.submit({ mode, bmId: opts.bmId, catId: sel ? sel.value : '' });
+      return;
+    }
+    // add / edit
+    const url = document.getElementById('f-url').value.trim();
+    const name = document.getElementById('f-name').value.trim();
+    if (!url) { window.alert('网址不能为空'); return; }
+    const payload = { mode, url, name };
+    if (mode === 'edit') payload.bmId = opts.bmId;
+    if (mode === 'add') {
+      const newInput = document.getElementById('f-newcat');
+      const sel = document.getElementById('f-cat');
+      if (opts.hasCats) {
+        if (sel && sel.value === '__new__') {
+          payload.catMode = 'new';
+          payload.newCatName = newInput ? newInput.value.trim() : '';
+        } else {
+          payload.catId = sel ? sel.value : '';
+        }
+      } else {
+        payload.catMode = 'new';
+        payload.newCatName = newInput ? newInput.value.trim() : '';
+      }
+    }
+    api.submit(payload);
+  }
+
+  document.getElementById('bm-ok').addEventListener('click', doSubmit);
+  document.getElementById('bm-cancel').addEventListener('click', () => api.cancel());
+  window.addEventListener('keydown', (e) => { if (e.key === 'Escape') api.cancel(); });
+
+  api.onInit((o) => render(o));
+</script>
+</body>
+</html>

@@ -194,7 +194,7 @@ export function renderWebGamePage(container, opts = {}) {
     else window.api.webSetBounds({ width: 0, height: 0 }); // 收藏夹面板下隐藏浏览器视图
     renderBookmarks();
   };
-  container.querySelectorAll('.wg-stab').forEach((b) => b.addEventListener('click', () => setPanel(b.dataset.panel)));
+  container.querySelectorAll('.wg-stab').forEach((b) => b.addEventListener('click', () => setPanel(b.dataset.panel, b.dataset.panel === 'bookmark')));
 
   // ---- 布局: 浏览器区与下方区域上下分割(可拖动) ----
   // 注意: .wg-browser 使用 flex:0 0 auto + height 控制(非 flex-basis), 拖动改 height 才生效
@@ -1049,92 +1049,29 @@ export function renderWebGamePage(container, opts = {}) {
       });
     });
   };
+  const openBookmarkDialog = (d) => window.api.webOpenBookmarkDialog(d);
   const addWebBookmarkDialog = (currentUrl) => {
-    // 主动隐藏网页原生视图(避免弹窗瞬间被其遮挡/闪现); 关闭后由 modal-root 监听器恢复
-    window.api.webSetBounds({ width: 0, height: 0 });
+    // 改用独立原生窗口弹收藏框(盖在 WebContentsView 之上), 网页内容保持可见, 不再隐藏浏览器视图。
     const cats = allWebBookmarkCats();
     const cur = (curBmCat && curBmCat !== 'all' && cats.some((c) => c.id === curBmCat)) ? curBmCat : (cats.length ? cats[0].id : '');
-    const fields = [
-      { key: 'url', label: '网址', type: 'text', value: currentUrl || '' },
-      { key: 'name', label: '名称(可空,默认取网址)', type: 'text', value: '' },
-    ];
-    if (cats.length) {
-      // 已有分类 → 必须选择(可新建)
-      fields.push({
-        key: 'cat', label: '分类(必选)', type: 'select',
-        options: cats.map((c) => ({ value: c.id, label: catPathName(c.id) })).concat([{ value: '__new__', label: '➕ 新建分类...' }]),
-        value: cur,
-      });
-    } else {
-      // 无任何分类 → 必须输入分类名称(自动新建)
-      fields.push({ key: 'cat', label: '分类名称(将新建)', type: 'text', value: '' });
-    }
-    promptDialog({
-      title: '收藏网址',
-      fields,
-      onOk: ({ url, name, cat }) => {
-        const u = (url || '').trim();
-        if (!u) return toast('网址不能为空', 'error');
-        const save = (catId) => {
-          if (!catId) return toast('请选择分类', 'error');
-          addWebBookmark({ categoryId: catId, url: u, name: (name || '').trim() });
-          renderBookmarks();
-          refreshTree();
-          toast('已收藏网址');
-        };
-        if (cats.length) {
-          if (cat === '__new__') {
-            // 选「新建分类...」→ 再输入分类名称
-            promptDialog({
-              title: '新建收藏夹分类',
-              fields: [{ key: 'cname', label: '分类名称', type: 'text', value: '' }],
-              onOk: ({ cname }) => {
-                const cn = (cname || '').trim();
-                if (!cn) return toast('分类名称不能为空', 'error');
-                const nc = addWebBookmarkCategory({ name: cn, parentId: '' });
-                refreshTree();
-                save(nc.id);
-              },
-            });
-            return;
-          }
-          save(cat);
-        } else {
-          const cn = (cat || '').trim();
-          if (!cn) return toast('请填写分类名称', 'error');
-          const nc = addWebBookmarkCategory({ name: cn, parentId: '' });
-          refreshTree();
-          save(nc.id);
-        }
-      },
+    openBookmarkDialog({
+      mode: 'add',
+      url: currentUrl || '',
+      name: '',
+      hasCats: cats.length > 0,
+      categories: cats.map((c) => ({ value: c.id, label: catPathName(c.id) })),
+      currentCatId: cur,
     });
   };
   const editWebBookmarkDialog = (id) => {
     const bm = webBookmarkById(id);
     if (!bm) return;
-    promptDialog({
-      title: '编辑收藏网址',
-      fields: [
-        { key: 'name', label: '名称', type: 'text', value: bm.name || '' },
-        { key: 'url', label: '网址', type: 'text', value: bm.url || '' },
-      ],
-      onOk: ({ name, url }) => {
-        if (!(url || '').trim()) return toast('网址不能为空', 'error');
-        updateWebBookmark(id, { name: (name || '').trim() || url, url: (url || '').trim() });
-        renderBookmarks();
-        refreshTree();
-        toast('收藏网址已更新');
-      },
-    });
+    openBookmarkDialog({ mode: 'edit', bmId: id, url: bm.url || '', name: bm.name || '' });
   };
   const removeWebBookmarkDialog = (id) => {
     const bm = webBookmarkById(id);
     if (!bm) return;
-    confirmDialog({
-      title: `删除收藏网址「${bm.name || bm.url}」?`,
-      message: '',
-      onOk: () => { removeWebBookmark(id); renderBookmarks(); refreshTree(); toast('已删除收藏网址'); },
-    });
+    openBookmarkDialog({ mode: 'delete', bmId: id, bmName: bm.name || bm.url });
   };
   // 侧栏树刷新(收藏夹结构/计数变化后同步左侧树)
   const refreshTree = () => { try { container._webGameTreeRefresher && container._webGameTreeRefresher(); } catch (e) { /* ignore */ } };
@@ -1153,22 +1090,49 @@ export function renderWebGamePage(container, opts = {}) {
     if (!bm) return;
     const cats = allWebBookmarkCats();
     if (!cats.length) { toast('暂无分类目录,请先创建', 'warn'); return; }
-    promptDialog({
-      title: `移动「${bm.name || bm.url}」到`,
-      fields: [{
-        key: 'cat', label: '目标分类', type: 'select',
-        options: cats.map((c) => ({ value: c.id, label: catPathName(c.id) })),
-        value: cats.some((c) => c.id === bm.categoryId) ? bm.categoryId : cats[0].id,
-      }],
-      onOk: ({ cat }) => {
-        if (!cat) return toast('请选择目标分类', 'error');
-        updateWebBookmark(id, { categoryId: cat });
-        renderBookmarks();
-        refreshTree();
-        toast('已移动收藏网址');
-      },
+    openBookmarkDialog({
+      mode: 'move',
+      bmId: id,
+      categories: cats.map((c) => ({ value: c.id, label: catPathName(c.id) })),
+      currentCatId: cats.some((c) => c.id === bm.categoryId) ? bm.categoryId : cats[0].id,
     });
   };
+  // 原生收藏对话框(独立窗口)结果回传: 执行实际的增删改/移动, 网页全程保持可见
+  window.api.onBookmarkDialogResult((payload) => {
+    if (!payload || payload.canceled) return;
+    const m = payload.mode;
+    if (m === 'add') {
+      const u = (payload.url || '').trim();
+      if (!u) { toast('网址不能为空', 'error'); return; }
+      const save = (catId) => {
+        if (!catId) { toast('请选择分类', 'error'); return; }
+        addWebBookmark({ categoryId: catId, url: u, name: (payload.name || '').trim() });
+        renderBookmarks(); refreshTree(); toast('已收藏网址');
+      };
+      if (payload.catMode === 'new') {
+        const cn = (payload.newCatName || '').trim();
+        if (!cn) { toast('分类名称不能为空', 'error'); return; }
+        const nc = addWebBookmarkCategory({ name: cn, parentId: '' });
+        refreshTree(); save(nc.id);
+      } else save(payload.catId);
+    } else if (m === 'edit') {
+      const bm = webBookmarkById(payload.bmId);
+      if (!bm) return;
+      if (!(payload.url || '').trim()) { toast('网址不能为空', 'error'); return; }
+      updateWebBookmark(payload.bmId, { name: (payload.name || '').trim() || payload.url, url: (payload.url || '').trim() });
+      renderBookmarks(); refreshTree(); toast('收藏网址已更新');
+    } else if (m === 'delete') {
+      const bm = webBookmarkById(payload.bmId);
+      if (!bm) return;
+      removeWebBookmark(payload.bmId); renderBookmarks(); refreshTree(); toast('已删除收藏网址');
+    } else if (m === 'move') {
+      const bm = webBookmarkById(payload.bmId);
+      if (!bm) return;
+      if (!payload.catId) { toast('请选择目标分类', 'error'); return; }
+      updateWebBookmark(payload.bmId, { categoryId: payload.catId });
+      renderBookmarks(); refreshTree(); toast('已移动收藏网址');
+    }
+  });
   const addBookmarkCategoryDialog = () => {
     const parentId = (curBmCat && curBmCat !== 'all') ? curBmCat : '';
     promptDialog({
