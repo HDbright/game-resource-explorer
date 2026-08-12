@@ -104,6 +104,26 @@ body {
 }
 .search-clear:hover { background: var(--bg4); color: var(--text); }
 
+/* ---- 顶栏 Chrome DevTools 调试状态指示灯 ---- */
+.cdp-ind { position: relative; display: flex; align-items: center; padding: 0 4px; cursor: help; }
+.cdp-dot { width: 10px; height: 10px; border-radius: 50%; background: #555c6b; box-shadow: 0 0 0 2px rgba(85,92,107,.25); }
+.cdp-dot.ok { background: #3ddc68; box-shadow: 0 0 0 2px rgba(61,220,104,.28), 0 0 8px rgba(61,220,104,.55); }
+.cdp-dot.warn { background: #f0a53a; box-shadow: 0 0 0 2px rgba(240,165,58,.28); }
+.cdp-dot.off { background: #555c6b; }
+.cdp-tooltip {
+  position: absolute; top: calc(100% + 10px); left: 50%; transform: translateX(-50%);
+  min-width: 260px; max-width: 340px; padding: 10px 12px;
+  background: #262a33; border: 1px solid #3a4356; border-radius: 8px;
+  color: var(--text2); font-size: 12px; line-height: 1.7; white-space: pre-line;
+  box-shadow: 0 6px 18px rgba(0,0,0,.45); z-index: 200; display: none;
+}
+.cdp-tooltip::before {
+  content: ''; position: absolute; top: -6px; left: 50%; transform: translateX(-50%);
+  border: 6px solid transparent; border-top: none; border-bottom-color: #3a4356;
+}
+.cdp-ind:hover .cdp-tooltip { display: block; }
+.cdp-ind:hover .cdp-dot { transform: scale(1.15); }
+
 /* ---------- 主体布局 ---------- */
 .main { display: flex; height: calc(100% - 52px); }
 

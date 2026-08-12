@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld('api', {
   // ---- 开发者调试服务(CDP)开关 ----
   cdpGetState: () => ipcRenderer.invoke('cdp:getState'),
   cdpSetState: (payload) => ipcRenderer.invoke('cdp:setState', payload),
+  cdpOpenDoc: () => ipcRenderer.invoke('cdp:doc'),
 
   // ---- 资源工具箱:通用文件 I/O ----
   pickFiles: (opts) => ipcRenderer.invoke('fs:pickFiles', opts),

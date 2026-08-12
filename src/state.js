@@ -13,6 +13,8 @@ export const DEFAULT_SETTINGS = {
   listViewMode: 'list', // 'detail' | 'list' | 'icon'
   listSortBy: 'name', // 'name' | 'type' | 'size' | 'date'
   listSortDir: 'asc', // 'asc' | 'desc'
+  // 标签页
+  openSameTypeNewTab: true, // 打开同类型资源时是否新开标签页(true=每个资源独立标签; false=同类型复用/替换当前预览标签)
   // 截图设置
   screenshotPath: '', // 默认保存目录(空 = 用图片库目录/Spine截图)
   screenshotFormat: 'png', // 'png' | 'webp'

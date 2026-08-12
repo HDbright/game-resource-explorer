@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Chrome DevTools 调试连接说明 - 游戏资源管理器</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 28px 32px 60px;
+    background: #1b1d23; color: #d6d9e0;
+    font: 14px/1.7 "Microsoft YaHei", "PingFang SC", sans-serif;
+    max-width: 980px; margin-inline: auto;
+  }
+  h1 { font-size: 22px; margin: 0 0 6px; color: #fff; }
+  h2 { font-size: 17px; margin: 34px 0 12px; padding-left: 10px; border-left: 4px solid #4f8cff; color: #e8ecf4; }
+  h3 { font-size: 15px; margin: 20px 0 8px; color: #cfd6e4; }
+  p { margin: 8px 0; }
+  .sub { color: #8b93a5; margin-bottom: 18px; }
+  code, pre {
+    font-family: Consolas, "Courier New", monospace;
+    background: #262a33; border: 1px solid #333a47; border-radius: 6px;
+  }
+  code { padding: 1px 6px; color: #7fd0ff; font-size: 13px; }
+  pre { padding: 12px 14px; overflow-x: auto; color: #c8d3e8; font-size: 13px; line-height: 1.6; }
+  pre .c { color: #6a7180; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  th, td { border: 1px solid #333a47; padding: 7px 10px; text-align: left; vertical-align: top; }
+  th { background: #262a33; color: #e8ecf4; white-space: nowrap; }
+  tr:nth-child(even) td { background: #20242c; }
+  .warn { border: 1px solid #7a5b2b; background: #2d2616; border-radius: 8px; padding: 12px 16px; margin: 14px 0; }
+  .warn b { color: #ffb45e; }
+  .ok { color: #62d984; }
+  .step { background: #21252e; border: 1px solid #303747; border-radius: 8px; padding: 14px 18px; margin: 12px 0; }
+  .step .n { display: inline-block; width: 24px; height: 24px; line-height: 24px; text-align: center; background: #4f8cff; color: #fff; border-radius: 50%; font-size: 13px; margin-right: 8px; }
+  ul { margin: 8px 0; padding-left: 22px; }
+  li { margin: 4px 0; }
+  a { color: #7fb4ff; }
+</style>
+</head>
+<body>
+
+<h1>🛠 Chrome DevTools 调试连接说明</h1>
+<p class="sub">游戏资源管理器内置 Chromium 调试服务（CDP, Chrome DevTools Protocol）使用指南。<br>
+适用版本: v1.9.31+（设置页「开发者调试」开关）。</p>
+
+<h2>一、它是什么</h2>
+<p>应用基于 Electron(Chromium)。开启「开发者调试」后,应用会以 <code>--remote-debugging-port</code> 参数重启,
+在本机开放一个 CDP 调试端口(默认 <code>9222</code>)。通过该端口,外部工具(Chrome DevTools、IDE 的
+chrome-devtools 连接器等)可以连接并调试应用内所有页面:DOM 检查、控制台、网络抓包、性能分析、截图等。</p>
+
+<h2>二、手动建立连接:操作完整流程</h2>
+
+<div class="step"><span class="n">1</span><b>启用调试服务</b>
+  <ul>
+    <li>进入应用 <b>系统设置 → 开发者调试 (Chrome DevTools)</b>。</li>
+    <li>勾选「启用 Chrome DevTools 调试端口 (CDP)」,端口默认 <code>9222</code>(可改 1024~65535)。</li>
+    <li>点击「保存并重启」——应用会自动重启并开放调试端口。</li>
+    <li>重启后回到设置页,状态应显示 <span class="ok">● 已生效,可连接</span>。</li>
+  </ul>
+</div>
+
+<div class="step"><span class="n">2</span><b>验证端口已监听</b>
+  <p>打开终端执行(端口号按实际修改):</p>
+  <pre>curl http://127.0.0.1:9222/json/version
+<span class="c"># 期望输出包含:</span>
+<span class="c"># { "Browser": "Chrome/xxx", "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/browser/..." }</span></pre>
+  <p>或在浏览器地址栏直接访问 <code>http://127.0.0.1:9222/json</code>,能看到应用各页面的调试目标列表。</p>
+</div>
+
+<div class="step"><span class="n">3</span><b>方式 A:用 Chrome DevTools 前端连接</b>
+  <ul>
+    <li>在 Chrome 浏览器地址栏输入 <code>chrome://inspect</code> → <b>Configure…</b> → 添加 <code>127.0.0.1:9222</code>。</li>
+    <li>下方「Remote Target」列表会出现应用的页面,点击 <b>inspect</b> 即可打开独立调试窗口。</li>
+    <li>或直接访问 <code>http://127.0.0.1:9222/devtools/inspector.html?ws=127.0.0.1:9222/devtools/page/&lt;页面id&gt;</code>(页面 id 见 /json 列表)。</li>
+  </ul>
+</div>
+
+<div class="step"><span class="n">4</span><b>方式 B:用 WorkBuddy / IDE 的 chrome-devtools 连接器</b>
+  <ul>
+    <li>在 WorkBuddy 连接器(Connectors)中配置 <b>chrome-devtools</b>,目标地址填 <code>ws://127.0.0.1:9222</code> 或 <code>http://127.0.0.1:9222</code>。</li>
+    <li>连接后即可由 AI 助手接管调试:打开页面、点击、填表、截图、抓取网络请求、执行 JS 等。</li>
+    <li>若连接器需要具体页面,可先在 <code>http://127.0.0.1:9222/json</code> 找到目标页面的 <code>webSocketDebuggerUrl</code>。</li>
+  </ul>
+</div>
+
+<h2>三、工具速查表</h2>
+<table>
+  <tr><th>端点 / 命令</th><th>说明</th></tr>
+  <tr><td><code>GET /json/version</code></td><td>浏览器级信息:版本、Browser WebSocket 调试地址。</td></tr>
+  <tr><td><code>GET /json</code> (或 /json/list)</td><td>列出所有可调试目标(页面/iframe/worker),含 id、URL、<code>webSocketDebuggerUrl</code>。</td></tr>
+  <tr><td><code>GET /json/activate/&lt;id&gt;</code></td><td>将某页面置为前台/激活。</td></tr>
+  <tr><td><code>GET /json/close/&lt;id&gt;</code></td><td>关闭指定页面。</td></tr>
+  <tr><td><code>GET /json/new?&lt;url&gt;</code> (PUT)</td><td>新建一个调试页面打开指定 URL。</td></tr>
+  <tr><td><code>ws://127.0.0.1:9222/devtools/browser/&lt;id&gt;</code></td><td>浏览器级 WebSocket(Browser domain:target 管理、CDP 版本等)。</td></tr>
+  <tr><td><code>ws://127.0.0.1:9222/devtools/page/&lt;id&gt;</code></td><td>页面级 WebSocket(Page/Runtime/DOM/Network 等全部 domain)。</td></tr>
+  <tr><td><code>curl -X PUT 'http://127.0.0.1:9222/json/new?about:blank'</code></td><td>用命令新建调试页面。</td></tr>
+  <tr><td><code>curl -X GET 'http://127.0.0.1:9222/json/close/&lt;id&gt;'</code></td><td>用命令关闭调试页面。</td></tr>
+</table>
+
+<h3>常用 CDP 命令示例(WebSocket 发送 JSON)</h3>
+<pre>{ "id": 1, "method": "Runtime.evaluate", "params": { "expression": "document.title" } }
+{ "id": 2, "method": "Page.captureScreenshot", "params": { "format": "png" } }
+{ "id": 3, "method": "Network.enable" }
+{ "id": 4, "method": "DOM.getDocument" }</pre>
+
+<h2>四、关键注意事项</h2>
+<div class="warn"><b>⚠️ 安全警告</b>:调试端口<b>无任何访问认证</b>。开启后,<b>本机任意进程</b>都能连接并完全控制应用页面
+(读取/修改内容、执行任意 JS、抓取输入等)。<b>仅限本机开发调试</b>,切勿在共享/公共环境开启,调试完成后请关闭开关。</div>
+<ul>
+  <li><b>端口仅在启动时生效</b>:Chromium 的调试端口无法运行时动态开启,切换开关需要「保存并重启」。重启后旧的命令行调试参数会被自动过滤,统一由 <code>userData/dev-cdp.json</code> 标志文件控制。</li>
+  <li><b>端口占用</b>:若 9222 已被其他程序占用,应用可能启动失败或端口未生效,请更换端口(设置页可改)或释放占用。</li>
+  <li><b>监听地址</b>:调试服务只监听 <code>127.0.0.1</code> 回环地址,不对外网开放(但本机所有用户/程序可见)。</li>
+  <li><b>与「网络资源抓取」的关系</b>:CDP 调试的是应用自身窗口/页面;网络资源抓取页是应用内置的独立浏览器,同样可通过 CDP 调试(在 /json 列表中可找到其 target)。</li>
+  <li><b>重启会恢复</b>:开启后即使退出应用,标志文件仍保留,下次启动继续生效;关闭开关并重启后才会停止监听。</li>
+  <li><b>连接器失联</b>:应用重启期间端口短暂不可用属正常现象,等待重启完成后再连接。</li>
+</ul>
+
+<h2>五、常见问题 (FAQ)</h2>
+<table>
+  <tr><th>问题</th><th>处理</th></tr>
+  <tr><td>设置页状态显示「○ 待重启生效」</td><td>说明标志已保存但当前进程未带调试参数启动,点「保存并重启」后即可。</td></tr>
+  <tr><td>curl 连接被拒绝</td><td>端口未监听:确认开关已启用并重启过;检查端口号是否被占用(换端口)。</td></tr>
+  <tr><td>Chrome inspect 看不到目标</td><td>确认 Configure 里已添加 <code>127.0.0.1:9222</code>,且端口号一致。</td></tr>
+  <tr><td>连接器提示无法连接</td><td>确认目标地址用 <code>ws://127.0.0.1:9222</code> 或浏览器地址;不要填 https。</td></tr>
+  <tr><td>调试端口没开但设置显示已生效</td><td>状态图标通过 TCP 探测端口判断,若被其他程序占用可能误报,请更换端口。</td></tr>
+</table>
+
+<p style="margin-top:36px;color:#5c6472">— 游戏资源管理器 · 开发者调试文档 —</p>
+</body>
+</html>

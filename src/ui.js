@@ -327,6 +327,37 @@ export function initUI(pv) {
   bindBackSpecial();
   bindFolderToolbar();
   bindPreviewPageNav();
+
+  // 顶栏 Chrome DevTools 调试状态指示灯(轮询;设置页保存重启后自动刷新)
+  const refreshCdpInd = async () => {
+    const dot = document.getElementById('cdp-dot');
+    const tip = document.getElementById('cdp-tip');
+    if (!dot || !tip) return;
+    try {
+      const st = await window.api.cdpGetState();
+      if (st.enabled && st.listening) {
+        dot.className = 'cdp-dot ok';
+        tip.textContent = `● Chrome DevTools 调试服务已生效\n端口 ${st.port} · 本机可连接\n在「设置 → 开发者调试」查看/关闭,点此打开连接说明`;
+      } else if (st.enabled) {
+        dot.className = 'cdp-dot warn';
+        tip.textContent = `○ 调试服务已启用,待重启生效\n端口 ${st.port} · 保存并重启后开放`;
+      } else {
+        dot.className = 'cdp-dot off';
+        tip.textContent = `○ Chrome DevTools 调试服务未开启\n在「设置 → 开发者调试」中启用后重启`;
+      }
+    } catch (e) { /* ignore */ }
+  };
+  refreshCdpInd();
+  setInterval(refreshCdpInd, 8000);
+  // 点击指示灯 → 打开连接说明文档
+  const cdpInd = document.getElementById('cdp-ind');
+  if (cdpInd) {
+    cdpInd.addEventListener('click', async (e) => {
+      if (e.target.closest('.cdp-tooltip')) return; // 悬停提示不触发
+      try { await window.api.cdpOpenDoc(); } catch (err) { /* ignore */ }
+    });
+  }
+
   // 注:首次渲染(renderCategories/renderMainArea)由 main() 统一调用一次, 避免重复
 }
 
@@ -3550,10 +3581,20 @@ export async function selectItem(id) {
   const item = itemById(id);
   if (!item) return;
   // 打开资源 = 新建/激活预览标签
-  ensureTab(`preview-${item.id}`, {
+  // 设置「打开同类型资源时新开标签页」: 开 → 每个资源独立标签(默认); 关 → 同类型复用当前预览标签(替换内容,不再堆叠)
+  const newTab = !!(state.settings && state.settings.openSameTypeNewTab);
+  const tabKey = newTab ? `preview-${item.id}` : `preview-type-${typeGroup(item.type)}`;
+  const tab = ensureTab(tabKey, {
     kind: 'preview', params: { itemId: item.id },
     label: item.displayName || '', icon: previewTypeIcon(item.type),
   });
+  // 同类型复用标签时,更新名称/参数(ensureTab 仅创建时写入 def)
+  if (!newTab && tab) {
+    tab.label = item.displayName || '';
+    tab.icon = previewTypeIcon(item.type);
+    tab.params = { itemId: item.id };
+    renderTabStrip();
+  }
   // 记录最近打开(首页展示与再次打开)
   recordRecentOpen({ name: item.displayName || '', path: item.filePath, type: item.type, tab: typeGroup(item.type), itemId: item.id });
   setSetting('lastItemId', id);

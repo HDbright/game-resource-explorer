@@ -28,7 +28,7 @@ function run(cmd, opts = {}) {
 }
 
 /** 复制文件并重试:杀软/Defender 会瞬时锁定新生成的大文件(EBUSY),稍候重试 */
-function copyFileRetry(src, dst, tries = 6, delay = 1200) {
+function copyFileRetry(src, dst, tries = 12, delay = 1500) {
   for (let i = 1; ; i++) {
     try {
       fs.copyFileSync(src, dst);
@@ -146,9 +146,10 @@ async function main() {
   } else {
     console.warn('rcedit 或 icon 不存在,跳过图标注入');
   }
+  // rcedit 刚写完大文件,Defender/句柄可能瞬时锁定;稍候再覆盖,降低 EBUSY 概率
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 2000);
   copyFileRetry(asciiTmp, exePath); // 覆盖
   console.log('exe 就绪:', exePath);
-
   // 6. 冒烟验证打包版(可选,SKELETON_VIEWER_PACK_SMOKE=1 时执行)
   if (process.env.SKELETON_VIEWER_PACK_SMOKE === '1') {
     const dataDir = path.join(appDir, 'data');

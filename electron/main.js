@@ -250,6 +250,7 @@ function enrichItemsMeta() {
 
 let win = null;
 let server = null;
+let cdpDocWin = null; // 「Chrome DevTools 连接说明」独立文档窗口
 
 async function createWindow() {
   win = new BrowserWindow({
@@ -555,6 +556,26 @@ app.whenReady().then(async () => {
       }
     }, 300);
     return { ok: true };
+  });
+  // 打开「Chrome DevTools 连接说明」独立文档窗口(已打开则聚焦)
+  ipcMain.handle('cdp:doc', () => {
+    try {
+      if (cdpDocWin && !cdpDocWin.isDestroyed()) {
+        cdpDocWin.focus();
+        return { ok: true };
+      }
+      cdpDocWin = new BrowserWindow({
+        width: 920, height: 780,
+        title: 'Chrome DevTools 连接说明',
+        autoHideMenuBar: true,
+        webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+      });
+      cdpDocWin.loadFile(path.join(__dirname, '..', 'dist', 'cdp-doc.html'));
+      cdpDocWin.on('closed', () => { cdpDocWin = null; });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
   });
 
   // ============ 资源工具箱:文件选取 / 通用读写 ============

@@ -85,6 +85,19 @@ export function renderSettingsPage(container, opts = {}) {
       </section>
 
       <section class="settings-card">
+        <h3>资源标签页</h3>
+        <p class="settings-hint">控制从资源列表打开动画 / 图片 / 音频 / 3D 文件时,主区标签页的行为。</p>
+        <div class="form-row">
+          <label class="f-label">同类型新标签</label>
+          <label class="ss-check"><input type="checkbox" id="ss-newtab" ${s.openSameTypeNewTab !== false ? 'checked' : ''} /> 打开同一类型资源文件时,通过新开标签页打开</label>
+        </div>
+        <p class="settings-hint">开启:每个资源文件独立一个标签页(默认,可同时打开多个动画对照)。关闭:同一类型(如动画)的资源复用当前预览标签,打开新资源时替换内容,避免标签页堆积。</p>
+        <div class="settings-actions">
+          <button class="btn primary" id="ss-newtab-save">保存设置</button>
+        </div>
+      </section>
+
+      <section class="settings-card">
         <h3>开发者调试 (Chrome DevTools)</h3>
         <div class="form-row">
           <label class="f-label">调试服务</label>
@@ -97,6 +110,7 @@ export function renderSettingsPage(container, opts = {}) {
         </div>
         <p class="settings-hint">启用后应用将自动重启,并开放本地调试端口,供 Chrome DevTools / AI 连接器(chrome-devtools)调试本应用的内置浏览器与页面。默认端口 9222,保存即重启生效。⚠️ 调试端口无访问认证,任何本机程序均可连接,仅限开发调试使用,勿在共享环境开启。</p>
         <div class="settings-actions">
+          <button class="btn sm" id="cdp-doc">📖 连接说明</button>
           <button class="btn primary" id="cdp-save">保存并重启</button>
         </div>
       </section>
@@ -174,6 +188,13 @@ export function renderSettingsPage(container, opts = {}) {
     toast('设置已保存');
   });
 
+  // ---- 资源标签页:同类型新标签开关 ----
+  container.querySelector('#ss-newtab-save').addEventListener('click', () => {
+    setSetting('openSameTypeNewTab', container.querySelector('#ss-newtab').checked);
+    saveState();
+    toast('设置已保存');
+  });
+
   // ---- 开发者调试 (CDP) ----
   const cdpEnable = container.querySelector('#cdp-enable');
   const cdpPort = container.querySelector('#cdp-port');
@@ -207,6 +228,14 @@ export function renderSettingsPage(container, opts = {}) {
       setTimeout(() => { /* 等 relaunch */ }, 500);
     } catch (err) {
       toast('切换失败: ' + err.message, 'error');
+    }
+  });
+  // 「连接说明」:打开独立文档窗口
+  container.querySelector('#cdp-doc').addEventListener('click', async () => {
+    try {
+      await window.api.cdpOpenDoc();
+    } catch (err) {
+      toast('打开说明失败: ' + err.message, 'error');
     }
   });
 
