@@ -9,6 +9,12 @@
 
 ## 2026-08-12
 
+### [修复] 发布 v1.9.38：标签右键菜单不被网页遮挡、悬浮窗最大化/最小化改系统行为
+- **标签右键菜单不再被网页遮挡**: 网页抓取标签页右键菜单原用 DOM 浮层(`#wg-ctxmenu`), 但 `WebContentsView`(网页)永远盖在 DOM 之上, 菜单下半部会被网页内容遮住。改为经 `web:tabMenu` 调用主进程原生 `Menu.buildFromTemplate` + `menu.popup()` 在屏幕坐标弹出 —— 原生 OS 菜单始终在最上层, 且天然符合系统样式。
+- **悬浮窗新增最大化/还原按钮(系统风格)**: 独立悬浮窗标题栏改为三按钮(右侧, 系统顺序) `最小化 | 最大化/还原 | 关闭`; 最大化按钮点击在 `maximize()`/`unmaximize()` 间切换, 图标用系统风格 SVG(单框=最大化, 重叠双框=还原), 消除原先不符合系统的 `▶` 播放按钮; 主进程 `maximize`/`unmaximize` 事件经 `float:maxState` 转发给标题栏切换图标。
+- **悬浮窗最小化改为隐藏到系统任务栏**: `floatMinimize()` 改为 `this.floatWin.minimize()`(最小化到系统任务栏, 点击任务栏图标可还原), 不再缩成迷你按钮。
+- 新增 IPC: `web:tabMenu` / `float:toggleMax`; 新增 preload API: `webTabMenu` / `floatApi.toggleMax` / `floatApi.onMaxState`。
+
 ### [新增] 发布 v1.9.37：网页抓取标签右键菜单(移至新窗口 / 按网站静音) + 静音图标
 - **网页抓取标签页右键菜单**: 在任意标签页上右键弹出菜单, 含:
   - 「🪟 将标签页移至新窗口」→ 调用 `web:moveTabToWindow`: 将该标签设为活动标签并浮出到独立悬浮窗(复用切模块时的悬浮窗机制), 其余标签留主窗口。

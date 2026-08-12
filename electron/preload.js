@@ -86,6 +86,7 @@ contextBridge.exposeInMainWorld('api', {
   webUnmuteSite: (host) => ipcRenderer.invoke('web:unmuteSite', host),
   webToggleSiteMute: (host) => ipcRenderer.invoke('web:toggleSiteMute', host),
   webMoveTabToWindow: (tabId) => ipcRenderer.invoke('web:moveTabToWindow', tabId),
+  webTabMenu: (p) => ipcRenderer.invoke('web:tabMenu', p),
   webGetCaptured: () => ipcRenderer.invoke('web:getCaptured'),
   webClearCaptured: () => ipcRenderer.invoke('web:clearCaptured'),
   webProbe: (p) => ipcRenderer.invoke('web:probe', p),

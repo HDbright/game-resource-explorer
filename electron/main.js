@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { createServer } = require('./server');
@@ -970,6 +970,15 @@ app.whenReady().then(async () => {
   ipcMain.handle('float:miniMoveBy', (_e, p) => {
     try { return webGame.floatMiniMoveBy(p && p.dx, p && p.dy); } catch (err) { return { ok: false, error: err.message }; }
   });
+  // 悬浮窗最大化 / 还原切换(系统样式)
+  ipcMain.handle('float:toggleMax', () => {
+    try {
+      const w = webGame.floatWin;
+      if (!w || w.isDestroyed()) return { ok: false, error: 'no float window' };
+      if (w.isMaximized()) w.unmaximize(); else w.maximize();
+      return { ok: true };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
   ipcMain.handle('web:setBounds', (_e, rect) => {
     try { return webGame.setBounds(rect); } catch (err) { return { ok: false, error: err.message }; }
   });
@@ -990,6 +999,27 @@ app.whenReady().then(async () => {
   // 将指定标签页移至独立悬浮窗口(右键菜单"将标签页移至新窗口"用)
   ipcMain.handle('web:moveTabToWindow', (_e, tabId) => {
     try { return webGame.moveTabToNewWindow(tabId); } catch (err) { return { ok: false, error: err.message }; }
+  });
+  // 网页标签右键菜单: 用原生 OS 菜单弹出 —— 始终盖在 WebContentsView 之上, 不会被网页内容遮挡
+  // (WebContentsView 是 native 视图, DOM 浮层盖不住它, 只有原生菜单能压在它上面)
+  ipcMain.handle('web:tabMenu', (_e, p) => {
+    try {
+      const win = webGame.win;
+      if (!win || win.isDestroyed()) return { ok: false, error: 'no window' };
+      const items = [
+        { label: '🪟 将标签页移至新窗口', click: () => { try { webGame.moveTabToNewWindow(p && p.tid); } catch (e) {} } },
+      ];
+      if (p && p.host) {
+        items.push({
+          label: ((p.muted ? '🔊 取消静音此网站' : '🔇 将这个网站静音') + ' (' + p.host + ')'),
+          click: () => { try { webGame.toggleSiteMute(p.host); } catch (e) {} },
+        });
+      }
+      const menu = Menu.buildFromTemplate(items);
+      const [wx, wy] = win.getPosition();
+      menu.popup({ x: wx + (p && p.x || 0), y: wy + (p && p.y || 0) });
+      return { ok: true };
+    } catch (err) { return { ok: false, error: err.message }; }
   });
   ipcMain.handle('web:getCaptured', () => {
     try { return { ok: true, records: webGame.getCaptured() }; } catch (err) { return { ok: false, error: err.message }; }

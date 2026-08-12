@@ -508,6 +508,9 @@ class WebGameView {
       this.floatWin = null;
       this._floated = false;
     });
+    // 最大化/还原状态转发给悬浮窗标题栏, 用于切换按钮图标(系统风格)
+    this.floatWin.on('maximize', () => { try { this.floatWin.webContents.send('float:maxState', { maximized: true }); } catch (e) { /* ignore */ } });
+    this.floatWin.on('unmaximize', () => { try { this.floatWin.webContents.send('float:maxState', { maximized: false }); } catch (e) { /* ignore */ } });
     return this.floatWin;
   }
 
@@ -572,9 +575,11 @@ class WebGameView {
     return { ok: true };
   }
 
-  /** 悬浮窗最小化 → 在原位置缩小为迷你按钮(仅「还原/关闭」两个按钮, 标题栏可拖拽) */
+  /** 悬浮窗最小化 → 隐藏到系统任务栏(点击任务栏图标可还原) */
   floatMinimize() {
-    return this._floatToMini();
+    if (!this.floatWin || this.floatWin.isDestroyed()) return { ok: false, error: 'no float window' };
+    try { this.floatWin.minimize(); } catch (e) { /* ignore */ }
+    return { ok: true };
   }
 
   /** 暂停活动标签页内的媒体播放(参考 Chrome 切走标签页时后台页媒体处理; 切离抓取页/关闭悬浮窗时调用) */

@@ -7,7 +7,9 @@ contextBridge.exposeInMainWorld('floatApi', {
   minimize: () => ipcRenderer.invoke('float:minimize'),
   close: () => ipcRenderer.invoke('float:close'),
   restore: () => ipcRenderer.invoke('float:restore'),
+  toggleMax: () => ipcRenderer.invoke('float:toggleMax'),
   miniMoveBy: (dx, dy) => ipcRenderer.invoke('float:miniMoveBy', { dx, dy }),
   onInfo: (cb) => ipcRenderer.on('float:info', (_e, d) => cb(d)),
   onMode: (cb) => ipcRenderer.on('float:mode', (_e, d) => cb(d)),
+  onMaxState: (cb) => ipcRenderer.on('float:maxState', (_e, d) => cb(d)),
 });

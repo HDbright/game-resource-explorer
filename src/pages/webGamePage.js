@@ -645,14 +645,12 @@ export function renderWebGamePage(container, opts = {}) {
         container._webGameSyncBounds();
       });
       // 右键菜单: 将标签页移至新窗口 / 将这个网站静音(切换)
+      // ⚠️ 用原生 OS 菜单弹出(经 web:tabMenu), 因为 WebContentsView 永远盖在 DOM 之上,
+      //    DOM 浮层菜单会被网页内容遮挡; 原生菜单始终在最上层, 且天然符合系统样式。
       el.addEventListener('contextmenu', (e) => {
         e.preventDefault();
-        const muted = el.classList.contains('active') && (list.find((x) => x.id === tid) || {}).muted;
-        const items = [
-          { label: '🪟 将标签页移至新窗口', act: () => window.api.webMoveTabToWindow(tid).catch(() => {}) },
-          host ? { label: (muted ? '🔊 取消静音此网站' : '🔇 将这个网站静音') + ' (' + host + ')', act: () => window.api.webToggleSiteMute(host).catch(() => {}) } : null,
-        ].filter(Boolean);
-        showMenu(items, e.clientX, e.clientY);
+        const t = list.find((x) => x.id === tid);
+        window.api.webTabMenu({ x: e.clientX, y: e.clientY, tid, host, muted: !!(t && t.muted) });
       });
     });
     tabsEl.querySelector('#wg-tab-add').addEventListener('click', async () => {
