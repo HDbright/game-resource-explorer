@@ -2877,10 +2877,15 @@ function showPage(pageId) {
 
 /** 打开系统设置页(保存当前主区状态,关闭后恢复) */
 export function openSettings() {
-  // 先隐藏网页抓取原生视图(WebContentsView 是原生叠加层, 不隐藏会被它盖住设置页)
+  // 离开网页抓取页时处理浏览器视图(WebContentsView 为 native 叠加, 不隐藏会被它盖住设置页)
   if (webGameShown) {
     const pageEl = document.getElementById('page-webgame');
-    if (pageEl && pageEl._webGameDetach) pageEl._webGameDetach();
+    const autoFloat = !!(state.settings && state.settings.webgameAutoFloatOnSwitch); // 默认 false: 切走仅隐藏, 不弹悬浮窗
+    if (autoFloat) {
+      if (pageEl && pageEl._webGameDetach) pageEl._webGameDetach(); // 方式①: 浮出独立悬浮窗
+    } else if (pageEl && pageEl._webGameHideView) {
+      pageEl._webGameHideView(); // 方式②: 仅隐藏视图, 不弹悬浮窗
+    }
   }
   settingsReturn = {
     currentTool,
