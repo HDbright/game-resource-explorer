@@ -578,6 +578,28 @@ app.whenReady().then(async () => {
     }
   });
 
+  // 打开「CDP 工具面板」独立窗口(交互式调试操作台,已打开则聚焦)
+  let cdpDashWin = null;
+  ipcMain.handle('cdp:dashboard', () => {
+    try {
+      if (cdpDashWin && !cdpDashWin.isDestroyed()) {
+        cdpDashWin.focus();
+        return { ok: true };
+      }
+      cdpDashWin = new BrowserWindow({
+        width: 1100, height: 720,
+        title: 'CDP 工具面板',
+        autoHideMenuBar: true,
+        webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+      });
+      cdpDashWin.loadFile(path.join(__dirname, '..', 'dist', 'cdp-dashboard.html'));
+      cdpDashWin.on('closed', () => { cdpDashWin = null; });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
   // ============ 资源工具箱:文件选取 / 通用读写 ============
   ipcMain.handle('fs:pickFiles', async (_e, opts = {}) => {
     if (!win) return { canceled: true, filePaths: [] };

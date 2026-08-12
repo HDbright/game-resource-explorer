@@ -1107,7 +1107,11 @@ input[type="color"] { width: 30px; height: 26px; border: 1px solid var(--border)
 .scene-op-col .icon-btn { font-size: 12px; }
 
 /* ===== 系统设置页 ===== */
-.page-settings { padding: 18px 22px; overflow-y: auto; }
+.page-settings { padding: 18px 22px; overflow-y: auto; flex: 1; min-height: 0; }
+.page-settings::-webkit-scrollbar { width: 8px; }
+.page-settings::-webkit-scrollbar-track { background: transparent; }
+.page-settings::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+.page-settings::-webkit-scrollbar-thumb:hover { background: var(--text2); }
 .settings-head { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
 .settings-head h2 { font-size: 18px; font-weight: 600; margin: 0; }
 .settings-body { max-width: 720px; }

@@ -25,93 +25,145 @@
   pre { padding: 12px 14px; overflow-x: auto; color: #c8d3e8; font-size: 13px; line-height: 1.6; }
   pre .c { color: #6a7180; }
   table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
-  th, td { border: 1px solid #333a47; padding: 7px 10px; text-align: left; vertical-align: top; }
+  th, td { border: 1px solid #333a47; padding: 8px 12px; text-align: left; vertical-align: top; }
   th { background: #262a33; color: #e8ecf4; white-space: nowrap; }
   tr:nth-child(even) td { background: #20242c; }
-  .warn { border: 1px solid #7a5b2b; background: #2d2616; border-radius: 8px; padding: 12px 16px; margin: 14px 0; }
+  .warn { border: 1px solid #7a5b2b; background: #2d2616; border-radius: 8px; padding: 14px 18px; margin: 14px 0; }
   .warn b { color: #ffb45e; }
   .ok { color: #62d984; }
+  .tip { border: 1px solid #2a5580; background: #162230; border-radius: 8px; padding: 14px 18px; margin: 14px 0; }
+  .tip b { color: #5eb8ff; }
   .step { background: #21252e; border: 1px solid #303747; border-radius: 8px; padding: 14px 18px; margin: 12px 0; }
   .step .n { display: inline-block; width: 24px; height: 24px; line-height: 24px; text-align: center; background: #4f8cff; color: #fff; border-radius: 50%; font-size: 13px; margin-right: 8px; }
   ul { margin: 8px 0; padding-left: 22px; }
   li { margin: 4px 0; }
   a { color: #7fb4ff; }
+  .tool-table code { font-size: 12.5px; }
+  .flow-diagram { background: #1a1e27; border: 1px solid #333a47; border-radius: 8px; padding: 16px 20px; margin: 12px 0; text-align: center; }
+  .flow-diagram .arrow { color: #4f8cff; font-weight: bold; margin: 0 10px; }
+  .flow-diagram .box { display: inline-block; background: #262a33; border: 1px solid #444d63; border-radius: 6px; padding: 6px 14px; font-family: Consolas, monospace; color: #9db4d8; font-size: 13px; }
+  .flow-diagram .box.active { border-color: #4f8cff; color: #7fb4ff; background: #1a2333; }
 </style>
 </head>
 <body>
 
 <h1>🛠 Chrome DevTools 调试连接说明</h1>
 <p class="sub">游戏资源管理器内置 Chromium 调试服务（CDP, Chrome DevTools Protocol）使用指南。<br>
-适用版本: v1.9.31+（设置页「开发者调试」开关）。</p>
+适用版本: v1.9.35+（设置页「开发者调试」开关）。
+<span style="color:#5eb8ff;background:#162230;border:1px solid #2a5580;padding:2px 10px;border-radius:6px;font-size:12px;margin-left:8px;display:inline-block">💡 设置页 CDP 卡片有「🔧 工具面板」按钮可打开交互式调试操作台</span></p>
 
 <h2>一、它是什么</h2>
 <p>应用基于 Electron(Chromium)。开启「开发者调试」后,应用会以 <code>--remote-debugging-port</code> 参数重启,
 在本机开放一个 CDP 调试端口(默认 <code>9222</code>)。通过该端口,外部工具(Chrome DevTools、IDE 的
-chrome-devtools 连接器等)可以连接并调试应用内所有页面:DOM 检查、控制台、网络抓包、性能分析、截图等。</p>
+chrome-devtools 连接器、AI 调试助手等)可以连接并调试应用内所有页面:DOM 检查、控制台、网络抓包、性能分析、截图等。</p>
+
+<p>应用启动后通常会有<b>两个调试目标页面</b>:</p>
+<ul>
+  <li><b>主窗口 (page id 通常为 11)</b> — 游戏资源管理器的 UI 界面（侧栏、主区、预览画布等）。</li>
+  <li><b>网页视图 (page id 通常为 12)</b> — 网络资源抓取模块的内置浏览器（WebContentsView）。</li>
+</ul>
 
 <h2>二、手动建立连接:操作完整流程</h2>
 
-<div class="step"><span class="n">1</span><b>启用调试服务</b>
+<div class="flow-diagram">
+  <span class="box">list_pages</span>
+  <span class="arrow">→</span>
+  <span class="box active">select_page(id)</span>
+  <span class="arrow">→</span>
+  <span class="box">操作 / 观察</span>
+</div>
+
+<div class="step"><span class="n">1</span><b>list_pages → 查看可用页面列表</b>
+  <p>首先需要知道当前有哪些可调试的目标页面。访问以下任一方式获取:</p>
   <ul>
-    <li>进入应用 <b>系统设置 → 开发者调试 (Chrome DevTools)</b>。</li>
-    <li>勾选「启用 Chrome DevTools 调试端口 (CDP)」,端口默认 <code>9222</code>(可改 1024~65535)。</li>
-    <li>点击「保存并重启」——应用会自动重启并开放调试端口。</li>
-    <li>重启后回到设置页,状态应显示 <span class="ok">● 已生效,可连接</span>。</li>
+    <li>浏览器打开 <code>http://127.0.0.1:9222/json</code> — 返回 JSON 数组,每个元素含 <code>id</code>、<code>url</code>、<code>webSocketDebuggerUrl</code>。</li>
+    <li>终端执行 <code>curl http://127.0.0.1:9222/json</code></li>
+    <li>在 AI 连接器 / chrome-devtools MCP 工具中调用 <code>list_pages</code> 或 <code>list_pages_and_get_ids</code>。</li>
   </ul>
+  <p>典型输出示例:</p>
+  <pre>[
+  { "id": "11", "url": "file:///.../dist/index.html",     "type": "page", "title": "游戏资源管理器" },
+  { "id": "12", "url": "https://some-game-site.com/xxx",   "type": "page", "title": "" }
+]</pre>
+  <p><b>记住目标页面的 id</b>: 主窗口通常是 <code>11</code>, 网页视图通常是 <code>12</code>(具体以实际返回为准)。</p>
 </div>
 
-<div class="step"><span class="n">2</span><b>验证端口已监听</b>
-  <p>打开终端执行(端口号按实际修改):</p>
-  <pre>curl http://127.0.0.1:9222/json/version
-<span class="c"># 期望输出包含:</span>
-<span class="c"># { "Browser": "Chrome/xxx", "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/browser/..." }</span></pre>
-  <p>或在浏览器地址栏直接访问 <code>http://127.0.0.1:9222/json</code>,能看到应用各页面的调试目标列表。</p>
-</div>
-
-<div class="step"><span class="n">3</span><b>方式 A:用 Chrome DevTools 前端连接</b>
+<div class="step"><span class="n">2</span><b>select_page(id) → 切换操作目标</b>
+  <p><b>这一步至关重要!</b> 所有后续操作(截图、执行 JS、点击等)都作用于当前选中的页面。
+  如果不切换,默认操作的是主窗口(游戏资源管理器 UI),而不是你想调试的网页视图。</p>
   <ul>
-    <li>在 Chrome 浏览器地址栏输入 <code>chrome://inspect</code> → <b>Configure…</b> → 添加 <code>127.0.0.1:9222</code>。</li>
-    <li>下方「Remote Target」列表会出现应用的页面,点击 <b>inspect</b> 即可打开独立调试窗口。</li>
-    <li>或直接访问 <code>http://127.0.0.1:9222/devtools/inspector.html?ws=127.0.0.1:9222/devtools/page/&lt;页面id&gt;</code>(页面 id 见 /json 列表)。</li>
+    <li>想操作<b>网络抓取的网页</b> → <code>select_page(12)</code></li>
+    <li>想操作<b>应用主界面</b> → <code>select_page(11)</code></li>
   </ul>
+  <div class="tip"><b>💡 提示</b>: 操作完网页后如果想回到操作应用侧栏/列表,记得 <code>select_page(11)</code> 切回主窗口!</div>
 </div>
 
-<div class="step"><span class="n">4</span><b>方式 B:用 WorkBuddy / IDE 的 chrome-devtools 连接器</b>
+<div class="step"><span class="n">3</span><b>观察 + 操作 → 执行具体调试动作</b>
+  <p>选中正确的目标页面后,即可执行各种操作:</p>
   <ul>
-    <li>在 WorkBuddy 连接器(Connectors)中配置 <b>chrome-devtools</b>,目标地址填 <code>ws://127.0.0.1:9222</code> 或 <code>http://127.0.0.1:9222</code>。</li>
-    <li>连接后即可由 AI 助手接管调试:打开页面、点击、填表、截图、抓取网络请求、执行 JS 等。</li>
-    <li>若连接器需要具体页面,可先在 <code>http://127.0.0.1:9222/json</code> 找到目标页面的 <code>webSocketDebuggerUrl</code>。</li>
+    <li><b>截图 / 快照</b> — 用 <code>take_screenshot</code> 看画面,<code>take_snapshot</code> 看 DOM/a11y 树。</li>
+    <li><b>执行 JS</b> — 用 <code>evaluate_script</code> 在目标页内运行任意 JavaScript(读写 localStorage、调用引擎 API、模拟事件)。</li>
+    <li><b>交互操作</b> — 用 <code>click</code>/<code>type_text</code>/<code>press_key</code> 模拟用户输入(仅对有 a11y uid 的 HTML 元素有效)。</li>
+    <li><b>导航</b> — 用 <code>navigate_page</code> 让网页视图跳转到其他 URL。</li>
+    <li><b>控制台</b> — 用 <code>list_console_messages</code> 查看目标页面的 console 输出和错误信息。</li>
   </ul>
 </div>
 
 <h2>三、工具速查表</h2>
+<p>以下是 CDP 调试中常用的工具/端点及其用途说明:</p>
+
+<table class="tool-table">
+  <tr><th style="width:180px">工具 / 端点</th><th style="width:220px">用途</th><th>何时使用</th></tr>
+  <tr><td><code>list_pages</code></td><td>列出所有可调试页面</td><td>不知道当前有哪些 page,或忘记目标页面的 id 编号时</td></tr>
+  <tr><td><code>select_page(id)</code></td><td>切换后续操作的默认目标页面</td><td>想从主窗口(11)切换到网页视图(12),或切回来时。<b>每次换目标都必须先调这个!</b></td></tr>
+  <tr><td><code>take_snapshot</code></td><td>获取页面的 accessibility 树 + 元素 uid</td><td>传统 HTML 页面用。对 canvas 游戏/渲染页面几乎没用(看不到 canvas 内部内容)</td></tr>
+  <tr><td><code>take_screenshot</code></td><td>截取当前页面可见区域的图片(可选保存到文件)</td><td><b>canvas 游戏必备工具!</b> 加 <code>filePath</code> 参数可直接存到本地路径。传统 HTML 页面也适用</td></tr>
+  <tr><td><code>evaluate_script(expr)</code></td><td>在目标页面内执行任意 JavaScript 表达式</td><td>读写 localStorage / sessionStorage、调用页面内的引擎 API、读取/修改变量、模拟 DOM 事件、动态加载脚本等</td></tr>
+  <tr><td><code>click(uid)</code> / <code>type_text(uid, text)</code></td><td>模拟鼠标点击 / 键盘文本输入</td><td>需要目标元素有 accessibility uid(由 take_snapshot 获取)。⚠️ <b>canvas 页面没有 uid,此方法走不通</b>,只能靠 JS+截图</td></tr>
+  <tr><td><code>navigate_page(url)</code></td><td>让目标页面跳转到指定 URL</td><td>想让网页视图(12)导航到另一个地址去抓取/测试新页面时</td></tr>
+  <tr><td><code>press_key(key)</code></td><td>模拟键盘按键</td><td>配合焦点元素进行输入(如 Enter、Tab、Escape 等)。常与 type_text 配合使用</td></tr>
+  <tr><td><code>list_console_messages</code></td><td>查看目标页面的 console 日志</td><td>调试报错、查看页面输出的日志信息、追踪异步操作结果时</td></tr>
+</table>
+
+<h3>HTTP REST 端点速查</h3>
 <table>
-  <tr><th>端点 / 命令</th><th>说明</th></tr>
-  <tr><td><code>GET /json/version</code></td><td>浏览器级信息:版本、Browser WebSocket 调试地址。</td></tr>
+  <tr><th>端点</th><th>说明</th></tr>
+  <tr><td><code>GET /json/version</code></td><td>浏览器级信息:版本号、Browser WebSocket 调试地址。</td></tr>
   <tr><td><code>GET /json</code> (或 /json/list)</td><td>列出所有可调试目标(页面/iframe/worker),含 id、URL、<code>webSocketDebuggerUrl</code>。</td></tr>
   <tr><td><code>GET /json/activate/&lt;id&gt;</code></td><td>将某页面置为前台/激活。</td></tr>
   <tr><td><code>GET /json/close/&lt;id&gt;</code></td><td>关闭指定页面。</td></tr>
-  <tr><td><code>GET /json/new?&lt;url&gt;</code> (PUT)</td><td>新建一个调试页面打开指定 URL。</td></tr>
-  <tr><td><code>ws://127.0.0.1:9222/devtools/browser/&lt;id&gt;</code></td><td>浏览器级 WebSocket(Browser domain:target 管理、CDP 版本等)。</td></tr>
-  <tr><td><code>ws://127.0.0.1:9222/devtools/page/&lt;id&gt;</code></td><td>页面级 WebSocket(Page/Runtime/DOM/Network 等全部 domain)。</td></tr>
-  <tr><td><code>curl -X PUT 'http://127.0.0.1:9222/json/new?about:blank'</code></td><td>用命令新建调试页面。</td></tr>
-  <tr><td><code>curl -X GET 'http://127.0.0.1:9222/json/close/&lt;id&gt;'</code></td><td>用命令关闭调试页面。</td></tr>
+  <tr><td><code>PUT /json/new?&lt;url&gt;</code></td><td>新建一个调试页面并打开指定 URL。</td></tr>
+  <tr><td><code>ws://.../devtools/browser/&lt;id&gt;</code></td><td>浏览器级 WebSocket(Browser domain:target 管理、CDP 版本等)。</td></tr>
+  <tr><td><code>ws://.../devtools/page/&lt;id&gt;</code></td><td>页面级 WebSocket(Page/Runtime/DOM/Network 等全部 domain)。</td></tr>
 </table>
 
-<h3>常用 CDP 命令示例(WebSocket 发送 JSON)</h3>
-<pre>{ "id": 1, "method": "Runtime.evaluate", "params": { "expression": "document.title" } }
-{ "id": 2, "method": "Page.captureScreenshot", "params": { "format": "png" } }
+<h3>常用 CDP WebSocket 命令示例</h3>
+<pre>{ "id": 1, "method": "Runtime.evaluate",       "params": { "expression": "document.title" } }
+{ "id": 2, "method": "Page.captureScreenshot",   "params": { "format": "png" } }
 { "id": 3, "method": "Network.enable" }
-{ "id": 4, "method": "DOM.getDocument" }</pre>
+{ "id": 4, "method": "DOM.getDocument" }
+{ "id": 5, "method": "Runtime.evaluate",       "params": { "expression": "localStorage.getItem('key')" } }
+{ "id": 6, "method": "Input.dispatchKeyEvent", "params": { "type": "keyDown", "key": "Enter", "windowsVirtualKeyCode": 13 } }</pre>
 
 <h2>四、关键注意事项</h2>
+
 <div class="warn"><b>⚠️ 安全警告</b>:调试端口<b>无任何访问认证</b>。开启后,<b>本机任意进程</b>都能连接并完全控制应用页面
 (读取/修改内容、执行任意 JS、抓取输入等)。<b>仅限本机开发调试</b>,切勿在共享/公共环境开启,调试完成后请关闭开关。</div>
+
+<h3>操作顺序要点</h3>
+<ul>
+  <li><b>必须先 select_page(12)</b> —— 否则一切操作都在主窗口(游戏资源管理器)上执行,可能误操作应用 UI。</li>
+  <li>操作完网页想再操作侧栏/列表,记得 <code>select_page(11)</code> 切回主窗口。</li>
+  <li><b>canvas 页面没有 uid</b>,本工具的 <code>click</code> / <code>type_text</code> 走不通,只能靠 <code>evaluate_script</code>(JS) + <code>take_screenshot</code>(截图验证) 组合来操作。</li>
+  <li><code>take_screenshot</code> 加 <code>filePath</code> 参数可以直接保存截图到本地文件路径,后续可以用 <code>present_files</code> 或文件管理器直接查看。</li>
+</ul>
+
+<h3>技术细节</h3>
 <ul>
   <li><b>端口仅在启动时生效</b>:Chromium 的调试端口无法运行时动态开启,切换开关需要「保存并重启」。重启后旧的命令行调试参数会被自动过滤,统一由 <code>userData/dev-cdp.json</code> 标志文件控制。</li>
   <li><b>端口占用</b>:若 9222 已被其他程序占用,应用可能启动失败或端口未生效,请更换端口(设置页可改)或释放占用。</li>
   <li><b>监听地址</b>:调试服务只监听 <code>127.0.0.1</code> 回环地址,不对外网开放(但本机所有用户/程序可见)。</li>
-  <li><b>与「网络资源抓取」的关系</b>:CDP 调试的是应用自身窗口/页面;网络资源抓取页是应用内置的独立浏览器,同样可通过 CDP 调试(在 /json 列表中可找到其 target)。</li>
+  <li><b>与「网络资源抓取」的关系</b>:CDP 调试的是应用自身窗口/页面;网络资源抓取页是应用内置的独立浏览器(WebContentsView),同样可通过 CDP 调试(在 /json 列表中可找到其 target,通常 id=12)。</li>
   <li><b>重启会恢复</b>:开启后即使退出应用,标志文件仍保留,下次启动继续生效;关闭开关并重启后才会停止监听。</li>
   <li><b>连接器失联</b>:应用重启期间端口短暂不可用属正常现象,等待重启完成后再连接。</li>
 </ul>
@@ -124,8 +176,11 @@ chrome-devtools 连接器等)可以连接并调试应用内所有页面:DOM 检�
   <tr><td>Chrome inspect 看不到目标</td><td>确认 Configure 里已添加 <code>127.0.0.1:9222</code>,且端口号一致。</td></tr>
   <tr><td>连接器提示无法连接</td><td>确认目标地址用 <code>ws://127.0.0.1:9222</code> 或浏览器地址;不要填 https。</td></tr>
   <tr><td>调试端口没开但设置显示已生效</td><td>状态图标通过 TCP 探测端口判断,若被其他程序占用可能误报,请更换端口。</td></tr>
+  <tr><td>click/type_text 无反应</td><td>目标可能是 canvas 页面(无 a11y uid);改用 evaluate_script + JS 事件模拟。</td></tr>
+  <tr><td>截图出来是空白/黑屏</td><td>页面可能还未完全加载;先等待一下或 navigate_page 后稍作延迟再截图。</td></tr>
+  <tr><td>怎么知道哪个 id 是网页视图?</td><td>list_pages 后看 url 字段:主窗口是 file:// 开头的 index.html,网页视图是 https:// 或 http:// 开头的外部网址。</td></tr>
 </table>
 
-<p style="margin-top:36px;color:#5c6472">— 游戏资源管理器 · 开发者调试文档 —</p>
+<p style="margin-top:36px;color:#5c6472">— 游戏资源管理器 · 开发者调试文档 · v1.9.35+ —</p>
 </body>
 </html>

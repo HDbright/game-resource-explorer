@@ -9,6 +9,22 @@
 
 ## 2026-08-12
 
+### [新增] 发布 v1.9.36：系统设置页滚动条、CDP 说明页完善、交互式 CDP 工具面板
+- **系统设置页增加滚动条**: `.page-settings` 增加 `flex:1; min-height:0` 确保高度约束生效,并添加自定义 WebKit 滚动条样式(8px 宽,圆角,hover 高亮),方便浏览底部设置项(开发者调试等卡片)。
+- **CDP 说明页(cdp-doc.html)大幅完善**: 参考实际调试场景重写文档内容:
+  - 新增「手动操作完整流程」三步走(list_pages→select_page→观察+操作)含流程图和详细说明。
+  - 工具速查表扩充为 9 行完整表格(list_pages/select_page/take_snapshot/take_screenshot/evaluate_script/click-type_text/navigate_page/press_key/list_console_messages),含「用途」和「何时使用」两列实用说明。
+  - 关键注意事项增加操作顺序要点(select_page 优先、canvas 无 uid 靠 JS+截图、take_screenshot filePath 参数等)和技术细节。
+  - FAQ 增加 3 条常见问题(click 无反应、截图空白、如何识别网页视图 id)。
+  - HTTP REST 端点速查表和 CDP WebSocket 命令示例均补充完善。
+- **新增 CDP 交互式工具面板**(public/cdp-dashboard.html):
+  - 独立窗口打开的 HTML 应用,连接本地 9222 端口,提供可视化调试操作台。
+  - 左侧:实时页面列表(自动刷新,点击切换目标,显示 id/title/url/type)。
+  - 右侧:分组工具面板——快速操作(list_pages/take_screenshot/take_snapshot/list_console_messages)、页面导航(navigate/reload/activate)、JS 执行(代码输入框+快捷片段按钮)、输入模拟(click/type_text/press_key)。
+  - 底部:结果输出区 + 状态栏(连接状态/当前目标/WebSocket 状态)。
+  - 通过 WebSocket 发送 CDP 命令(Runtime.evaluate/Page.captureScreenshot/Accessibility.getFullAXTree 等),截图支持 base64 内联预览。
+  - 主进程新增 `cdp:dashboard` IPC handler; preload 暴露 `cdpOpenDashboard`;设置页 CDP 卡片新增「🔧 工具面板」按钮。
+
 ### [新增] 发布 v1.9.35：同类型资源标签开关、CDP 连接说明页、顶栏调试状态指示灯
 - **系统设置新增「资源标签页」卡片**: 「打开同一类型资源文件时,通过新开标签页打开」开关(默认开启)。
   - 开:每个资源独立标签页(原行为);关:同一类型(动画/图片/音频/3D)资源复用当前预览标签,打开新资源时替换内容,避免标签页堆积(`selectItem` 按开关选择标签 key, 复用标签时同步更新名称/参数)。

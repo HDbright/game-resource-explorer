@@ -110,6 +110,7 @@ export function renderSettingsPage(container, opts = {}) {
         </div>
         <p class="settings-hint">启用后应用将自动重启,并开放本地调试端口,供 Chrome DevTools / AI 连接器(chrome-devtools)调试本应用的内置浏览器与页面。默认端口 9222,保存即重启生效。⚠️ 调试端口无访问认证,任何本机程序均可连接,仅限开发调试使用,勿在共享环境开启。</p>
         <div class="settings-actions">
+          <button class="btn sm" id="cdp-dashboard">🔧 工具面板</button>
           <button class="btn sm" id="cdp-doc">📖 连接说明</button>
           <button class="btn primary" id="cdp-save">保存并重启</button>
         </div>
@@ -236,6 +237,14 @@ export function renderSettingsPage(container, opts = {}) {
       await window.api.cdpOpenDoc();
     } catch (err) {
       toast('打开说明失败: ' + err.message, 'error');
+    }
+  });
+  // 「工具面板」:打开交互式 CDP 调试面板
+  container.querySelector('#cdp-dashboard').addEventListener('click', async () => {
+    try {
+      await window.api.cdpOpenDashboard();
+    } catch (err) {
+      toast('打开工具面板失败: ' + err.message, 'error');
     }
   });
 

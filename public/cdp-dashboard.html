@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>CDP 工具面板 - 游戏资源管理器</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 20px 24px;
+    background: #12141a; color: #d6d9e0;
+    font: 13px/1.6 "Microsoft YaHei", "PingFang SC", sans-serif;
+    min-height: 100vh;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; color: #fff; display: flex; align-items: center; gap: 10px; }
+  h1 .badge { font-size: 11px; background: #2a5580; color: #7fb4ff; padding: 2px 8px; border-radius: 10px; font-weight: normal; }
+  .sub { color: #6b7280; margin-bottom: 18px; font-size: 12px; }
+
+  /* Layout */
+  .layout { display: grid; grid-template-columns: 320px 1fr; gap: 16px; min-height: 0; }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+
+  /* Left panel - page list */
+  .panel { background: #1a1e27; border: 1px solid #2a3040; border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; }
+  .panel-head { padding: 12px 14px; border-bottom: 1px solid #2a3040; font-weight: 600; font-size: 13px; color: #e8ecf4; display: flex; align-items: center; gap: 8px; }
+  .panel-body { flex: 1; overflow-y: auto; padding: 8px; min-height: 200px; }
+  .page-item { 
+    padding: 10px 12px; margin-bottom: 6px; border-radius: 8px; cursor: pointer;
+    background: #21252e; border: 1px solid transparent; transition: all 0.15s;
+  }
+  .page-item:hover { border-color: #3a455c; background: #252a36; }
+  .page-item.active { border-color: #4f8cff; background: #1a2333; }
+  .page-item .pid { font-family: Consolas, monospace; font-size: 11px; color: #4f8cff; margin-right: 6px; }
+  .page-item .ptitle { font-weight: 600; font-size: 13px; color: #e8ecf4; }
+  .page-item .purl { font-size: 11px; color: #6b7280; margin-top: 3px; word-break: break-all; }
+  .page-item .ptype { font-size: 10px; color: #5c6472; margin-top: 4px; text-transform: uppercase; }
+
+  /* Right panel - tools */
+  .tools-area { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+  .tool-section { background: #1a1e27; border: 1px solid #2a3040; border-radius: 10px; overflow: hidden; }
+  .tool-section-head { 
+    padding: 10px 14px; border-bottom: 1px solid #2a3040; font-weight: 600; font-size: 13px; 
+    color: #e8ecf4; display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;
+  }
+  .tool-section-head:hover { background: #21252e; }
+  .tool-section-head .arrow { transition: transform 0.2s; font-size: 10px; color: #6b7280; }
+  .tool-section.collapsed .tool-section-head .arrow { transform: rotate(-90deg); }
+  .tool-section.collapsed .tool-section-body { display: none; }
+  .tool-section-body { padding: 12px 14px; }
+
+  /* Tool buttons */
+  .tool-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+  .tool-btn {
+    padding: 10px 12px; border-radius: 8px; border: 1px solid #333a47; background: #262a33;
+    color: #c8d3e8; font-size: 12.5px; cursor: pointer; text-align: left; transition: all 0.15s;
+    display: flex; flex-direction: column; gap: 3px;
+  }
+  .tool-btn:hover { border-color: #4f8cff; background: #1e2430; color: #fff; }
+  .tool-btn:active { transform: scale(0.97); }
+  .tool-btn .tname { font-family: Consolas, monospace; font-weight: 600; color: #7fb4ff; font-size: 12px; }
+  .tool-btn .tdesc { color: #8b93a5; font-size: 11.5px; }
+  .tool-btn.running { opacity: 0.6; pointer-events: none; }
+  .tool-btn .tspinner { display: none; width: 12px; height: 12px; border: 2px solid #4f8cff; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; }
+  .tool-btn.running .tspinner { display: inline-block; }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Input areas */
+  .input-row { display: flex; gap: 8px; margin: 8px 0; align-items: stretch; }
+  .input-row input, .input-row textarea {
+    flex: 1; background: #12151c; border: 1px solid #333a47; border-radius: 6px;
+    padding: 8px 10px; color: #d6d9e0; font-size: 12.5px; font-family: Consolas, monospace;
+    outline: none; resize: vertical;
+  }
+  .input-row input:focus, .input-row textarea:focus { border-color: #4f8cff; }
+  .input-row textarea { min-height: 60px; }
+  .btn-action {
+    padding: 8px 16px; border-radius: 6px; border: 1px solid #333a47; background: #262a33;
+    color: #d6d9e0; font-size: 12.5px; cursor: pointer; white-space: nowrap; transition: all 0.15s;
+  }
+  .btn-action:hover { background: #303747; color: #fff; }
+  .btn-action.primary { background: #1a4a7a; border-color: #2a6ab5; color: #7fb4ff; }
+  .btn-action.primary:hover { background: #235a94; }
+
+  /* Result area */
+  .result-area { 
+    margin-top: 12px; background: #0d0f14; border: 1px solid #2a3040; border-radius: 8px;
+    overflow: hidden; display: flex; flex-direction: column; max-height: 300px;
+  }
+  .result-head { 
+    padding: 8px 12px; border-bottom: 1px solid #2a3040; font-size: 11.5px; color: #6b7280;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .result-head .clear-btn { cursor: pointer; color: #6b7280; font-size: 11px; }
+  .result-head .clear-btn:hover { color: #d29922; }
+  .result-body { flex: 1; overflow-y: auto; padding: 10px 12px; font-family: Consolas, monospace; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; }
+  .result-body .ok { color: #62d984; }
+  .result-body .err { color: #f85149; }
+  .result-body .info { color: #7fb4ff; }
+  .result-body .warn { color: #d29922; }
+
+  /* Screenshot preview */
+  .screenshot-preview { max-width: 100%; max-height: 400px; border-radius: 6px; margin-top: 8px; border: 1px solid #333a47; }
+
+  /* Status bar */
+  .status-bar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: #1a1e27; border-top: 1px solid #2a3040;
+    padding: 6px 20px; font-size: 11.5px; color: #6b7280;
+    display: flex; align-items: center; gap: 16px;
+  }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .status-dot.ok { background: #3fb950; box-shadow: 0 0 6px #3fb95080; }
+  .status-dot.err { background: #f85149; }
+  .status-dot.warn { background: #d29922; }
+
+  body { padding-bottom: 36px; }
+
+  /* Console table */
+  .console-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  .console-table th, .console-table td { 
+    border: 1px solid #2a3040; padding: 5px 8px; text-align: left; vertical-align: top;
+  }
+  .console-table th { background: #1a1e27; color: #8b93a5; font-weight: 600; }
+  .console-table .lvl-log { color: #d6d9e0; }
+  .console-table .lvl-warn { color: #d29922; }
+  .console-table .lvl-err { color: #f85149; }
+  .console-table .lvl-info { color: #7fb4ff; }
+
+  /* Tabs for console */
+  .tab-bar { display: flex; gap: 0; margin-bottom: 10px; border-bottom: 1px solid #2a3040; }
+  .tab-btn {
+    padding: 6px 14px; font-size: 12px; cursor: pointer; color: #8b93a5; border: none;
+    background: transparent; border-bottom: 2px solid transparent; transition: all 0.15s;
+  }
+  .tab-btn:hover { color: #d6d9e0; }
+  .tab-btn.active { color: #7fb4ff; border-bottom-color: #4f8cff; }
+</style>
+</head>
+<body>
+
+<h1>🔧 CDP 工具面板 <span class="badge" id="port-badge">端口 9222</span></h1>
+<p class="sub">连接到本地 Chrome DevTools Protocol 调试服务，对应用页面进行交互式调试操作。</p>
+
+<div class="layout">
+  <!-- Left: Page List -->
+  <div class="panel">
+    <div class="panel-head">
+      <span>📄</span> 可用页面列表
+      <button class="btn-action" style="margin-left:auto;padding:3px 8px;font-size:11px" onclick="refreshPages()">刷新</button>
+    </div>
+    <div class="panel-body" id="page-list">
+      <div style="color:#6b7280;text-align:center;padding:30px 10px">正在连接…</div>
+    </div>
+  </div>
+
+  <!-- Right: Tools -->
+  <div class="tools-area">
+
+    <!-- Quick Actions -->
+    <div class="tool-section">
+      <div class="tool-section-head" onclick="toggleSection(this)"><span class="arrow">▼</span> ⚡ 快速操作</div>
+      <div class="tool-section-body">
+        <div class="tool-grid">
+          <button class="tool-btn" onclick="doListPages()"><span class="tname">list_pages</span><span class="tdesc">列出所有页面</span></button>
+          <button class="tool-btn" onclick="doScreenshot()"><span class="tname">take_screenshot</span><span class="tdesc">截取当前页面</span></button>
+          <button class="tool-btn" onclick="doSnapshot()"><span class="tname">take_snapshot</span><span class="tdesc">获取 a11y 树</span></button>
+          <button class="tool-btn" onclick="doConsoleMsgs()"><span class="tname">list_console_messages</span><span class="tdesc">查看控制台日志</span></button>
+        </div>
+        <div id="screenshot-container" style="display:none;margin-top:10px;text-align:center"></div>
+      </div>
+    </div>
+
+    <!-- Page Navigation -->
+    <div class="tool-section">
+      <div class="tool-section-head" onclick="toggleSection(this)"><span class="arrow">▼</span> 🌐 页面导航与操作</div>
+      <div class="tool-section-body">
+        <div class="tool-grid">
+          <button class="tool-btn" onclick="doNavigate()"><span class="tname">navigate_page</span><span class="tdesc">跳转 URL</span></button>
+          <button class="tool-btn" onclick="doReload()"><span class="tname">reload_page</span><span class="tdesc">重新加载</span></button>
+          <button class="tool-btn" onclick="doActivate()"><span class="tname">activate_page</span><span class="tdesc">激活/置顶</span></button>
+        </div>
+        <div class="input-row" style="margin-top:10px">
+          <input type="text" id="nav-url" placeholder="输入目标 URL，如 https://example.com" />
+          <button class="btn-action primary" onclick="doNavigate()">导航</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Script Execution -->
+    <div class="tool-section">
+      <div class="tool-section-head" onclick="toggleSection(this)"><span class="arrow">▼</span> 💻 JavaScript 执行</div>
+      <div class="tool-section-body">
+        <div class="input-row">
+          <textarea id="js-code" placeholder="输入 JavaScript 表达式，例如：
+document.title
+localStorage.getItem('key')
+JSON.stringify(performance.memory)
+document.querySelectorAll('img').length"></textarea>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn-action primary" onclick="doEval()">▶ 执行 (evaluate_script)</button>
+          <button class="btn-action" onclick="insertSnippet('document.title')">标题</button>
+          <button class="btn-action" onclick="insertSnippet('localStorage')">localStorage</button>
+          <button class="btn-action" onclick="insertSnippet('location.href')">URL</button>
+          <button class="btn-action" onclick="insertSnippet('performance.memory')">内存</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Input Simulation -->
+    <div class="tool-section">
+      <div class="tool-section-head" onclick="toggleSection(this)"><span class="arrow">▼</span> ⌨️ 输入模拟</div>
+      <div class="tool-section-body">
+        <p style="color:#8b93a5;font-size:12px;margin:0 0 8px">需要先 take_snapshot 获取目标元素的 uid。⚠️ canvas 页面无效。</p>
+        <div class="input-row">
+          <input type="text" id="click-uid" placeholder="元素 uid (从 snapshot 获取)" style="width:140px" />
+          <button class="btn-action" onclick="doClick()">click</button>
+          <button class="btn-action" onclick="doTypeText()">type_text</button>
+        </div>
+        <div class="input-row">
+          <input type="text" id="type-text-val" placeholder="要输入的文本内容" />
+          <input type="text" id="press-key-val" placeholder="按键名 (Enter/Tab/Esc)" style="width:140px" />
+          <button class="btn-action" onclick="doPressKey()">press_key</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Result Area -->
+    <div class="result-area">
+      <div class="result-head">
+        <span>📋 输出结果</span>
+        <span class="clear-btn" onclick="clearResult()">清空</span>
+      </div>
+      <div class="result-body" id="result">
+        <span class="info">选择左侧页面后，点击工具按钮开始操作…</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Status Bar -->
+<div class="status-bar">
+  <span><span class="status-dot" id="st-dot"></span> <span id="st-text">检测中…</span></span>
+  <span>当前目标: <code id="st-target" style="color:#7fb4ff">未选择</code></span>
+  <span id="st-ws">WebSocket: —</span>
+</div>
+
+<script>
+const PORT = (new URLSearchParams(window.location.search).get('port')) || 9222;
+const BASE = `http://127.0.0.1:${PORT}`;
+let pages = [];
+let selectedId = null;
+let ws = null;
+let msgId = 0;
+
+// ---- Init ----
+document.getElementById('port-badge').textContent = `端口 ${PORT}`;
+checkConnection();
+refreshPages();
+
+async function checkConnection() {
+  const dot = document.getElementById('st-dot');
+  const txt = document.getElementById('st-text');
+  try {
+    const r = await fetch(`${BASE}/json/version`);
+    if (r.ok) {
+      const v = await r.json();
+      dot.className = 'status-dot ok';
+      txt.textContent = `已连接 · ${v.Browser || 'Chromium'} · ${v['Protocol-Version'] || ''}`;
+    } else { throw new Error(r.status); }
+  } catch(e) {
+    dot.className = 'status-dot err';
+    txt.textContent = `无法连接到 ${BASE} — 请确认已开启开发者调试并重启`;
+  }
+}
+
+// ---- Page List ----
+async function refreshPages() {
+  const container = document.getElementById('page-list');
+  try {
+    const r = await fetch(`${BASE}/json`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    pages = await r.json();
+    if (!pages.length) {
+      container.innerHTML = '<div style="color:#6b7280;text-align:center;padding:20px">无可用页面</div>';
+      return;
+    }
+    container.innerHTML = pages.map((p, i) => `
+      <div class="page-item${p.id === selectedId ? ' active' : ''}" data-id="${p.id}" onclick="selectPage('${p.id}')">
+        <div><span class="pid">#${p.id}</span><span class="ptitle">${esc(p.title || '(无标题)')}</span></div>
+        <div class="purl">${esc(p.url)}</div>
+        <div class="ptype">${p.type || 'page'}${p.webSocketDebuggerUrl ? ' · 可调试' : ''}</div>
+      </div>
+    `).join('');
+    // Auto-select first page if none selected
+    if (!selectedId && pages.length) selectPage(pages[0].id);
+  } catch(e) {
+    container.innerHTML = `<div style="color:#f85149;text-align:center;padding:20px">连接失败: ${esc(e.message)}<br><br>请确认:<br>1. 已在设置中启用 CDP 并重启<br>2. 端口号正确(${PORT})<br>3. 应用正在运行</div>`;
+  }
+}
+
+function selectPage(id) {
+  selectedId = id;
+  document.querySelectorAll('.page-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.id === id);
+  });
+  document.getElementById('st-target').textContent = '#' + id + ' ' + (pages.find(p=>p.id===id)?.url||'');
+  // Close old WS, open new to this page
+  connectWs(id);
+  log(`已切换到页面 #${id}`, 'info');
+}
+
+// ---- WebSocket Connection ----
+function connectPageWs(pageId) {
+  const page = pages.find(p => p.id === pageId);
+  if (!page?.webSocketDebuggerUrl) return null;
+  const url = page.webSocketDebuggerUrl;
+  const socket = new WebSocket(url);
+  return socket;
+}
+
+function connectWs(pageId) {
+  if (ws) { try { ws.close(); } catch(e){} ws = null; }
+  const page = pages.find(p => p.id === pageId);
+  if (!page?.webSocketDebuggerUrl) {
+    document.getElementById('st-ws').textContent = 'WebSocket: 该页面不可调试';
+    return;
+  }
+  ws = new WebSocket(page.webSocketDebuggerUrl);
+  ws.onopen = () => { document.getElementById('st-ws').textContent = 'WebSocket: ✓ 已连接'; };
+  ws.onclose = () => { document.getElementById('st-ws').textContent = 'WebSocket: ✗ 已断开'; };
+  ws.onerror = () => { document.getElementById('st-ws').textContent = 'WebSocket: ✗ 错误'; };
+}
+
+function sendCDP(method, params = {}) {
+  return new Promise((resolve, reject) => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) reject(new Error('WebSocket 未连接'));
+    else {
+      const id = ++msgId;
+      const handler = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data);
+          if (msg.id === id) {
+            ws.removeEventListener('message', handler);
+            if (msg.error) reject(new Error(msg.error.message || JSON.stringify(msg.error)));
+            else resolve(msg.result);
+          }
+        } catch(e) {}
+      };
+      ws.addEventListener('message', handler);
+      ws.send(JSON.stringify({id, method, params}));
+      // Timeout
+      setTimeout(() => { ws.removeEventListener('message', handler); reject(new Error('超时(10s)')); }, 10000);
+    }
+  });
+}
+
+// ---- Tool Operations ----
+
+async function doListPages() {
+  log('正在列出页面…', 'info');
+  try {
+    const r = await fetch(`${BASE}/json`);
+    const list = await r.json();
+    log(`共 ${list.length} 个页面:\n` + list.map((p,i) =>
+      `  [${i+1}] #${p.id} | ${p.type} | ${(p.title||'-')} | ${p.url}`
+    ).join('\n'), 'ok');
+    refreshPages();
+  } catch(e) { log('失败: ' + e.message, 'err'); }
+}
+
+async function doScreenshot() {
+  if (!selectedId) return log('请先选择一个页面', 'warn');
+  log('正在截取页面 #' + selectedId + ' …', 'info');
+  try {
+    const res = await sendCDP('Page.captureScreenshot', { format: 'png' });
+    if (res.data) {
+      const img = `data:image/png;base64,${res.data}`;
+      const container = document.getElementById('screenshot-container');
+      container.style.display = 'block';
+      container.innerHTML = `<img class="screenshot-preview" src="${img}" alt="截图" /><div style="margin-top:6px;color:#6b7280;font-size:11.5px">${res.data.length} bytes base64 (${Math.round(res.data.length*0.75/1024)} KB)</div>`;
+      log(`截图成功! 尺寸信息需通过额外查询获取。`, 'ok');
+    } else {
+      log('截图返回空数据', 'warn');
+    }
+  } catch(e) { log('截图失败: ' + e.message, 'err'); }
+}
+
+async function doSnapshot() {
+  if (!selectedId) return log('请先选择一个页面', 'warn');
+  log('正在获取 a11y 树…', 'info');
+  try {
+    // Enable accessibility first
+    await sendCDP('Accessibility.enable');
+    const res = await sendCDP('Accessibility.getFullAXTree');
+    const nodes = res.nodes || [];
+    
+    // Build simplified tree view
+    function buildText(n, depth=0) {
+      const indent = '  '.repeat(depth);
+      const role = n.role?.value || '?';
+      const name = n.name?.value || '';
+      const uid = n.backendDOMNodeId || '';
+      const line = `${indent}${role}${name ? ` "${name}"` : ''}${uid ? ` [uid:${uid}]` : ''}`;
+      let out = line + '\n';
+      if (n.children) {
+        for (const c of n.children) out += buildText(c, depth + 1);
+      }
+      return out;
+    }
+    
+    let text = '';
+    for (const root of nodes) text += buildText(root);
+    log(`a11y 树 (共 ${nodes.length} 个根节点):\n${text.slice(0, 8000)}${text.length > 8000 ? '\n... (已截断)' : ''}`, 'ok');
+  } catch(e) { log('获取快照失败: ' + e.message, 'err'); }
+}
+
+async function doConsoleMsgs() {
+  if (!selectedId) return log('请先选择一个页面', 'warn');
+  log('正在获取控制台消息…', 'info');
+  try {
+    await sendCDP('Runtime.enable');
+    await sendCDP('Log.enable');
+    // Runtime.consoleAPICalled events would need event listening
+    // For now, use Log.getLogEntries as fallback or just report what we can
+    // Try to get via evaluate
+    const res = await sendCDP('Runtime.evaluate', {
+      expression: `JSON.stringify({
+        url: location.href,
+        title: document.title,
+        readyState: document.readyState,
+        bodyChildren: document.body?.childElementCount ?? 0
+      })`,
+      returnByValue: true
+    });
+    log(`页面基本信息:\n${res.result?.value || '{}'}`, 'ok');
+    log('\n💡 提示: 完整的 console 消息捕获需要持续监听 Runtime.consoleAPICalled 事件。\n当前面板模式为单次请求-响应。如需完整日志,建议使用 Chrome DevTools 的 Console 面板或 chrome-devtools MCP 连接器的 list_console_messages 功能。', 'info');
+  } catch(e) { log('获取失败: ' + e.message, 'err'); }
+}
+
+async function doNavigate() {
+  if (!selectedId) return log('请先选择一个页面', 'warn');
+  const url = document.getElementById('nav-url').value.trim();
+  if (!url) return log('请输入目标 URL', 'warn');
+  log(`正在导航到: ${url}`, 'info');
+  try {
+    await sendCDP('Page.navigate', { url });
+    log(`导航命令已发送`, 'ok');
+  } catch(e) { log('导航失败: ' + e.message, 'err'); }
+}
+
+async function doReload() {
+  if (!selectedId) return log('请先选择一个页面', 'warn');
+  log('正在重新加载…', 'info');
+  try {
+    await sendCDP('Page.reload');
+    log('重载命令已发送', 'ok');
+  } catch(e) { log('重载失败: ' + e.message, 'err'); }
+}
+
+async function doActivate() {
+  if (!selectedId) return log('请先选择一个页面', 'warn');
+  log('正在激活页面 #' + selectedId, 'info');
+  try {
+    await fetch(`${BASE}/json/activate/${selectedId}`);
+    log('已激活', 'ok');
+  } catch(e) { log('激活失败: ' + e.message, 'err'); }
+}
+
+async function doEval() {
+  if (!selectedId) return log('请先选择一个页面', 'warn');
+  const code = document.getElementById('js-code').value.trim();
+  if (!code) return log('请输入 JavaScript 表达式', 'warn');
+  log(`执行: ${code}`, 'info');
+  try {
+    const res = await sendCDP('Runtime.evaluate', { expression: code, returnByValue: true, timeout: 15000 });
+    if (res.exceptionDetails) {
+      const exc = res.exceptionDetails;
+      log(`❌ 异常: ${exc.text || exc.exception?.description || JSON.stringify(exc)}`, 'err');
+    } else {
+      const val = res.result?.value;
+      const str = val !== undefined ? JSON.stringify(val, null, 2) : '(undefined)';
+      log(`✓ 返回值:\n${str.slice(0, 5000)}`, 'ok');
+    }
+  } catch(e) { log('执行失败: ' + e.message, 'err'); }
+}
+
+async function doClick() {
+  const uid = document.getElementById('click-uid').value.trim();
+  if (!uid) return log('请输入元素 uid', 'warn');
+  log(`点击 uid=${uid}`, 'info');
+  try {
+    // Resolve backend DOM node to DOM.Runtime.describeNode → then dispatchMouseEvent
+    const descRes = await sendCDP('DOM.describeNode', { objectId: String(uid) });
+    // Try clicking via DOM.resolveNode + JS click
+    const evalRes = await sendCDP('Runtime.evaluate', {
+      expression: `
+        (uid => {
+          const el = document.querySelector('[data-uid="'+uid+'"]') || 
+                     (() => { for(const e of document.querySelectorAll('*')) if(e.getAttribute('data-pw-'+uid)||e.uid==uid) return e; })();
+          if (el) { el.click(); return 'clicked '+el.tagName+'#'+el.id+'.'+el.className; }
+          return 'element not found by uid='+uid;
+        })(${uid})
+      `,
+      returnByValue: true
+    });
+    log(evalRes.result?.value || 'done', 'ok');
+  } catch(e) { log('点击失败: ' + e.message, 'err'); }
+}
+
+async function doTypeText() {
+  const uid = document.getElementById('click-uid').value.trim();
+  const text = document.getElementById('type-text-val').value;
+  if (!uid || !text) return log('请填写 uid 和文本', 'warn');
+  log(`在 uid=${uid} 输入: "${text}"`, 'info');
+  try {
+    await sendCDP('Input.insertText', { text });
+    log('输入完成', 'ok');
+  } catch(e) { log('输入失败: ' + e.message, 'err'); }
+}
+
+async function doPressKey() {
+  const key = document.getElementById('press-key-val').value.trim() || 'Enter';
+  log(`按下键: ${key}`, 'info');
+  try {
+    const keyMap = { Enter: 'Enter', Tab: 'Tab', Escape: 'Escape', Backspace: 'Backspace', ArrowDown: 'ArrowDown', ArrowUp: 'ArrowUp', Space: 'Space' };
+    const keyVal = keyMap[key] || key;
+    await sendCDP('Input.dispatchKeyEvent', { type: 'keyDown', key: keyVal, windowsVirtualKeyCode: key.charCodeAt(0) });
+    await sendCDP('Input.dispatchKeyEvent', { type: 'keyUp', key: keyVal, windowsVirtualKeyCode: key.charCodeAt(0) });
+    log(`按键 ${keyVal} 完成`, 'ok');
+  } catch(e) { log('按键失败: ' + e.message, 'err'); }
+}
+
+// ---- Helpers ----
+function log(msg, cls='') {
+  const el = document.getElementById('result');
+  const span = document.createElement('div');
+  span.className = cls || '';
+  span.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  el.appendChild(span);
+  el.scrollTop = el.scrollHeight;
+}
+function clearResult() { document.getElementById('result').innerHTML = ''; }
+function esc(s) { return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"})[c]); }
+function toggleSection(head) { head.parentElement.classList.toggle('collapsed'); }
+function insertSnippet(code) { const ta = document.getElementById('js-code'); ta.value = code; ta.focus(); }
+
+// Auto-refresh pages every 15s
+setInterval(refreshPages, 15000);
+</script>
+</body>
+</html>
