@@ -40,6 +40,7 @@ import { AudioPlayerController } from './viewers/audioViewer.js';
 import { FguiViewerController } from './viewers/fguiViewer.js';
 import { thumbnailService } from './thumbnails.js';
 import { makeCopyablePath, setCopyablePath } from './clipboard.js';
+import { loadSearchHistory, saveSearchHistory, addSearchHistory, removeSearchHistory } from './searchHistory.js';
 
 let currentCategoryId = 'all';
 let searchText = '';
@@ -5233,26 +5234,7 @@ export function updatePlaybackUI() {
 
 // ---------------- 工具栏/控件绑定 ----------------
 
-// ---- 顶栏搜索历史(localStorage 持久化) ----
-const SEARCH_HISTORY_KEY = 'search-history';
-const SEARCH_HISTORY_MAX = 12;
-function loadSearchHistory() {
-  try { const a = JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY) || '[]'); return Array.isArray(a) ? a : []; }
-  catch (e) { return []; }
-}
-function saveSearchHistory(arr) {
-  try { localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(arr.slice(0, SEARCH_HISTORY_MAX))); } catch (e) { /* ignore */ }
-}
-function addSearchHistory(word) {
-  const w = (word || '').trim();
-  if (!w) return;
-  const hist = loadSearchHistory().filter((x) => x !== w);
-  hist.unshift(w);
-  saveSearchHistory(hist);
-}
-function removeSearchHistory(word) {
-  saveSearchHistory(loadSearchHistory().filter((x) => x !== word));
-}
+// ---- 顶栏搜索历史(localStorage 持久化, 见 searchHistory.js) ----
 
 function bindToolbar() {
   const btnAdd = document.getElementById('btn-add');

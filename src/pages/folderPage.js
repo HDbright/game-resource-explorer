@@ -1,5 +1,6 @@
 import { state, getFolderData, sortItems, formatSize, formatDate, TYPE_LABEL, typeGroup, categoryById, getCategoryPathList, itemTags, categoryLabel, favCategoryById, itemById, catVisibleInGroup, categoryTypeTagNames, getCategoryChildren, TYPE_GROUPS } from '../state.js';
 import { thumbnailService } from '../thumbnails.js';
+import { loadSearchHistory, saveSearchHistory, addSearchHistory, removeSearchHistory } from '../searchHistory.js';
 
 /** 搜索模式资源池:catId=null 全库;否则含子分类递归;types=null 全部类型 */
 function collectSearchPool(catId, types) {
@@ -129,8 +130,9 @@ export function renderFolderPage(container, opts) {
       </div>
       ` : ''}
       <div class="folder-search-box">
-        <input class="folder-search" id="folder-search" type="text" placeholder="搜索名称 / 属性 / 标签…" value="${escapeHtml(searchText)}" />
+        <input class="folder-search" id="folder-search" type="text" placeholder="搜索名称 / 属性 / 标签…" value="${escapeHtml(searchText)}" autocomplete="off" />
         <button class="folder-search-clear" id="folder-search-clear" type="button" title="清空搜索" ${searchText ? '' : 'hidden'}>×</button>
+        <div class="search-history" id="folder-search-history" hidden></div>
       </div>
       <button class="btn sm ${editMode ? 'active' : ''}" id="edit-mode-btn" title="进入/退出编辑模式">✎ 编辑</button>
       ${editMode ? `
@@ -262,6 +264,81 @@ export function renderFolderPage(container, opts) {
       fSearch.value = '';
       actions.onSearch && actions.onSearch('');
       if (fSearch) fSearch.focus();
+    });
+  }
+
+  // ---- 目录内搜索历史下拉(与顶栏搜索框一致的体验) ----
+  const fHistoryEl = container.querySelector('#folder-search-history');
+  const hideFolderHistory = () => { if (fHistoryEl) fHistoryEl.hidden = true; };
+  const renderFolderHistory = () => {
+    if (!fHistoryEl) return;
+    const hist = loadSearchHistory('folder');
+    fHistoryEl.innerHTML = '';
+    if (!hist.length) { hideFolderHistory(); return; }
+    const head = document.createElement('div');
+    head.className = 'sh-head';
+    const title = document.createElement('span');
+    title.textContent = '最近搜索';
+    head.appendChild(title);
+    const clearAll = document.createElement('button');
+    clearAll.type = 'button';
+    clearAll.className = 'sh-clear-all';
+    clearAll.title = '清空全部搜索记录';
+    clearAll.textContent = '🗑 清空';
+    clearAll.addEventListener('mousedown', (e) => {
+      e.preventDefault(); // 抢先于 input blur, 保持下拉可见
+      saveSearchHistory([], 'folder');
+      renderFolderHistory();
+    });
+    head.appendChild(clearAll);
+    fHistoryEl.appendChild(head);
+    hist.forEach((w) => {
+      const item = document.createElement('div');
+      item.className = 'sh-item';
+      const txt = document.createElement('span');
+      txt.className = 'sh-text';
+      txt.textContent = w;
+      item.appendChild(txt);
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'sh-del';
+      del.title = '删除该记录';
+      del.textContent = '×';
+      del.addEventListener('mousedown', (e) => {
+        e.preventDefault(); // 抢先于 input blur, 确保删除命中
+        removeSearchHistory(w, 'folder');
+        renderFolderHistory();
+      });
+      item.appendChild(del);
+      item.addEventListener('mousedown', (e) => {
+        if (e.target === del) return;
+        e.preventDefault(); // 防止 input 先 blur 隐藏下拉
+        actions.onSearch && actions.onSearch(w);
+        hideFolderHistory();
+      });
+      fHistoryEl.appendChild(item);
+    });
+  };
+  const showFolderHistory = () => {
+    const hist = loadSearchHistory('folder');
+    if (!hist.length) return;
+    renderFolderHistory();
+    fHistoryEl.hidden = false;
+  };
+  if (fSearch && fHistoryEl) {
+    let folderHistTimer = null;
+    // 空框聚焦 / 点击 → 弹出历史; 有内容时不因重渲染后的焦点恢复而反复弹出(避免打字时闪烁)
+    fSearch.addEventListener('focus', () => { if (!fSearch.value) showFolderHistory(); });
+    fSearch.addEventListener('click', showFolderHistory);
+    fSearch.addEventListener('blur', () => { setTimeout(hideFolderHistory, 150); });
+    fSearch.addEventListener('input', () => {
+      hideFolderHistory();
+      const q = fSearch.value.trim();
+      clearTimeout(folderHistTimer);
+      if (q) folderHistTimer = setTimeout(() => addSearchHistory(q, 'folder'), 600);
+    });
+    fSearch.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { clearTimeout(folderHistTimer); const q = fSearch.value.trim(); if (q) addSearchHistory(q, 'folder'); }
     });
   }
 

@@ -691,6 +691,8 @@ input[type="color"] { width: 30px; height: 26px; border: 1px solid var(--border)
   font-size: 15px; line-height: 1; border-radius: 50%; padding: 0;
 }
 .folder-search-clear:hover { background: var(--bg4); color: var(--text); }
+/* 资源列表页搜索历史下拉: 搜索框较窄, 下拉加宽避免文字截断 */
+.folder-search-box .search-history { right: auto; min-width: 260px; }
 
 /* 标签 chip(通用:编辑窗 / 列表 / 属性) */
 .tag-chip {
