@@ -549,6 +549,13 @@ class WebGameView {
     if (!this._floated) {
       this._moveView(t, fw);
       try { t.view.setBounds(this._floatViewBounds()); } catch (e) { /* ignore */ }
+      // ⚠️ 关键: 活动标签已迁入悬浮窗, 但其余标签的 WebContentsView 仍附着在主窗口 contentView 上,
+      //   原生层永远叠于 DOM 之上 → 若不归零则浏览器区残留黑色矩形(无论 CSS/JS 怎么隐藏 DOM 容器)。
+      for (const [id, tab] of this.tabs) {
+        if (id !== this.activeId) {
+          try { tab.view.setBounds({ x: 0, y: 0, width: 0, height: 0 }); } catch (e) { /* ignore */ }
+        }
+      }
       fw.show();
     }
     this._floated = true;
