@@ -1,6 +1,6 @@
 {
   "name": "game-resource-explorer",
-  "version": "1.9.53",
+  "version": "1.9.54",
   "private": true,
   "description": "游戏资源管理器:管理并预览 Spine / DragonBones 骨骼动画、图片、音频、3D 模型游戏资源",
   "author": "game-resource-explorer",

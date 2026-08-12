@@ -58,7 +58,7 @@ let favHomeShown = false; // 右侧是否显示收藏夹主页
 let currentFavCategoryId = null; // 当前收藏夹目录列表页的收藏分类 id(null = 不在收藏夹目录页)
 let previewReturnFav = null; // 从收藏夹页面进入预览时记录返回目标 {home, catId}
 // ---- 工具箱 / 场景管理 导航状态 ----
-let currentTool = null; // null | 'astc2png' | 'skel2json' | 'spinefix' | 'imageedit' | 'fgui'
+let currentTool = null; // null | 'astc2png' | 'skel2json' | 'spinefix' | 'imageedit' | 'fgui' | 'sk2spine' | 'atlas'
 let toolboxHomeShown = false; // 右侧是否显示资源工具箱主页(汇总视图,含所有子菜单入口)
 let sceneHomeShown = false; // 右侧是否显示场景主页
 let currentSceneCatId = null; // 当前场景目录列表页的场景分类 id(null = 不在场景目录页;'' = 未分类)
@@ -255,7 +255,7 @@ function previewTypeIcon(type) {
 }
 
 function toolLabel(tool) {
-  return ({ astc2png: 'ASTC→PNG', skel2json: 'SKEL→JSON', spinefix: 'Spine 修复', imageedit: '图片编辑', sk2spine: 'Laya .sk → Spine' })[tool] || tool;
+  return ({ astc2png: 'ASTC→PNG', skel2json: 'SKEL→JSON', spinefix: 'Spine 修复', imageedit: '图片编辑', sk2spine: 'Laya .sk → Spine', atlas: '图片集打包' })[tool] || tool;
 }
 
 export function initUI(pv) {

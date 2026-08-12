@@ -3,6 +3,7 @@
 // 由 ui.js 调用 renderToolboxPage(container, tool) 根据 tool 渲染对应工具面板。
 
 import { toast, confirmDialog } from '../dialogs.js';
+import { packImages, serializeAtlas } from '../atlasPacker.js';
 
 /**
  * 渲染工具箱页面。tool: 'astc2png' | 'skel2json' | 'spinefix' | 'imageedit' | '__home__'
@@ -22,6 +23,7 @@ export function renderToolboxPage(container, tool) {
     imageedit: { title: '图片编辑', desc: '单个或批量处理图片:镜像翻转、旋转、缩放、生成指定大小/样式的缩略图(canvas 处理,导出 PNG/JPEG,可覆盖原文件)。', render: renderImageEditTool },
     fgui: { title: 'FGUI 导出源', desc: '把 FairyGUI 发布的 .bin 包批量还原为标准源工程:每个包在其同目录生成 FGUI_src/<包名>(package.xml + 组件 XML + 碎图 + 字体 + 动画),可直接用 FairyGUI 编辑器打开。', render: renderFguiTool },
     sk2spine: { title: 'Laya .sk → Spine', desc: '把 LayaAir 骨骼动画二进制(.sk,DragonBones 导出)逆向转换为 Spine 可读文件:骨架 .json + 纹理图集 .atlas。可单选/多选文件或整个目录(含子目录);选择时自动探测是否为 .sk 格式。', render: renderSk2SpineTool },
+    atlas: { title: '图片集打包', desc: '把多张图片合并为纹理图集(精灵表):MaxRects 装箱、支持旋转/修剪透明像素/内边距/强制 2 的幂尺寸,导出 PixiJS / Phaser3 / Cocos2d / CSS 雪碧图,并内联预览。', render: renderAtlasTool },
   };
   const cfg = tools[tool] || tools.astc2png;
   const head = document.createElement('div');
@@ -43,6 +45,7 @@ function renderToolboxHome(container) {
     { id: 'imageedit', icon: '🎨', title: '图片编辑', desc: '单个或批量处理图片:镜像翻转、旋转、缩放、生成指定大小/样式的缩略图(canvas 处理,导出 PNG/JPEG,可覆盖原文件)。' },
     { id: 'fgui', icon: '🧩', title: 'FGUI 导出源', desc: '把 FairyGUI 发布的 .bin 包批量还原为标准源工程:每个包在其同目录生成 FGUI_src/<包名>(package.xml + 组件 XML + 碎图 + 字体 + 动画),可直接用 FairyGUI 编辑器打开。' },
     { id: 'sk2spine', icon: '🦴', title: 'Laya .sk → Spine', desc: '把 LayaAir 骨骼动画二进制(.sk,DragonBones 导出)逆向转换为 Spine 可读文件:骨架 .json + 纹理图集 .atlas。可单选/多选文件或整个目录(含子目录);选择时自动探测是否为 .sk 格式。' },
+    { id: 'atlas', icon: '🗂', title: '图片集打包', desc: '把多张图片合并为纹理图集(精灵表):MaxRects 装箱、支持旋转/修剪透明像素/内边距/强制 2 的幂尺寸,导出 PixiJS / Phaser3 / Cocos2d / CSS 雪碧图,并内联预览。' },
   ];
   const head = document.createElement('div');
   head.className = 'tool-head';
@@ -761,6 +764,267 @@ function renderImageEditTool(body) {
     runBtn.disabled = false;
     toast(`处理完成:成功 ${okCount}`);
   }
+}
+
+// ---- 图片集打包(纹理图集 / 精灵表,参考 OpenPacker) ----
+// 多图 → 一张/多张图集 PNG + 元数据(PixiJS / Phaser3 / Cocos2d / CSS)
+// 全部在渲染进程用 canvas 完成:读取像素做透明修剪、MaxRects 装箱、合成图集。
+
+function writeTextFile(path, content) {
+  // 经 base64 dataURL 写入 UTF-8 文本(适配现有 fs:writeFileBase64)
+  const b64 = btoa(unescape(encodeURIComponent(content)));
+  return window.api.writeFileBase64(path, 'data:application/octet-stream;base64,' + b64);
+}
+
+// 计算图片的透明像素修整框(在原图中的裁剪矩形)。全透明时退化为 1x1。
+function computeTrim(img) {
+  const w = img.naturalWidth;
+  const h = img.naturalHeight;
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  let data;
+  try {
+    data = ctx.getImageData(0, 0, w, h).data;
+  } catch (e) {
+    return { trimX: 0, trimY: 0, trimW: w, trimH: h };
+  }
+  let minX = w, minY = h, maxX = -1, maxY = -1;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (data[(y * w + x) * 4 + 3] > 0) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < 0) return { trimX: 0, trimY: 0, trimW: 1, trimH: 1 };
+  return { trimX: minX, trimY: minY, trimW: maxX - minX + 1, trimH: maxY - minY + 1 };
+}
+
+function drawAtlasPage(page) {
+  const canvas = document.createElement('canvas');
+  canvas.width = page.width;
+  canvas.height = page.height;
+  const ctx = canvas.getContext('2d');
+  for (const pl of page.placements) {
+    // 先裁出(已修剪的)源区域到临时画布
+    const tmp = document.createElement('canvas');
+    tmp.width = pl.trimW;
+    tmp.height = pl.trimH;
+    tmp.getContext('2d').drawImage(pl.img, pl.trimX, pl.trimY, pl.trimW, pl.trimH, 0, 0, pl.trimW, pl.trimH);
+    if (pl.rotated) {
+      // 顺时针旋转 90° 放入 (trimH × trimW) 的格子(与 TexturePacker 约定一致)
+      const tmp2 = document.createElement('canvas');
+      tmp2.width = pl.trimH;
+      tmp2.height = pl.trimW;
+      const c2 = tmp2.getContext('2d');
+      c2.translate(0, pl.trimW);
+      c2.rotate(-Math.PI / 2);
+      c2.drawImage(tmp, 0, 0);
+      ctx.drawImage(tmp2, pl.ax, pl.ay);
+    } else {
+      ctx.drawImage(tmp, pl.ax, pl.ay);
+    }
+  }
+  return canvas;
+}
+
+function renderAtlasTool(body) {
+  body.innerHTML = `
+    <div class="tool-card">
+      <div class="field-row">
+        <label class="field-label">图片文件(可多选)</label>
+        <div class="field-ctrl">
+          <input type="text" id="at-input" placeholder="选择若干张图片..." readonly />
+          <button class="btn" id="at-pick">选择...</button>
+          <span class="at-count" id="at-count"></span>
+        </div>
+      </div>
+
+      <div class="atlas-opts">
+        <div class="field-row">
+          <label class="field-label">最大图集尺寸</label>
+          <div class="field-ctrl">
+            <select id="at-maxsize">
+              <option value="1024">1024 × 1024</option>
+              <option value="2048" selected>2048 × 2048</option>
+              <option value="4096">4096 × 4096</option>
+              <option value="8192">8192 × 8192</option>
+            </select>
+          </div>
+        </div>
+        <div class="field-row">
+          <label class="field-label">内边距(每边留白)</label>
+          <div class="field-ctrl">
+            <input type="number" id="at-pad" min="0" max="32" value="2" style="width:80px" />
+            <span class="field-hint">精灵四周留白,防止线性采样溢出</span>
+          </div>
+        </div>
+        <div class="field-row">
+          <label class="field-label">选项</label>
+          <div class="field-ctrl col">
+            <label class="chk"><input type="checkbox" id="at-rotate" /> 允许旋转装箱(更紧凑,需消费端支持 rotated)</label>
+            <label class="chk"><input type="checkbox" id="at-trim" checked /> 修剪透明像素(缩小图集体积)</label>
+            <label class="chk"><input type="checkbox" id="at-pot" /> 图集尺寸强制 2 的幂</label>
+          </div>
+        </div>
+        <div class="field-row">
+          <label class="field-label">导出格式</label>
+          <div class="field-ctrl">
+            <select id="at-format">
+              <option value="pixi">PixiJS (JSON Hash)</option>
+              <option value="phaser">Phaser 3 (JSON Array)</option>
+              <option value="cocos">Cocos2d (JSON)</option>
+              <option value="css">CSS 雪碧图</option>
+            </select>
+          </div>
+        </div>
+        <div class="field-row">
+          <label class="field-label">输出目录 / 文件名前缀</label>
+          <div class="field-ctrl col">
+            <div class="field-ctrl">
+              <input type="text" id="at-outdir" placeholder="默认:首张图片所在目录" readonly />
+              <button class="btn" id="at-pick-outdir">选择目录...</button>
+            </div>
+            <input type="text" id="at-prefix" placeholder="文件名前缀,如 atlas" value="atlas" />
+          </div>
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field-ctrl">
+          <button class="btn primary" id="at-run" disabled>开始打包</button>
+        </div>
+      </div>
+      <div class="tool-result" id="at-result"></div>
+      <div class="atlas-preview" id="at-preview"></div>
+    </div>
+  `;
+
+  let files = []; // [{ path, img, fileName }]
+  const inputEl = body.querySelector('#at-input');
+  const countEl = body.querySelector('#at-count');
+  const outDirEl = body.querySelector('#at-outdir');
+  const prefixEl = body.querySelector('#at-prefix');
+  const runBtn = body.querySelector('#at-run');
+  const resultEl = body.querySelector('#at-result');
+  const previewEl = body.querySelector('#at-preview');
+
+  body.querySelector('#at-pick').addEventListener('click', async () => {
+    const r = await window.api.pickFiles({
+      title: '选择图片(可多选)',
+      filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'] }],
+    });
+    if (r.canceled || !r.filePaths.length) return;
+    const names = new Set();
+    const out = [];
+    for (const p of r.filePaths) {
+      const base = (p.split(/[\\/]/).pop()) || 'image';
+      const ext = (base.match(/\.([^.]+)$/) || [, 'png'])[1].toLowerCase();
+      if (!['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'].includes(ext)) continue;
+      const rd = await window.api.readBase64(p);
+      if (!rd.ok) { toast(`无法读取 ${p}: ${rd.error}`, 'error'); continue; }
+      let img;
+      try { img = await loadImg(rd.dataUrl); } catch (e) { toast(`解码失败 ${base}`, 'error'); continue; }
+      // 同名去重(加序号)
+      let name = base;
+      let k = 2;
+      while (names.has(name)) name = base.replace(/\.([^.]+)$/, `_${k++}.$1`);
+      names.add(name);
+      files.push({ path: p, img, fileName: name });
+      out.push(base);
+    }
+    inputEl.value = out.join(', ');
+    countEl.textContent = files.length ? `已选 ${files.length} 张` : '';
+    runBtn.disabled = !files.length;
+  });
+
+  body.querySelector('#at-pick-outdir').addEventListener('click', async () => {
+    const r = await window.api.pickFiles({ directory: true, title: '选择输出目录' });
+    if (!r.canceled && r.filePaths.length) outDirEl.value = r.filePaths[0];
+  });
+
+  runBtn.addEventListener('click', async () => {
+    if (!files.length) return;
+    runBtn.disabled = true;
+    try {
+      const maxSize = +body.querySelector('#at-maxsize').value || 2048;
+      const padding = Math.max(0, +body.querySelector('#at-pad').value || 0);
+      const allowRotation = body.querySelector('#at-rotate').checked;
+      const doTrim = body.querySelector('#at-trim').checked;
+      const pot = body.querySelector('#at-pot').checked;
+      const format = body.querySelector('#at-format').value;
+      const prefix = (prefixEl.value.trim() || 'atlas').replace(/[\\/:"*?<>|]/g, '_');
+      const outDir = outDirEl.value.trim() || (files[0].path.replace(/[\\/][^\\/]*$/, ''));
+
+      setResult(body, '#at-result', { type: 'busy', msg: `正在计算装箱(${files.length} 张)...` });
+      // 构造打包项(含修剪信息);大批量时让出主线程
+      const items = [];
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i];
+        const srcW = f.img.naturalWidth;
+        const srcH = f.img.naturalHeight;
+        const t = doTrim ? computeTrim(f.img) : { trimX: 0, trimY: 0, trimW: srcW, trimH: srcH };
+        items.push({ name: f.fileName, img: f.img, srcW, srcH, trimX: t.trimX, trimY: t.trimY, trimW: t.trimW, trimH: t.trimH });
+        if ((i & 31) === 31) await new Promise((r) => setTimeout(r, 0));
+      }
+
+      const pages = packImages(items, { maxSize, padding, allowRotation, pot });
+      setResult(body, '#at-result', { type: 'busy', msg: `正在合成图集(${pages.length} 页)...` });
+
+      // 合成每页 PNG
+      const pngDataUrls = [];
+      for (let i = 0; i < pages.length; i++) {
+        const canvas = drawAtlasPage(pages[i]);
+        const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
+        pngDataUrls.push(await blobToDataUrl(blob));
+        if ((i & 7) === 7) await new Promise((r) => setTimeout(r, 0));
+      }
+
+      // 序列化元数据
+      const { pagePngNames, metaFiles } = serializeAtlas(format, pages, prefix);
+
+      // 写出 PNG + 元数据
+      let fail = [];
+      for (let i = 0; i < pages.length; i++) {
+        const wr = await window.api.writeFileBase64(joinPath(outDir, pagePngNames[i]), pngDataUrls[i]);
+        if (!wr.ok) fail.push(`${pagePngNames[i]}: ${wr.error}`);
+      }
+      for (const mf of metaFiles) {
+        const wr = await writeTextFile(joinPath(outDir, mf.name), mf.content);
+        if (!wr.ok) fail.push(`${mf.name}: ${wr.error}`);
+      }
+
+      // 预览
+      previewEl.innerHTML = pages.map((p, i) => `
+        <div class="atlas-page">
+          <div class="atlas-page-cap">${escHtml(pagePngNames[i])} · ${p.width}×${p.height} · ${p.placements.length} 个精灵</div>
+          <img class="atlas-page-img" src="${pngDataUrls[i]}" alt="${escHtml(pagePngNames[i])}" />
+        </div>`).join('');
+
+      const totalSprites = pages.reduce((s, p) => s + p.placements.length, 0);
+      const okFiles = pagePngNames.length + metaFiles.length - fail.length;
+      const ok = !fail.length;
+      setResult(body, '#at-result', {
+        type: ok ? 'ok' : 'warn',
+        msg: `✓ 打包完成:${pages.length} 张图集,共 ${totalSprites} 个精灵${fail.length ? ',失败 ' + fail.length + ' 个' : ''}`,
+        path: `${outDir}  (图集: ${pagePngNames.join(', ')}; 元数据: ${metaFiles.map((m) => m.name).join(', ')})`,
+      });
+      if (fail.length) {
+        setResult(body, '#at-result', { type: 'warn', msg: '失败:' + escHtml(fail.join('；')) });
+      }
+      toast(`打包完成:${pages.length} 张图集,${totalSprites} 个精灵`);
+    } catch (e) {
+      setResult(body, '#at-result', { type: 'err', msg: '✗ ' + (e.message || String(e)) });
+    } finally {
+      runBtn.disabled = false;
+    }
+  });
 }
 
 function loadImg(dataUrl) {

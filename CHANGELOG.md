@@ -3,11 +3,17 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.53`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.54`）。
 
 ---
 
 ## 2026-08-12
+
+### [新增] 发布 v1.9.54：资源工具箱新增「图片集打包」模块(参考 OpenPacker)
+- 在资源工具箱 (`src/pages/toolboxPage.js`) 新增 `atlas` 工具:把多张图片合并为纹理图集/精灵表,功能对标 OpenPacker(free-tex-packer fork)。
+- 核心算法独立为 `src/atlasPacker.js`(纯逻辑、无 DOM):`MaxRectsPacker`(Best Short Side Fit,支持旋转装箱)+ `packImages`(按面积降序装箱、超大图自动分页、强制 2 的幂尺寸、内边距、透明像素修剪)+ `serializeAtlas`(导出 PixiJS JSON Hash / Phaser3 JSON Array / Cocos2d JSON / CSS 雪碧图 四种格式)。
+- 渲染进程用 canvas 完成像素读取(透明修剪)、图集合成与内联预览;导出经现有 `fs:writeFileBase64`(PNG)与 base64 dataURL 写文本(元数据)。`ui.js` 的 `toolLabel` 增加 atlas 标签,主页卡片与 tools 映射均登记。
+- 选项:最大图集尺寸(1024/2048/4096/8192)、每边内边距、允许旋转装箱、修剪透明像素(默认开)、强制 2 的幂、导出格式;输出目录 + 文件名前缀;结果区内联预览每张图集并显示尺寸/精灵数。
 
 ### [修复] 发布 v1.9.53：Laya .sk→Spine 转换后部分附件预览报 "Region not found in atlas"
 - 根因:转换器只为嵌入纹理(仅 12 个)生成 atlas region,但骨架 display 有 19 个;且 mesh/skinnedmesh 附件未写 `region` 字段,Spine 3.8 回退用附件名查 atlas → Hd_12..Hd_19 等查不到区域。
