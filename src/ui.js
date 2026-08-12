@@ -5233,6 +5233,27 @@ export function updatePlaybackUI() {
 
 // ---------------- 工具栏/控件绑定 ----------------
 
+// ---- 顶栏搜索历史(localStorage 持久化) ----
+const SEARCH_HISTORY_KEY = 'search-history';
+const SEARCH_HISTORY_MAX = 12;
+function loadSearchHistory() {
+  try { const a = JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY) || '[]'); return Array.isArray(a) ? a : []; }
+  catch (e) { return []; }
+}
+function saveSearchHistory(arr) {
+  try { localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(arr.slice(0, SEARCH_HISTORY_MAX))); } catch (e) { /* ignore */ }
+}
+function addSearchHistory(word) {
+  const w = (word || '').trim();
+  if (!w) return;
+  const hist = loadSearchHistory().filter((x) => x !== w);
+  hist.unshift(w);
+  saveSearchHistory(hist);
+}
+function removeSearchHistory(word) {
+  saveSearchHistory(loadSearchHistory().filter((x) => x !== word));
+}
+
 function bindToolbar() {
   const btnAdd = document.getElementById('btn-add');
   btnAdd.addEventListener('click', () => runAddFlow(false, currentCategoryId === 'all' || currentCategoryId === '' ? '' : currentCategoryId));
@@ -5265,12 +5286,81 @@ function bindToolbar() {
 
   const search = document.getElementById('search');
   const searchClear = document.getElementById('search-clear');
+  const historyEl = document.getElementById('search-history');
   const updateSearchClear = () => { if (searchClear) searchClear.hidden = !search.value; };
+
+  // ---- 搜索历史下拉 ----
+  let searchHistTimer = null;
+  const hideSearchHistory = () => { if (historyEl) historyEl.hidden = true; };
+  const renderSearchHistory = () => {
+    if (!historyEl) return;
+    const hist = loadSearchHistory();
+    historyEl.innerHTML = '';
+    if (!hist.length) { hideSearchHistory(); return; }
+    const head = document.createElement('div');
+    head.className = 'sh-head';
+    const title = document.createElement('span');
+    title.textContent = '最近搜索';
+    head.appendChild(title);
+    const clearAll = document.createElement('button');
+    clearAll.type = 'button';
+    clearAll.className = 'sh-clear-all';
+    clearAll.title = '清空全部搜索记录';
+    clearAll.textContent = '🗑 清空';
+    clearAll.addEventListener('click', () => { saveSearchHistory([]); renderSearchHistory(); });
+    head.appendChild(clearAll);
+    historyEl.appendChild(head);
+    hist.forEach((w) => {
+      const item = document.createElement('div');
+      item.className = 'sh-item';
+      const txt = document.createElement('span');
+      txt.className = 'sh-text';
+      txt.textContent = w;
+      item.appendChild(txt);
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'sh-del';
+      del.title = '删除该记录';
+      del.textContent = '×';
+      del.addEventListener('mousedown', (e) => {
+        e.preventDefault(); // 先于 input blur 阻止下拉隐藏, 确保删除命中
+        removeSearchHistory(w);
+        renderSearchHistory();
+      });
+      item.appendChild(del);
+      item.addEventListener('mousedown', (e) => {
+        if (e.target === del) return;
+        e.preventDefault(); // 防止 input 先 blur 隐藏下拉
+        search.value = w;
+        searchText = w;
+        updateSearchClear();
+        renderItems();
+        hideSearchHistory();
+        search.focus();
+      });
+      historyEl.appendChild(item);
+    });
+  };
+  const showSearchHistory = () => {
+    const hist = loadSearchHistory();
+    if (!hist.length) return;
+    renderSearchHistory();
+    historyEl.hidden = false;
+  };
+
   search.addEventListener('input', () => {
     searchText = search.value.trim();
     updateSearchClear();
     renderItems();
+    clearTimeout(searchHistTimer);
+    if (searchText) searchHistTimer = setTimeout(() => addSearchHistory(searchText), 600);
   });
+  search.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { clearTimeout(searchHistTimer); if (searchText) addSearchHistory(searchText); }
+  });
+  search.addEventListener('focus', showSearchHistory);
+  search.addEventListener('click', () => { if (search.value) showSearchHistory(); });
+  search.addEventListener('blur', () => { setTimeout(hideSearchHistory, 150); });
   if (searchClear) {
     searchClear.addEventListener('click', () => {
       search.value = '';

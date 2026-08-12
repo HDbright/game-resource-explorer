@@ -3,11 +3,17 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.46`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.47`）。
 
 ---
 
 ## 2026-08-12
+
+### [新增] 发布 v1.9.47：顶栏搜索框点击弹出最近搜索记录下拉
+- 顶栏 `#search` 点击/聚焦时弹出「最近搜索」下拉列表(来自 localStorage `search-history`, 最多 12 条, 去重置顶)。
+- 每条历史可点击填入并立即执行当前上下文搜索; 右侧 × 删除单条(mousedown 抢先阻止 blur 隐藏); 下拉头部「🗑 清空」一键清空全部记录。
+- 历史保存时机: 输入停止 600ms(debounce) 或按回车 → `addSearchHistory`; 已有项去重并置顶。
+- 改动: index.html `.search-box` 内新增 `#search-history` 容器(input 加 `autocomplete=off`); ui.js 新增 load/add/remove/saveSearchHistory + 下拉渲染/显隐绑定; style.css 新增 `.search-history` 系列样式(z-index 120 浮于顶栏之上)。
 
 ### [修复] 发布 v1.9.46：浮出后浏览器区黑屏(emitStatus 缺 manual 标志导致折叠从未执行)
 - **真因(经截图+代码追踪确认)**: `floatOut()` 第 566 行 `emitStatus({ state: 'floated' })` **缺少 `manual: this._floatedManual`** 参数。渲染端 `onWebStatus` 收到 `{state:'floated'}` 但 `s.manual` 为 undefined → `applyFloatCollapse(true)` **从未被调用** → 浏览器区 DOM 从未隐藏 + 原生视图从未归零。之前 v1.9.43/44/45 的 CSS/JS 修改全部无效, 因触发条件一直不满足。
