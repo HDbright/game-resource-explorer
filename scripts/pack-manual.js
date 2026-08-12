@@ -115,6 +115,7 @@ async function main() {
   console.log('组装 asar staging ...');
   copyDir(path.join(ROOT, 'dist'), path.join(staging, 'dist'));
   copyDir(path.join(ROOT, 'electron'), path.join(staging, 'electron'));
+  copyDir(path.join(ROOT, 'vendor'), path.join(staging, 'vendor')); // SKEL→JSON 转换依赖 vendor/spine38/spine-core.js
   copyNodeModules(staging);
   copyFileRetry(path.join(ROOT, "package.json"), path.join(staging, "package.json"));
   const asarCli = path.join(ROOT, 'node_modules', '@electron', 'asar', 'bin', 'asar.js');

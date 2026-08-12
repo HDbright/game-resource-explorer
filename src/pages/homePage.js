@@ -32,7 +32,7 @@ function itemTooltip(it) {
  * @param {object} actions
  *   - resourceTab
  *   - onTab(group):统计卡片点击切换类型
- *   - onQuickCat(catId) / onOpenCat(catId):进入目录列表页
+ *   - onOpenCat(catId):进入目录列表页(目录快捷入口 data-act='cat' 唯一入口,无 onQuickCat)
  *   - onRecentItem(itemId) / onOpenItem(itemId):预览资源
  *   - onCatMenu(cat, e) / onItemMenu(item, e):右键菜单
  *   - onRefresh():折叠/展开后重新渲染

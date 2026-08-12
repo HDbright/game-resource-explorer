@@ -99,7 +99,32 @@ function attachmentKind(att) {
   return (ctor || '').toLowerCase();
 }
 
-function serializeAttachment(att) {
+/**
+ * 3.x 加权网格顶点内联为 [boneCount, boneIdx, x, y, w, ...]。
+ * 3.8 SkeletonJson.readVertices 的加权分支只读 map.vertices 这一个字段(按 boneCount 前缀
+ * 交错读取),与 4.x 的独立 bones/weights/vertices 三数组不同。
+ * 3.8 运行时解析二进制后:att.bones = [boneCount, boneIdx...](逐顶点分组),
+ * att.vertices = [x0,y0,w0, x1,y1,w1, ...](位置+权重交错)。这里把两者合并成 3.8 JSON 格式。
+ */
+function interleaveWeighted(att) {
+  const bones = att.bones || [];
+  const wv = att.vertices || [];
+  const out = [];
+  let vi = 0;
+  for (let i = 0; i < bones.length; ) {
+    const bc = bones[i++];
+    out.push(bc);
+    for (let j = 0; j < bc && i < bones.length; j++) {
+      out.push(bones[i++]); // 骨骼索引
+      out.push(wv[vi++]); // x
+      out.push(wv[vi++]); // y
+      out.push(wv[vi++]); // w
+    }
+  }
+  return out;
+}
+
+function serializeAttachment(att, format) {
   const kind = attachmentKind(att);
   const out = { name: att.name };
   if (kind === 'region') {
@@ -118,27 +143,50 @@ function serializeAttachment(att) {
     }
   } else if (kind === 'mesh' || kind === 'weightedmesh' || kind === 'skinnedmesh') {
     const weighted = (att.bones && att.bones.length) || kind !== 'mesh';
-    out.type = weighted ? 'weightedmesh' : 'mesh';
-    if (att.path != null) out.path = att.path;
-    // 注意:JSON 里的 uvs 是归一化(0-1)regionUVs,不是 updateUVs 后的像素 uvs
-    out.uvs = floatArr(att.regionUVs || att.uvs);
-    if (weighted) {
-      // weighted mesh:bones/weights 按顶点连续;vertices 只有位置
-      out.bones = intArr(att.bones);
-      out.weights = floatArr(att.weights);
-      out.vertices = floatArr(att.vertices);
+    if (format === '3') {
+      // ⚠️ 3.x SkeletonJson 不识别 weightedmesh/skinnedmesh 类型(那是 4.x 格式):
+      // type 必须写 'mesh';加权顶点必须内联进 vertices([boneCount, boneIdx, x, y, w, ...]),
+      // 不能写 4.x 的独立 bones/weights/vertices 三数组(3.8 readVertices 只读 map.vertices)。
+      // 否则 readAttachment 对 weightedmesh 返回 null → 附件被跳过 → 皮肤缺附件 →
+      // deform 时间线抛 "Deform attachment not found: undefined"。
+      out.type = 'mesh';
+      if (att.path != null) out.path = att.path;
+      // 注意:JSON 里的 uvs 是归一化(0-1)regionUVs,不是 updateUVs 后的像素 uvs
+      out.uvs = floatArr(att.regionUVs || att.uvs);
+      out.vertices = weighted ? interleaveWeighted(att) : floatArr(att.vertices);
+      out.triangles = intArr(att.triangles);
+      if (att.edges && att.edges.length) out.edges = intArr(att.edges);
+      if (att.hullLength) out.hull = att.hullLength / 2;
+      else if (att.hull) out.hull = att.hull;
+      if (att.width) out.width = att.width;
+      if (att.height) out.height = att.height;
+      if (att.color && (att.color.a ?? 1) !== 1) {
+        const hex = colorToHex(att.color);
+        if (hex) out.color = hex;
+      }
     } else {
-      out.vertices = floatArr(att.vertices);
-    }
-    out.triangles = intArr(att.triangles);
-    if (att.edges && att.edges.length) out.edges = intArr(att.edges);
-    if (att.hullLength) out.hull = att.hullLength / 2;
-    else if (att.hull) out.hull = att.hull;
-    if (att.width) out.width = att.width;
-    if (att.height) out.height = att.height;
-    if (att.color && (att.color.a ?? 1) !== 1) {
-      const hex = colorToHex(att.color);
-      if (hex) out.color = hex;
+      out.type = weighted ? 'weightedmesh' : 'mesh';
+      if (att.path != null) out.path = att.path;
+      // 注意:JSON 里的 uvs 是归一化(0-1)regionUVs,不是 updateUVs 后的像素 uvs
+      out.uvs = floatArr(att.regionUVs || att.uvs);
+      if (weighted) {
+        // weighted mesh:bones/weights 按顶点连续;vertices 只有位置
+        out.bones = intArr(att.bones);
+        out.weights = floatArr(att.weights);
+        out.vertices = floatArr(att.vertices);
+      } else {
+        out.vertices = floatArr(att.vertices);
+      }
+      out.triangles = intArr(att.triangles);
+      if (att.edges && att.edges.length) out.edges = intArr(att.edges);
+      if (att.hullLength) out.hull = att.hullLength / 2;
+      else if (att.hull) out.hull = att.hull;
+      if (att.width) out.width = att.width;
+      if (att.height) out.height = att.height;
+      if (att.color && (att.color.a ?? 1) !== 1) {
+        const hex = colorToHex(att.color);
+        if (hex) out.color = hex;
+      }
     }
   } else if (kind === 'linkedmesh') {
     out.type = 'linkedmesh';
@@ -181,6 +229,37 @@ function floatArr(arr) {
 function intArr(arr) {
   if (!arr) return [];
   return Array.from(arr);
+}
+
+/**
+ * 数值裁剪到 6 位小数(与 Spine 编辑器导出的紧凑格式一致,如 -192.440018)。
+ * 3.8 运行时二进制解析出的坐标是 float32 提升为 float64 的全精度噪声
+ * (如 236.9600067138672),直接写出会撑大 JSON 体积;裁剪到 1e-6 对渲染/动画
+ * 完全无损,但体积大幅缩小。同时清除 -0。
+ */
+function trimNum(v) {
+  if (typeof v !== 'number' || !isFinite(v)) return v;
+  const r = Math.round(v * 1e6) / 1e6;
+  return r === 0 ? 0 : r;
+}
+
+/** 递归裁剪对象树中的所有数值(序列化前统一处理,覆盖散落的坐标/时间/曲线/顶点) */
+function roundObj(o) {
+  // ⚠️ 兜底:TypedArray(Float32Array 等)的 Array.isArray 为 false,若漏网进入会被当普通对象
+  // 遍历索引 → JSON 输出成 {"0":..,"1":..} 对象。先转普通数组。
+  if (o && typeof o === 'object' && !Array.isArray(o) && typeof o.length === 'number' && typeof o !== 'string') {
+    o = Array.from(o);
+  }
+  if (Array.isArray(o)) {
+    for (let i = 0; i < o.length; i++) o[i] = roundObj(o[i]);
+    return o;
+  }
+  if (o && typeof o === 'object') {
+    for (const k of Object.keys(o)) o[k] = roundObj(o[k]);
+    return o;
+  }
+  if (typeof o === 'number') return trimNum(o);
+  return o;
 }
 
 // ---- 动画时间线序列化(hook 记录方案) ----
@@ -230,23 +309,35 @@ function hookTimelines(spine) {
 }
 
 /** 序列化一条时间线为帧数组。format: '3' | '4'(影响约束帧字段名) */
-function serializeTimeline(t, format) {
+function serializeTimeline(t, format, baseVertices) {
   const records = t.__frames || [];
   const curves = t.__curves || {};
   const name = t.constructor && t.constructor.name;
   const out = [];
   for (const r of records) {
-    const frame = serializeFrameArgs(name, r, curves[r.i], format);
+    const frame = serializeFrameArgs(name, r, curves[r.i], format, baseVertices);
     if (frame) out.push(frame);
   }
   return out;
 }
 
-function serializeFrameArgs(name, r, curve, format) {
+function serializeFrameArgs(name, r, curve, format, baseVertices) {
   const a = r.args;
   const out = { time: r.time };
   if (curve === 'stepped') out.curve = 'stepped';
-  else if (curve) out.curve = [curve.cx1, curve.cy1, curve.cx2, curve.cy2];
+  else if (curve) {
+    if (format === '3') {
+      // ⚠️ 3.8 JSON 曲线格式:curve 是单值(cx1),其余控制点用 c2/c3/c4 字段;
+      // 数组格式是 4.x 的。若 3.8 收到数组,setCurve(frameIndex, 数组, 0, 1, 1)
+      // 会拿数组做算术 → NaN → 播放时所有骨骼/网格世界坐标全 NaN("无法正常播放")。
+      out.curve = curve.cx1;
+      out.c2 = curve.cy1;
+      out.c3 = curve.cx2;
+      out.c4 = curve.cy2;
+    } else {
+      out.curve = [curve.cx1, curve.cy1, curve.cx2, curve.cy2];
+    }
+  }
   switch (name) {
     case 'RotateTimeline':
       out.angle = a[0];
@@ -301,7 +392,22 @@ function serializeFrameArgs(name, r, curve, format) {
       }
       return out;
     case 'DeformTimeline':
-      out.vertices = Array.from(a[0] || []);
+      // ⚠️ 3.x 二进制/JSON 的 readDeformTimeline 对**非加权** mesh 都会做 `deform[v] += base[v]`,
+      // 所以 hook 记录的 a[0] 已是 `raw + base`。但 3.x JSON 加载时**再次** `+= base`,
+      // 若我们直接输出 a[0],加载后变成 `raw + 2×base` → 顶点整体被放大(无变形时 2 倍!)。
+      // 修复:对非加权 mesh 输出 `raw = a[0] - base`;加权时 a[0] 已是权重直接输出。
+      {
+        const raw = a[0] || [];
+        const base = baseVertices;
+        if (base && base.length === raw.length) {
+          // ⚠️ raw 可能是 Float32Array(有变形帧由 newFloatArray 生成),直接 .map 仍返回
+          // Float32Array,而 Array.isArray(Float32Array)===false → roundObj 把它当普通对象
+          // 遍历索引 → JSON 输出成 {"0":..,"1":..} 对象(Spine 解析失败)。必须用 Array.from 转普通数组。
+          out.vertices = Array.from(raw, (v, i) => v - base[i]);
+        } else {
+          out.vertices = Array.from(raw);
+        }
+      }
       return out;
     case 'AttachmentTimeline':
       out.name = a[0];
@@ -390,6 +496,8 @@ async function serializeSkeletonData(sd, probe) {
   if (sd.ikConstraints && sd.ikConstraints.length) {
     out.ik = sd.ikConstraints.map((c) => {
       const o = { name: c.name, bones: c.bones.map((b) => b.name), target: c.target ? c.target.name : '' };
+      // ⚠️ order 决定约束应用顺序,缺失会导致 IK 求解结果不同(播放时骨骼位置差异大)
+      if (c.order) o.order = c.order;
       if (c.bendDirection === -1) o.bendPositive = false;
       if (c.mix !== 1) o.mix = c.mix;
       if (c.compress) o.compress = true;
@@ -404,6 +512,7 @@ async function serializeSkeletonData(sd, probe) {
   if (sd.transformConstraints && sd.transformConstraints.length) {
     out.transform = sd.transformConstraints.map((c) => {
       const o = { name: c.name, bones: c.bones.map((b) => b.name), target: c.target ? c.target.name : '' };
+      if (c.order) o.order = c.order;
       if (format === '3') {
         if (c.rotateMix !== 1) o.rotateMix = c.rotateMix;
         if (c.translateMix !== 1) o.translateMix = c.translateMix;
@@ -438,6 +547,7 @@ async function serializeSkeletonData(sd, probe) {
   if (sd.pathConstraints && sd.pathConstraints.length) {
     out.path = sd.pathConstraints.map((c) => {
       const o = { name: c.name, bones: c.bones.map((b) => b.name), target: c.target ? c.target.name : '' };
+      if (c.order) o.order = c.order;
       o.positionMode = posModeStr(c.positionMode);
       o.spacingMode = spacingModeStr(c.spacingMode);
       o.rotateMode = rotateModeStr(c.rotateMode);
@@ -483,7 +593,7 @@ async function serializeSkeletonData(sd, probe) {
       const slot = sd.slots[entry.slotIndex];
       if (!slot) continue;
       const slotName = slot.name;
-      const att = serializeAttachment(entry.attachment);
+      const att = serializeAttachment(entry.attachment, format);
       if (!att) continue;
       if (!map[slotName]) map[slotName] = {};
       map[slotName][entry.name] = att;
@@ -497,7 +607,7 @@ async function serializeSkeletonData(sd, probe) {
     for (const entry of sd.defaultSkin.getAttachments()) {
       const slot = sd.slots[entry.slotIndex];
       if (!slot) continue;
-      const att = serializeAttachment(entry.attachment);
+      const att = serializeAttachment(entry.attachment, format);
       if (!att) continue;
       if (!map[slot.name]) map[slot.name] = {};
       map[slot.name][entry.name] = att;
@@ -547,6 +657,10 @@ async function serializeSkeletonData(sd, probe) {
           const att = tl.attachment || null;
           const attName = att && att.name;
           const skinName = findSkinName(sd, tl.slotIndex, attName || '', att);
+          // ⚠️ 给 DeformTimeline 传入 base(attachment.vertices),序列化时减去,
+          // 避免 3.x readDeformTimeline 两次 += base 导致顶点被放大(无变形时 2 倍)。
+          const baseVertices = att && att.vertices ? att.vertices : null;
+          const frames = serializeTimeline(tl, format, baseVertices);
           if (format === '3') {
             a.deform = a.deform || {};
             a.deform[skinName] = a.deform[skinName] || {};
@@ -580,7 +694,19 @@ async function serializeSkeletonData(sd, probe) {
   }
 
   // 去掉 undefined 值,清理空字段
-  return clean(out);
+  const cleaned = clean(out);
+  // ⚠️ 空动画(0 时间线)会被 clean 整体删除,但动画名必须保留——
+  // 否则运行时 animations 为空,播放器报"该骨骼没有可播放的动作"(如 yl_4004.skel 的空 Idle)。
+  // 这里补回空动画 {} (Spine 官方 JSON 同样保留 animations:{Idle:{}})。
+  if (sd.animations && sd.animations.length) {
+    for (const anim of sd.animations) {
+      if (!cleaned.animations || !cleaned.animations[anim.name]) {
+        cleaned.animations = cleaned.animations || {};
+        cleaned.animations[anim.name] = {};
+      }
+    }
+  }
+  return cleaned;
 }
 
 /** 反查附件所属 skin 名(用于 deform / attachment 时间线的 skin 键) */
@@ -657,7 +783,14 @@ function loadSpine38() {
 }
 
 async function skelToJson(inputPath, outputPath) {
-  const bytes = fs.readFileSync(inputPath);
+  const srcBuf = fs.readFileSync(inputPath);
+  // ⚠️ vendored 3.8/4.x 的 BinaryInput 构造用 `new DataView(data.buffer)`,不处理 Buffer.byteOffset。
+  // Node 的 fs.readFileSync 小文件来自内部 Buffer 池(byteOffset≠0,ArrayBuffer 比实际大),
+  // DataView 会从 ArrayBuffer 开头(0)读 → 整份骨架错位,随机抛
+  // "Offset is outside the bounds of the DataView" / "frameCount must be > 0"(大文件不走池,故 dazuo1 等一直正常)。
+  // 统一拷贝到精确大小的新 ArrayBuffer(byteOffset=0),解析稳定。
+  const bytes = new Uint8Array(srcBuf.byteLength);
+  bytes.set(srcBuf);
   const probe = probeSkeleton(bytes);
   if (!probe || probe.kind !== 'binary') {
     throw new Error('不是有效的 Spine 二进制骨架(skel)');
@@ -697,7 +830,9 @@ async function skelToJson(inputPath, outputPath) {
 
   const jsonObj = await serializeSkeletonData(sd, probe);
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-  fs.writeFileSync(outputPath, JSON.stringify(jsonObj, null, 2));
+  // 紧凑输出(无缩进)+ 数值裁剪到 6 位小数,与 Spine 编辑器导出的紧凑格式一致,
+  // 体积比带缩进的 float64 全精度输出小很多(实测约 -60%)。
+  fs.writeFileSync(outputPath, JSON.stringify(roundObj(jsonObj)));
   return {
     version: probe.version,
     output: outputPath,

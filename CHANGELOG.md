@@ -3,11 +3,85 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.63`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.70`）。
 
 ---
 
+## 2026-08-13
+
+### [修复] 发布 v1.9.70：skel→json 动画曲线 NaN + IK order 缺失 + 空动画丢弃
+- 报障(三个文件):① 257.skel 新转换后可正常播放;② dazuo1.skel 新转换后**不报错但无法正常播放**;③ yl_4004.skel 新转换后报 **"该骨骼没有可播放的动作"**。
+- 根因三处(`electron/tools/skel.js`):
+  1. **曲线格式错误(动画 NaN 主因)**:3.8 的 JSON 曲线格式是 `curve` 单值(cx1)+ `c2/c3/c4` 字段,而序列化输出 4.x 的**数组格式** `[cx1,cy1,cx2,cy2]` → 3.8 `readCurve` 调 `setCurve(frameIndex, 数组, 0, 1, 1)` 数组参与算术 → **所有时间线 curves 充满 NaN → 播放时全部骨骼/网格世界坐标 NaN**(dazuo1 有 82 条时间线大量曲线,表现为"不报错但无法正常播放";257 动画仅 attachment 切换无曲线故正常)。`serializeFrameArgs` 按 `format==='3'` 输出单值+c2/c3/c4,4.x 保持数组。
+  2. **IK/transform/path 约束 order 缺失**:3.8 按 order 顺序应用约束,序列化没写 `order` → 全部默认 0 → IK 求解顺序错误 → 播放时骨骼位置差异大(dazuo1 差异 14.49 像素)。三处补 `if (c.order) o.order = c.order`。
+  3. **空动画被丢弃**:`if (Object.keys(a).length)` 跳过 0 时间线动画,且 `clean()` 会删空对象 → 空 Idle 丢失 → "没有可播放的动作"(yl_4004.skel)。改为 clean 后补回 `animations[name] = {}`(官方格式同样保留空动画)。
+  4. **DeformTimeline 顶点被放大 2 倍 / 帧 `vertices` 变 Object**:非加权 mesh 的 DeformTimeline,3.8 `readDeformTimeline` 会做 `deform[v] += base[v]`(delta);转换器此前直接输出 `raw+base`,JSON 加载时**再次** `+= base` → 无变形时顶点整体 2 倍(diaoyu1 画面错位)。修复:序列化非加权帧输出 `raw - base`(`serializeFrameArgs(name, r, curve, format, baseVertices)` 接收 `baseVertices`,DeformTimeline 分支取 `att.vertices`)。`⚠️` 变形帧的 `deform` 是 **Float32Array**(由 `newFloatArray` 生成),`raw.map(...)` 仍返回 Float32Array,而 `Array.isArray(Float32Array)===false` → `roundObj` 把它当普通对象遍历索引 → JSON 输出成 `{"0":..,"1":..}` 对象(Spine 解析失败,diaoyu1 的 Attack/diaoyu_9 帧即此现象)。必须用 `Array.from(raw, (v,i)=>v-base[i])` 转普通数组;`roundObj` 同步加 TypedArray 兜底(任何 TypedArray 先 `Array.from`)。
+- 排查:播放采样发现世界坐标全 NaN(此前 _diag_anim 的"0 差异"是 NaN 对 NaN 假象);A/B 二进制 vs JSON 帧全一致 → 定位 curves;再发现 IK order。
+- 实测:三文件转换 → 加载 → 播放全部正常,dazuo1 二进制 vs json 播放 13 帧差异 **0.00003(亚像素)**;diaoyu1.skel(3.8.84,72 骨骼/47 槽)转换后 51 个 DeformTimeline 帧 `vertices` 全部为普通数组(无 Object),Attack 动画 diaoyu_9 变形帧顶点坐标正确(如 `[0,0,0,0,0.65,...]`),2 倍放大与 JSON 解析失败均消除。
+- ⚠️ 教训:① 3.8 与 4.x 的 JSON 曲线格式不同(curve 单值+c2/c3/c4 vs 数组);② 约束 order 决定应用顺序,必须序列化;③ NaN 对比 NaN 差异为 0,诊断播放保真必须先排除 NaN;④ 空动画(0 时间线)在 Spine 中合法,须保留。
+
+
+## 2026-08-13
+
+### [修复] 发布 v1.9.69：skel→json 转换偶发失败("Offset is outside the bounds of the DataView")——Buffer 池 byteOffset 坑
+- 报障:部分 .skel(如 `E:/backup/游戏场景/异兽灵境/res/game_100073549/spine_groups/257/257.skel`,3.8.84、3 骨骼/3 槽/45 region 附件)转换报 `Offset is outside the bounds of the DataView` / `frameCount must be > 0: 0`;而 dazuo1.skel(48KB)等一直正常。用户提供 257.json(8月5日生成、能播放)作参考,问当时用的什么方法。
+- 根因:**vendored 3.8(及 4.x)的 `BinaryInput` 构造用 `new DataView(data.buffer)`,不处理 `Buffer.byteOffset`**。Node `fs.readFileSync` 的**小文件来自内部 Buffer 池**(byteOffset≠0、ArrayBuffer 比实际大),DataView 从 ArrayBuffer 开头(0)读 → 整份骨架错位 → 越界;大文件(>Buffer 池阈值)独立分配 byteOffset=0 故正常。**随机性**:同一文件有时成功有时失败(取决于当时池分配),用户"之前转换正常、现在不行"正是此因——之前那次恰好独立分配。
+- 排查方法:手动逐字节解析(发现大端 float + region 附件结构正常,排除格式问题);A/B 测试发现同一文件结果不稳定 → 锁定 Buffer 池 byteOffset。
+- 修复(`electron/tools/skel.js` `skelToJson` 入口):`fs.readFileSync` 后**拷贝到精确大小的新 Uint8Array**(`bytes.set(srcBuf)`,新 ArrayBuffer 精确长度、byteOffset=0)再解析;3.x/4.x 两分支共用。
+- 实测:257.skel 连续转换 10 次全 OK;与原 257.json 结构一致(3/3/3 槽/eff_ls 15 附件);二进制直读 vs 新 json 播放 13 帧世界坐标最大差异 **0**。预览端(fetch arrayBuffer)无此坑。
+- ⚠️ 教训:Node 小文件 Buffer 来自池(byteOffset≠0),任何 `new DataView(buf.buffer)` 而未带 byteOffset/byteLength 的解析代码都可能随机错位;传第三方解析器前先拷贝到精确 ArrayBuffer。这也是 _diag_anim.js 的诊断坑,已同步修复。
+
+
+## 2026-08-13
+
+### [修复] 发布 v1.9.68：首页目录快捷入口真正进入目录(按目录类型标签切换分组)
+- 报障:v1.9.67 后点首页「目录快捷入口」仍进不去目录;期望:进入该目录,并按目录勾选的资源类型标签显示(多标签取第一个有效分组)。
+- 根因:v1.9.67 只补齐了 `onOpenCat` 命名,但实现**没切换 resourceTab**。`renderMainArea` 中 `resourceTab='home'/'all'` 永远走全局主页分支,`currentCategoryId` 被设置也无效 → 点击后页面不变,看起来"无反应"。侧栏点目录(ui.js renderCatNode click)的正确路径是先 `setResourceTab(lastFolderTab || 'anim')` 再渲染。
+- 修复(`src/ui.js` 全局主页分支 onOpenCat):补上与侧栏一致的导航——`clearOverlays()` + 置 currentCategoryId/lastCategoryId + **按目录类型标签切换分组**:`categoryTypeTags(cat).find(t => TYPE_GROUPS[t])`(勾选顺序第一个有效分组:anim/image/audio/3d/fgui;video/article 无对应分组自动跳过)→ 无标签或无可映射标签时回退 `lastFolderTab || 'anim'`;再 expandedCats.add + renderMainArea/renderCategories。
+- ui.js 顶部补 `TYPE_GROUPS` import。
+- 逻辑验证:['anim']→anim;['image','anim']→image(第一个);['video','article']→回退;[]→回退。
+- ⚠️ 教训:从首页进目录是「先切 tab 再进目录」的两步导航,只设置 currentCategoryId 不会改变 renderMainArea 的分支;全局主页/类型主页/目录页三处 onOpenCat 必须与侧栏点击逻辑保持一致。
+
+
+## 2026-08-13
+
+### [修复] 发布 v1.9.67：资源首页「目录快捷入口」点击无反应
+- 报障:首页(全局主页)「📁 目录快捷入口」点击目录无反应,进不到目录;类型主页/目录页的目录入口正常。
+- 根因:`src/ui.js` 全局主页分支(resourceTab='home'/'all')传给 `renderHomePage` 的 actions 用的是旧命名 **`onQuickCat`**,而 `src/pages/homePage.js` 点击委托(`data-act='cat'`)调用的唯一入口是 **`onOpenCat`** → 全局主页上 `actions.onOpenCat` 为 undefined,`actions.onOpenCat && ...` 静默短路 → 无反应。`onQuickCat` 在整个代码库无任何调用方(死代码),类型主页/目录页均传 `onOpenCat` 故正常。
+- 修复:`ui.js` 全局主页分支改传 `onOpenCat`(逻辑与类型主页一致:置 currentCategoryId + lastCategoryId + 展开 + 重渲染),删除冗余的 `onQuickCat`;`homePage.js` 契约注释同步更正。
+- ⚠️ 教训:事件委托的 action 命名必须与消费方(homePage.js)一一对应;遗留旧命名(如 onQuickCat)不会报错,只会在特定页面静默失效,排查"点击无反应"先核对 `actions.xxx && actions.xxx()` 是否存在。
+
+
+## 2026-08-13
+
+### [优化] 发布 v1.9.66：skel→json 输出改为紧凑格式,体积缩小约 75%
+- 报障:转换出的 .json 带缩进、数值为 float64 全精度(如 `236.9600067138672`),体积大;参考早期转换的 `yl_4004.json`(Spine 风格紧凑格式,数值 6 位小数)体积小很多且播放正常。
+- 改动(`electron/tools/skel.js`):
+  - 新增 `trimNum()`(裁剪到 6 位小数,清 -0)与 `roundObj()`(递归裁剪整个对象树,统一覆盖坐标/时间/曲线/顶点/变形帧);
+  - 输出由 `JSON.stringify(jsonObj, null, 2)` 改为 `JSON.stringify(roundObj(jsonObj))`(无缩进紧凑输出)。
+- 实测:dazuo1.skel(3.8.84,100 骨骼/41 槽/41 网格/Idle)转出 json **396,969 B → 98,889 B(≈ -75%)**,数值格式与 yl_4004.json 一致(如 485.590515、23.950001)。
+- 保真验证:二进制直读 vs 转换 JSON 在同一 3.8 运行时播放 13 帧,逐槽位世界坐标最大差异 **0.00003(3e-5,亚像素级)**,附件/顶点/骨骼数据零差异——紧凑裁剪对播放完全无损。
+- ⚠️ 经验:3.8 运行时二进制解析的坐标是 float32 提升 float64 的尾数噪声,直接写出既撑体积又无精度收益;裁剪到 1e-6 是体积与精度的最优平衡。
+
+
+## 2026-08-13
+
+### [修复] 发布 v1.9.65：skel→json 转换的 3.x 加权网格与 deform 预览报错
+- 报障:`dazuo1.skel` 转换出的 `dazuo1.json` 预览报 `Spine 3.8 运行时解析失败: Deform attachment not found: undefined`(目录已有 .atlas/.png)。
+- 根因(`electron/tools/skel.js` `serializeAttachment`):对 3.x 加权网格写出 4.x 形态的 `type:"weightedmesh"` + 独立 `bones/weights/vertices` 三数组。而 3.8 的 `SkeletonJson.readAttachment` **不识别 weightedmesh/skinnedmesh 类型** → 返回 null → 附件被跳过 → 皮肤缺附件 → deform 时间线 `skin.getAttachment` 查不到 → 抛错。
+- 修复(转换器):`serializeAttachment(att, format)` 增加 3.x 分支 —— 加权网格统一 `type:'mesh'`,顶点**内联**为 3.8 格式 `[boneCount, boneIdx, x, y, w, ...]`(新 `interleaveWeighted()`);4.x 输出保持不变。
+- 修复(预览端双保险):`src/preview/spine38Player.js` 新增 `normalizeWeightedMeshTypes()`,加载 3.x JSON 前把历史转换器/第三方产出的 `weightedmesh/skinnedmesh` 归一化为 3.8 可读格式(兼容 vertices 已内联与独立 weights 两种形态),**旧文件无需重新转换**。
+- 实测:重新转换 dazuo1.skel(3.8.84)→ 41 附件全部 `type:'mesh'`,3.8 运行时加载 OK,`dazuo4/dazuo5` deform 正常解析;旧格式 JSON 经归一化后同样加载 OK。
+- ⚠️ 教训:3.x 与 4.x 的 JSON 附件格式不同(类型名/顶点布局),转换器必须按 `format` 分别序列化;3.8 运行时 `readAttachment` 对未知类型静默返回 null,表现为"附件丢失"而非直接报错,排查时注意对比皮肤附件与 deform 引用。
+
+
 ## 2026-08-12
+
+### [修复] 发布 v1.9.64：打包缺失 vendor 导致 SKEL→JSON 转换失败
+- 报障:v1.9.63 打包后,右键「转换成源格式(JSON)」对 .skel 报 `转换失败:ENOENT, vendor\spine38\spine-core.js not found in ...\app.asar`。
+- 根因:`build.files` 白名单仅含 `dist/**`、`electron/**`、`package.json`,根目录 `vendor/`(含 `vendor/spine38/spine-core.js`)未被打进 `app.asar`;`electron/tools/skel.js` 的 `resolveSpine38Path()` 三个候选路径全部落空,`fs.readFileSync` 抛 ENOENT。
+- 修复:`package.json` 的 `build.files` 增加 `"vendor/**"`,使 `vendor/spine38/spine-core.js` 随应用打包进 `app.asar`,候选路径 1(`__dirname/../../vendor/...`)在开发态与打包态均可正确定位。
+
 
 ### [新增] 发布 v1.9.63：动画资源右键「转换成源格式」
 - 需求:.sk / .skel 动画资源右键菜单增加「转换成源格式」,一键转出可编辑的源格式文件。

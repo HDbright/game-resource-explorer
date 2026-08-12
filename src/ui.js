@@ -10,7 +10,7 @@ import {
   addFavItem, removeFavItem, moveFavItem, favCategoryById,
   reorderFavCategory,
   favLocations, isFavored,
-  TYPE_LABEL, typeGroup, formatSize,
+  TYPE_LABEL, TYPE_GROUPS, typeGroup, formatSize,
   CAT_TYPE_TAG_LABELS, CAT_TYPE_TAGS, categoryTypeTags, categoryTypeTagNames, catVisibleInGroup,
   getCategoryPathList, getFolderData, sortItems,
   setResourceTab, setListViewMode, setListSort,
@@ -3285,9 +3285,16 @@ export function renderMainArea() {
         setSetting('lastCategoryId', 'all');
         renderMainArea(); renderCategories(); syncTabs();
       },
-      onQuickCat: (catId) => {
+      // 全局主页目录快捷入口(data-act='cat' → onOpenCat):
+      // 必须先把 resourceTab 切到「该目录勾选的类型分组」(无标签→lastFolderTab;多标签→第一个有效分组),
+      // 否则 renderMainArea 仍走全局主页分支,点击无效。侧栏点目录也是同样逻辑(ui.js renderCatNode click)。
+      onOpenCat: (catId) => {
+        const cat = categoryById(catId);
+        clearOverlays();
         currentCategoryId = catId;
         setSetting('lastCategoryId', catId);
+        const group = categoryTypeTags(cat).find((t) => TYPE_GROUPS[t]) || lastFolderTab || 'anim';
+        setResourceTab(group);
         expandedCats.add(catId);
         renderMainArea(); renderCategories();
       },

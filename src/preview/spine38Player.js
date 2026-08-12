@@ -48,6 +48,56 @@ function normalizeAnimConstraints(obj) {
 }
 
 /**
+ * 3.x 兼容:把 4.x 风格的加权网格附件归一化为 3.8 可读格式。
+ *
+ * 旧版「skel→json」转换器(≤v1.9.64)对 3.x 加权网格会写出 4.x 形态:
+ *   type:"weightedmesh" + 独立 bones/weights/vertices 三数组(vertices 为纯位置)。
+ * 而 3.8 的 SkeletonJson.readAttachment 不识别 weightedmesh/skinnedmesh 类型 → 返回 null →
+ * 附件被跳过 → 皮肤缺附件 → deform 时间线抛 "Deform attachment not found: undefined"。
+ * 这里统一改为:type='mesh',vertices 内联 [boneCount, boneIdx, x, y, w, ...](3.8 readVertices 格式)。
+ * 同时兼容旧转换器的混合形态(vertices 已是 [x,y,w,...]、weights 为空)。
+ * @param {object} obj 解析后的骨架 JSON
+ */
+function normalizeWeightedMeshTypes(obj) {
+  const skins = obj && obj.skins;
+  if (!skins) return;
+  const list = Array.isArray(skins) ? skins : Object.values(skins);
+  for (const skin of list) {
+    if (!skin || typeof skin !== 'object') continue;
+    const atts = (skin.attachments && typeof skin.attachments === 'object') ? skin.attachments : skin;
+    for (const slotName of Object.keys(atts)) {
+      const slotAtts = atts[slotName];
+      if (!slotAtts || typeof slotAtts !== 'object') continue;
+      for (const attName of Object.keys(slotAtts)) {
+        const m = slotAtts[attName];
+        if (!m || typeof m !== 'object' || typeof m.type !== 'string') continue;
+        if (m.type !== 'weightedmesh' && m.type !== 'skinnedmesh') continue;
+        m.type = 'mesh';
+        const bones = Array.isArray(m.bones) ? m.bones : [];
+        const pos = Array.isArray(m.vertices) ? m.vertices : [];
+        const ws = Array.isArray(m.weights) && m.weights.length ? m.weights : null;
+        const merged = [];
+        let pi = 0;
+        let wi = 0;
+        for (let i = 0; i < bones.length; ) {
+          const bc = bones[i++];
+          merged.push(bc);
+          for (let j = 0; j < bc && i < bones.length; j++) {
+            merged.push(bones[i++]); // 骨骼索引
+            merged.push(pos[pi++]); // x
+            merged.push(pos[pi++]); // y
+            merged.push(ws != null ? ws[wi++] : pos[pi++]); // w
+          }
+        }
+        m.vertices = merged;
+        delete m.bones;
+        delete m.weights;
+      }
+    }
+  }
+}
+
+/**
  * 归一化 draworder(绘制顺序)时间线里的 offset 为有符号 32 位整数。
  *
  * 部分「二进制 .skel → JSON」转换工具(以及个别游戏原始 JSON)会把
@@ -218,6 +268,10 @@ export class Spine38Player {
           }
           jsonObj.skins = skins;
         }
+        // 3.x 兼容:4.x 风格的 weightedmesh/skinnedmesh → 3.8 的 mesh + 内联顶点
+        // (旧版转换器输出的加权网格若不归一化,3.8 readAttachment 不识别该类型 →
+        // 附件丢失 → deform 报 "Deform attachment not found")。
+        normalizeWeightedMeshTypes(jsonObj);
         // 约束时间线容错:部分「二进制 .bin → JSON」转换工具会把 ik/transform/path 写成
         // 数组形式 [ {约束名: 帧对象|帧数组} ] 或「单帧对象」;运行时按对象 {约束名: [帧...]}
         // 遍历会得到 length=undefined → 空时间线 → duration=NaN 抛
