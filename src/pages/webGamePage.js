@@ -1050,6 +1050,8 @@ export function renderWebGamePage(container, opts = {}) {
     });
   };
   const addWebBookmarkDialog = (currentUrl) => {
+    // 主动隐藏网页原生视图(避免弹窗瞬间被其遮挡/闪现); 关闭后由 modal-root 监听器恢复
+    window.api.webSetBounds({ width: 0, height: 0 });
     const cats = allWebBookmarkCats();
     const cur = (curBmCat && curBmCat !== 'all' && cats.some((c) => c.id === curBmCat)) ? curBmCat : (cats.length ? cats[0].id : '');
     const fields = [
@@ -1206,9 +1208,27 @@ export function renderWebGamePage(container, opts = {}) {
   };
   // 离开页面时: 浏览器视图迁入独立悬浮窗(可拖拽/最小化/关闭), 防止遮挡其它页; 同步隐藏独立预览窗
   container._webGameDetach = () => {
+    // 断开弹窗遮挡监听(避免离开抓取页后仍在全局响应)
+    if (container._webGameModalObserver) { try { container._webGameModalObserver.disconnect(); } catch (e) {} container._webGameModalObserver = null; }
     window.api.webPreviewHide();
     window.api.webFloatOut();
   };
+  // 弹窗遮挡修复: 抓取页任意通用弹窗(promptDialog/确认框)打开时, 原生 WebContentsView 会盖住 DOM 浮层,
+  // 故监听 #modal-root: 有 .modal-mask 则隐藏网页视图, 全部关闭后由 _webGameSyncBounds 恢复(受面板状态约束)。
+  const modalRootEl = document.getElementById('modal-root');
+  if (modalRootEl) {
+    const syncWebForModal = () => {
+      const hasModal = !!modalRootEl.querySelector('.modal-mask');
+      if (hasModal) {
+        window.api.webSetBounds({ width: 0, height: 0 }); // 隐藏原生网页视图, 让 DOM 弹窗可见可点
+      } else {
+        container._webGameSyncBounds && container._webGameSyncBounds(); // 恢复(收藏夹面板仍保持隐藏)
+      }
+    };
+    const mo = new MutationObserver(syncWebForModal);
+    mo.observe(modalRootEl, { childList: true, subtree: true });
+    container._webGameModalObserver = mo;
+  }
 
   // ---- 初始化: 恢复历史 URL / 输出目录 / 捕获记录 ----
   const init = async () => {

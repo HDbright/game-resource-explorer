@@ -9,6 +9,11 @@
 
 ## 2026-08-12
 
+### [修复] 发布 v1.9.41：特殊页设置入口失效 + 网页收藏对话框被遮挡
+
+- 修复: 在「资源工具箱 / 开发工具箱(API) / 网络资源抓取」页面点击「设置」按钮或「系统设置」菜单无法切换到设置页。根因 openSettings 未重置 toolboxHomeShown/fguiEditorShown/webGameShown/apiDocShown 等标志, 而 renderMainArea 这些分支在 settings 判断前 return。现已在 openSettings 重置全部覆盖式标志(并捕获到 settingsReturn 供关闭恢复), webGameShown 时先 _webGameDetach 隐藏原生视图; closeSettings 恢复全部标志并对 webGameShown 调 webFloatBack 还原内嵌视图。
+- 修复: 网络资源抓取页点击「收藏」弹出的网页收藏对话框被网页显示区域(原生 WebContentsView, 始终压在 DOM 之上)遮挡。新增 #modal-root 的 MutationObserver: 任意 .modal-mask 出现时 webSetBounds({width:0,height:0}) 隐藏网页视图, 全部关闭后由 _webGameSyncBounds 恢复; 离开页面时断开 observer。addWebBookmarkDialog 入口主动预隐藏以消闪现。
+
 ### [优化] 发布 v1.9.40：悬浮折叠比例调整、侧栏/资源树按钮改为纯图标
 
 - 手动「将标签页移至新窗口」后浏览器区与侧栏比例从 0:100 调整为 1%:99%(保留极窄浏览器区+分隔条)

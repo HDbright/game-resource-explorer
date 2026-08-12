@@ -2871,17 +2871,33 @@ function showPage(pageId) {
 
 /** 打开系统设置页(保存当前主区状态,关闭后恢复) */
 export function openSettings() {
+  // 先隐藏网页抓取原生视图(WebContentsView 是原生叠加层, 不隐藏会被它盖住设置页)
+  if (webGameShown) {
+    const pageEl = document.getElementById('page-webgame');
+    if (pageEl && pageEl._webGameDetach) pageEl._webGameDetach();
+  }
   settingsReturn = {
     currentTool,
+    toolboxHomeShown,
+    fguiPreviewShown,
+    fguiEditorShown,
     sceneHomeShown,
     currentSceneCatId,
+    webGameShown,
+    apiDocShown,
     favHomeShown,
     currentFavCategoryId,
     lastFolderTab,
   };
+  // 清空所有覆盖式页面状态, 让 renderMainArea 能分发到 settings 分支
   currentTool = null;
+  toolboxHomeShown = false;
+  fguiPreviewShown = false;
+  fguiEditorShown = false;
   sceneHomeShown = false;
   currentSceneCatId = null;
+  webGameShown = false;
+  apiDocShown = false;
   favHomeShown = false;
   currentFavCategoryId = null;
   settingsShown = true;
@@ -2894,12 +2910,21 @@ export function closeSettings() {
   settingsShown = false;
   if (settingsReturn) {
     currentTool = settingsReturn.currentTool;
+    toolboxHomeShown = settingsReturn.toolboxHomeShown;
+    fguiPreviewShown = settingsReturn.fguiPreviewShown;
+    fguiEditorShown = settingsReturn.fguiEditorShown;
     sceneHomeShown = settingsReturn.sceneHomeShown;
     currentSceneCatId = settingsReturn.currentSceneCatId;
+    webGameShown = settingsReturn.webGameShown;
+    apiDocShown = settingsReturn.apiDocShown;
     favHomeShown = settingsReturn.favHomeShown;
     currentFavCategoryId = settingsReturn.currentFavCategoryId;
     lastFolderTab = settingsReturn.lastFolderTab;
     settingsReturn = null;
+  }
+  // 若之前在网页抓取页, 还原被浮出的原生视图(回到主窗口内嵌)
+  if (webGameShown) {
+    try { window.api.webFloatBack(); } catch (e) { /* ignore */ }
   }
   renderMainArea();
   renderCategories();
