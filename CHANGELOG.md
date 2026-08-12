@@ -3,11 +3,21 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.54`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.55`）。
 
 ---
 
 ## 2026-08-12
+
+### [新增] 发布 v1.9.55：图片图集拆分浏览/导出 + 侧栏默认折叠
+- **侧栏默认折叠**:`src/ui.js` 的 `expandedCats` 初始 Set 移除 `__webgame__`/`__devtools__`,「网络资源抓取」与「开发工具箱」两个菜单默认折叠(可展开);「网址收藏夹」保持默认展开。
+- **图片图集拆分**(新模块 `src/atlasView.js`):图片资源带同名 `.atlas`(如 `foo.png` 配 `foo.atlas`/`foo.png.atlas`)时——
+  - 图片预览页头部显示「🗂 图集」徽标与「图集拆分」按钮。
+  - 右键菜单新增「拆分浏览 / 查看原图 / 拆分图集」;双击(打开)带图集的图片默认进入「拆分浏览」页,`查看原图` 走 `selectItem(id, {forceRaw:true})`。
+  - 「拆分浏览」页(独立标签 `#page-atlas`,kind `atlas`):按 .atlas 区域名列出每张单图缩略图 + 计算尺寸(旋转区域宽高交换,标注 ⟳);右键单图 → 「保存图片」按 .atlas 名称导出。
+  - 「拆分图集」按 .atlas 数据把整张图集拆成独立 PNG,保存到以图集图片命名的目录(`<图集目录>/<图片名>/<区域名>.png`),完成后自动打开该目录。
+  - 解析/提取支持 Spine/TexturePacker 图集,`rotate` 兼容 true/false 与 90/180/270(提取时逆时针还原);`fs:writeFileBase64` 自动建父目录。
+- 多标签集成:`applyTabState`/`syncTabFromState` 新增 `atlas` 分支;`clearOverlays` 及各主页/类型标签导航统一复位 `atlasShown`,避免切走后误留图集页。
 
 ### [新增] 发布 v1.9.54：资源工具箱新增「图片集打包」模块(参考 OpenPacker)
 - 在资源工具箱 (`src/pages/toolboxPage.js`) 新增 `atlas` 工具:把多张图片合并为纹理图集/精灵表,功能对标 OpenPacker(free-tex-packer fork)。

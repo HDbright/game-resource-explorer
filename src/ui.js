@@ -41,6 +41,7 @@ import { FguiViewerController } from './viewers/fguiViewer.js';
 import { thumbnailService } from './thumbnails.js';
 import { makeCopyablePath, setCopyablePath } from './clipboard.js';
 import { loadSearchHistory, saveSearchHistory, addSearchHistory, removeSearchHistory } from './searchHistory.js';
+import { findAtlasForImage, renderAtlasViewerPage, splitAtlasToFiles } from './atlasView.js';
 
 let currentCategoryId = 'all';
 let searchText = '';
@@ -70,6 +71,8 @@ let settingsShown = false; // 右侧是否显示系统设置页
 let settingsReturn = null; // 打开设置前的主区状态快照,关闭后恢复
 let webGameShown = false; // 网络资源抓取页是否显示
 let apiDocShown = false; // 开发工具箱 API 管理页是否显示
+let atlasShown = false; // 图片图集拆分浏览页是否显示
+let currentAtlasItemId = null; // 当前图集拆分浏览页对应的图片资源 id
 
 // ---- 主区多标签页(资源/功能页标签,可切换/关闭) ----
 const mainTabs = []; // [{key, id, kind, params, label, icon}]
@@ -178,6 +181,12 @@ function applyTabState(t) {
     renderMainArea();
     return;
   }
+  if (t.kind === 'atlas') {
+    atlasShown = true;
+    currentAtlasItemId = t.params.itemId;
+    renderMainArea();
+    return;
+  }
   renderMainArea();
 }
 
@@ -225,6 +234,11 @@ function syncTabFromState() {
     const it = itemById(preview.currentItemId);
     if (it) {
       tab = ensureTab(`preview-${it.id}`, { kind: 'preview', params: { itemId: it.id }, label: it.displayName || '', icon: previewTypeIcon(it.type) });
+    }
+  } else if (atlasShown && currentAtlasItemId) {
+    const it = itemById(currentAtlasItemId);
+    if (it) {
+      tab = ensureTab(`atlas-${it.id}`, { kind: 'atlas', params: { itemId: it.id }, label: (it.displayName || '') + ' · 图集', icon: '🗂' });
     }
   }
   if (tab) { activeTabId = tab.id; renderTabStrip(); return; }
@@ -364,7 +378,7 @@ export function initUI(pv) {
 
 // ---------------- 资源树(分类 + 条目合并) ----------------
 
-const expandedCats = new Set(['__webgame__', '__webgame_fav__', '__devtools__']); // 展开的分类 id('all' / '' / 分类id);「XX资源」根默认折叠, 网络资源抓取/网址收藏夹/开发工具箱默认展开(可折叠)
+const expandedCats = new Set(['__webgame_fav__']); // 展开的分类 id('all' / '' / 分类id);「XX资源」根默认折叠; 网络资源抓取(__webgame__)与开发工具箱(__devtools__)默认折叠(可展开); 网址收藏夹(__webgame_fav__)默认展开(展开父节点后可见)
 
 let dragCatId = null;    // 当前拖拽中的分类 id
 let dragItemId = null;   // 当前拖拽中的条目 id
@@ -1169,6 +1183,8 @@ function clearOverlays() {
   currentFavCategoryId = null;
   webGameShown = false;
   apiDocShown = false;
+  atlasShown = false;
+  currentAtlasItemId = null;
 }
 
 // ---- 场景分类/场景条目 操作对话框 ----
@@ -2300,7 +2316,7 @@ function renderItemNode(it) {
 }
 
 /** 条目右键菜单;编辑模式多选时 → 批量操作菜单(标签/移动/收藏/删除) */
-function openItemMenu(x, y, it) {
+async function openItemMenu(x, y, it) {
   // 编辑模式:右键作用于选中集(右键未选中项 → 先单选它)
   if (editModeActive) {
     if (!editSelected.has(it.id)) {
@@ -2319,14 +2335,20 @@ function openItemMenu(x, y, it) {
     return;
   }
   // 单条目菜单
-  const firstLabel = it.type === 'image' ? '预览' : '播放';
+  const hasAtlas = it.type === 'image' ? await findAtlasForImage(it) : null;
+  const firstLabel = it.type === 'image' ? (hasAtlas ? '拆分浏览' : '预览') : '播放';
   const items = [
-    { label: firstLabel, onClick: () => selectItem(it.id) },
+    { label: firstLabel, onClick: () => (hasAtlas ? openAtlasViewer(it) : selectItem(it.id)) },
     { label: '打开目录', onClick: () => window.api.showItem(it.filePath) },
     { label: '编辑', onClick: () => editItemDialog(it.id) },
     { label: '重命名', onClick: () => renameItemDialog(it) },
     { label: '移动到...', onClick: () => moveItemDialog(it) },
   ];
+  // 图片图集(同名 .atlas):拆分浏览/查看原图/拆分图集(导出单图)
+  if (hasAtlas) {
+    items.push({ label: '查看原图', onClick: () => selectItem(it.id, { forceRaw: true }) });
+    items.push({ label: '拆分图集', onClick: () => splitAtlasToFiles(it) });
+  }
   // 音频资源:可添加到指定播放列表
   if (it.type === 'audio') {
     items.push({ label: '添加到播放列表...', onClick: () => addToPlaylistDialog([it.filePath]) });
@@ -2863,6 +2885,7 @@ function showPage(pageId) {
     'audio-home': document.getElementById('page-audio-home'),
     webgame: document.getElementById('page-webgame'),
     api: document.getElementById('page-api'),
+    atlas: document.getElementById('page-atlas'),
   };
   for (const [k, el] of Object.entries(pages)) {
     if (el) el.hidden = k !== pageId;
@@ -3068,6 +3091,23 @@ export function renderMainArea() {
     });
     renderBreadcrumb();
     return;
+  }
+
+  // ---- 图片图集拆分浏览页(独立页) ----
+  if (atlasShown && currentAtlasItemId) {
+    const it = itemById(currentAtlasItemId);
+    if (it) {
+      showPage('atlas');
+      renderAtlasViewerPage(document.getElementById('page-atlas'), {
+        itemId: it.id,
+        onBack: () => selectItem(it.id, { forceRaw: true }),
+        onOpenImage: () => selectItem(it.id, { forceRaw: true }),
+      });
+      renderBreadcrumb();
+      return;
+    }
+    atlasShown = false;
+    currentAtlasItemId = null;
   }
 
   // 收藏夹主页
@@ -3331,6 +3371,8 @@ function bindTabs() {
     currentSceneCatId = null;
     fguiPreviewShown = false;
     pendingFguiBin = null;
+    atlasShown = false;
+    currentAtlasItemId = null;
     renderMainArea();
     renderCategories();
     syncTabs();
@@ -3362,6 +3404,8 @@ function bindBrandHome() {
       fguiPreviewShown = false;
       pendingFguiBin = null;
       apiDocShown = false;
+      atlasShown = false;
+      currentAtlasItemId = null;
       renderMainArea();
       renderCategories();
       syncTabs();
@@ -3611,11 +3655,37 @@ function showPreviewPage(item) {
   const pathEl = document.getElementById('pv-path');
   setCopyablePath(pathEl, item.filePath);
   document.getElementById('pv-version').textContent = '';
+  // 图集徽标/按钮默认隐藏(showImageViewer 检测到 .atlas 时再显示)
+  const atlasBadge = document.getElementById('pv-atlas-badge');
+  if (atlasBadge) atlasBadge.hidden = true;
+  const atlasOpen = document.getElementById('pv-atlas-open');
+  if (atlasOpen) atlasOpen.hidden = true;
 }
 
-export async function selectItem(id) {
+/** 打开图片图集拆分浏览页(独立标签) */
+function openAtlasViewer(item) {
+  atlasShown = true;
+  currentAtlasItemId = item.id;
+  preview.currentItemId = null; // 不再处于普通预览
+  // 记录最近打开(首页展示与再次打开)
+  recordRecentOpen({ name: item.displayName || '', path: item.filePath, type: item.type, tab: typeGroup(item.type), itemId: item.id });
+  setSetting('lastItemId', item.id);
+  ensureTab(`atlas-${item.id}`, { kind: 'atlas', params: { itemId: item.id }, label: (item.displayName || '') + ' · 图集', icon: '🗂' });
+  renderMainArea();
+}
+
+export async function selectItem(id, opts = {}) {
+  const { forceRaw = false } = opts;
   const item = itemById(id);
   if (!item) return;
+  // 清除图集拆分浏览态(切回普通预览/目录)
+  atlasShown = false;
+  currentAtlasItemId = null;
+  // 图片带同名 .atlas → 默认进入图集拆分浏览(双击/打开行为);forceRaw 时查看原图
+  if (item.type === 'image' && !forceRaw) {
+    const hasAtlas = await findAtlasForImage(item);
+    if (hasAtlas) { openAtlasViewer(item); return; }
+  }
   // 打开资源 = 新建/激活预览标签
   // 设置「打开同类型资源时新开标签页」: 开 → 每个资源独立标签(默认); 关 → 同类型复用当前预览标签(替换内容,不再堆叠)
   const newTab = !!(state.settings && state.settings.openSameTypeNewTab);
@@ -3730,6 +3800,17 @@ async function showImageViewer(item) {
       errEl.textContent = '图片加载失败:' + (err.message || err);
     }
     throw err;
+  }
+  // 检测同名 .atlas 图集:显示「图集」徽标与「图集拆分」按钮
+  const hasAtlas = await findAtlasForImage(item).catch(() => null);
+  if (hasAtlas) {
+    const badge = document.getElementById('pv-atlas-badge');
+    if (badge) badge.hidden = false;
+    const openBtn = document.getElementById('pv-atlas-open');
+    if (openBtn) {
+      openBtn.hidden = false;
+      openBtn.onclick = () => openAtlasViewer(item);
+    }
   }
 }
 

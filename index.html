@@ -91,11 +91,13 @@
               <div class="ph-left">
                 <button class="btn sm" id="pv-back" title="返回目录列表">← 返回</button>
                 <span class="type-badge" id="pv-type"></span>
+                <span class="type-badge atlas-badge" id="pv-atlas-badge" hidden title="该图片带同名 .atlas 图集">🗂 图集</span>
                 <span class="pv-name" id="pv-name"></span>
                 <span class="pv-version" id="pv-version"></span>
                 <span class="pv-path" id="pv-path" title=""></span>
               </div>
               <div class="ph-right">
+                <button class="btn sm" id="pv-atlas-open" hidden title="进入图集拆分浏览">🗂 图集拆分</button>
                 <button class="btn sm" id="pv-open-dir">打开目录</button>
                 <button class="btn sm" id="pv-reload">重新加载</button>
               </div>
@@ -297,6 +299,8 @@
         <div class="page page-webgame" id="page-webgame" hidden></div>
         <!-- 开发工具箱:API 管理(内嵌 api-doc.html) -->
         <div class="page page-api" id="page-api" hidden></div>
+        <!-- 图片图集拆分浏览 -->
+        <div class="page page-atlas" id="page-atlas" hidden></div>
         <!-- 系统设置 -->
         <div class="page page-settings" id="page-settings" hidden></div>
       </section>
