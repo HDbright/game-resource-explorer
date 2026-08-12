@@ -3,11 +3,16 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.43`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.44`）。
 
 ---
 
 ## 2026-08-12
+
+### [修复] 发布 v1.9.44：收藏对话框去标题栏 + 新建目录改原生窗口 + 浮出后侧栏铺满
+- 收藏/编辑/删除/移动对话框去掉标题栏(frame:false + roundedCorners), 更轻量。
+- 「＋ 新建目录」按钮从 DOM promptDialog 改为独立原生窗口(复用 bookmarkDialog 'category' mode), 无标题栏, 弹窗时网页不再被收起变黑。
+- **浮出黑屏根因**: CSS `.floated-out { display:none }` 类切换在某些时序下不生效(分割线拖动写入 inline height/flexBasis 可能干扰)。现改为 JS 显式设 inline `display:none`(优先级最高), 同时保留 CSS 类作为备份。折叠时 browserScrollEl + splitEl 直接隐藏, .wg-side(flex:1) 占满; 还原时清除 inline display 让分割线记录的比例自动恢复。
 
 ### [修复] 发布 v1.9.43：手动「移至新窗口」后下方侧栏占满浏览器区
 - 根因: v1.9.40 手动浮出时把主窗口浏览器区压缩到 1%, 露出的空 DOM 容器(#wg-browser 本身为空, 真实网页在 WebContentsView 原生层)显示为黑色细条。

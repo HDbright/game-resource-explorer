@@ -595,9 +595,21 @@ export function renderWebGamePage(container, opts = {}) {
   // ---- 状态/捕获/进度事件 ----
   // 折叠浏览器区: 仅当「手动移至新窗口」浮出时(manual=true), 把主窗口浏览器区让给下方侧栏;
   // 其余浮出场景(切到其它模块)页面本就隐藏, 无需折叠。关闭悬浮窗(floatClose)→ state='back' 还原。
+  // ⚠️ 必须用 JS 显式设 inline display:none(不能仅靠 CSS .floated-out 类):
+  //   分割线拖动会给 .wg-browser-scroll 写 inline height/flexBasis, 且 WebContentsView 原生层
+  //   在该区域渲染黑色; 仅靠 CSS 类切换在某些时序下不生效, 导致上方残留黑屏。
   const applyFloatCollapse = (collapsed) => {
     const wrap = container.querySelector('.wg-wrap');
     if (wrap) wrap.classList.toggle('floated-out', !!collapsed);
+    if (collapsed) {
+      // 显式隐藏浏览器区与分隔条(inline 样式优先级最高, 确保覆盖分割线拖动写入的 style)
+      browserScrollEl.style.display = 'none';
+      splitEl.style.display = 'none';
+    } else {
+      // 还原: 清除 inline display, 让 CSS/分割线拖动重新控制布局
+      browserScrollEl.style.display = '';
+      splitEl.style.display = '';
+    }
   };
   window.api.onWebStatus((s) => {
     lastStatus = s.state || '';
@@ -1131,21 +1143,16 @@ export function renderWebGamePage(container, opts = {}) {
       if (!payload.catId) { toast('请选择目标分类', 'error'); return; }
       updateWebBookmark(payload.bmId, { categoryId: payload.catId });
       renderBookmarks(); refreshTree(); toast('已移动收藏网址');
+    } else if (m === 'category') {
+      const cn = (payload.catName || '').trim();
+      if (!cn) { toast('目录名称不能为空', 'error'); return; }
+      addWebBookmarkCategory({ name: cn, parentId: payload.parentId || '' });
+      renderBookmarks(); refreshTree(); toast('已创建收藏夹子目录');
     }
   });
   const addBookmarkCategoryDialog = () => {
     const parentId = (curBmCat && curBmCat !== 'all') ? curBmCat : '';
-    promptDialog({
-      title: '新建收藏夹子目录',
-      fields: [{ key: 'name', label: '目录名称', type: 'text', value: '' }],
-      onOk: ({ name }) => {
-        if (!name) return toast('目录名称不能为空', 'error');
-        addWebBookmarkCategory({ name, parentId });
-        renderBookmarks();
-        refreshTree();
-        toast('已创建收藏夹子目录');
-      },
-    });
+    window.api.webOpenBookmarkDialog({ mode: 'category', parentId });
   };
   // 收藏网址: 默认预填浏览器当前网址(网页已打开时), 否则可手动输入
   container.querySelector('#wg-bm-add-url').addEventListener('click', async () => {

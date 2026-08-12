@@ -29,10 +29,11 @@ function open(opts, parent) {
   resultSent = false;
 
   win = new BrowserWindow({
-    width: 440, height: 330, minWidth: 360, minHeight: 260,
-    title: '收藏网址', backgroundColor: '#23262e', autoHideMenuBar: true, show: false,
+    width: 440, height: opts && opts.mode === 'category' ? 200 : 330,
+    minWidth: 360, minHeight: opts && opts.mode === 'category' ? 160 : 260,
+    title: '', frame: false, backgroundColor: '#23262e', autoHideMenuBar: true, show: false,
     parent: (parent && !parent.isDestroyed()) ? parent : undefined,
-    modal: false,
+    modal: false, roundedCorners: true,
     webPreferences: {
       preload: path.join(__dirname, '../bookmarkDialogPreload.js'),
       contextIsolation: true,

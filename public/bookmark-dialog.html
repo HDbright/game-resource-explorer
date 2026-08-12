@@ -55,13 +55,27 @@
     document.getElementById('bm-title').textContent =
       mode === 'add' ? '收藏网址' :
       mode === 'edit' ? '编辑收藏网址' :
-      mode === 'delete' ? '删除收藏网址' : '移动收藏网址';
+      mode === 'delete' ? '删除收藏网址' :
+      mode === 'move' ? '移动收藏网址' : '新建收藏夹子目录';
     const okBtn = document.getElementById('bm-ok');
     okBtn.textContent = mode === 'delete' ? '删除' : '确定';
     okBtn.className = 'btn ' + (mode === 'delete' ? 'danger' : 'primary');
 
     if (mode === 'delete') {
       body.appendChild(el('div', { class: 'msg', text: '确定删除收藏网址「' + (opts.bmName || '') + '」?' }));
+      return;
+    }
+
+    if (mode === 'category') {
+      const row = el('div', { class: 'row' });
+      row.appendChild(el('label', { text: '目录名称' }));
+      const inp = el('input', { type: 'text', id: 'f-catname', value: opts.catName || '' });
+      row.appendChild(inp);
+      body.appendChild(row);
+      body.querySelectorAll('input[type=text]').forEach((i) => {
+        i.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doSubmit(); } });
+      });
+      setTimeout(() => { try { inp.focus(); } catch (e) {} }, 50);
       return;
     }
 
@@ -120,6 +134,12 @@
 
   function doSubmit() {
     if (mode === 'delete') { api.submit({ mode, bmId: opts.bmId }); return; }
+    if (mode === 'category') {
+      const name = (document.getElementById('f-catname').value || '').trim();
+      if (!name) { window.alert('目录名称不能为空'); return; }
+      api.submit({ mode, catName: name });
+      return;
+    }
     if (mode === 'move') {
       const sel = document.getElementById('f-cat');
       api.submit({ mode, bmId: opts.bmId, catId: sel ? sel.value : '' });
