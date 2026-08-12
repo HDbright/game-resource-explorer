@@ -2424,6 +2424,13 @@ async function openItemMenu(x, y, it) {
     items.push({ label: '查看原图', onClick: () => selectItem(it.id, { forceRaw: true }) });
     items.push({ label: '拆分图集', onClick: () => splitAtlasToFiles(it) });
   }
+  // 动画源格式转换:.sk → Spine JSON+ATLAS,.skel → Spine JSON(输出到源文件同目录)
+  if (it.type === 'spine' && it.filePath) {
+    const m = /\.([^.\\/]+)$/.exec(it.filePath);
+    const ext = m ? m[1].toLowerCase() : '';
+    if (ext === 'sk') items.push({ label: '转换成源格式(JSON+ATLAS)', onClick: () => convertSkToSource(it) });
+    else if (ext === 'skel') items.push({ label: '转换成源格式(JSON)', onClick: () => convertSkelToSource(it) });
+  }
   // 音频资源:可添加到指定播放列表
   if (it.type === 'audio') {
     items.push({ label: '添加到播放列表...', onClick: () => addToPlaylistDialog([it.filePath]) });
@@ -2434,6 +2441,34 @@ async function openItemMenu(x, y, it) {
     { label: '属性', onClick: () => itemPropertiesDialog(it) },
   );
   showContextMenu(x, y, items);
+}
+
+/** 右键菜单「转换成源格式」:.sk → 同目录 Spine .json + .atlas */
+async function convertSkToSource(it) {
+  const outJson = it.filePath.replace(/\.sk$/i, '.json');
+  toast(`正在将「${it.displayName}」转换为 Spine 源格式...`);
+  try {
+    const r = await window.api.sk2spine({ inputPath: it.filePath, outputPath: outJson });
+    if (!r || !r.ok) throw new Error((r && (r.error || r.reason)) || '转换失败');
+    toast(`转换完成:${r.jsonPath} + ${r.atlasPath}`);
+    window.api.showItem(r.jsonPath);
+  } catch (err) {
+    toast('转换失败:' + (err.message || err), 'error');
+  }
+}
+
+/** 右键菜单「转换成源格式」:.skel → 同目录 Spine .json */
+async function convertSkelToSource(it) {
+  const outJson = it.filePath.replace(/\.skel$/i, '.json');
+  toast(`正在将「${it.displayName}」转换为 JSON...`);
+  try {
+    const r = await window.api.skel2json({ inputPath: it.filePath, outputPath: outJson });
+    if (!r || !r.ok) throw new Error((r && r.error) || '转换失败');
+    toast(`转换完成:${r.output}(Spine ${r.version},${r.bones} 骨骼 / ${r.animations} 动画)`);
+    window.api.showItem(r.output);
+  } catch (err) {
+    toast('转换失败:' + (err.message || err), 'error');
+  }
 }
 
 /** 收藏夹上下文条目右键菜单(预览/打开目录/编辑/移动收藏分类/取消收藏/属性) */
