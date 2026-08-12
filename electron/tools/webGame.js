@@ -563,7 +563,7 @@ class WebGameView {
     let title = t.title || '';
     try { title = t.view.webContents.getTitle() || title; } catch (e) { /* ignore */ }
     try { fw.webContents.send('float:info', { title: title || t.url || '网页悬浮窗' }); } catch (e) { /* ignore */ }
-    this.emitStatus({ state: 'floated' });
+    this.emitStatus({ state: 'floated', manual: this._floatedManual });
     return { ok: true };
   }
 

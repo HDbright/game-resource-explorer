@@ -3,11 +3,16 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.45`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.46`）。
 
 ---
 
 ## 2026-08-12
+
+### [修复] 发布 v1.9.46：浮出后浏览器区黑屏(emitStatus 缺 manual 标志导致折叠从未执行)
+- **真因(经截图+代码追踪确认)**: `floatOut()` 第 566 行 `emitStatus({ state: 'floated' })` **缺少 `manual: this._floatedManual`** 参数。渲染端 `onWebStatus` 收到 `{state:'floated'}` 但 `s.manual` 为 undefined → `applyFloatCollapse(true)` **从未被调用** → 浏览器区 DOM 从未隐藏 + 原生视图从未归零。之前 v1.9.43/44/45 的 CSS/JS 修改全部无效, 因触发条件一直不满足。
+- **修复**: `floatOut()` 的 emitStatus 改为 `emitStatus({ state: 'floated', manual: this._floatedManual })`, 与 `floatRestore()` 保持一致。
+- **连锁修复生效**: 此修复让 v1.9.44 的 JS inline display:none(隐藏 DOM 容器) 和 v1.9.45 的原生视图 setBounds(0,0,0,0) 同时生效, 三版修复形成完整防护链。
 
 ### [修复] 发布 v1.9.45：浮出后浏览器区黑屏真因修复(原生视图归零)
 - **真因**: v1.9.43/44 的 CSS `display:none` + JS inline `display:none` 只隐藏了 DOM 容器, 但 **WebContentsView 原生视图仍附着在主窗口 contentView 上**。原生层永远叠于 DOM 之上 → 无论怎么隐藏 DOM, 原生视图仍在原位置渲染黑色矩形。
