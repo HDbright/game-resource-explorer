@@ -3,11 +3,17 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.58`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.59`）。
 
 ---
 
 ## 2026-08-12
+
+### [修复] 发布 v1.9.59：Laya .sk→Spine 转换后预览报 "Region not found in atlas: Hd 17"
+- 报障:v1.9.58 图集去重后,预览 hedao 报 `Region not found in atlas: Hd_17 (mesh attachment: Hd_17)`。
+- 根因:Spine 3.8 的 JSON 加载器(`SkeletonJson.readAttachment`)解析 mesh/skinnedmesh/region 附件时**只按 `path` 字段查 atlas region,`region` 字段被忽略**(`path = map.path ?? name`)。v1.9.58 去重只改了 `region` 字段没写 `path`,附件回退用自身名字查图集 → 被并入其他 region 的附件(Hd_17→Hd_10、Hd_16→Hd_15 等)查不到 → 报错。
+- 修复 `electron/tools/layaSk2Spine.js` `displayToAttachment`:mesh / skinnedmesh / region(图片)附件统一写 `path = disp._regionName || disp.attachmentName`(去重后的 region 名),与 `region` 字段一致。
+- 验证:用 vendored spine-core 3.8 复刻 app 的 skins 对象→数组兼容分支后真实加载 hedao.json+atlas —— LOAD OK(bones 10 / slots 20 / skins 1 / animations 1,无任何 Region not found);已重新生成 `E:\backup\webdown\闯词\骨骼动画\hedao.json/.atlas`,同步技能 `laya-sk-to-spine` 副本。
 
 ### [修复] 发布 v1.9.58：Laya .sk→Spine 转换图集出现重复区域 + mesh UV 错位
 - 用户报障:hedao.sk 转换出的 .atlas 里 Hd_2/Hd_5/Hd_19、Hd_3/Hd_12、Hd_7/Hd_15/Hd_16、Hd_9/Hd_14、Hd_10/Hd_17 出现重复(相同矩形)。

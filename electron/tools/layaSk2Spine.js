@@ -874,6 +874,7 @@ function displayToAttachment(disp, model) {
       // 拼装的骨骼权重元组。x',y' 已是相对各骨骼逆绑定姿态的偏移, boneIdx 为全局骨骼索引,
       // 直接对应输出骨架 bones 数组下标。
       const vCount = (disp.uvs.length / 2) | 0;
+      const regName = disp._regionName || disp.attachmentName;
       return {
         type: 'skinnedmesh',
         uvs: remapUvs(disp),
@@ -881,11 +882,13 @@ function displayToAttachment(disp, model) {
         vertices: buildSkinnedVertices(disp),
         hull: vCount,
         width: round3(disp.width), height: round3(disp.height),
-        // 必须显式指定 region(贴图集区域),否则 Spine 3.8 回退用附件名查 atlas → Region not found
-        // 用 assignRegionNames 分配的去重 region 名(多插槽共用同一纹理区域时指向同一 region)
-        region: disp._regionName || disp.attachmentName,
+        // ⚠️ Spine 3.8 JSON 加载器按「path」查 atlas region(region 字段被忽略):
+        // 必须写 path = 去重后的 region 名,否则回退用附件名查 → 被并入其他 region 的附件会 Region not found
+        path: regName,
+        region: regName,
       };
     }
+    const regName2 = disp._regionName || disp.attachmentName;
     return {
       type: 'mesh',
       uvs: remapUvs(disp),
@@ -894,10 +897,9 @@ function displayToAttachment(disp, model) {
       vertices: ((disp.vertices.length ? disp.vertices : disp.weights)).map((v) => round3(v)),
       hull: Math.min(8, ((disp.vertices.length ? disp.vertices : disp.weights).length / 2) | 0),
       width: round3(disp.width), height: round3(disp.height),
-      // 必须显式指定 region(贴图集区域):Laya 的 uv 已归一化到整张贴图页,
-      // modelToAtlas 会按各 display 的 uv 包围盒生成 region,使 mesh 在正确的贴图位置采样;
-      // uvs 已由 remapUvs 重映射为 region 内 0..1(Spine 3.8 的 mesh uvs 语义)
-      region: disp._regionName || disp.attachmentName,
+      // ⚠️ Spine 3.8 JSON 加载器按「path」查 atlas region(region 字段被忽略),必须写 path = 去重后的 region 名
+      path: regName2,
+      region: regName2,
     };
   }
   // region(图片)
@@ -907,7 +909,9 @@ function displayToAttachment(disp, model) {
   if (sp.scaleY !== 1) att.scaleY = round3(sp.scaleY);
   att.width = round3(disp.width);
   att.height = round3(disp.height);
-  att.path = disp.attachmentName;
+  // ⚠️ Spine 3.8 JSON 加载器按「path」查 atlas region(region 字段被忽略),
+  // region 附件同样要写 path = 去重后的 region 名(如 Hd_16 与 Hd_15 共用区域时 path 应为 Hd_15)
+  att.path = disp._regionName || disp.attachmentName;
   att.region = disp._regionName || disp.attachmentName;
   att.color = 'ffffffff';
   return att;
