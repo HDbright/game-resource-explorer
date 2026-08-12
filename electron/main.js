@@ -974,8 +974,22 @@ app.whenReady().then(async () => {
     try { return webGame.setBounds(rect); } catch (err) { return { ok: false, error: err.message }; }
   });
   ipcMain.handle('web:setAudioMuted', (_e, muted) => {
-    // 一键静音 / 取消禁音网页音频(muted: boolean)
+    // 一键静音 / 取消禁音网页音频(muted: boolean) —— 按当前活动标签所属网站(host)静音
     try { return webGame.setAudioMuted(muted); } catch (err) { return { ok: false, error: err.message }; }
+  });
+  // 按网站(host)静音 / 取消静音 / 切换(右键菜单"将这个网站静音"用)
+  ipcMain.handle('web:muteSite', (_e, host) => {
+    try { return webGame.muteSite(host); } catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('web:unmuteSite', (_e, host) => {
+    try { return webGame.unmuteSite(host); } catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('web:toggleSiteMute', (_e, host) => {
+    try { return webGame.toggleSiteMute(host); } catch (err) { return { ok: false, error: err.message }; }
+  });
+  // 将指定标签页移至独立悬浮窗口(右键菜单"将标签页移至新窗口"用)
+  ipcMain.handle('web:moveTabToWindow', (_e, tabId) => {
+    try { return webGame.moveTabToNewWindow(tabId); } catch (err) { return { ok: false, error: err.message }; }
   });
   ipcMain.handle('web:getCaptured', () => {
     try { return { ok: true, records: webGame.getCaptured() }; } catch (err) { return { ok: false, error: err.message }; }

@@ -9,6 +9,14 @@
 
 ## 2026-08-12
 
+### [新增] 发布 v1.9.37：网页抓取标签右键菜单(移至新窗口 / 按网站静音) + 静音图标
+- **网页抓取标签页右键菜单**: 在任意标签页上右键弹出菜单, 含:
+  - 「🪟 将标签页移至新窗口」→ 调用 `web:moveTabToWindow`: 将该标签设为活动标签并浮出到独立悬浮窗(复用切模块时的悬浮窗机制), 其余标签留主窗口。
+  - 「🔇 将这个网站静音 / 🔊 取消静音此网站」→ 按 host 静音(同一网站所有标签同步), 复用全局静音按钮的 host 静音逻辑。
+- **按网站(host)静音**: `WebGameView` 新增 `mutedHosts` 集合, 持久化到 `userData/webgame-muted.json`(重启恢复); `muteSite`/`unmuteSite`/`toggleSiteMute` 同步所有同 host 标签的 `tab.muted` 与 `webContents.setAudioMuted`; `getTabs()` 返回 `muted` 标志; 新标签创建 / `did-navigate` / `open` 时自动应用静音状态; 全局静音按钮(`#wg-mute`)改为按当前活动标签所属网站静音, 与右键菜单统一(标签页列表渲染时同步全局按钮状态)。
+- **已静音标签图标**: 静音的标签渲染透明背景、线条绘制风格的静音喇叭 SVG 图标(`.wg-tab-mute-ico`), 绝对定位浮于标签左上角, `pointer-events:none` 不挡点击, 活动标签颜色稍亮。
+- 新增 IPC: `web:muteSite` / `web:unmuteSite` / `web:toggleSiteMute` / `web:moveTabToWindow`; preload 暴露 `webMuteSite` / `webUnmuteSite` / `webToggleSiteMute` / `webMoveTabToWindow`。
+
 ### [新增] 发布 v1.9.36：系统设置页滚动条、CDP 说明页完善、交互式 CDP 工具面板
 - **系统设置页增加滚动条**: `.page-settings` 增加 `flex:1; min-height:0` 确保高度约束生效,并添加自定义 WebKit 滚动条样式(8px 宽,圆角,hover 高亮),方便浏览底部设置项(开发者调试等卡片)。
 - **CDP 说明页(cdp-doc.html)大幅完善**: 参考实际调试场景重写文档内容:

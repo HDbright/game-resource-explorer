@@ -33,6 +33,21 @@ function saveFloatState(state) {
   }, 300);
 }
 
+// ---- 按网站静音(host 级)持久化(userData/webgame-muted.json), 重启后恢复 ----
+let mutedSaveTimer = null;
+function loadMutedHosts() {
+  try {
+    const arr = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'webgame-muted.json'), 'utf8'));
+    return Array.isArray(arr) ? arr : [];
+  } catch (e) { return []; }
+}
+function saveMutedHosts(hosts) {
+  clearTimeout(mutedSaveTimer);
+  mutedSaveTimer = setTimeout(() => {
+    try { fs.writeFileSync(path.join(app.getPath('userData'), 'webgame-muted.json'), JSON.stringify(Array.from(hosts))); } catch (e) { /* ignore */ }
+  }, 300);
+}
+
 /** URL 规范化比较(忽略尾部斜杠与 hash; 用于"已打开相同网址则切换标签"判断) */
 function normUrl(u) {
   try {
@@ -215,6 +230,7 @@ class WebGameView {
     this._seq = 0;
     this.ua = DEFAULT_UA;
     this.proxy = '';
+    this.mutedHosts = new Set(loadMutedHosts()); // 按 host 静音的网站集合(持久化)
   }
 
   /** 当前活动 tab */
@@ -234,7 +250,7 @@ class WebGameView {
         backgroundThrottling: false,
       },
     });
-    try { view.webContents.setAudioMuted(!!this._muted); } catch (e) { /* ignore */ }
+    try { view.webContents.setAudioMuted(false); } catch (e) { /* ignore */ }
     // 弹窗(登录跳转等)一律拒绝并改在当前视图内导航
     view.webContents.setWindowOpenHandler(({ url: u }) => {
       if (/^https?:/i.test(u)) view.webContents.loadURL(u);
@@ -263,7 +279,7 @@ class WebGameView {
     view.webContents.on('did-stop-loading', () => this.emitStatus({ state: 'idle' }));
     view.webContents.on('did-navigate', (_e, u) => {
       const t = this.tabs.get(id);
-      if (t) t.url = u || t.url;
+      if (t) { t.url = u || t.url; this._applyMute(t); }
       this.emitTabs();
       this.emitStatus({ state: 'navigated', url: u || '' });
     });
@@ -315,11 +331,14 @@ class WebGameView {
       if (url) {
         console.log('[webGame] loadURL', url, 'destroyed=', tab.view.webContents.isDestroyed());
         tab.view.webContents.loadURL(url);
+        tab.url = url;
+        this._applyMute(tab);
       }
     } else if (url) {
       console.log('[webGame] nav loadURL', url);
       tab.view.webContents.loadURL(url);
       tab.url = url;
+      this._applyMute(tab);
     }
     this.emitTabs();
     this.emitStatus({ state: 'opened', url });
@@ -379,7 +398,59 @@ class WebGameView {
   }
 
   getTabs() {
-    return Array.from(this.tabs.values()).map((t) => ({ id: t.id, url: t.url || '', title: t.title || '' }));
+    return Array.from(this.tabs.values()).map((t) => ({
+      id: t.id, url: t.url || '', title: t.title || '',
+      muted: this.isHostMuted(t.url), // 该标签所属网站是否已静音(供渲染端显示图标)
+    }));
+  }
+
+  /** 工具: 取 URL 的 host(无 host 返回 '') */
+  hostOf(url) {
+    try { return new URL(url).hostname || ''; } catch (e) { return ''; }
+  }
+
+  /** 该 URL 所属网站是否已被静音 */
+  isHostMuted(url) {
+    const h = this.hostOf(url);
+    return !!h && this.mutedHosts.has(h);
+  }
+
+  /** 对单个标签应用静音状态(创建/导航后调用): 写入 tab.muted 并实际静音 webContents */
+  _applyMute(tab) {
+    if (!tab) return;
+    const muted = this.isHostMuted(tab.url);
+    tab.muted = muted;
+    try { tab.view.webContents.setAudioMuted(muted); } catch (e) { /* ignore */ }
+  }
+
+  /** 将某网站(host)加入静音集合: 所有同 host 标签同步静音 */
+  muteSite(host) {
+    if (!host) return { ok: false, error: 'no host' };
+    this.mutedHosts.add(host);
+    saveMutedHosts(this.mutedHosts);
+    for (const t of this.tabs.values()) {
+      if (this.hostOf(t.url) === host) this._applyMute(t);
+    }
+    this.emitTabs();
+    return { ok: true, muted: true };
+  }
+
+  /** 将某网站(host)移出静音集合: 所有同 host 标签同步取消静音 */
+  unmuteSite(host) {
+    if (!host) return { ok: false, error: 'no host' };
+    this.mutedHosts.delete(host);
+    saveMutedHosts(this.mutedHosts);
+    for (const t of this.tabs.values()) {
+      if (this.hostOf(t.url) === host) this._applyMute(t);
+    }
+    this.emitTabs();
+    return { ok: true, muted: false };
+  }
+
+  /** 切换某网站静音状态(右键菜单"将这个网站静音"用) */
+  toggleSiteMute(host) {
+    if (this.mutedHosts.has(host)) return this.unmuteSite(host);
+    return this.muteSite(host);
   }
 
   // ==================== 网页悬浮窗(切到其它模块时承载浏览器视图) ====================
@@ -695,18 +766,33 @@ class WebGameView {
 
   /**
    * 一键静音 / 取消禁音网页音频。
-   * 记录 _muted 状态, 新打开的网页也会继承该状态。
+   * 改为「按当前活动标签所属网站(host)静音」, 与右键菜单的"将这个网站静音"统一:
+   * muted=true → 静音该网站所有标签; muted=false → 取消该网站静音。
    */
   setAudioMuted(muted) {
-    this._muted = !!muted;
     const t = this.active;
-    if (!t) return { ok: false, error: 'not opened', muted: this._muted };
-    try {
-      t.view.webContents.setAudioMuted(this._muted);
-      return { ok: true, muted: this._muted };
-    } catch (err) {
-      return { ok: false, error: err.message, muted: this._muted };
-    }
+    if (!t) return { ok: false, error: 'not opened', muted: false };
+    const host = this.hostOf(t.url);
+    if (!host) return { ok: false, error: 'no host', muted: false };
+    const r = muted ? this.muteSite(host) : this.unmuteSite(host);
+    const am = this.active ? this.isHostMuted(this.active.url) : false;
+    return { ok: r.ok, muted: am };
+  }
+
+  /**
+   * 将指定标签「移至新窗口」: 先切换为活动标签, 再浮出到独立悬浮窗(与切模块时的悬浮窗复用)。
+   * 该标签的 WebContentsView 迁到悬浮窗, 其余标签留在主窗口(隐藏); 返回结果同 floatOut。
+   */
+  moveTabToNewWindow(tabId) {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return { ok: false, error: 'no tab' };
+    if (!this.win || this.win.isDestroyed()) return { ok: false, error: 'window not ready' };
+    // 切为活动标签, 确保其视图位于主窗口(若此前已被浮出则先收回)
+    if (this._floated) this.floatBack();
+    this.activeId = tabId;
+    this.emitTabs();
+    this.emitStatus({ state: 'navigated', url: tab.url || '' });
+    return this.floatOut();
   }
 
   /**

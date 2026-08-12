@@ -1594,6 +1594,7 @@ input[type="color"] { width: 30px; height: 26px; border: 1px solid var(--border)
   background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px;
 }
 .wg-tab {
+  position: relative;
   display: flex; align-items: center; gap: 4px; max-width: 180px;
   padding: 3px 8px; border-radius: 5px; cursor: pointer;
   background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
@@ -1601,6 +1602,14 @@ input[type="color"] { width: 30px; height: 26px; border: 1px solid var(--border)
 }
 .wg-tab.active { background: #5c9cff; color: #fff; border-color: transparent; }
 .wg-tab-title { overflow: hidden; text-overflow: ellipsis; }
+/* 已静音标签: 透明背景、线条绘制风格的静音喇叭图标, 浮于标签左上角 */
+.wg-tab-mute-ico {
+  position: absolute; top: -5px; left: -5px; width: 15px; height: 15px;
+  color: #ff9c9c; opacity: 0.92; pointer-events: none;
+  background: transparent; filter: drop-shadow(0 0 1px rgba(0,0,0,0.65));
+  z-index: 2;
+}
+.wg-tab.active .wg-tab-mute-ico { color: #ffd0d0; }
 .wg-tab-close { color: rgba(255,255,255,0.6); padding: 0 2px; border-radius: 3px; }
 .wg-tab-close:hover { background: rgba(0,0,0,0.25); color: #fff; }
 .wg-tab-add {

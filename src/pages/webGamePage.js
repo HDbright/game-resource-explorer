@@ -612,30 +612,56 @@ export function renderWebGamePage(container, opts = {}) {
     // 兜底: 主进程 web:download 本身返回结果, 事件主要用于多任务通知(保留)
   });
 
-  // ---- 多标签条(顶栏下): 切换 / 关闭 / 新开 ----
+  // ---- 多标签条(顶栏下): 切换 / 关闭 / 新开 / 右键菜单 / 静音图标 ----
+  // 取 URL 的 host(用于按网站静音)
+  const hostOfUrl = (u) => { try { return new URL(u).hostname || ''; } catch (e) { return ''; } };
+  // 线条绘制风格、透明背景的静音喇叭图标(已静音的标签浮于角上)
+  const muteIconSvg = (cls) => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 9v6h4l5 4V5L8 9H4z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+      <line x1="16" y1="9" x2="21" y2="14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+      <line x1="21" y1="9" x2="16" y2="14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+    </svg>`;
   const renderTabs = ({ tabs, activeId } = {}) => {
     const list = tabs || [];
     if (!list.length) { tabsEl.hidden = true; tabsEl.innerHTML = ''; return; }
     tabsEl.hidden = false;
-    tabsEl.innerHTML = list.map((t) => `
-      <div class="wg-tab ${t.id === activeId ? 'active' : ''}" data-id="${esc(t.id)}" title="${esc(t.url || '')}">
+    tabsEl.innerHTML = list.map((t) => {
+      const host = hostOfUrl(t.url);
+      const muteIco = t.muted ? muteIconSvg('wg-tab-mute-ico') : '';
+      return `
+      <div class="wg-tab ${t.id === activeId ? 'active' : ''}" data-id="${esc(t.id)}" data-host="${esc(host)}" title="${esc(t.url || '')}">
+        ${muteIco}
         <span class="wg-tab-title">${esc(t.title || '新标签')}</span>
         <span class="wg-tab-close" data-close="${esc(t.id)}" title="关闭标签">×</span>
-      </div>
-    `).join('') + '<button class="wg-tab-add" id="wg-tab-add" title="新开标签页">＋</button>';
+      </div>`;
+    }).join('') + '<button class="wg-tab-add" id="wg-tab-add" title="新开标签页">＋</button>';
     tabsEl.querySelectorAll('.wg-tab').forEach((el) => {
       const tid = el.dataset.id;
+      const host = el.dataset.host || '';
       el.addEventListener('click', () => { window.api.webSwitchTab(tid); container._webGameSyncBounds(); });
       el.querySelector('[data-close]').addEventListener('click', (e) => {
         e.stopPropagation();
         window.api.webCloseTab(tid);
         container._webGameSyncBounds();
       });
+      // 右键菜单: 将标签页移至新窗口 / 将这个网站静音(切换)
+      el.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        const muted = el.classList.contains('active') && (list.find((x) => x.id === tid) || {}).muted;
+        const items = [
+          { label: '🪟 将标签页移至新窗口', act: () => window.api.webMoveTabToWindow(tid).catch(() => {}) },
+          host ? { label: (muted ? '🔊 取消静音此网站' : '🔇 将这个网站静音') + ' (' + host + ')', act: () => window.api.webToggleSiteMute(host).catch(() => {}) } : null,
+        ].filter(Boolean);
+        showMenu(items, e.clientX, e.clientY);
+      });
     });
     tabsEl.querySelector('#wg-tab-add').addEventListener('click', async () => {
       const r = await window.api.webNewTab('');
       if (r && r.ok) { setPanel('capture'); container._webGameSyncBounds(); urlEl.focus(); }
     });
+    // 同步顶栏全局静音按钮状态为「当前活动标签所属网站是否静音」
+    const activeTab = list.find((t) => t.id === activeId);
+    if (typeof setMuteBtn === 'function') setMuteBtn(!!(activeTab && activeTab.muted));
   };
   window.api.onWebTabs((d) => { renderTabs(d); });
 
