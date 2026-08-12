@@ -129,7 +129,9 @@ body {
   border: none; background: transparent; color: var(--text2); cursor: pointer;
   font-size: 15px; line-height: 1; width: 20px; height: 20px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center; flex: none;
+  opacity: 0; pointer-events: none; transition: opacity 0.12s;
 }
+.search-history .sh-item:hover .sh-del { opacity: 1; pointer-events: auto; }
 .search-history .sh-del:hover { background: rgba(255,80,80,.18); color: #ff6b6b; }
 
 /* ---- 顶栏 Chrome DevTools 调试状态指示灯 ---- */
