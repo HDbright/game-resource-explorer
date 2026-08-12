@@ -100,7 +100,7 @@ export function renderWebGamePage(container, opts = {}) {
         <button class="btn sm" id="wg-devtools" title="打开网页 DevTools(独立窗口, 可查看网络/控制台/元素)">&lt;/&gt;</button>
         <span class="wg-tbsep"></span>
         <button class="btn sm" id="wg-mute" title="网页音频播放中 — 点击静音">🔊</button>
-        <button class="btn sm" id="wg-toggle-side" title="隐藏侧栏区">🗂 隐藏侧栏</button>
+        <button class="btn sm" id="wg-toggle-side" title="隐藏侧栏区"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="1.5" width="12" height="13" rx="1.5"/><line x1="2" y1="11.5" x2="14" y2="11.5"/></svg></button>
       </div>
       <div class="wg-tabs" id="wg-tabs" hidden></div>
       <div class="wg-browser-scroll" id="wg-browser-scroll">
@@ -755,7 +755,10 @@ export function renderWebGamePage(container, opts = {}) {
   const sideBtn = container.querySelector('#wg-toggle-side');
   let sideHidden = false;
   const setSideBtn = (hidden) => {
-    sideBtn.innerHTML = hidden ? '👁 显示侧栏' : '🗂 隐藏侧栏';
+    // 隐藏侧栏时图标: 面板+底部线(表示"可显示面板"); 显示侧栏时: 同样式(表示"可隐藏面板")
+    sideBtn.innerHTML = hidden
+      ? '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="1.5" width="12" height="13" rx="1.5"/><line x1="2" y1="11.5" x2="14" y2="11.5"/></svg>'
+      : '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="1.5" width="12" height="13" rx="1.5"/><line x1="2" y1="11.5" x2="14" y2="11.5"/></svg>';
     sideBtn.title = hidden ? '显示侧栏区' : '隐藏侧栏区';
     sideBtn.classList.toggle('side-hidden', hidden);
   };

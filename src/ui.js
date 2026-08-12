@@ -5465,16 +5465,18 @@ function setSidebarVisible(v) {
   if (preview && preview._resize) preview._resize();
 }
 
-/** 同步「资源树」按钮图标:侧栏可见 → 「▤ 资源树」;侧栏隐藏 → 「☰ 资源树」 */
+/** 同步「资源树」按钮图标:侧栏可见 → 布局图标(可隐藏);侧栏隐藏 → 布局图标+左面板窄(可显示) */
 function syncTreeToggleIcon() {
   const t = document.getElementById('btn-toggle-side');
   if (!t) return;
   const hidden = document.getElementById('sidebar')?.classList.contains('hidden');
   if (hidden) {
-    t.textContent = '☰ 资源树';
+    // 侧栏隐藏: 左窄条 + 右区 + ▶ (表示"展开/显示")
+    t.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="1.5" width="3" height="13" rx="1"/><rect x="5.5" y="1.5" width="9.5" height="13" rx="1"/><polyline points="10,6 12,8 10,10"/></svg>';
     t.title = '显示资源树';
   } else {
-    t.textContent = '▤ 资源树';
+    // 侧栏可见: 左面板 + 右区 + ▶ (表示"折叠/隐藏")
+    t.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="1.5" width="4.5" height="13" rx="1"/><rect x="6.5" y="1.5" width="8.5" height="13" rx="1"/><polyline points="10.5,6 12.5,8 10.5,10"/></svg>';
     t.title = '隐藏资源树';
   }
 }

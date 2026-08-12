@@ -47,8 +47,8 @@ body {
 .brand .brand-ico { display: inline-flex; align-items: center; line-height: 1; }
 .brand-sub { font-size: 11px; font-weight: 400; color: var(--text2); margin-left: 2px; }
 
-/* 顶栏「资源树」切换按钮:不高亮,用图标/文本变化表示状态(☰ 显示 / ▤ 隐藏) */
-.tree-toggle { flex-shrink: 0; min-width: 74px; }
+/* 顶栏「资源树」切换按钮:纯图标,不高亮 */
+.tree-toggle { flex-shrink: 0; min-width: 32px; padding: 4px 6px; }
 
 /* 顶栏当前动画信息(名称 / 版本 / 路径) */
 .toolbar-info {
@@ -1643,10 +1643,10 @@ input[type="color"] { width: 30px; height: 26px; border: 1px solid var(--border)
 .wg-side {
   display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 6px;
 }
-/* 手动「将标签页移至新窗口」后: 主窗口浏览器区与分隔条折叠, 空出的区域让给下方侧栏;
+/* 手动「将标签页移至新窗口」后: 主窗口浏览器区压缩到约1%, 空出区域让给下方侧栏;
    浏览器区的内联 height(分隔条拖动记录)保留, 关闭悬浮窗取消 .floated-out 后比例自动还原。 */
-.wg-wrap.floated-out .wg-browser-scroll { display: none; }
-.wg-wrap.floated-out .wg-hsplit { display: none; }
+.wg-wrap.floated-out .wg-browser-scroll { flex: 0 0 1%; min-height: 0; overflow: hidden; }
+.wg-wrap.floated-out .wg-hsplit { flex: 0 0 3px; cursor: default; opacity: 0.3; }
 /* 资源捕获 / 网址收藏夹 面板切换 */
 .wg-side-tabs { display: flex; gap: 4px; flex: 0 0 auto; }
 .wg-stab {
