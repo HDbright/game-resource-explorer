@@ -1061,4 +1061,33 @@ function skToSpine(inputPath, outputPath) {
   };
 }
 
-module.exports = { parseSk, parseSkRobust, probeLayaSk, skToSpine, modelToAtlas, modelToSpineJson };
+module.exports = { parseSk, parseSkRobust, probeLayaSk, skToSpine, skToSpineText, modelToAtlas, modelToSpineJson };
+
+// ---------------- 内存版转换(不写文件,供 .sk 直接预览) ----------------
+function skToSpineText(inputPath) {
+  const buffer = fs.readFileSync(inputPath);
+  const probe = probeLayaSk(buffer);
+  if (!probe.ok) return { ok: false, error: probe.reason };
+  const { model, audio } = parseSkRobust(buffer);
+
+  // 图集区域分配(按矩形去重 + 记录 UV 包围盒),供 modelToAtlas 与 displayToAttachment 使用
+  assignRegionNames(model);
+
+  let maxR = 0, maxB = 0;
+  for (const t of model.textures) { maxR = Math.max(maxR, t.x + t.w); maxB = Math.max(maxB, t.y + t.h); }
+  const width = nextPow2(maxR), height = nextPow2(maxB);
+
+  const json = modelToSpineJson(model, { width, height });
+  const atlas = modelToAtlas(model);
+  const pageSrc = (model.textures.find((t) => t.textureSrc) || {}).textureSrc || '';
+
+  return {
+    ok: true,
+    json: JSON.stringify(json, null, 2),
+    atlas,
+    pageSrc,
+    version: model.version,
+    audioFlag: audio,
+    warn: model._warn || null,
+  };
+}

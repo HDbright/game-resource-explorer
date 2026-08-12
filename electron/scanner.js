@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { probeSkeleton } = require('./tools/skel');
+const { probeLayaSk } = require('./tools/layaSk2Spine');
 
 // 图片 / 音频 / 3D 资源扩展名
 const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tga'];
@@ -193,6 +194,28 @@ function scanDir(dir, recursive) {
       }
     }
 
+    // ---- LayaAir 骨骼动画 .sk(LAYAANIMATION:1.x)----
+    // 预览时经「.sk 内存转换」直接播放,无需手动转成 .json/.atlas
+    const layaSkFiles = files.filter((f) => f.name.toLowerCase().endsWith('.sk'));
+    for (const sk of layaSkFiles) {
+      const base = sk.name.slice(0, -'.sk'.length);
+      const fp = path.join(d, sk.name);
+      let isLaya = false, reason = '';
+      try {
+        const fd = fs.openSync(fp, 'r');
+        const buf = Buffer.alloc(512);
+        const n = fs.readSync(fd, buf, 0, 512, 0);
+        fs.closeSync(fd);
+        const probe = probeLayaSk(buf.subarray(0, n));
+        isLaya = probe.ok;
+        reason = probe.reason || '';
+      } catch (err) { /* 读取失败按非 Laya 处理 */ }
+      const problems = [];
+      if (!isLaya) problems.push('非 LayaAir .sk 格式' + (reason ? ': ' + reason : ''));
+      else if (!files.some((f) => f.name.toLowerCase() === (base + '.png').toLowerCase())) problems.push('缺少同名 .png 图集图片');
+      results.push({ file: fp, dir: d, type: 'spine', base, problems, ...statOf(fp) });
+    }
+
     // ---- 图片资源 ----
     const spineBases = new Set(skelFiles.map((f) => f.name.slice(0, -'.skel'.length).toLowerCase()));
     for (const b of binSkelBases) spineBases.add(b);
@@ -203,6 +226,8 @@ function scanDir(dir, recursive) {
         spineBases.add(base.toLowerCase());
       }
     }
+    // .sk(LayaAir 骨骼)的同名 png 是其图集贴图
+    for (const sk of layaSkFiles) spineBases.add(sk.name.slice(0, -'.sk'.length).toLowerCase());
     // 记录有 .atlas 的骨架基名(其同名 png 是贴图,提示用户确认)
     const atlasBaseNames = new Set(
       files.filter((f) => f.name.toLowerCase().endsWith('.atlas')).map((f) => f.name.slice(0, -'.atlas'.length).toLowerCase())

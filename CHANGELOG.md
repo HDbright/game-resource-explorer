@@ -3,11 +3,23 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.59`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.60`）。
 
 ---
 
 ## 2026-08-12
+
+### [新增] 发布 v1.9.60：动画预览直接支持 LayaAir .sk 骨骼动画
+- 需求:动画资源预览支持 LayaAir 导出的 .sk 骨骼动画文件,无需先手动用工具箱「Laya .sk → Spine」转换。
+- 实现:
+  - `electron/scanner.js`:识别 `.sk` 文件(头部 `LAYAANIMATION:1.x` 探测)→ 归为 spine 类型进入「动画资源」;同名 `.png` 提示"可能是动画贴图"。
+  - `electron/tools/layaSk2Spine.js`:新增 `skToSpineText(inputPath)` **内存版转换**(返回 Spine json+atlas 文本,不写文件)。
+  - `electron/main.js` + `preload.js`:新增 IPC `tool:sk2spinePreview`(内存转换 + 读取配套图集 png base64)。
+  - `src/preview/playerFactory.js`:`createPlayer` 增加 `.sk` 分支——调 IPC 内存转换,json/atlas 转 Blob URL,用 Spine 3.8 运行时播放;图集页面图片经 `pageBase`(`/a/<itemId>/`,同名 .png)加载。
+  - `src/preview/spine38Player.js`:`load()` 支持 `pageBase` 参数(atlas 为 blob URL 时图片解析基址),兼容原有用法。
+- 缩略图(图标视图)复用 createPlayer,`.sk` 条目同样自动出缩略图。
+- 验证:skToSpineText(hedao.sk)输出 json 54KB+atlas 15 区域、pageSrc=hedao.png、配套 png 定位成功;spine-core 3.8 加载转换输出无 Region not found;scanner 对 hedao 目录正确产出 spine(.sk)+spine(.json)+image(png,带贴图提示) 三条。
+- 使用:添加目录/文件后,`.sk` 出现在「动画资源」,双击即播放(动作/插槽/倍速等控件与 Spine 一致)。
 
 ### [修复] 发布 v1.9.59：Laya .sk→Spine 转换后预览报 "Region not found in atlas: Hd 17"
 - 报障:v1.9.58 图集去重后,预览 hedao 报 `Region not found in atlas: Hd_17 (mesh attachment: Hd_17)`。

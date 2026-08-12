@@ -156,7 +156,7 @@ export class Spine38Player {
     this._disposed = false;
   }
 
-  async load({ skeletonUrl, atlasUrl }) {
+  async load({ skeletonUrl, atlasUrl, pageBase }) {
     this.dispose();
 
     const spine = await loadSpine38Bundle();
@@ -177,12 +177,15 @@ export class Spine38Player {
     const atlasText = await atlasRes.text();
 
     // 3. 先加载所有图集图片(3.8 的 MeshAttachment.updateUVs 需要真实图片宽高)
+    //    pageBase:图集页面图片的解析基址(atlasUrl 为 blob/data URL 时无法直接 new URL(name, atlasUrl),
+    //    需传入真实图片目录,如 /a/<itemId>/;缺省回退 atlasUrl)
     const pageNames = extractAtlasPageNames(atlasText);
     if (pageNames.length === 0) throw new Error('atlas 中未找到贴图页面');
+    const pageResolveBase = pageBase || atlasUrl;
     const images = new Map();
     await Promise.all(
       pageNames.map(async (name) => {
-        const img = await loadImage(new URL(name, atlasUrl).href);
+        const img = await loadImage(new URL(name, pageResolveBase).href);
         images.set(name, img);
         this._loadedImages.push(img);
       })

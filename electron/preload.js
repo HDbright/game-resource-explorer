@@ -45,6 +45,7 @@ contextBridge.exposeInMainWorld('api', {
   spineFix: (args) => ipcRenderer.invoke('tool:spinefix', args),
   sk2spine: (args) => ipcRenderer.invoke('tool:sk2spine', args),
   probeSk2spine: (args) => ipcRenderer.invoke('tool:probeSk2spine', args),
+  sk2spinePreview: (args) => ipcRenderer.invoke('tool:sk2spinePreview', args),
 
   // ---- FGUI 逆向:探测 / 单包解析 / 目录批量导出 / 源工程还原 ----
   fguiProbe: (args) => ipcRenderer.invoke('fgui:probe', args),

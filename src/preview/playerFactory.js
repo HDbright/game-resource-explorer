@@ -20,6 +20,26 @@ export async function createPlayer(app, item) {
   const root = `${location.origin}/a/${item.id}`;
   await getPixi(); // 首次创建播放器时加载 pixi.js 并确保 window.PIXI(DragonBones UMD / player 运行时)
 
+  // ---- LayaAir 骨骼动画 .sk:内存转换为 Spine 3.8 json+atlas,直接播放(无需手动转换) ----
+  if (/\.sk$/i.test(item.filePath || '')) {
+    const res = await window.api.sk2spinePreview({ inputPath: item.filePath });
+    if (!res || !res.ok) {
+      throw new Error('Laya .sk 转换失败:' + ((res && (res.error || res.reason)) || '未知错误'));
+    }
+    const jsonUrl = URL.createObjectURL(new Blob([res.json], { type: 'application/json' }));
+    const atlasUrl = URL.createObjectURL(new Blob([res.atlas], { type: 'text/plain' }));
+    const player = new Spine38Player(app);
+    try {
+      // atlas 为 blob URL 无法作为图片解析基址,pageBase 指向 /a/<itemId>/(同名 .png 图集图片走静态服务)
+      await player.load({ skeletonUrl: jsonUrl, atlasUrl, pageBase: root + '/' });
+    } finally {
+      setTimeout(() => {
+        try { URL.revokeObjectURL(jsonUrl); URL.revokeObjectURL(atlasUrl); } catch (e) { /* ignore */ }
+      }, 10000);
+    }
+    return { player };
+  }
+
   if (item.type === 'spine') {
     const skeletonUrl = `${root}/${encodeURIComponent(basename(item.filePath))}`;
     const atlasName = basename(item.filePath).replace(/\.[^.]+$/, '') + '.atlas';

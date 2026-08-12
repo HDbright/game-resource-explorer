@@ -10,7 +10,7 @@ const { encodePng } = require('./png');
 const { astcToPng } = require('./tools/astc');
 const { skelToJson, probeSkeleton } = require('./tools/skel');
 const { spineFix } = require('./tools/spineFix');
-const { skToSpine, probeLayaSk } = require('./tools/layaSk2Spine');
+const { skToSpine, skToSpineText, probeLayaSk } = require('./tools/layaSk2Spine');
 const fgui = require('./tools/fgui');
 const { buildPreviewData, findGameRoot } = require('./tools/fgui/previewData');
 const { webGame, downloadResource, probeFile, classify, typeDir, fileNameFromUrl, safeName } = require('./tools/webGame');
@@ -712,6 +712,33 @@ app.whenReady().then(async () => {
       return { ok: true, version: probe.version };
     } catch (err) {
       return { ok: false, reason: err.message };
+    }
+  });
+  // .sk 内存转换(Spine json+atlas 文本) + 配套图集 PNG(base64),供动画预览直接播放(不写文件)
+  ipcMain.handle('tool:sk2spinePreview', async (_e, { inputPath }) => {
+    try {
+      const r = skToSpineText(inputPath);
+      if (!r.ok) return r;
+      // 配套图集图片:优先 atlas 页名(同目录),其次同名 .png/.jpg
+      let pngBase64 = null;
+      const dir = path.dirname(inputPath);
+      const base = path.basename(inputPath).replace(/\.[^.]+$/, '');
+      const candidates = [
+        r.pageSrc ? path.join(dir, r.pageSrc) : null,
+        path.join(dir, base + '.png'),
+        path.join(dir, base + '.jpg'),
+      ];
+      for (const c of candidates) {
+        if (c && fs.existsSync(c)) {
+          const ext = path.extname(c).toLowerCase();
+          const mime = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/png';
+          pngBase64 = `data:${mime};base64,${fs.readFileSync(c).toString('base64')}`;
+          break;
+        }
+      }
+      return { ok: true, json: r.json, atlas: r.atlas, pngBase64, version: r.version, warn: r.warn };
+    } catch (err) {
+      return { ok: false, error: err.message };
     }
   });
 
