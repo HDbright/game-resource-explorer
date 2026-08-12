@@ -1,6 +1,6 @@
 'use strict';
 
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
   // 数据读写(整体保存)
@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld('api', {
   writeFileBase64: (p, dataUrl) => ipcRenderer.invoke('fs:writeFileBase64', p, dataUrl),
   renameFile: (oldPath, newPath) => ipcRenderer.invoke('fs:rename', oldPath, newPath),
   listDir: (p) => ipcRenderer.invoke('fs:listDir', p),
+  scanPaths: (args) => ipcRenderer.invoke('fs:scanPaths', args),
 
   // ---- 资源工具箱:转换工具 ----
   astc2png: (args) => ipcRenderer.invoke('tool:astc2png', args),
@@ -117,3 +118,10 @@ contextBridge.exposeInMainWorld('api', {
 
 // 冒烟测试标志(仅开发时传入 --smoke,通过 URL 参数传递,见 main.js)
 contextBridge.exposeInMainWorld('__SMOKE_FLAG__', new URLSearchParams(window.location.search).get('smoke') === '1');
+
+// 拖拽文件路径(Electron 43+ 无 File.path,须经 webUtils.getPathForFile)
+contextBridge.exposeInMainWorld('dragUtils', {
+  getPathForFile: (file) => {
+    try { return webUtils.getPathForFile(file); } catch (err) { return null; }
+  },
+});

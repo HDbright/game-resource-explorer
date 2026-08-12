@@ -358,3 +358,41 @@ export async function runAddFlow(batch, defaultCategoryId) {
 
   renderList();
 }
+
+/**
+ * 拖拽添加:把外部拖入的文件/目录路径扫描识别后,直接添加到指定分类。
+ * @param {string[]} paths 拖入的绝对路径列表(文件或目录)
+ * @param {string} categoryId 目标分类 id(必须已存在)
+ * @returns {Promise<number>} 实际新增数量
+ */
+export async function addPathsToCategory(paths, categoryId) {
+  if (!Array.isArray(paths) || !paths.length) return 0;
+  const r = await window.api.scanPaths({ paths });
+  const entries = (r && r.ok ? r.entries : []) || [];
+  if (!entries.length) {
+    toast('拖入的资源中没有可识别的文件(spine/龙骨/图片/音频/3D/.sk)', 'error');
+    return 0;
+  }
+  const parentCat = state.categories.find((c) => c.id === categoryId);
+  const catName = parentCat ? parentCat.name : '未分类';
+  let added = 0, skipped = 0;
+  for (const e of entries) {
+    if (isDuplicateInCategory(e.file, categoryId)) { skipped++; continue; }
+    addItem({
+      categoryId,
+      type: e.type,
+      filePath: e.file,
+      atlasPath: e.atlasPath || null,
+      displayName: e.base,
+      remark: '',
+      size: e.size ?? null,
+      mtime: e.mtime ?? null,
+    });
+    added++;
+  }
+  let msg = added > 0 ? `已拖拽添加 ${added} 个资源到「${catName}」` : `未添加新资源到「${catName}」`;
+  if (skipped > 0) msg += `,${skipped} 个重复已跳过`;
+  toast(msg);
+  window.dispatchEvent(new CustomEvent('items-changed'));
+  return added;
+}

@@ -3,11 +3,22 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.60`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.61`）。
 
 ---
 
 ## 2026-08-12
+
+### [新增] 发布 v1.9.61：支持从系统文件管理器/桌面拖拽文件或目录到分类目录添加资源
+- 需求:打开某个分类目录后,直接从资源管理器/桌面把文件或整个目录拖进应用主区即可添加资源。
+- 实现:
+  - `electron/preload.js`:Electron 43+ 已无 `File.path`,暴露 `window.dragUtils.getPathForFile`(webUtils)。
+  - `electron/scanner.js`:新增 `scanPath(p, recursive)` —— 目录递归扫描;单文件则扫其所在目录一层并只保留该文件(复用全部类型识别逻辑)。
+  - `electron/main.js` + `preload.js`:新增 IPC `fs:scanPaths`(混合路径列表 → 识别条目,按 file 去重)。
+  - `src/addFlow.js`:新增 `addPathsToCategory(paths, categoryId)` —— 识别结果去重后 `addItem` 到目标分类并 toast 汇总。
+  - `src/ui.js`:主区 `#content-panel` 绑定 dragover/drop(仅接受外部文件拖入);`webkitGetAsEntry` 区分文件/目录;当前打开具体分类时直接加入该分类,否则提示"请先打开一个分类目录";拖入时主区高亮 + 底部提示条。
+  - `src/style.css`:`drop-target` 高亮样式。
+- 说明:拖入目录按递归扫描把其中可识别资源(spine/dragonbones/图片/音频/3D/.sk)全部加入当前分类;未打开具体分类时拖拽会提示先进入目录页。同文件重复添加自动跳过。
 
 ### [新增] 发布 v1.9.60：动画预览直接支持 LayaAir .sk 骨骼动画
 - 需求:动画资源预览支持 LayaAir 导出的 .sk 骨骼动画文件,无需先手动用工具箱「Laya .sk → Spine」转换。

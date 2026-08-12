@@ -5,7 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const { createServer } = require('./server');
 const { readDb, writeDb, migrateFromJson, dbStats, dbFile } = require('./db');
-const { scanDir } = require('./scanner');
+const { scanDir, scanPath } = require('./scanner');
 const { encodePng } = require('./png');
 const { astcToPng } = require('./tools/astc');
 const { skelToJson, probeSkeleton } = require('./tools/skel');
@@ -486,6 +486,24 @@ app.whenReady().then(async () => {
         }))
         .sort((a, b) => a.name.localeCompare(b.name));
       return { ok: true, files };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+  // 拖拽添加:混合路径列表(文件/目录) → 扫描识别条目(目录递归)
+  ipcMain.handle('fs:scanPaths', (_e, { paths } = {}) => {
+    try {
+      const list = Array.isArray(paths) ? paths : [];
+      const out = [];
+      for (const p of list) {
+        if (typeof p !== 'string' || !p) continue;
+        const entries = scanPath(p, true);
+        for (const e of entries) {
+          // 去重(同文件可能因目录嵌套重复出现)
+          if (!out.some((x) => x.file === e.file)) out.push(e);
+        }
+      }
+      return { ok: true, entries: out };
     } catch (err) {
       return { ok: false, error: err.message };
     }

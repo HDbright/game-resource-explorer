@@ -287,4 +287,22 @@ function isAtlasJson(fp) {
   }
 }
 
-module.exports = { scanDir };
+/**
+ * 扫描单个路径(目录递归;文件则扫其所在目录一层并只保留该文件),用于拖拽添加。
+ * @returns {Array} 与 scanDir 相同的条目结构
+ */
+function scanPath(p, recursive) {
+  try {
+    const st = fs.statSync(p);
+    if (st.isDirectory()) return scanDir(p, !!recursive);
+    if (!st.isFile()) return [];
+    const dir = path.dirname(p);
+    const all = scanDir(dir, false);
+    const norm = p.replace(/\\/g, '/').toLowerCase();
+    return all.filter((e) => e.file.replace(/\\/g, '/').toLowerCase() === norm);
+  } catch (err) {
+    return [];
+  }
+}
+
+module.exports = { scanDir, scanPath };

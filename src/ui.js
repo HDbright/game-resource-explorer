@@ -26,7 +26,7 @@ import {
 } from './state.js';
 import { openModal, footButtons, confirmDialog, promptDialog, toast, showContextMenu } from './dialogs.js';
 import { initBgColorBar, customBgColor, BG_DARK, BG_LIGHT } from './bgColor.js';
-import { runAddFlow } from './addFlow.js';
+import { runAddFlow, addPathsToCategory } from './addFlow.js';
 import { renderHomePage, renderFavHome } from './pages/homePage.js';
 import { renderFolderPage, renderFavFolderPage } from './pages/folderPage.js';
 import { renderToolboxPage } from './pages/toolboxPage.js';
@@ -373,7 +373,82 @@ export function initUI(pv) {
     });
   }
 
+  // ---- 系统文件/目录拖拽添加:拖到主区(当前打开的分类目录页)即加入该分类 ----
+  const contentPanel = document.getElementById('content-panel');
+  if (contentPanel) {
+    const hasExternalFiles = (e) => {
+      if (!e.dataTransfer) return false;
+      try { return Array.from(e.dataTransfer.items || []).some((it) => it.kind === 'file'); }
+      catch (err) { return false; }
+    };
+    contentPanel.addEventListener('dragover', (e) => {
+      if (!hasExternalFiles(e)) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+      contentPanel.classList.add('drop-target');
+    });
+    contentPanel.addEventListener('dragleave', (e) => {
+      if (!contentPanel.contains(e.relatedTarget)) contentPanel.classList.remove('drop-target');
+    });
+    contentPanel.addEventListener('drop', async (e) => {
+      contentPanel.classList.remove('drop-target');
+      if (!hasExternalFiles(e)) return;
+      e.preventDefault();
+      const paths = await collectDropPaths(e);
+      if (!paths.length) { toast('未能读取拖入文件路径', 'error'); return; }
+      // 目标分类:当前打开的目录(非 all/未分类)
+      const catId = currentCategoryId;
+      const valid = !!catId && catId !== 'all' && catId !== '' && !!categoryById(catId);
+      if (!valid) {
+        toast('请先打开一个分类目录,再把文件拖到该目录页面中添加', 'error');
+        return;
+      }
+      const added = await addPathsToCategory(paths, catId);
+      if (added > 0) {
+        renderItems();
+        renderMainArea();
+        renderCategories();
+      }
+    });
+  }
+
   // 注:首次渲染(renderCategories/renderMainArea)由 main() 统一调用一次, 避免重复
+}
+
+/** 从拖拽事件收集文件/目录绝对路径(webkitGetAsEntry 区分文件与目录,目录整目录处理) */
+function collectDropPaths(e) {
+  return new Promise((resolve) => {
+    const paths = [];
+    const push = (f) => {
+      if (!f) return;
+      let p = null;
+      try { p = window.dragUtils ? window.dragUtils.getPathForFile(f) : (f.path || null); } catch (err) { p = null; }
+      if (p && !paths.includes(p)) paths.push(p);
+    };
+    const items = e.dataTransfer ? e.dataTransfer.items : null;
+    let pending = 0;
+    const done = () => { if (--pending <= 0) resolve(paths); };
+    if (items) {
+      for (const it of items) {
+        if (it.kind !== 'file') continue;
+        let entry = null;
+        try { entry = it.webkitGetAsEntry ? it.webkitGetAsEntry() : null; } catch (err) { entry = null; }
+        if (entry && (entry.isFile || entry.isDirectory)) {
+          pending++;
+          try {
+            entry.file((f) => { push(f); done(); }, () => done());
+          } catch (err) { done(); }
+        }
+      }
+    }
+    if (pending === 0) {
+      // 兜底:dataTransfer.files
+      if (e.dataTransfer && e.dataTransfer.files) {
+        for (const f of e.dataTransfer.files) push(f);
+      }
+      resolve(paths);
+    }
+  });
 }
 
 // ---------------- 资源树(分类 + 条目合并) ----------------
