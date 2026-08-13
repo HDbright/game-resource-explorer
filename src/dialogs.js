@@ -205,3 +205,69 @@ export function promptDialog({ title, fields, onOk, onCancel }) {
     first.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.stopPropagation(); e.preventDefault(); } });
   }
 }
+
+// ============ 图标(emoji)选择面板 ============
+// 供对话框「图标(emoji)」输入框旁的 😀 按钮调用;点击项回填输入框。
+const EMOJI_GROUPS = [
+  { label: '常用', items: '😀 😁 😂 🤣 😊 😍 🥰 😎 🤔 😴 🥳 😅 😇 🙃 😉 😋 🤭 🥲 😢 😭 😤 😡 🤯 🥵 🤠 🤡 👻 💀 🤖 🎃 👋 ✋ 👌 ✌ 🤞 👍 👎 👏 🙏 💪 🤝 ✊ 👊 🔥 ⭐ ⚡ 💯 ✅ ❌ ❤️ 🧡 💛 💚 💙 💜 🖤 🤍 ✨ 🎉 🎊 🎁 🎈'.split(' ') },
+  { label: '目录与文件', items: '📁 📂 🗂 📚 📖 📕 📗 📘 📙 📔 📒 📃 📄 📑 📋 📝 ✏️ 📌 📍 🗒 🗓 📅 📇 🗃 🗄 📦 📤 📥 📨 📩 📪 📫 📬 📭 📮 📎 🖇 🔖 🏷'.split(' ') },
+  { label: '应用与工具', items: '🧰 🛠 🔧 ⚙ 🔩 ⚒ 🪛 🔨 🪚 🧲 ⚓ 🛡 🔦 💡 🔋 🔌 🔥 💎 🔍 🔎 👁 🖥 💻 ⌨ 🖱 🖨 📷 📸 📹 🎥 🖼 🎨 🖌 🖍 🎛 🎚 🎙 📻 📡 ☎ 📟 🔭 🧪 🧬 🧫 💊 💉 🩺 🦠 🧱 🪨 🪵 🧊 ⚗ 🔬 🗺 🧭 🚀 🛸 ✈ 🚁 🚂 🚗 🚌 ⛵ 🚢 🪂 🏗 🛰 🌐 🕸 🧩'.split(' ') },
+  { label: '媒体与音乐', items: '🎬 🎞 🎦 📺 📽 🎥 🎙 🎚 🎛 🎧 🎵 🎶 🎼 🎹 🥁 🎷 🎺 🎸 🪕 🎻 🎤 🎭 🎪 🎫 🎟 📼'.split(' ') },
+  { label: '游戏与生活', items: '🎮 🕹 🎯 🎲 🧩 ♟ 🎳 🎰 ⚽ 🏀 🏈 ⚾ 🎾 🏐 🎱 🏓 🏸 🥊 🥋 ⛳ 🎣 🎿 ⛸ 🥇 🥈 🥉 🏆 🏅 🎗 🎖 💰 💳 💵 🧧 🛍 🛒 🎀 🪄 🎆 🎇 🧸 🪀 🪁 🎃 🎄 🎋 🎐 🏮 🕯'.split(' ') },
+];
+
+let _emojiPop = null, _emojiAnchor = null;
+function closeEmojiPicker() {
+  if (_emojiPop) { _emojiPop.remove(); _emojiPop = null; }
+  _emojiAnchor = null;
+  window.removeEventListener('mousedown', _emojiDocDown, true);
+  window.removeEventListener('blur', _emojiDocDown);
+}
+function _emojiDocDown(e) {
+  if (!_emojiPop) return;
+  if (_emojiPop.contains(e.target)) return;
+  if (e.target && e.target.closest && e.target.closest('.emoji-pick-btn')) return;
+  closeEmojiPicker();
+}
+/** 打开图标选择面板:anchor 为触发按钮,input 为回填的输入框;点同一按钮可切换开/关 */
+export function openEmojiPicker(anchor, input) {
+  if (_emojiPop && _emojiAnchor === anchor) { closeEmojiPicker(); return; }
+  closeEmojiPicker();
+  _emojiAnchor = anchor;
+  const pop = document.createElement('div');
+  pop.className = 'emoji-pop';
+  for (const g of EMOJI_GROUPS) {
+    const h = document.createElement('div');
+    h.className = 'emoji-pop-group';
+    h.textContent = g.label;
+    pop.appendChild(h);
+    const grid = document.createElement('div');
+    grid.className = 'emoji-grid';
+    for (const e of g.items) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'emoji-item';
+      b.textContent = e;
+      b.title = e;
+      b.addEventListener('click', () => {
+        input.value = e;
+        closeEmojiPicker();
+      });
+      grid.appendChild(b);
+    }
+    pop.appendChild(grid);
+  }
+  document.body.appendChild(pop);
+  _emojiPop = pop;
+  const r = anchor.getBoundingClientRect();
+  const pw = pop.offsetWidth || 320;
+  const ph = pop.offsetHeight;
+  let left = Math.max(8, Math.min(r.right - pw, window.innerWidth - pw - 8));
+  let top = r.bottom + 4;
+  if (top + ph > window.innerHeight - 8 && r.top - ph - 4 > 8) top = r.top - ph - 4;
+  else if (top + ph > window.innerHeight - 8) top = Math.max(8, window.innerHeight - ph - 8);
+  pop.style.left = left + 'px';
+  pop.style.top = top + 'px';
+  window.addEventListener('mousedown', _emojiDocDown, true);
+  window.addEventListener('blur', _emojiDocDown);
+}

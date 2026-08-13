@@ -45,6 +45,15 @@ export const DEFAULT_SETTINGS = {
   webGameProxy: '', // 可选代理(如 http://127.0.0.1:7890)
   webGameHistory: [], // 最近打开的游戏 [{url, title, openedAt}] 最新在前,上限 20
   webgameAutoFloatOnSwitch: false, // 从网页浏览器切到其它模块时,是否自动把网页弹出独立悬浮窗(true=自动浮出; false=仅隐藏,回抓取页仍可见)
+  // 外观:主题 / 字体字号 / 背景
+  theme: 'dark', // 'dark' | 'light' | 'custom' | 'system'(跟随系统)
+  fontScale: 1, // 全局字体/界面缩放(作用于 #app 的 zoom,1 = 100%)
+  // 各主题独立配置(强调色 / 背景色 / 前景色 / 背景图),互不共享
+  themes: {
+    dark:   { accent: '', bgColor: '', fgColor: '', bgImage: '', bgImageOn: false, panelBg: '', menuBg: '', btnBg: '', hoverBg: '', borderColor: '' },
+    light:  { accent: '', bgColor: '', fgColor: '', bgImage: '', bgImageOn: false, panelBg: '', menuBg: '', btnBg: '', hoverBg: '', borderColor: '' },
+    custom: { accent: '', bgColor: '', fgColor: '', bgImage: '', bgImageOn: false, panelBg: '', menuBg: '', btnBg: '', hoverBg: '', borderColor: '' },
+  },
 };
 
 export const state = {
@@ -64,6 +73,10 @@ export const state = {
   apiCategories: [],
   apiProjects: [],
   apiEndpoints: [],
+  // 资源工具箱:可嵌套目录树(用户目录 + 内置工具链接)
+  toolboxFolders: [],
+  // 侧栏菜单管理:整棵侧栏菜单树(目录 + 终端)
+  menuNodes: [],
 };
 
 // ---------------- 资源类型分组 ----------------
@@ -147,6 +160,17 @@ export async function loadState() {
   Object.assign(state, data);
   // 合并默认设置,保证旧库缺失的新字段被补齐(已有字段以库为准)
   state.settings = { ...DEFAULT_SETTINGS, ...(data.settings || {}) };
+  // 兼容旧版:把旧全局 app* 外观字段并入 dark 主题(旧字段已废弃)
+  if (!state.settings.themes || typeof state.settings.themes !== 'object') {
+    state.settings.themes = { dark: {}, light: {}, custom: {} };
+  }
+  const legacy = data.settings || {};
+  if (legacy.appAccent != null) state.settings.themes.dark.accent = legacy.appAccent;
+  if (legacy.appBgColor != null) state.settings.themes.dark.bgColor = legacy.appBgColor;
+  if (legacy.appBgImage != null) {
+    state.settings.themes.dark.bgImage = legacy.appBgImage;
+    state.settings.themes.dark.bgImageOn = !!legacy.appBgImageOn;
+  }
   state.categories = Array.isArray(data.categories) ? data.categories : [];
   state.items = Array.isArray(data.items) ? data.items : [];
   state.favCategories = Array.isArray(data.favCategories) ? data.favCategories : [];
@@ -156,6 +180,26 @@ export async function loadState() {
   state.apiCategories = Array.isArray(data.apiCategories) ? data.apiCategories : [];
   state.apiProjects = Array.isArray(data.apiProjects) ? data.apiProjects : [];
   state.apiEndpoints = Array.isArray(data.apiEndpoints) ? data.apiEndpoints : [];
+  // 资源工具箱目录树(兼容旧库缺字段)
+  state.toolboxFolders = Array.isArray(data.toolboxFolders) ? data.toolboxFolders : [];
+  for (const tf of state.toolboxFolders) {
+    if (tf.parentId == null) tf.parentId = '';
+    if (tf.toolId == null) tf.toolId = '';
+    if (tf.icon == null) tf.icon = '';
+  }
+  seedToolboxFolders();
+  // 侧栏菜单树(兼容旧库缺字段)
+  state.menuNodes = Array.isArray(data.menuNodes) ? data.menuNodes : [];
+  for (const mn of state.menuNodes) {
+    if (mn.parentId == null) mn.parentId = '';
+    if (mn.icon == null) mn.icon = '';
+    if (mn.tooltip == null) mn.tooltip = '';
+    if (mn.note == null) mn.note = '';
+    if (mn.nodeType == null) mn.nodeType = 'dir';
+    if (mn.actionType == null) mn.actionType = '';
+    if (mn.action == null) mn.action = '';
+  }
+  seedMenuNodes();
   // 兼容字段:旧库无 tags 时补 []
   for (const it of state.items) {
     if (!Array.isArray(it.tags)) it.tags = [];
@@ -1156,6 +1200,351 @@ export function apiEndpointById(id) {
 export function apiEndpointsInProject(projectId) {
   return state.apiEndpoints.filter((e) => e.projectId === projectId);
 }
+
+// ================= 资源工具箱目录树 =================
+// 节点:toolId 为空 → 目录(可含子目录/工具链接);toolId 非空 → 内置工具链接。
+// 与动画资源分类树同构,但叶子是「工具」而非「动画条目」。
+
+/** 首次启动(或旧库无数据)注入默认工具箱目录结构 */
+function seedToolboxFolders() {
+  if (state.toolboxFolders.length) return;
+  const conv = addToolboxFolder({ name: '文件格式转换', parentId: '', toolId: '' });
+  addToolboxFolder({ name: 'astc 转 png', parentId: conv.id, toolId: 'astc2png' });
+  addToolboxFolder({ name: 'skel 转 json', parentId: conv.id, toolId: 'skel2json' });
+  addToolboxFolder({ name: 'spine 文件修复', parentId: conv.id, toolId: 'spinefix' });
+  addToolboxFolder({ name: 'Laya .sk 转 Spine', parentId: conv.id, toolId: 'sk2spine' });
+  addToolboxFolder({ name: 'spine 格式转换', parentId: conv.id, toolId: 'spineconvert' });
+  addToolboxFolder({ name: '图片集打包', parentId: '', toolId: 'atlas' });
+  addToolboxFolder({ name: '图片编辑', parentId: '', toolId: 'imageedit' });
+  addToolboxFolder({ name: 'FGUI导出源', parentId: '', toolId: 'fgui' });
+  addToolboxFolder({ name: 'FGUI编辑器', parentId: '', toolId: '__fgui_editor__' });
+}
+
+export function toolboxFolderById(id) {
+  return state.toolboxFolders.find((f) => f.id === id) || null;
+}
+
+/** 某父级下的直接子节点(目录 + 工具链接),按数组顺序(即 sort 顺序)返回 */
+export function getToolboxChildren(parentId) {
+  const pid = parentId || '';
+  return state.toolboxFolders.filter((f) => (f.parentId || '') === pid);
+}
+
+/** 某父级下的直接子目录(仅 toolId 为空的节点) */
+export function getToolboxFolderChildren(parentId) {
+  const pid = parentId || '';
+  return state.toolboxFolders.filter((f) => (f.parentId || '') === pid && !f.toolId);
+}
+
+export function isToolboxFolderDescendant(id, ancestorId) {
+  let cur = toolboxFolderById(id);
+  while (cur && cur.parentId) {
+    if (cur.parentId === ancestorId) return true;
+    cur = toolboxFolderById(cur.parentId);
+  }
+  return false;
+}
+
+/** 某目录的所有后代目录 id(不含自身,仅目录节点) */
+export function getToolboxFolderDescendants(id) {
+  const out = [];
+  const collect = (pid) => {
+    for (const f of state.toolboxFolders) {
+      if ((f.parentId || '') === pid && !f.toolId) {
+        out.push(f.id);
+        collect(f.id);
+      }
+    }
+  };
+  collect(id);
+  return out;
+}
+
+/** 目录路径名,如「文件格式转换 / spine 格式转换」(用于移动对话框) */
+export function toolboxFolderPath(id) {
+  const parts = [];
+  let cur = toolboxFolderById(id);
+  while (cur) {
+    parts.unshift(cur.name);
+    cur = cur.parentId ? toolboxFolderById(cur.parentId) : null;
+  }
+  return parts.join(' / ');
+}
+
+/** 新增目录或工具链接;parentId '' = 顶级;icon 为自定义显示图标(emoji,空 = 默认) */
+export function addToolboxFolder({ name, parentId = '', toolId = '', icon = '' }) {
+  const f = {
+    id: uid('tf'),
+    name,
+    parentId: parentId || '',
+    toolId: toolId || '',
+    icon: icon || '',
+    sort: state.toolboxFolders.length,
+    createdAt: now(),
+    updatedAt: now(),
+  };
+  state.toolboxFolders.push(f);
+  saveState();
+  return f;
+}
+
+export function updateToolboxFolder(id, patch) {
+  const f = toolboxFolderById(id);
+  if (!f) return null;
+  Object.assign(f, patch, { updatedAt: now() });
+  saveState();
+  return f;
+}
+
+/**
+ * 删除目录:递归删除其下全部子目录;其下工具链接(内置工具)提升到被删目录的父级,
+ * 避免删除后内置工具从侧栏消失(仍可在工具箱主页访问)。
+ */
+export function removeToolboxFolder(id) {
+  const f = toolboxFolderById(id);
+  if (!f || f.toolId) return; // 工具链接不可直接删除(用移动代替)
+  const parentPid = f.parentId || '';
+  const desc = getToolboxFolderDescendants(id);
+  const folderIds = new Set([id, ...desc]);
+  // 工具链接提升到被删目录的父级
+  for (const x of state.toolboxFolders) {
+    if (x.toolId && folderIds.has(x.parentId)) x.parentId = parentPid;
+  }
+  // 删除目录及其子孙目录
+  state.toolboxFolders = state.toolboxFolders.filter((x) => !folderIds.has(x.id));
+  saveState();
+}
+
+/** 拖动排序:把 fromId 移到 toId 的上方(before)或下方(after),数组顺序即渲染顺序 */
+export function reorderToolboxFolder(fromId, toId, place = 'before') {
+  const fromIdx = state.toolboxFolders.findIndex((f) => f.id === fromId);
+  if (fromIdx < 0) return null;
+  const [moved] = state.toolboxFolders.splice(fromIdx, 1);
+  let toIdx = state.toolboxFolders.findIndex((f) => f.id === toId);
+  if (toIdx < 0) toIdx = state.toolboxFolders.length;
+  if (place === 'after') toIdx += 1;
+  state.toolboxFolders.splice(toIdx, 0, moved);
+  state.toolboxFolders.forEach((f, i) => { f.sort = i; });
+  saveState();
+  return moved;
+}
+
+/**
+ * 跨目录拖拽:把 fromId 挪到 targetId 的同级并落在其上方(before)/下方(after)。
+ * 与 reorderToolboxFolder 的区别:会同步把 parentId 改成目标节点的父级,
+ * 因此「拖到别的目录里的某个节点旁边」也能一步完成(移动 + 定位)。
+ */
+export function moveToolboxNodeBeside(fromId, targetId, place = 'before') {
+  const target = toolboxFolderById(targetId);
+  if (!target) return null;
+  const fromIdx = state.toolboxFolders.findIndex((f) => f.id === fromId);
+  if (fromIdx < 0) return null;
+  const [moved] = state.toolboxFolders.splice(fromIdx, 1);
+  moved.parentId = target.parentId || '';
+  moved.updatedAt = now();
+  let toIdx = state.toolboxFolders.findIndex((f) => f.id === targetId);
+  if (toIdx < 0) toIdx = state.toolboxFolders.length;
+  if (place === 'after') toIdx += 1;
+  state.toolboxFolders.splice(toIdx, 0, moved);
+  state.toolboxFolders.forEach((f, i) => { f.sort = i; });
+  saveState();
+  return moved;
+}
+
+/**
+ * 把节点移动到某目录下的末尾;parentId '' = 工具箱根目录。
+ * 用于「拖到目录中部」与「拖到顶层模块节点(资源工具箱)」两种放置。
+ */
+export function moveToolboxNodeToParent(id, parentId = '') {
+  const pid = parentId || '';
+  const fromIdx = state.toolboxFolders.findIndex((f) => f.id === id);
+  if (fromIdx < 0) return null;
+  const [moved] = state.toolboxFolders.splice(fromIdx, 1);
+  moved.parentId = pid;
+  moved.updatedAt = now();
+  // 插到该父级现有最后一个子节点之后(渲染顺序 = 数组顺序,只在同父级内比较)
+  let insertAt = state.toolboxFolders.length;
+  for (let i = state.toolboxFolders.length - 1; i >= 0; i--) {
+    if ((state.toolboxFolders[i].parentId || '') === pid) { insertAt = i + 1; break; }
+  }
+  state.toolboxFolders.splice(insertAt, 0, moved);
+  state.toolboxFolders.forEach((f, i) => { f.sort = i; });
+  saveState();
+  return moved;
+}
+
+
+// ================= 侧栏菜单管理(整棵侧栏菜单树) =================
+// 节点:nodeType 'dir' 目录(可嵌套,含子节点) | 'term' 终端(点击后打开页面/调用外部程序)。
+// actionType:''(目录) | 'builtin' 内置动作 | 'exe' 外部程序。
+// 内置目录 action: fav / res:anim / res:image / res:audio / res:3d / scene / webgame / toolbox / devtools
+// 内置终端 action: page:settings / page:api / page:webgame / page:scene / page:toolbox / page:fav / tool:<toolId>
+// 用户目录:nodeType 'dir' + actionType '';用户终端:nodeType 'term' + actionType 'builtin'/'exe'。
+
+/** 侧栏菜单树的默认结构(首次启动或旧库无数据时注入) */
+const MENU_DEFAULT = [
+  { id: '__m_fav__', name: '收藏夹', icon: '🔖', nodeType: 'dir', actionType: 'builtin', action: 'fav', tooltip: '收藏夹主页与收藏分类', note: '' },
+  { id: '__m_res_anim__', name: '动画资源', icon: '🎬', nodeType: 'dir', actionType: 'builtin', action: 'res:anim', tooltip: 'Spine / DragonBones 骨骼动画', note: '' },
+  { id: '__m_res_image__', name: '图片资源', icon: '🖼', nodeType: 'dir', actionType: 'builtin', action: 'res:image', tooltip: '图片资源', note: '' },
+  { id: '__m_res_audio__', name: '音频资源', icon: '♪', nodeType: 'dir', actionType: 'builtin', action: 'res:audio', tooltip: '音频资源', note: '' },
+  { id: '__m_res_3d__', name: '3D资源', icon: '🧊', nodeType: 'dir', actionType: 'builtin', action: 'res:3d', tooltip: '3D 模型资源', note: '' },
+  { id: '__m_scene__', name: '游戏场景管理', icon: '🎬', nodeType: 'dir', actionType: 'builtin', action: 'scene', tooltip: '场景分类与 FGUI 包管理', note: '' },
+  { id: '__m_webgame__', name: '网络资源抓取', icon: '🌐', nodeType: 'dir', actionType: 'builtin', action: 'webgame', tooltip: '内嵌浏览器逆向分析网络资源', note: '' },
+  { id: '__m_toolbox__', name: '资源工具箱', icon: '🧰', nodeType: 'dir', actionType: 'builtin', action: 'toolbox', tooltip: '格式转换 / 图片编辑 / FGUI 等工具', note: '' },
+  { id: '__m_devtools__', name: '开发工具箱', icon: '🛠', nodeType: 'dir', actionType: 'builtin', action: 'devtools', tooltip: '开发辅助工具', note: '' },
+  { id: '__m_settings__', name: '系统设置', icon: '⚙', nodeType: 'term', actionType: 'builtin', action: 'page:settings', tooltip: '打开系统设置', note: '' },
+];
+
+function seedMenuNodes() {
+  if (state.menuNodes.length) return;
+  for (const m of MENU_DEFAULT) {
+    state.menuNodes.push({
+      ...m,
+      parentId: '',
+      sort: state.menuNodes.length,
+      createdAt: now(),
+      updatedAt: now(),
+    });
+  }
+  // 开发工具箱默认含「API 管理」终端子节点
+  state.menuNodes.push({
+    id: '__m_api__', name: 'API 管理', icon: '📖', parentId: '__m_devtools__',
+    nodeType: 'term', actionType: 'builtin', action: 'page:api',
+    tooltip: '内嵌 API 参考文档', note: '', sort: state.menuNodes.length, createdAt: now(), updatedAt: now(),
+  });
+  saveState();
+}
+
+export function menuNodeById(id) {
+  return state.menuNodes.find((m) => m.id === id) || null;
+}
+
+/** 某父级下的直接子节点(按数组顺序 = sort 顺序) */
+export function getMenuChildren(parentId) {
+  const pid = parentId || '';
+  return state.menuNodes.filter((m) => (m.parentId || '') === pid);
+}
+
+/** 顶级菜单节点(按 sort 顺序) */
+export function getMenuRoots() {
+  return getMenuChildren('');
+}
+
+export function isMenuNodeDescendant(id, ancestorId) {
+  let cur = menuNodeById(id);
+  while (cur && cur.parentId) {
+    if (cur.parentId === ancestorId) return true;
+    cur = menuNodeById(cur.parentId);
+  }
+  return false;
+}
+
+/** 某目录的所有后代 id(不含自身) */
+export function getMenuNodeDescendants(id) {
+  const out = [];
+  const collect = (pid) => {
+    for (const m of state.menuNodes) {
+      if ((m.parentId || '') === pid) { out.push(m.id); collect(m.id); }
+    }
+  };
+  collect(id);
+  return out;
+}
+
+/** 节点路径名(用于移动对话框),如「资源工具箱 / 文件格式转换」 */
+export function menuNodePath(id) {
+  const parts = [];
+  let cur = menuNodeById(id);
+  while (cur) { parts.unshift(cur.name); cur = cur.parentId ? menuNodeById(cur.parentId) : null; }
+  return parts.join(' / ');
+}
+
+/** 新增菜单节点(目录或终端);parentId '' = 顶级 */
+export function addMenuNode({ name, icon = '', parentId = '', nodeType = 'dir', actionType = '', action = '', tooltip = '', note = '' }) {
+  const node = {
+    id: uid('mn'),
+    name,
+    icon: icon || '',
+    parentId: parentId || '',
+    nodeType: nodeType === 'term' ? 'term' : 'dir',
+    actionType: actionType || '',
+    action: action || '',
+    tooltip: tooltip || '',
+    note: note || '',
+    sort: state.menuNodes.length,
+    createdAt: now(),
+    updatedAt: now(),
+  };
+  state.menuNodes.push(node);
+  saveState();
+  return node;
+}
+
+export function updateMenuNode(id, patch) {
+  const n = menuNodeById(id);
+  if (!n) return null;
+  Object.assign(n, patch, { updatedAt: now() });
+  saveState();
+  return n;
+}
+
+/** 删除菜单节点:递归删除其全部子节点(终端节点直接删除) */
+export function removeMenuNode(id) {
+  const ids = new Set([id, ...getMenuNodeDescendants(id)]);
+  state.menuNodes = state.menuNodes.filter((m) => !ids.has(m.id));
+  saveState();
+}
+
+/** 拖动排序:把 fromId 移到 toId 的上方(before)或下方(after) */
+export function reorderMenuNode(fromId, toId, place = 'before') {
+  const fromIdx = state.menuNodes.findIndex((m) => m.id === fromId);
+  if (fromIdx < 0) return null;
+  const [moved] = state.menuNodes.splice(fromIdx, 1);
+  let toIdx = state.menuNodes.findIndex((m) => m.id === toId);
+  if (toIdx < 0) toIdx = state.menuNodes.length;
+  if (place === 'after') toIdx += 1;
+  state.menuNodes.splice(toIdx, 0, moved);
+  state.menuNodes.forEach((m, i) => { m.sort = i; });
+  saveState();
+  return moved;
+}
+
+/** 跨目录拖拽:把 fromId 挪到 targetId 的同级并落在其前/后(同步改 parentId) */
+export function moveMenuNodeBeside(fromId, targetId, place = 'before') {
+  const target = menuNodeById(targetId);
+  if (!target) return null;
+  const fromIdx = state.menuNodes.findIndex((m) => m.id === fromId);
+  if (fromIdx < 0) return null;
+  const [moved] = state.menuNodes.splice(fromIdx, 1);
+  moved.parentId = target.parentId || '';
+  moved.updatedAt = now();
+  let toIdx = state.menuNodes.findIndex((m) => m.id === targetId);
+  if (toIdx < 0) toIdx = state.menuNodes.length;
+  if (place === 'after') toIdx += 1;
+  state.menuNodes.splice(toIdx, 0, moved);
+  state.menuNodes.forEach((m, i) => { m.sort = i; });
+  saveState();
+  return moved;
+}
+
+/** 把节点移动到某目录末尾;parentId '' = 顶级 */
+export function moveMenuNodeToParent(id, parentId = '') {
+  const pid = parentId || '';
+  const fromIdx = state.menuNodes.findIndex((m) => m.id === id);
+  if (fromIdx < 0) return null;
+  const [moved] = state.menuNodes.splice(fromIdx, 1);
+  moved.parentId = pid;
+  moved.updatedAt = now();
+  let insertAt = state.menuNodes.length;
+  for (let i = state.menuNodes.length - 1; i >= 0; i--) {
+    if ((state.menuNodes[i].parentId || '') === pid) { insertAt = i + 1; break; }
+  }
+  state.menuNodes.splice(insertAt, 0, moved);
+  state.menuNodes.forEach((m, i) => { m.sort = i; });
+  saveState();
+  return moved;
+}
+
 
 export function removeApiEndpoint(id) {
   state.apiEndpoints = state.apiEndpoints.filter((e) => e.id !== id);

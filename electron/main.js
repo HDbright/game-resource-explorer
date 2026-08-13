@@ -3,6 +3,7 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, Menu, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { spawn } = require('child_process');
 const { createServer } = require('./server');
 const { readDb, writeDb, migrateFromJson, dbStats, dbFile } = require('./db');
 const { scanDir, scanPath } = require('./scanner');
@@ -18,7 +19,6 @@ const webPreviewWindow = require('./tools/webPreviewWindow');
 const bookmarkDialog = require('./tools/bookmarkDialog');
 const { apiTest } = require('./tools/apiTest');
 const devCdp = require('./tools/devCdp');
-const { spawn } = require('child_process');
 const crypto = require('crypto');
 
 // ---- Spine 骨骼格式/版本转换(C++ SpineSkeletonDataConverter,来自 SpineSkeletonDataConverter 项目) ----
@@ -547,6 +547,20 @@ async function runSmoke() {
   app.exit(0);
 }
 
+// 单实例锁:避免重复启动多个实例抢同一个 DB / 本地端口(13456)导致报错。
+// 重复启动时只聚焦已有窗口, 而不是再起一个实例。
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    try {
+      if (win && !win.isDestroyed()) {
+        if (win.isMinimized()) win.restore();
+        win.focus();
+      }
+    } catch (e) { /* ignore */ }
+  });
+
 app.whenReady().then(async () => {
   const _t0 = Date.now();
   const _T = (l) => console.log('[main-init]', Date.now() - _t0, 'ms', l);
@@ -784,6 +798,21 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle('shell:showItem', (_e, p) => shell.showItemInFolder(p));
   ipcMain.handle('shell:openPath', (_e, p) => shell.openPath(p));
+  // 启动外部程序(侧栏菜单终端节点 action=exe 时调用)。支持路径 + 参数(空格分隔)。
+  ipcMain.handle('app:openExternal', (_e, cmd) => {
+    if (!cmd || typeof cmd !== 'string') return { error: '未提供程序路径' };
+    const [exe, ...args] = cmd.trim().split(/\s+/);
+    return new Promise((resolve) => {
+      try {
+        const child = spawn(exe, args, { detached: true, stdio: 'ignore', windowsHide: false });
+        child.on('error', (err) => resolve({ error: err.message }));
+        child.once('spawn', () => resolve({ ok: true }));
+        child.unref();
+      } catch (err) {
+        resolve({ error: err.message });
+      }
+    });
+  });
   ipcMain.handle('app:info', () => ({
     version: app.getVersion(),
     userData: app.getPath('userData'),
@@ -1462,6 +1491,7 @@ app.whenReady().then(async () => {
   loadDebugWinBounds(); // 读取调试窗口上次位置/大小存档
   await createWindow();
 });
+}
 
 app.on('window-all-closed', () => {
   try { webPreviewWindow.close(); } catch (e) { /* ignore */ }

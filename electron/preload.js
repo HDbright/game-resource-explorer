@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('api', {
   // 系统交互
   showItem: (p) => ipcRenderer.invoke('shell:showItem', p),
   openPath: (p) => ipcRenderer.invoke('shell:openPath', p),
+  openExternal: (cmd) => ipcRenderer.invoke('app:openExternal', cmd),
   statFile: (p) => ipcRenderer.invoke('fs:stat', p),
 
   // 缩略图持久化缓存(userData/thumbnails)

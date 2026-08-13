@@ -23,8 +23,14 @@ import {
   addWebBookmark, updateWebBookmark, removeWebBookmark,
   webBookmarkById, webBookmarksInCategory,
   recordRecentOpen,
+  addToolboxFolder, updateToolboxFolder, removeToolboxFolder,
+  getToolboxChildren, getToolboxFolderChildren, getToolboxFolderDescendants,
+  toolboxFolderById, isToolboxFolderDescendant, toolboxFolderPath,
+  moveToolboxNodeBeside, moveToolboxNodeToParent,
+  menuNodeById, getMenuChildren, getMenuRoots, isMenuNodeDescendant, getMenuNodeDescendants, menuNodePath,
+  addMenuNode, updateMenuNode, removeMenuNode, reorderMenuNode, moveMenuNodeBeside, moveMenuNodeToParent,
 } from './state.js';
-import { openModal, footButtons, confirmDialog, promptDialog, toast, showContextMenu } from './dialogs.js';
+import { openModal, footButtons, confirmDialog, promptDialog, toast, showContextMenu, openEmojiPicker } from './dialogs.js';
 import { initBgColorBar, customBgColor, BG_DARK, BG_LIGHT } from './bgColor.js';
 import { runAddFlow, addPathsToCategory } from './addFlow.js';
 import { renderHomePage, renderFavHome } from './pages/homePage.js';
@@ -36,6 +42,7 @@ import { renderSettingsPage } from './pages/settingsPage.js';
 import { initDebugInspect, toggleDebugMode } from './debugInspect.js';
 import { renderWebGamePage } from './pages/webGamePage.js';
 import { renderApiPage } from './pages/apiPage.js';
+import { applyAppearance, setupSystemThemeListener } from './appearance.js';
 import { ImageViewerController } from './viewers/imageViewer.js';
 import { AudioPlayerController } from './viewers/audioViewer.js';
 import { FguiViewerController } from './viewers/fguiViewer.js';
@@ -164,7 +171,7 @@ function applyTabState(t) {
     currentSceneCatId = mode === 'folder' ? (t.params.catId || '') : null;
     fguiPreviewShown = mode === 'fgui';
     pendingFguiBin = mode === 'fgui' ? (t.params.binPath || null) : null;
-    if (mode === 'fgui' && !expandedCats.has('__scene__')) expandedCats.add('__scene__');
+    if (mode === 'fgui' && !expandedCats.has('__m_scene__')) expandedCats.add('__m_scene__');
     renderMainArea();
     return;
   }
@@ -276,6 +283,14 @@ function toolLabel(tool) {
 
 export function initUI(pv) {
   preview = pv;
+  // 恢复上次关闭时的侧栏展开/折叠状态(在首次渲染前加载;splash 遮罩期间完成,不闪)
+  loadExpandedCatsInto(expandedCats);
+  // 应用外观设置(主题 / 字体字号 / 背景),在首屏渲染前应用,避免闪烁
+  applyAppearance();
+  setupSystemThemeListener();
+  // 程序关闭时确保最新状态落盘(拖拽/展开后短时间内关闭也不会丢)
+  window.addEventListener('pagehide', flushExpandedCats);
+  window.addEventListener('beforeunload', flushExpandedCats);
   // 需求:默认不展开任何分类/子目录(收藏夹根与收藏分类均默认折叠,点击箭头才展开)
   // ⚠ 启动性能:Electron 渲染进程 localStorage 首次访问需初始化 LevelDB, 实测可达数秒,
   //   阻塞首屏 → 侧栏隐藏状态改为空闲时再读取应用(首屏先按展开显示)
@@ -467,18 +482,70 @@ function collectDropPaths(e) {
 
 // ---------------- 资源树(分类 + 条目合并) ----------------
 
-const expandedCats = new Set(['__webgame_fav__']); // 展开的分类 id('all' / '' / 分类id);「XX资源」根默认折叠; 网络资源抓取(__webgame__)与开发工具箱(__devtools__)默认折叠(可展开); 网址收藏夹(__webgame_fav__)默认展开(展开父节点后可见)
+// 展开/折叠状态记忆:默认仅网址收藏夹(__webgame_fav__)与资源工具箱(__m_toolbox__)展开,其余折叠;
+// 任意改动(展开/折叠/拖拽/进入分类等)自动写入 localStorage,程序下次打开时恢复为上次关闭时的状态。
+const EXPANDED_CATS_KEY = 'sidebarExpandedCats';
+let _expandedCatsPersistTimer = null;
+let _expandedCatsLoading = true; // 构造/加载期间先不触发持久化
+
+function _persistExpandedCats() {
+  if (_expandedCatsPersistTimer) clearTimeout(_expandedCatsPersistTimer);
+  _expandedCatsPersistTimer = setTimeout(() => {
+    try { localStorage.setItem(EXPANDED_CATS_KEY, JSON.stringify(Array.from(expandedCats))); } catch (e) { /* ignore */ }
+  }, 150);
+}
+
+function loadExpandedCatsInto(set) {
+  _expandedCatsLoading = true;
+  try {
+    const raw = localStorage.getItem(EXPANDED_CATS_KEY);
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) {
+        set.clear();
+        for (const id of arr) set.add(id);
+      }
+    }
+  } catch (e) { /* ignore */ }
+  _expandedCatsLoading = false;
+}
+
+// 改动即持久化的 Set(复用原生 Set 全部语义,仅拦截 add/delete/clear)
+class AutoPersistSet extends Set {
+  add(v) { const r = super.add(v); if (!_expandedCatsLoading) _persistExpandedCats(); return r; }
+  delete(v) { const r = super.delete(v); if (!_expandedCatsLoading) _persistExpandedCats(); return r; }
+  clear() { super.clear(); if (!_expandedCatsLoading) _persistExpandedCats(); }
+}
+
+const expandedCats = new AutoPersistSet(['__webgame_fav__', '__m_toolbox__']);
+_expandedCatsLoading = false;
+
+function flushExpandedCats() {
+  if (_expandedCatsPersistTimer) { clearTimeout(_expandedCatsPersistTimer); _expandedCatsPersistTimer = null; }
+  try { localStorage.setItem(EXPANDED_CATS_KEY, JSON.stringify(Array.from(expandedCats))); } catch (e) { /* ignore */ }
+}
 
 let dragCatId = null;    // 当前拖拽中的分类 id
 let dragItemId = null;   // 当前拖拽中的条目 id
 let dragKind = null;     // 拖拽源类型:'cat'(分类) | 'favcat'(收藏分类) | 'item'(动画条目)
 let dragSceneCatId = null; // 当前拖拽中的场景分类 id
+let dragToolboxId = null;  // 当前拖拽中的资源工具箱节点 id
+let dragToolboxKind = null; // 拖拽源类型:'folder'(目录) | 'tool'(工具链接)
+let dragMenuId = null;      // 当前拖拽中的侧栏菜单节点 id
 let lastDragAt = 0;      // 上次拖拽结束时间(避免拖拽后误触发 click)
 
 /** 清理所有拖拽视觉标记 */
 function clearDropMarkers() {
-  document.querySelectorAll('.cat-node.dragging, .cat-node.drop-before, .cat-node.drop-after')
-    .forEach((el) => el.classList.remove('dragging', 'drop-before', 'drop-after'));
+  document.querySelectorAll('.cat-node.dragging, .cat-node.drop-before, .cat-node.drop-after, .cat-node.drop-in')
+    .forEach((el) => el.classList.remove('dragging', 'drop-before', 'drop-after', 'drop-in'));
+}
+
+/** 重置资源工具箱拖拽状态并清理视觉标记 */
+function resetToolboxDrag() {
+  dragToolboxId = null;
+  dragToolboxKind = null;
+  lastDragAt = Date.now();
+  clearDropMarkers();
 }
 
 /** 当前 tab 对应的资源分组(null = home/all 全类型) */
@@ -504,6 +571,19 @@ function filteredItems() {
 
 function itemsForCat(catId) {
   const all = filteredItems();
+  if (catId === 'all') return all;
+  if (catId === '') return all.filter((i) => !i.categoryId);
+  return all.filter((i) => i.categoryId === catId);
+}
+
+/** 某资源类型分组('anim'/'image'/'audio'/'3d')下的全部条目(不随全局 tab 变化,供 4 个类型根节点各自渲染) */
+function itemsForGroup(group) {
+  return state.items.filter((i) => typeGroup(i.type) === group);
+}
+
+/** 某资源类型分组下某分类的条目(all=全部, ''=未分类) */
+function itemsForGroupCat(group, catId) {
+  const all = itemsForGroup(group);
   if (catId === 'all') return all;
   if (catId === '') return all.filter((i) => !i.categoryId);
   return all.filter((i) => i.categoryId === catId);
@@ -576,73 +656,506 @@ function renderTree() {
   if (!tree) return;
   tree.innerHTML = '';
 
-  // 搜索时自动展开所有分类(含类型根节点)
+  // 搜索时自动展开所有分类与菜单节点
   if (searchText) {
-    expandedCats.add('all');
     state.categories.forEach((c) => expandedCats.add(c.id));
+    state.menuNodes.forEach((m) => expandedCats.add(m.id));
   }
 
-  // 收藏夹区块(置顶)
-  renderFavSection(tree);
+  // 收藏夹区块(置顶,特殊样式 + 「＋」新建收藏分类按钮)
+  renderFavSection(tree, menuNodeById('__m_fav__'));
 
-  // 收藏夹区域与资源分类目录区域之间的分格线
-  const sep = document.createElement('div');
-  sep.className = 'tree-section-sep';
-  tree.appendChild(sep);
+  // 其余菜单节点按 menuNodes 顺序渲染(动画/图片/音频/3D资源 + 场景 + 抓取 + 工具箱 + 开发工具箱 + 设置 + 自定义节点)
+  const roots = getMenuRoots().filter((n) => (n.action || '') !== 'fav');
+  for (const node of roots) {
+    const sep = document.createElement('div');
+    sep.className = 'tree-section-sep';
+    tree.appendChild(sep);
+    renderMenuNode(tree, node, 0);
+  }
+}
 
-  // 「XX资源」类型根节点(名称随 tab 变化):既是类型主页链接,又可展开/折叠该类型的分类目录
-  const allName = { anim: '动画资源', image: '图片资源', audio: '音频资源', '3d': '3D资源', home: '资源' }[currentGroup() || 'home'];
-  renderPseudoNode(tree, { id: 'all', icon: '▦', name: allName });
+// ================= 侧栏菜单节点渲染(数据驱动) =================
 
-  // 分格线:资源目录与场景管理之间
-  const sep2 = document.createElement('div');
-  sep2.className = 'tree-section-sep';
-  tree.appendChild(sep2);
+/** 内置目录节点是否有动态子内容(分类/条目/收藏等,不依赖 menuNodes) */
+function menuNodeHasDynamic(node) {
+  const a = node.action || '';
+  if (a === 'fav') return true;
+  if (a.startsWith('res:')) return true;
+  if (a === 'scene') return getSceneCategoryChildren('').length > 0;
+  if (a === 'webgame') return true;
+  if (a === 'toolbox') return getToolboxChildren('').length > 0;
+  return false;
+}
 
-  // 「游戏场景管理」根菜单(展开后显示场景分类树 + 未分类场景)
-  renderSceneSection(tree);
+/** 节点是否为当前激活状态 */
+function menuNodeActive(node) {
+  const a = node.action || '';
+  if (a === 'fav') return favHomeShown || currentFavCategoryId != null;
+  if (a === 'res:anim') return currentGroup() === 'anim';
+  if (a === 'res:image') return currentGroup() === 'image';
+  if (a === 'res:audio') return currentGroup() === 'audio';
+  if (a === 'res:3d') return currentGroup() === '3d';
+  if (a === 'scene') return sceneHomeShown || currentSceneCatId !== null;
+  if (a === 'webgame') return webGameShown;
+  if (a === 'toolbox') return !!currentTool || toolboxHomeShown || fguiEditorShown;
+  if (a === 'devtools') return apiDocShown;
+  if (a === 'page:settings') return settingsShown;
+  if (a === 'page:api') return apiDocShown;
+  if (a.startsWith('tool:')) return currentTool === a.slice(5);
+  return false;
+}
 
-  // 分格线:场景管理与网络资源抓取之间
-  const sepWg = document.createElement('div');
-  sepWg.className = 'tree-section-sep';
-  tree.appendChild(sepWg);
+/** 节点缺省图标(按内置 action 兜底) */
+function defaultMenuIcon(node) {
+  const a = node.action || '';
+  if (a === 'res:anim') return '🎬';
+  if (a === 'res:image') return '🖼';
+  if (a === 'res:audio') return '♪';
+  if (a === 'res:3d') return '🧊';
+  if (a === 'scene') return '🎬';
+  if (a === 'webgame') return '🌐';
+  if (a === 'toolbox') return '🧰';
+  if (a === 'devtools') return '🛠';
+  if (a === 'page:settings') return '⚙';
+  if (a === 'page:api') return '📖';
+  if (node.nodeType === 'term') return '▶';
+  return '📁';
+}
 
-  // 「网络资源抓取」根菜单(内嵌浏览器逆向分析网络资源)
-  renderWebGameSection(tree);
+/** 渲染单个菜单节点(目录 / 终端) */
+function renderMenuNode(parent, node, depth) {
+  const isTerm = node.nodeType === 'term';
+  const menuKids = getMenuChildren(node.id);
+  const dynamicHas = isTerm ? false : menuNodeHasDynamic(node);
+  const hasChildren = !isTerm && (menuKids.length > 0 || dynamicHas);
+  const isOpen = expandedCats.has(node.id);
+  const active = menuNodeActive(node);
+  const icon = node.icon || defaultMenuIcon(node);
 
-  // 分格线:场景管理与工具箱之间
-  const sep3 = document.createElement('div');
-  sep3.className = 'tree-section-sep';
-  tree.appendChild(sep3);
-
-  // 「资源工具箱」根菜单(展开后显示文件格式转换 / 图片编辑 / FGUI 编辑器 等子菜单)
-  renderToolboxSection(tree);
-
-  // 分格线:工具箱与开发工具箱之间
-  const sepDev = document.createElement('div');
-  sepDev.className = 'tree-section-sep';
-  tree.appendChild(sepDev);
-
-  // 「开发工具箱」根菜单(展开后显示 API 管理等开发辅助工具)
-  renderDevToolsSection(tree);
-
-  // 分格线:开发工具箱与系统设置之间
-  const sepSet = document.createElement('div');
-  sepSet.className = 'tree-section-sep';
-  tree.appendChild(sepSet);
-
-  // 「系统设置」叶子节点(独立入口)
-  const settingsNode = makeTreeNode({
-    icon: '⚙️',
-    name: '系统设置',
-    nodeId: '__settings__',
-    active: settingsShown,
-    paddingLeft: 8,
-    hasChildren: false,
-    isOpen: false,
+  const n = makeTreeNode({
+    icon, name: node.name, nodeId: node.id, active,
+    paddingLeft: 8 + depth * 14, hasChildren, isOpen,
   });
-  tree.appendChild(settingsNode);
-  settingsNode.addEventListener('click', () => openSettings());
+  parent.appendChild(n);
+
+  // 悬停提示:优先 tooltip,否则 note
+  const nmEl = n.querySelector('.cat-name');
+  if (node.tooltip) nmEl.title = node.tooltip;
+  else if (node.note) nmEl.title = node.note;
+
+  // 箭头:目录切换展开/折叠
+  n.querySelector('.cat-arrow').addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (Date.now() - lastDragAt < 300) return;
+    if (!hasChildren) return;
+    toggleExpand(node.id);
+    renderTree();
+  });
+
+  // 点击:目录根进入对应模块主页;终端执行动作
+  n.addEventListener('click', () => {
+    if (Date.now() - lastDragAt < 300) return;
+    if (isTerm) dispatchMenuTerm(node);
+    else dispatchMenuDir(node);
+  });
+
+  // 右键:菜单项管理
+  n.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    openMenuNodeMenu(e.clientX, e.clientY, node);
+  });
+
+  // 拖拽排序 / 移动到其它目录
+  attachMenuDrag(n, node);
+
+  if (isTerm || !isOpen) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'tree-items';
+  parent.appendChild(wrap);
+  renderMenuChildren(wrap, node);       // 内置动态子内容
+  for (const k of menuKids) renderMenuNode(wrap, k, depth + 1);
+}
+
+/** 渲染目录节点的内置动态子内容(分类树 / 场景树 / 收藏夹分类 / 工具箱树) */
+function renderMenuChildren(wrap, node) {
+  const a = node.action || '';
+  if (a === 'scene') {
+    for (const c of getSceneCategoryChildren('')) renderSceneCatNode(wrap, c, 1);
+  } else if (a === 'webgame') {
+    renderWebGameChildren(wrap);
+  } else if (a === 'toolbox') {
+    for (const c of getToolboxChildren('')) renderToolboxNode(wrap, c, 0);
+  } else if (a.startsWith('res:')) {
+    renderResTypeChildren(wrap, a.slice(4));
+  }
+}
+
+/** 资源类型根节点的子内容(未分类 + 分类目录,按该类型过滤) */
+function renderResTypeChildren(wrap, group) {
+  const uncat = itemsForGroupCat(group, '');
+  if (uncat.length > 0) {
+    renderPseudoNode(wrap, { id: '', icon: '○', name: '未分类' }, group, 'uncat:' + group);
+  }
+  for (const c of getCategoryChildren('')) {
+    if (catVisibleInGroup(c, group)) renderCatNode(wrap, c, 0, group);
+  }
+}
+
+/** 目录节点点击:进入对应模块主页 */
+function dispatchMenuDir(node) {
+  const a = node.action || '';
+  clearOverlays();
+  if (a === 'res:anim' || a === 'res:image' || a === 'res:audio' || a === 'res:3d') {
+    const g = a.slice(4);
+    setResourceTab(g);
+    currentCategoryId = 'all';
+    setSetting('lastCategoryId', 'all');
+    lastFolderTab = g;
+    expandedCats.add(node.id);
+    renderTree();
+    renderMainArea();
+    syncTabs();
+  } else if (a === 'scene') {
+    sceneHomeShown = true;
+    currentSceneCatId = null;
+    renderTree();
+    renderMainArea();
+  } else if (a === 'webgame') {
+    enterWebGame();
+  } else if (a === 'toolbox') {
+    toolboxHomeShown = true;
+    currentTool = null;
+    renderTree();
+    renderMainArea();
+  } else if (a === 'devtools') {
+    enterApiDoc();
+  } else {
+    // 自定义目录:点名称切换展开
+    toggleExpand(node.id);
+    renderTree();
+  }
+}
+
+/** 终端节点点击:执行动作(内置页面/工具 或 外部程序) */
+function dispatchMenuTerm(node) {
+  const a = node.action || '';
+  if (node.actionType === 'exe') {
+    if (!a) return toast('未配置程序路径', 'error');
+    window.api.openExternal(a)
+      .then((r) => { if (r && r.error) toast('启动失败: ' + r.error, 'error'); })
+      .catch((err) => toast('启动失败: ' + err.message, 'error'));
+    return;
+  }
+  if (a === 'page:settings') return openSettings();
+  if (a === 'page:api') return enterApiDoc();
+  if (a === 'page:webgame') return enterWebGame();
+  if (a === 'page:scene') { clearOverlays(); sceneHomeShown = true; renderTree(); renderMainArea(); return; }
+  if (a === 'page:toolbox') { clearOverlays(); toolboxHomeShown = true; renderTree(); renderMainArea(); return; }
+  if (a === 'page:fav') { clearOverlays(); favHomeShown = true; currentFavCategoryId = null; renderTree(); renderMainArea(); return; }
+  if (a.startsWith('res:')) {
+    const g = a.slice(4);
+    clearOverlays();
+    setResourceTab(g);
+    currentCategoryId = 'all';
+    lastFolderTab = g;
+    renderTree(); renderMainArea(); syncTabs();
+    return;
+  }
+  if (a.startsWith('tool:')) return openTool(a.slice(5));
+}
+
+/** 菜单节点拖拽合法性判断 */
+function menuDropContext(node) {
+  if (!dragMenuId || dragMenuId === node.id) return null;
+  const src = menuNodeById(dragMenuId);
+  if (!src) return null;
+  if (isMenuNodeDescendant(node.id, dragMenuId)) return null; // 不能拖进自己的子孙
+  const canDropIn = node.nodeType === 'dir' && (src.parentId || '') !== node.id;
+  return { src, canDropIn };
+}
+
+/** 给菜单节点挂载拖拽事件(同级/跨级排序 + 移动到其它目录) */
+function attachMenuDrag(n, node) {
+  n.draggable = true;
+  n.dataset.dragId = node.id;
+  n.addEventListener('dragstart', (e) => {
+    dragMenuId = node.id;
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData('text/plain', node.id); } catch (_) { /* ignore */ }
+    n.classList.add('dragging');
+  });
+  n.addEventListener('dragend', () => {
+    dragMenuId = null;
+    lastDragAt = Date.now();
+    clearDropMarkers();
+  });
+  n.addEventListener('dragover', (e) => {
+    const ctx = menuDropContext(node);
+    if (!ctx) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const rect = n.getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    const h = rect.height;
+    const before = ctx.canDropIn ? y < h / 3 : y < h / 2;
+    const after = ctx.canDropIn ? y > (h * 2) / 3 : !before;
+    n.classList.remove('drop-before', 'drop-after', 'drop-in');
+    n.classList.toggle('drop-before', before);
+    n.classList.toggle('drop-after', after);
+    n.classList.toggle('drop-in', !before && !after && ctx.canDropIn);
+  });
+  n.addEventListener('dragleave', () => {
+    n.classList.remove('drop-before', 'drop-after', 'drop-in');
+  });
+  n.addEventListener('drop', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    n.classList.remove('drop-before', 'drop-after', 'drop-in');
+    const ctx = menuDropContext(node);
+    if (!ctx) { dragMenuId = null; return; }
+    const rect = n.getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    const h = rect.height;
+    const before = ctx.canDropIn ? y < h / 3 : y < h / 2;
+    const after = ctx.canDropIn ? y > (h * 2) / 3 : !before;
+    if (!before && !after && ctx.canDropIn) {
+      moveMenuNodeToParent(dragMenuId, node.id);
+      expandedCats.add(node.id);
+      toast('已移动到「' + node.name + '」下');
+    } else {
+      moveMenuNodeBeside(dragMenuId, node.id, before ? 'before' : 'after');
+      if (node.parentId) expandedCats.add(node.parentId);
+      toast('已调整顺序');
+    }
+    dragMenuId = null;
+    lastDragAt = Date.now();
+    clearDropMarkers();
+    renderTree();
+  });
+}
+
+/** 菜单节点右键菜单 */
+function openMenuNodeMenu(x, y, node) {
+  const items = [];
+  if (node.nodeType === 'dir') {
+    items.push({ label: '新建子目录', onClick: () => newMenuNodeDialog(node.id, 'dir') });
+    items.push({ label: '新建终端', onClick: () => newMenuNodeDialog(node.id, 'term') });
+  }
+  items.push({ label: node.nodeType === 'term' ? '编辑终端' : '编辑节点', onClick: () => editMenuNodeDialog(node.id) });
+  items.push({ label: '移动...', onClick: () => moveMenuNodeDialog(node) });
+  items.push({ label: '删除', danger: true, onClick: () => deleteMenuNodeDialog(node.id) });
+  showContextMenu(x, y, items);
+}
+
+/** 内置动作选项(终端节点可选的目标页面/工具) */
+const MENU_ACTION_OPTIONS = [
+  { value: 'page:settings', label: '系统设置' },
+  { value: 'page:api', label: 'API 管理' },
+  { value: 'page:webgame', label: '网络资源抓取' },
+  { value: 'page:scene', label: '游戏场景管理主页' },
+  { value: 'page:toolbox', label: '资源工具箱主页' },
+  { value: 'page:fav', label: '收藏夹主页' },
+  { value: 'res:anim', label: '动画资源' },
+  { value: 'res:image', label: '图片资源' },
+  { value: 'res:audio', label: '音频资源' },
+  { value: 'res:3d', label: '3D资源' },
+  { value: 'tool:astc2png', label: 'astc 转 png' },
+  { value: 'tool:skel2json', label: 'skel 转 json' },
+  { value: 'tool:spinefix', label: 'spine 文件修复' },
+  { value: 'tool:sk2spine', label: 'Laya .sk 转 Spine' },
+  { value: 'tool:spineconvert', label: 'spine 格式转换' },
+  { value: 'tool:atlas', label: '图片集打包' },
+  { value: 'tool:imageedit', label: '图片编辑' },
+  { value: 'tool:fgui', label: 'FGUI 导出源' },
+];
+
+/** 新建菜单节点(目录或终端) */
+function newMenuNodeDialog(parentId = '', nodeType = 'dir') {
+  const isTerm = nodeType === 'term';
+  promptDialog({
+    title: isTerm ? '新建终端节点' : '新建目录',
+    fields: [
+      { key: 'name', label: '名称', type: 'text', value: '' },
+      { key: 'icon', label: '图标(emoji)', type: 'text', value: '' },
+    ],
+    onOk: ({ name, icon }) => {
+      if (!name) return toast('名称不能为空', 'error');
+      addMenuNode({ name, icon: icon.trim(), parentId, nodeType, actionType: isTerm ? 'builtin' : '', action: '' });
+      expandedCats.add(parentId || '');
+      renderTree();
+      toast('已创建');
+    },
+  });
+}
+
+/** 编辑菜单节点(目录:名称/图标/悬停提示/备注;终端:额外含动作) */
+function editMenuNodeDialog(id) {
+  const node = menuNodeById(id);
+  if (!node) return;
+  const isTerm = node.nodeType === 'term';
+  const body = document.createElement('div');
+  body.className = 'modal-body';
+
+  const makeRow = (label) => {
+    const row = document.createElement('div');
+    row.className = 'form-row';
+    const lb = document.createElement('label');
+    lb.className = 'f-label';
+    lb.textContent = label;
+    row.appendChild(lb);
+    return row;
+  };
+  const nameRow = makeRow('名称');
+  const nameInp = document.createElement('input'); nameInp.type = 'text'; nameInp.value = node.name; nameRow.appendChild(nameInp);
+  const iconRow = makeRow('图标(emoji)');
+  const iconInp = document.createElement('input'); iconInp.type = 'text'; iconInp.value = node.icon || ''; iconRow.appendChild(iconInp);
+  const tipRow = makeRow('悬停提示');
+  const tipInp = document.createElement('input'); tipInp.type = 'text'; tipInp.value = node.tooltip || ''; tipRow.appendChild(tipInp);
+  const noteRow = makeRow('备注');
+  const noteInp = document.createElement('textarea'); noteInp.value = node.note || ''; noteRow.appendChild(noteInp);
+
+  body.appendChild(nameRow);
+  body.appendChild(iconRow);
+  body.appendChild(tipRow);
+  body.appendChild(noteRow);
+
+  let typeSel = null;
+  let actSel = null;
+  let exeRow = null;
+  let exeInp = null;
+  if (isTerm) {
+    const typeRow = makeRow('动作类型');
+    typeSel = document.createElement('select');
+    [['builtin', '内置页面/工具'], ['exe', '外部程序']].forEach(([v, l]) => {
+      const op = document.createElement('option'); op.value = v; op.textContent = l; typeSel.appendChild(op);
+    });
+    typeSel.value = node.actionType === 'exe' ? 'exe' : 'builtin';
+    typeRow.appendChild(typeSel);
+    body.appendChild(typeRow);
+
+    const actRow = makeRow('目标页面');
+    actSel = document.createElement('select');
+    for (const o of MENU_ACTION_OPTIONS) {
+      const op = document.createElement('option'); op.value = o.value; op.textContent = o.label; actSel.appendChild(op);
+    }
+    if (!MENU_ACTION_OPTIONS.some((o) => o.value === node.action)) {
+      const op = document.createElement('option'); op.value = node.action; op.textContent = node.action; actSel.appendChild(op);
+    }
+    actSel.value = node.action || MENU_ACTION_OPTIONS[0].value;
+    actRow.appendChild(actSel);
+    body.appendChild(actRow);
+
+    exeRow = makeRow('程序路径');
+    exeInp = document.createElement('input'); exeInp.type = 'text'; exeInp.value = node.actionType === 'exe' ? (node.action || '') : '';
+    exeInp.placeholder = '例如 C:\\Tools\\app.exe';
+    exeRow.appendChild(exeInp);
+    body.appendChild(exeRow);
+
+    const sync = () => {
+      const isExe = typeSel.value === 'exe';
+      actSel.style.display = isExe ? 'none' : '';
+      actRow.style.display = isExe ? 'none' : '';
+      exeRow.style.display = isExe ? '' : 'none';
+    };
+    typeSel.addEventListener('change', sync);
+    sync();
+  }
+
+  const { close } = openModal({
+    title: isTerm ? '编辑终端节点' : '编辑目录节点',
+    body,
+    foot: footButtons([
+      { text: '取消', cls: '', onClick: () => close() },
+      {
+        text: '确定', cls: 'primary', onClick: () => {
+          const name = nameInp.value.trim();
+          if (!name) { toast('名称不能为空', 'error'); return; }
+          const patch = {
+            name,
+            icon: iconInp.value.trim(),
+            tooltip: tipInp.value.trim(),
+            note: noteInp.value.trim(),
+          };
+          if (isTerm) {
+            const isExe = typeSel.value === 'exe';
+            patch.actionType = isExe ? 'exe' : 'builtin';
+            patch.action = isExe ? exeInp.value.trim() : actSel.value;
+          }
+          updateMenuNode(id, patch);
+          close();
+          renderTree();
+          toast('已保存');
+        },
+      },
+    ]),
+  });
+}
+
+/** 移动菜单节点对话框 */
+function moveMenuNodeDialog(node) {
+  const body = document.createElement('div');
+  body.className = 'modal-body';
+  const list = document.createElement('div');
+  list.className = 'fav-pick-list';
+  body.appendChild(list);
+  const exclude = new Set([node.id, ...getMenuNodeDescendants(node.id)]);
+  let checked = false;
+  const pick = (value, label) => {
+    const lb = document.createElement('label');
+    lb.className = 'fav-pick-item';
+    const rb = document.createElement('input');
+    rb.type = 'radio';
+    rb.name = 'movemn';
+    rb.value = value;
+    if (!checked) { rb.checked = true; checked = true; }
+    const sp = document.createElement('span');
+    sp.textContent = label;
+    lb.appendChild(rb);
+    lb.appendChild(sp);
+    list.appendChild(lb);
+  };
+  pick('', '移至顶级');
+  for (const m of state.menuNodes) {
+    if (m.nodeType !== 'dir') continue;
+    if (exclude.has(m.id)) continue;
+    pick(m.id, menuNodePath(m.id));
+  }
+  const { close } = openModal({
+    title: '移动节点',
+    body,
+    foot: footButtons([
+      { text: '取消', cls: '', onClick: () => close() },
+      {
+        text: '确定', cls: 'primary', onClick: () => {
+          const selected = list.querySelector('input:checked');
+          if (!selected) return;
+          updateMenuNode(node.id, { parentId: selected.value });
+          close();
+          if (selected.value) expandedCats.add(selected.value);
+          renderTree();
+          toast('已移动');
+        },
+      },
+    ]),
+  });
+}
+
+/** 删除菜单节点对话框 */
+function deleteMenuNodeDialog(id) {
+  const node = menuNodeById(id);
+  if (!node) return;
+  const subs = getMenuNodeDescendants(id).length;
+  confirmDialog({
+    title: `删除「${node.name}」?`,
+    message: subs ? `其下 ${subs} 个子节点将一并删除。` : '该节点将被删除。',
+    onOk: () => {
+      removeMenuNode(id);
+      renderTree();
+      toast('已删除');
+    },
+  });
 }
 
 /** FGUI 编辑器入口(资源工具箱子节点): 进入独立 FGUI 编辑器页 */
@@ -656,14 +1169,22 @@ function enterFguiEditor(binPath) {
   renderMainArea();
 }
 
-/** 资源工具箱侧栏根节点 + 子菜单 */
+/** 内置工具链接的图标映射(侧栏目录树中显示) */
+const TOOLBOX_TOOL_ICONS = {
+  astc2png: '🖼', skel2json: '📦', spinefix: '🛠', sk2spine: '🦴', spineconvert: '🔄',
+  atlas: '🗂', imageedit: '🎨', fgui: '🧩', '__fgui_editor__': '✏️',
+};
+/** 侧栏根节点「资源工具箱」的虚拟 id(非数据节点,仅作展开键) */
+const TOOLBOX_ROOT_ID = '__tools__';
+
+/** 资源工具箱侧栏:数据驱动的目录树(目录 + 内置工具链接,可拖拽排序/移动,右键编辑/新增/删除/移动) */
 function renderToolboxSection(parent) {
-  const rootOpen = expandedCats.has('__tools__');
+  const rootOpen = expandedCats.has(TOOLBOX_ROOT_ID);
   const root = makeTreeNode({
     icon: '🧰',
     name: '资源工具箱',
-    nodeId: '__tools__',
-    active: !!currentTool || toolboxHomeShown,
+    nodeId: TOOLBOX_ROOT_ID,
+    active: !!currentTool || toolboxHomeShown || fguiEditorShown,
     paddingLeft: 8,
     hasChildren: true,
     isOpen: rootOpen,
@@ -673,7 +1194,7 @@ function renderToolboxSection(parent) {
   // 箭头点击:展开/折叠工具箱
   root.querySelector('.cat-arrow').addEventListener('click', (e) => {
     e.stopPropagation();
-    toggleExpand('__tools__');
+    toggleExpand(TOOLBOX_ROOT_ID);
     renderTree();
   });
   // 名称点击:进入工具箱主页(汇总视图,列出所有子菜单入口)
@@ -684,6 +1205,17 @@ function renderToolboxSection(parent) {
     renderTree();
     renderMainArea();
   });
+  // 根节点右键:打开主页 / 新建顶级目录
+  root.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    showContextMenu(e.clientX, e.clientY, [
+      { label: '打开工具箱主页', onClick: () => { clearOverlays(); toolboxHomeShown = true; currentTool = null; renderTree(); renderMainArea(); } },
+      { label: '新建顶级目录', onClick: () => newToolboxSubFolderDialog('') },
+    ]);
+  });
+  // 根节点作为放置目标:把节点拖到这里 → 移到工具箱根目录
+  attachToolboxRootDrop(root);
 
   if (!rootOpen) return;
 
@@ -691,94 +1223,353 @@ function renderToolboxSection(parent) {
   wrap.className = 'tree-items';
   parent.appendChild(wrap);
 
-  // 「文件格式转换」父菜单
-  const convOpen = expandedCats.has('__tools_conv__');
-  const convHas = true;
-  const convNode = makeTreeNode({
-    icon: '🔁',
-    name: '文件格式转换',
-    nodeId: '__tools_conv__',
-    active: ['astc2png', 'skel2json', 'spinefix', 'sk2spine', 'spineconvert'].includes(currentTool || ''),
-    paddingLeft: 22,
-    hasChildren: convHas,
-    isOpen: convOpen,
+  for (const n of getToolboxChildren('')) {
+    renderToolboxNode(wrap, n, 0);
+  }
+}
+
+/** 递归渲染一个工具箱节点(目录或工具链接) */
+function renderToolboxNode(parent, node, depth) {
+  const isTool = !!node.toolId;
+  const children = isTool ? [] : getToolboxChildren(node.id);
+  const hasChildren = children.length > 0;
+  const isOpen = expandedCats.has(node.id);
+  const icon = node.icon || (isTool ? (TOOLBOX_TOOL_ICONS[node.toolId] || '🔧') : '📁');
+  const active = isTool
+    ? (node.toolId === '__fgui_editor__' ? fguiEditorShown : currentTool === node.toolId)
+    : children.some((c) => toolboxNodeContainsActive(c));
+
+  const n = makeTreeNode({
+    icon,
+    name: node.name,
+    nodeId: node.id,
+    active,
+    paddingLeft: 22 + depth * 14,
+    hasChildren,
+    isOpen,
   });
-  wrap.appendChild(convNode);
-  convNode.querySelector('.cat-arrow').addEventListener('click', (e) => {
+  parent.appendChild(n);
+
+  // 箭头:目录才切换展开(工具链接无子级)
+  n.querySelector('.cat-arrow').addEventListener('click', (e) => {
     e.stopPropagation();
-    toggleExpand('__tools_conv__');
-    renderTree();
-  });
-  convNode.addEventListener('click', () => {
-    // 父菜单点名称:进入首个工具(astc2png),也作为默认入口
-    openTool('astc2png');
+    if (Date.now() - lastDragAt < 300) return;
+    if (!isTool && hasChildren) {
+      if (expandedCats.has(node.id)) expandedCats.delete(node.id);
+      else expandedCats.add(node.id);
+      renderTree();
+    }
   });
 
-  if (convOpen) {
+  // 名称点击:工具链接 → 打开工具;目录 → 切换展开(无目录内容页)
+  n.addEventListener('click', () => {
+    if (Date.now() - lastDragAt < 300) return; // 拖拽刚结束忽略误触
+    if (isTool) {
+      if (node.toolId === '__fgui_editor__') enterFguiEditor();
+      else openTool(node.toolId);
+    } else if (hasChildren) {
+      if (expandedCats.has(node.id)) expandedCats.delete(node.id);
+      else expandedCats.add(node.id);
+      renderTree();
+    }
+  });
+
+  // 右键菜单:目录 → 编辑/新增/删除/移动;工具链接 → 移动
+  n.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (isTool) openToolboxToolMenu(e.clientX, e.clientY, node);
+    else openToolboxFolderMenu(e.clientX, e.clientY, node);
+  });
+
+  // 拖拽排序 / 移动到其它目录
+  attachToolboxDrag(n, node);
+
+  // 递归子节点(仅在展开时渲染)
+  if (isOpen) {
     const subWrap = document.createElement('div');
     subWrap.className = 'tree-items';
-    wrap.appendChild(subWrap);
-    const leaves = [
-      { id: 'astc2png', icon: '🖼', name: 'astc 转 png' },
-      { id: 'skel2json', icon: '📦', name: 'skel 转 json' },
-      { id: 'spinefix', icon: '🛠', name: 'spine 文件修复' },
-      { id: 'sk2spine', icon: '🦴', name: 'Laya .sk 转 Spine' },
-      { id: 'spineconvert', icon: '🔄', name: 'spine 格式转换' },
-    ];
-    for (const l of leaves) {
-      const n = makeTreeNode({
-        icon: l.icon,
-        name: l.name,
-        nodeId: '__tool:' + l.id,
-        active: currentTool === l.id,
-        paddingLeft: 36,
-        hasChildren: false,
-        isOpen: false,
-      });
-      n.addEventListener('click', () => openTool(l.id));
-      subWrap.appendChild(n);
-    }
+    parent.appendChild(subWrap);
+    for (const c of children) renderToolboxNode(subWrap, c, depth + 1);
   }
-
-  // 「图片编辑」叶子节点
-  const imgNode = makeTreeNode({
-    icon: '🎨',
-    name: '图片编辑',
-    nodeId: '__tool:imageedit',
-    active: currentTool === 'imageedit',
-    paddingLeft: 22,
-    hasChildren: false,
-    isOpen: false,
-  });
-  wrap.appendChild(imgNode);
-  imgNode.addEventListener('click', () => openTool('imageedit'));
-
-  // 「FGUI 导出源」叶子节点(导出标准 FairyGUI 源工程: package.xml + 组件 XML + 碎图 + 字体)
-  const fguiNode = makeTreeNode({
-    icon: '🧩',
-    name: 'FGUI导出源',
-    nodeId: '__tool:fgui',
-    active: currentTool === 'fgui',
-    paddingLeft: 22,
-    hasChildren: false,
-    isOpen: false,
-  });
-  wrap.appendChild(fguiNode);
-  fguiNode.addEventListener('click', () => openTool('fgui'));
-
-  // 「FGUI 编辑器」叶子节点(独立 FGUI 包可视化编辑器)
-  const editorNode = makeTreeNode({
-    icon: '✏️',
-    name: 'FGUI编辑器',
-    nodeId: '__fgui_editor__',
-    active: fguiEditorShown,
-    paddingLeft: 22,
-    hasChildren: false,
-    isOpen: false,
-  });
-  wrap.appendChild(editorNode);
-  editorNode.addEventListener('click', () => enterFguiEditor());
 }
+
+/** 节点(含其所有后代)是否为当前激活的工具/编辑器 */
+function toolboxNodeContainsActive(c) {
+  if (c.toolId) return c.toolId === '__fgui_editor__' ? fguiEditorShown : currentTool === c.toolId;
+  return getToolboxChildren(c.id).some((x) => toolboxNodeContainsActive(x));
+}
+
+/**
+ * 拖拽合法性判断:目标节点能否接收当前拖拽的工具箱节点。
+ * 返回 null 表示不可放置,否则返回 { src, canDropIn }。
+ * 关键约束:目录不能拖进「自己的子孙」里(否则形成环,该分支会整体从树上消失)。
+ */
+function toolboxDropContext(node) {
+  if (!dragToolboxId || dragToolboxId === node.id) return null;
+  const src = toolboxFolderById(dragToolboxId);
+  if (!src) return null;
+  // 目标是被拖节点的后代 → 一律禁止(边缘排序也会把父级挪进子树)
+  if (isToolboxFolderDescendant(node.id, dragToolboxId)) return null;
+  // 只有目录能作为「移入」目标;工具链接无子级
+  const canDropIn = !node.toolId && (src.parentId || '') !== node.id;
+  return { src, canDropIn };
+}
+
+/** 给工具箱节点挂载拖拽事件(同级/跨级排序 + 移动到其它目录) */
+function attachToolboxDrag(n, node) {
+  n.draggable = true;
+  n.dataset.dragId = node.id;
+  n.addEventListener('dragstart', (e) => {
+    dragToolboxId = node.id;
+    dragToolboxKind = node.toolId ? 'tool' : 'folder';
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData('text/plain', node.id); } catch (_) { /* ignore */ }
+    n.classList.add('dragging');
+  });
+  n.addEventListener('dragend', () => resetToolboxDrag());
+  n.addEventListener('dragover', (e) => {
+    const ctx = toolboxDropContext(node);
+    if (!ctx) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const rect = n.getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    const h = rect.height;
+    // 目录:上/下 1/3 = 排到该节点前后(可跨目录),中部 = 移入该目录
+    // 工具链接:整格都是「排到前后」(无子级,不能移入)
+    const before = ctx.canDropIn ? y < h / 3 : y < h / 2;
+    const after = ctx.canDropIn ? y > (h * 2) / 3 : !before;
+    n.classList.remove('drop-before', 'drop-after', 'drop-in');
+    n.classList.toggle('drop-before', before);
+    n.classList.toggle('drop-after', after);
+    n.classList.toggle('drop-in', !before && !after && ctx.canDropIn);
+  });
+  n.addEventListener('dragleave', () => {
+    n.classList.remove('drop-before', 'drop-after', 'drop-in');
+  });
+  n.addEventListener('drop', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    n.classList.remove('drop-before', 'drop-after', 'drop-in');
+    const ctx = toolboxDropContext(node);
+    if (!ctx) { resetToolboxDrag(); return; }
+    const rect = n.getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    const h = rect.height;
+    const before = ctx.canDropIn ? y < h / 3 : y < h / 2;
+    const after = ctx.canDropIn ? y > (h * 2) / 3 : !before;
+
+    if (!before && !after && ctx.canDropIn) {
+      // 中部:移入该目录作子级
+      moveToolboxNodeToParent(dragToolboxId, node.id);
+      expandedCats.add(node.id);
+      toast('已移动到「' + node.name + '」下');
+    } else {
+      // 边缘:排到目标节点前/后。跨目录时同步改父级 → 一步完成「移动到别的目录」
+      const crossed = (ctx.src.parentId || '') !== (node.parentId || '');
+      moveToolboxNodeBeside(dragToolboxId, node.id, before ? 'before' : 'after');
+      if (node.parentId) expandedCats.add(node.parentId);
+      toast(crossed ? '已移动到「' + (toolboxFolderById(node.parentId)?.name || '资源工具箱') + '」下' : '已调整顺序');
+    }
+    resetToolboxDrag();
+    renderTree();
+  });
+}
+
+/**
+ * 顶层模块节点「资源工具箱」作为放置目标:拖到它上面 → 移动到工具箱根目录。
+ * 已在根目录的节点不接收(避免无意义操作)。
+ */
+function attachToolboxRootDrop(root) {
+  const canAccept = () => {
+    if (!dragToolboxId) return false;
+    const src = toolboxFolderById(dragToolboxId);
+    return !!src && !!(src.parentId || '');
+  };
+  root.addEventListener('dragover', (e) => {
+    if (!canAccept()) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    root.classList.add('drop-in');
+  });
+  root.addEventListener('dragleave', () => root.classList.remove('drop-in'));
+  root.addEventListener('drop', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    root.classList.remove('drop-in');
+    if (canAccept()) {
+      moveToolboxNodeToParent(dragToolboxId, '');
+      expandedCats.add(TOOLBOX_ROOT_ID);
+      toast('已移动到「资源工具箱」根目录');
+    }
+    resetToolboxDrag();
+    renderTree();
+  });
+}
+
+/** 目录右键菜单:新建子目录 / 编辑目录 / 移动 / 删除 */
+function openToolboxFolderMenu(x, y, node) {
+  showContextMenu(x, y, [
+    { label: '新建子目录', onClick: () => newToolboxSubFolderDialog(node.id) },
+    { label: '编辑目录', onClick: () => editToolboxFolderDialog(node.id) },
+    { label: '移动...', onClick: () => moveToolboxFolderDialog(node) },
+    { label: '删除', danger: true, onClick: () => deleteToolboxFolderDialog(node.id) },
+  ]);
+}
+
+/** 工具链接右键菜单:编辑工具(名称/图标) / 移动 */
+function openToolboxToolMenu(x, y, node) {
+  showContextMenu(x, y, [
+    { label: '编辑工具', onClick: () => editToolboxFolderDialog(node.id) },
+    { label: '移动...', onClick: () => moveToolboxFolderDialog(node) },
+  ]);
+}
+
+/** 新建子目录对话框 */
+function newToolboxSubFolderDialog(parentId) {
+  promptDialog({
+    title: '新建目录',
+    fields: [{ key: 'name', label: '目录名称', type: 'text', value: '' }],
+    onOk: ({ name }) => {
+      name = (name || '').trim();
+      if (!name) return toast('目录名称不能为空', 'error');
+      const f = addToolboxFolder({ name, parentId });
+      expandedCats.add(parentId);
+      expandedCats.add(f.id);
+      renderTree();
+      toast('已创建子目录「' + name + '」');
+    },
+  });
+}
+
+/** 编辑目录/工具对话框(名称 + 图标,带 emoji 选择面板);目录与内置工具链接均可编辑显示名/图标 */
+function editToolboxFolderDialog(id) {
+  const node = toolboxFolderById(id);
+  if (!node) return;
+  const isTool = !!node.toolId;
+  const body = document.createElement('div');
+  body.className = 'modal-body';
+  const makeRow = (label) => {
+    const row = document.createElement('div'); row.className = 'form-row';
+    const lb = document.createElement('label'); lb.className = 'f-label'; lb.textContent = label; row.appendChild(lb);
+    return row;
+  };
+  const nameRow = makeRow(isTool ? '工具名称' : '目录名称');
+  const nameInp = document.createElement('input'); nameInp.type = 'text'; nameInp.value = node.name; nameRow.appendChild(nameInp);
+  const iconRow = makeRow('图标(emoji)');
+  const iconInp = document.createElement('input'); iconInp.type = 'text'; iconInp.value = node.icon || ''; iconRow.appendChild(iconInp);
+  const pickBtn = document.createElement('button');
+  pickBtn.type = 'button';
+  pickBtn.className = 'btn sm emoji-pick-btn';
+  pickBtn.textContent = '😀';
+  pickBtn.title = '选择图标';
+  pickBtn.addEventListener('click', (e) => { e.stopPropagation(); openEmojiPicker(pickBtn, iconInp); });
+  iconRow.appendChild(pickBtn);
+  body.appendChild(nameRow); body.appendChild(iconRow);
+
+  const { close } = openModal({
+    title: isTool ? '编辑工具' : '编辑目录',
+    body,
+    foot: footButtons([
+      { text: '取消', cls: '', onClick: () => close() },
+      {
+        text: '确定', cls: 'primary', onClick: () => {
+          const name = nameInp.value.trim();
+          if (!name) { toast(isTool ? '工具名称不能为空' : '目录名称不能为空', 'error'); return; }
+          updateToolboxFolder(id, { name, icon: iconInp.value.trim() });
+          close();
+          renderTree();
+          toast(isTool ? '工具已更新' : '目录已更新');
+        },
+      },
+    ]),
+  });
+}
+
+/** 删除目录确认对话框(其子目录递归删除,内置工具链接提升到上一级) */
+function deleteToolboxFolderDialog(id) {
+  const node = toolboxFolderById(id);
+  if (!node || node.toolId) return;
+  const childCount = getToolboxChildren(id).length;
+  confirmDialog({
+    title: '删除目录「' + node.name + '」',
+    message:
+      `确定删除目录「<b>${esc(node.name)}</b>」吗?` +
+      (childCount
+        ? `<br/>其下 ${childCount} 个子项(含子目录)将一并处理:子目录被删除,内置工具链接会提升到上一级目录(仍可在工具箱主页访问)。`
+        : ''),
+    danger: true,
+    onOk: () => {
+      removeToolboxFolder(id);
+      renderTree();
+      toast('目录已删除');
+    },
+  });
+}
+
+/** 移动目录/工具链接到其它目录或顶级 */
+function moveToolboxFolderDialog(node) {
+  const exclude = new Set();
+  if (!node.toolId) {
+    exclude.add(node.id);
+    for (const d of getToolboxFolderDescendants(node.id)) exclude.add(d);
+  }
+  const body = document.createElement('div');
+  body.className = 'modal-body';
+  const tip = document.createElement('div');
+  tip.className = 'form-row';
+  tip.innerHTML = `<span class="ro">将「<b>${esc(node.name)}</b>」移动到:</span>`;
+  body.appendChild(tip);
+
+  const list = document.createElement('div');
+  list.className = 'fav-pick-list';
+  let checked = false;
+  const pick = (value, label) => {
+    const lb = document.createElement('label');
+    lb.className = 'fav-pick-item';
+    const rb = document.createElement('input');
+    rb.type = 'radio';
+    rb.name = 'movetb';
+    rb.value = value;
+    if (!checked) { rb.checked = true; checked = true; }
+    const sp = document.createElement('span');
+    sp.textContent = label;
+    lb.appendChild(rb);
+    lb.appendChild(sp);
+    list.appendChild(lb);
+  };
+  pick('', '移至顶级(不作为子目录)');
+  for (const f of state.toolboxFolders) {
+    if (f.toolId) continue; // 仅目录可作为目标
+    if (exclude.has(f.id)) continue;
+    pick(f.id, toolboxFolderPath(f.id));
+  }
+  body.appendChild(list);
+
+  const { close } = openModal({
+    title: '移动目录',
+    body,
+    foot: footButtons([
+      { text: '取消', cls: '', onClick: () => close() },
+      {
+        text: '确定',
+        cls: 'primary',
+        onClick: () => {
+          const selected = list.querySelector('input:checked');
+          if (!selected) return;
+          const target = selected.value;
+          updateToolboxFolder(node.id, { parentId: target });
+          close();
+          if (target) expandedCats.add(target);
+          renderTree();
+          toast('已移动');
+        },
+      },
+    ]),
+  });
+}
+
 
 /** 开发工具箱 API 管理入口(侧栏子节点): 进入内嵌 API 文档页 */
 function enterApiDoc() {
@@ -845,40 +1636,8 @@ function enterWebGame() {
 }
 
 /** 网络资源抓取侧栏根节点 + 最近网址 + 网址收藏夹分类树 */
-function renderWebGameSection(parent) {
-  // ⚠️ 不能在这里强制 add __webgame__/__webgame_fav__(否则折叠箭头点了无效): 默认展开由 expandedCats 初始值提供, 用户折叠/展开状态要能持久
-  const rootOpen = expandedCats.has('__webgame__');
-  const root = makeTreeNode({
-    icon: '🌐',
-    name: '网络资源抓取',
-    nodeId: '__webgame__',
-    active: webGameShown,
-    paddingLeft: 8,
-    hasChildren: true,
-    isOpen: rootOpen,
-  });
-  parent.appendChild(root);
-  root.querySelector('.cat-arrow').addEventListener('click', (e) => {
-    e.stopPropagation();
-    toggleExpand('__webgame__');
-    renderTree();
-  });
-  root.addEventListener('click', () => enterWebGame());
-  // 根节点右键:打开抓取页 / 清空捕获 / 新建收藏夹目录
-  root.addEventListener('contextmenu', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    showContextMenu(e.clientX, e.clientY, [
-      { label: '打开抓取页', onClick: enterWebGame },
-      { label: '新建收藏夹目录', onClick: () => addWebBookmarkCategoryDialog('') },
-      { label: '清空捕获记录', onClick: async () => { await window.api.webClearCaptured(); toast('已清空捕获记录'); } },
-    ]);
-  });
-  if (!rootOpen) return;
-  const wrap = document.createElement('div');
-  wrap.className = 'tree-items';
-  parent.appendChild(wrap);
-
+/** 网络资源抓取目录节点的子内容(最近打开 + 网址收藏夹分类树) */
+function renderWebGameChildren(wrap) {
   // 最近打开的游戏(settings.webGameHistory, 点击进入并回填 URL)
   const history = ((state.settings && state.settings.webGameHistory) || []).slice(0, 8);
   if (history.length) {
@@ -914,7 +1673,7 @@ function renderWebGameSection(parent) {
     icon: '🔖', name: '网址收藏夹', nodeId: '__webgame_fav__', active: false,
     paddingLeft: 22, hasChildren: true, isOpen: expandedCats.has('__webgame_fav__'),
   });
-  if (rootOpen) wrap.appendChild(favLabel);
+  wrap.appendChild(favLabel);
   favLabel.querySelector('.cat-arrow').addEventListener('click', (e) => {
     e.stopPropagation(); toggleExpand('__webgame_fav__'); renderTree();
   });
@@ -1039,6 +1798,34 @@ function renderSceneSection(parent) {
       { label: '添加 FGUI 包', onClick: () => addFguiPackagesDialog('') },
     ]);
   });
+  // 顶层模块节点作为放置目标:把场景目录拖到这里 → 提升为顶级目录
+  const rootAccept = () => {
+    if (!dragSceneCatId) return false;
+    const src = sceneCategoryById(dragSceneCatId);
+    return !!src && !!(src.parentId || '');
+  };
+  root.addEventListener('dragover', (e) => {
+    if (!rootAccept()) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    root.classList.add('drop-in');
+  });
+  root.addEventListener('dragleave', () => root.classList.remove('drop-in'));
+  root.addEventListener('drop', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    root.classList.remove('drop-in');
+    if (rootAccept()) {
+      const src = sceneCategoryById(dragSceneCatId);
+      updateSceneCategory(dragSceneCatId, { parentId: '' });
+      expandedCats.add('__scene__');
+      toast('「' + (src?.name || '目录') + '」已移动到顶级目录');
+    }
+    dragSceneCatId = null;
+    lastDragAt = Date.now();
+    clearDropMarkers();
+    renderTree();
+  });
 
   if (!rootOpen) return;
   const wrap = document.createElement('div');
@@ -1120,7 +1907,8 @@ function renderSceneCatNode(parent, cat, depth) {
     const h = rect.height;
     if (dragSceneCatId === cat.id) return;
     const src = sceneCategoryById(dragSceneCatId);
-    if (!src || getSceneCategoryDescendants(cat.id).includes(dragSceneCatId)) return; // 不能拖到自己的子孙下
+    // 不能拖到自己的子孙下(否则父子互指成环,该分支会整体从树上消失)
+    if (!src || getSceneCategoryDescendants(dragSceneCatId).includes(cat.id)) return;
     const before = y < h / 3;
     const after = y > (h * 2) / 3;
     node.classList.toggle('drop-before', before && (src.parentId || '') === (cat.parentId || ''));
@@ -1135,7 +1923,7 @@ function renderSceneCatNode(parent, cat, depth) {
     node.classList.remove('drop-before', 'drop-after', 'drop-in');
     if (!dragSceneCatId || dragSceneCatId === cat.id) { dragSceneCatId = null; lastDragAt = Date.now(); return; }
     const src = sceneCategoryById(dragSceneCatId);
-    if (!src || getSceneCategoryDescendants(cat.id).includes(dragSceneCatId)) { dragSceneCatId = null; lastDragAt = Date.now(); return; }
+    if (!src || getSceneCategoryDescendants(dragSceneCatId).includes(cat.id)) { dragSceneCatId = null; lastDragAt = Date.now(); return; }
     const rect = node.getBoundingClientRect();
     const y = e.clientY - rect.top;
     const h = rect.height;
@@ -1240,7 +2028,7 @@ function openTool(id) {
   currentTool = id;
   toolboxHomeShown = false;
   // 进入工具箱时默认展开工具箱节点,折叠其它分支
-  if (!expandedCats.has('__tools__')) expandedCats.add('__tools__');
+  if (!expandedCats.has('__m_toolbox__')) expandedCats.add('__m_toolbox__');
   renderTree();
   renderMainArea();
 }
@@ -1287,6 +2075,7 @@ function addSceneCategoryDialog(parentId = '') {
       if (!name) return toast('目录名称不能为空', 'error');
       addSceneCategory({ name, parentId });
       if (parentId) expandedCats.add('scene:' + parentId);
+      expandedCats.add('__m_scene__');
       renderTree();
       renderMainArea();
       toast('已创建目录');
@@ -1336,6 +2125,7 @@ function addWebBookmarkCategoryDialog(parentId = '') {
       addWebBookmarkCategory({ name, parentId });
       if (parentId) expandedCats.add('wbfav:' + parentId);
       expandedCats.add('__webgame_fav__');
+      expandedCats.add('__m_webgame__');
       renderTree();
       renderMainArea();
       toast('已创建收藏夹目录');
@@ -1595,8 +2385,8 @@ function openFguiEditorFromScene(sceneId) {
   sceneHomeShown = false;
   currentSceneCatId = null;
   pendingFguiEditorBin = s.filePath;
-  if (!expandedCats.has('__scene__')) expandedCats.add('__scene__');
-  if (!expandedCats.has('__tools__')) expandedCats.add('__tools__');
+  if (!expandedCats.has('__m_scene__')) expandedCats.add('__m_scene__');
+  if (!expandedCats.has('__m_toolbox__')) expandedCats.add('__m_toolbox__');
   renderTree();
   renderMainArea();
 }
@@ -1635,9 +2425,9 @@ function categoryScenePath(id) {
 }
 
 /** 伪节点(类型根节点「XX资源」/ 未分类):均可展开/折叠;类型根节点展开后显示该类型的分类目录 */
-function renderPseudoNode(parent, n) {
-  const items = itemsForCat(n.id);
-  const isOpen = expandedCats.has(n.id);
+function renderPseudoNode(parent, n, group = currentGroup(), expandKey = n.id) {
+  const items = itemsForGroupCat(group, n.id);
+  const isOpen = expandedCats.has(expandKey);
   const hasItems = items.length > 0;
   const isAll = n.id === 'all';
 
@@ -1671,8 +2461,8 @@ function renderPseudoNode(parent, n) {
     e.stopPropagation();
     if (Date.now() - lastDragAt < 300) return;
     if (hasItems) {
-      if (expandedCats.has(n.id)) expandedCats.delete(n.id);
-      else expandedCats.add(n.id);
+      if (expandedCats.has(expandKey)) expandedCats.delete(expandKey);
+      else expandedCats.add(expandKey);
       renderTree();
     }
   });
@@ -1693,8 +2483,11 @@ function renderPseudoNode(parent, n) {
       syncTabs();
       return;
     }
-    // 未分类伪节点:点名称只选中,右侧切换为目录列表页(不展开)
-    if ((state.settings.resourceTab || 'home') === 'home') {
+    // 未分类伪节点:点名称切换到该资源类型并显示其未分类列表
+    if (group && ['anim', 'image', 'audio', '3d'].includes(group)) {
+      setResourceTab(group);
+      lastFolderTab = group;
+    } else if ((state.settings.resourceTab || 'home') === 'home') {
       setResourceTab(lastFolderTab || 'anim');
     }
     renderTree();
@@ -1713,6 +2506,50 @@ function renderPseudoNode(parent, n) {
     });
   }
 
+  // 顶层模块节点(「动画/图片/音频/3D 资源」)作为放置目标:
+  // 拖目录到这里 → 提升为顶级目录;拖资源条目到这里 → 移到「未分类」
+  if (isAll || n.id === '') {
+    const acceptKind = () => {
+      if (dragKind === 'cat' && dragCatId && isAll) {
+        const src = categoryById(dragCatId);
+        return src && (src.parentId || '') ? 'cat' : null;
+      }
+      if (dragKind === 'item' && dragItemId) {
+        const it = itemById(dragItemId);
+        return it && (it.categoryId || '') ? 'item' : null;
+      }
+      return null;
+    };
+    node.addEventListener('dragover', (e) => {
+      if (!acceptKind()) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      node.classList.add('drop-in');
+    });
+    node.addEventListener('dragleave', () => node.classList.remove('drop-in'));
+    node.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      node.classList.remove('drop-in');
+      const kind = acceptKind();
+      if (kind === 'cat') {
+        const src = categoryById(dragCatId);
+        updateCategory(dragCatId, { parentId: '' });
+        expandedCats.add('all');
+        toast('「' + (src?.name || '目录') + '」已移动到顶级目录');
+      } else if (kind === 'item') {
+        updateItem(dragItemId, { categoryId: '' });
+        toast('已移动到「未分类」');
+      }
+      dragCatId = null;
+      dragItemId = null;
+      dragKind = null;
+      lastDragAt = Date.now();
+      clearDropMarkers();
+      renderTree();
+    });
+  }
+
   parent.appendChild(node);
 
   if (isOpen && hasItems) {
@@ -1723,10 +2560,10 @@ function renderPseudoNode(parent, n) {
       // 目录按资源类型标签过滤:无标签 → 所有类型显示;有标签 → 仅标签命中当前类型的目录显示
       const uncatItems = items.filter((i) => !i.categoryId);
       if (uncatItems.length > 0) {
-        renderPseudoNode(wrap, { id: '', icon: '○', name: '未分类' });
+        renderPseudoNode(wrap, { id: '', icon: '○', name: '未分类' }, group);
       }
       for (const c of getCategoryChildren('')) {
-        if (catVisibleInGroup(c, currentGroup())) renderCatNode(wrap, c, 0);
+        if (catVisibleInGroup(c, group)) renderCatNode(wrap, c, 0, group);
       }
     } else {
       // 未分类:展开后显示其直属条目
@@ -1736,11 +2573,11 @@ function renderPseudoNode(parent, n) {
   }
 }
 
-/** 递归渲染分类节点(子分类 + 直属条目) */
-function renderCatNode(parent, cat, depth) {
-  const items = itemsForCat(cat.id);
+/** 递归渲染分类节点(子分类 + 直属条目);group 指定所属资源类型分组(缺省为当前 tab) */
+function renderCatNode(parent, cat, depth, group = currentGroup()) {
+  const items = itemsForGroupCat(group, cat.id);
   // 子分类按资源类型标签过滤(无标签 → 所有类型显示;有标签 → 仅标签命中当前类型的显示)
-  const children = getCategoryChildren(cat.id).filter((c) => catVisibleInGroup(c, currentGroup()));
+  const children = getCategoryChildren(cat.id).filter((c) => catVisibleInGroup(c, group));
   const hasChildren = children.length > 0;
   const isOpen = expandedCats.has(cat.id);
 
@@ -1838,7 +2675,8 @@ function renderCatNode(parent, cat, depth) {
     if (dragKind === 'cat') {
       if (dragCatId === cat.id) return;
       const src = categoryById(dragCatId);
-      if (!src || isCategoryDescendant(dragCatId, cat.id)) return; // 不能拖到自己的子孙下
+      // 不能拖到自己的子孙下(否则父子互指成环,该分支会整体从树上消失)
+      if (!src || isCategoryDescendant(cat.id, dragCatId)) return;
       const before = y < h / 3;
       const after = y > (h * 2) / 3;
       node.classList.toggle('drop-before', before && (src.parentId || '') === (cat.parentId || ''));
@@ -1871,7 +2709,7 @@ function renderCatNode(parent, cat, depth) {
     // 分类 → 中部:放入该分类下作子分类;边缘:同级排序
     if (dragKind === 'cat' && dragCatId && dragCatId !== cat.id) {
       const src = categoryById(dragCatId);
-      if (src && !isCategoryDescendant(dragCatId, cat.id)) {
+      if (src && !isCategoryDescendant(cat.id, dragCatId)) {
         const before = y < h / 3;
         const after = y > (h * 2) / 3;
         if (!before && !after) {
@@ -1927,7 +2765,7 @@ function renderCatNode(parent, cat, depth) {
   if (isOpen && (hasChildren || items.length > 0)) {
     const wrap = document.createElement('div');
     wrap.className = 'tree-items';
-    for (const ch of children) renderCatNode(wrap, ch, depth + 1);
+    for (const ch of children) renderCatNode(wrap, ch, depth + 1, group);
     for (const it of items) wrap.appendChild(renderItemNode(it));
     parent.appendChild(wrap);
   }
@@ -2126,10 +2964,12 @@ function batchMoveCategoriesDialog(ids) {
 
 // ================= 收藏夹 =================
 
-function renderFavSection(tree) {
+function renderFavSection(tree, menuNode) {
   const isOpen = expandedCats.has('__fav__');
   const favItems = state.favItems;
   const total = favItems.length;
+  const favName = (menuNode && menuNode.name) || '收藏夹';
+  const favIcon = (menuNode && menuNode.icon) || '🔖';
 
   const node = document.createElement('div');
   node.className = 'cat-node fav-root' + (favHomeShown ? ' active' : '');
@@ -2140,11 +2980,12 @@ function renderFavSection(tree) {
   node.appendChild(arrow);
   const icon = document.createElement('span');
   icon.className = 'cat-icon fav-icon';
-  icon.textContent = '🔖';
+  icon.textContent = favIcon;
   node.appendChild(icon);
   const name = document.createElement('span');
   name.className = 'cat-name';
-  name.textContent = '收藏夹';
+  name.textContent = favName;
+  if (menuNode && (menuNode.tooltip || menuNode.note)) name.title = menuNode.tooltip || menuNode.note;
   node.appendChild(name);
   const count = document.createElement('span');
   count.className = 'cat-count';
@@ -2175,13 +3016,14 @@ function renderFavSection(tree) {
     renderTree();
     renderMainArea();
   });
-  // 右键:收藏夹主页 / 新建收藏分类
+  // 右键:收藏夹主页 / 新建收藏分类 / 编辑菜单节点
   node.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     e.stopPropagation();
     showContextMenu(e.clientX, e.clientY, [
       { label: '收藏夹主页', onClick: () => { favHomeShown = true; currentFavCategoryId = null; renderTree(); renderMainArea(); } },
       { label: '新建收藏分类', onClick: () => newFavCategoryDialog() },
+      { label: '编辑菜单节点', onClick: () => editMenuNodeDialog('__m_fav__') },
     ]);
   });
   tree.appendChild(node);
@@ -2444,7 +3286,7 @@ async function openItemMenu(x, y, it) {
     const m = /\.([^.\\/]+)$/.exec(it.filePath);
     const ext = m ? m[1].toLowerCase() : '';
     if (ext === 'sk') items.push({ label: '转换成源格式(JSON+ATLAS)', onClick: () => convertSkToSource(it) });
-    else if (ext === 'skel') items.push({ label: '转换成源格式(JSON)', onClick: () => convertSkelToSource(it) });
+    else if (ext === 'skel') items.push({ label: '转换成源格式(JSON)', onClick: () => convertSkelToJsonViaTool(it) });
   }
   // 音频资源:可添加到指定播放列表
   if (it.type === 'audio') {
@@ -2472,15 +3314,27 @@ async function convertSkToSource(it) {
   }
 }
 
-/** 右键菜单「转换成源格式」:.skel → 同目录 Spine .json */
-async function convertSkelToSource(it) {
+/** 右键菜单「转换成源格式」:.skel → 调用「Spine 格式转换」工具的转换后端(spineConvert)转出同目录 .json,并加入当前分类目录 */
+async function convertSkelToJsonViaTool(it) {
   const outJson = it.filePath.replace(/\.skel$/i, '.json');
-  toast(`正在将「${it.displayName}」转换为 JSON...`);
+  const dir = it.filePath.replace(/[\\/][^\\/]*$/, '');
+  const sep = it.filePath.includes('\\') ? '\\' : '/';
+  const base = it.filePath.split(/[\\/]/).pop().replace(/\.[^.]+$/, '');
+  toast(`正在用 Spine 格式转换工具将「${it.displayName}」转换为 JSON...`);
   try {
-    const r = await window.api.skel2json({ inputPath: it.filePath, outputPath: outJson });
+    const r = await window.api.spineConvert({ inputPath: it.filePath, outputPath: outJson, removeCurve: false });
     if (!r || !r.ok) throw new Error((r && r.error) || '转换失败');
-    toast(`转换完成:${r.output}(Spine ${r.version},${r.bones} 骨骼 / ${r.animations} 动画)`);
-    window.api.showItem(r.output);
+    // 配对同目录同名 .atlas 作为图集(便于贴图预览)
+    let atlasPath = null;
+    try { await window.api.statFile(dir + sep + base + '.atlas'); atlasPath = dir + sep + base + '.atlas'; } catch (_) { /* 无 atlas 也可加入 */ }
+    // 产物元数据
+    let size = null, mtime = null;
+    try { const st = await window.api.statFile(outJson); size = st.size; mtime = st.mtime || st.created; } catch (_) {}
+    addItem({ categoryId: it.categoryId, type: 'spine', filePath: outJson, atlasPath, displayName: base, size, mtime });
+    document.dispatchEvent(new CustomEvent('library:changed')); // 刷新侧栏资源树
+    renderMainArea(); // 刷新当前分类列表(显示新加入的 .json)
+    toast(`转换完成并加入分类:${base}.json`, 'ok');
+    window.api.showItem(outJson);
   } catch (err) {
     toast('转换失败:' + (err.message || err), 'error');
   }
@@ -2843,7 +3697,8 @@ export function newCategoryDialog() {
     onOk: ({ name, typeTags }) => {
       if (!name) return toast('目录名称不能为空', 'error');
       addCategory({ name, typeTags });
-      expandedCats.add('all'); // 展开「XX资源」根, 让新建的顶级目录可见
+      // 展开全部资源类型根节点,让新建的顶级目录在对应类型下可见
+      ['__m_res_anim__', '__m_res_image__', '__m_res_audio__', '__m_res_3d__'].forEach((k) => expandedCats.add(k));
       renderCategories();
       renderMainArea();
       toast('目录已创建');

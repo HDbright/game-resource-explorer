@@ -49,6 +49,10 @@ function defaultDb() {
     apiCategories: [],
     apiProjects: [],
     apiEndpoints: [],
+    // 资源工具箱:可嵌套目录树(用户目录 + 内置工具链接)
+    toolboxFolders: [],
+    // 侧栏菜单管理:整棵侧栏菜单树的节点(目录 + 终端,可改名/排序/移动/改图标)
+    menuNodes: [],
   };
 }
 
@@ -175,6 +179,37 @@ function open() {
       created_at INTEGER DEFAULT 0,
       updated_at INTEGER DEFAULT 0
     );
+    -- 资源工具箱:可嵌套的目录树(用户自定义目录 + 内置工具链接)
+    -- tool_id 为空 → 目录(可含子目录/工具链接);非空 → 内置工具链接(astc2png 等 / __fgui_editor__)
+    CREATE TABLE IF NOT EXISTS toolbox_folders(
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      icon TEXT DEFAULT '',
+      parent_id TEXT DEFAULT '',
+      tool_id TEXT DEFAULT '',
+      sort INTEGER DEFAULT 0,
+      created_at INTEGER DEFAULT 0,
+      updated_at INTEGER DEFAULT 0
+    );
+    -- 侧栏菜单管理:整棵侧栏菜单树
+    -- node_type: 'dir' 目录节点 | 'term' 终端节点(点击后在主区打开页面/调用外部程序)
+    -- action_type: ''(目录) | 'builtin' 内置页面/工具 | 'exe' 外部程序
+    -- action: builtin 时存内置动作 id(如 page:settings / tool:astc2png / res:anim);exe 时存程序路径
+    -- icon: 目录/终端节点图标(emoji);tooltip: 悬停提示;note: 备注
+    CREATE TABLE IF NOT EXISTS menu_nodes(
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      icon TEXT DEFAULT '',
+      parent_id TEXT DEFAULT '',
+      node_type TEXT DEFAULT 'dir',
+      action_type TEXT DEFAULT '',
+      action TEXT DEFAULT '',
+      tooltip TEXT DEFAULT '',
+      note TEXT DEFAULT '',
+      sort INTEGER DEFAULT 0,
+      created_at INTEGER DEFAULT 0,
+      updated_at INTEGER DEFAULT 0
+    );
   `);
   // 旧库迁移:categories 缺 parent_id 列时补上(子分类支持)
   try {
@@ -188,6 +223,15 @@ function open() {
     }
   } catch (err) {
     console.error('[db] migrate categories parent_id/type_tags error:', err);
+  }
+  // 旧库迁移:toolbox_folders 缺 icon 列时补上(目录/工具自定义图标)
+  try {
+    const tfCols = db.prepare('PRAGMA table_info(toolbox_folders)').all().map((r) => r.name);
+    if (!tfCols.includes('icon')) {
+      db.exec("ALTER TABLE toolbox_folders ADD COLUMN icon TEXT DEFAULT ''");
+    }
+  } catch (err) {
+    console.error('[db] migrate toolbox_folders icon error:', err);
   }
   // 旧库迁移:items 缺 size / mtime 列时补上(游戏资源管理器排序/统计用)
   try {
@@ -285,6 +329,12 @@ function readDb() {
     d.apiEndpoints = conn.prepare(
       'SELECT id, project_id AS projectId, name, method, path, desc, params, headers, body, response, sort, created_at AS createdAt, updated_at AS updatedAt FROM api_endpoints ORDER BY sort'
     ).all();
+    d.toolboxFolders = conn.prepare(
+      'SELECT id, name, icon, parent_id AS parentId, tool_id AS toolId, sort, created_at AS createdAt, updated_at AS updatedAt FROM toolbox_folders ORDER BY sort'
+    ).all();
+    d.menuNodes = conn.prepare(
+      'SELECT id, name, icon, parent_id AS parentId, node_type AS nodeType, action_type AS actionType, action, tooltip, note, sort, created_at AS createdAt, updated_at AS updatedAt FROM menu_nodes ORDER BY sort'
+    ).all();
     for (const ep of (d.apiEndpoints || [])) {
       if (typeof ep.params === 'string') {
         try { ep.params = JSON.parse(ep.params || '[]'); } catch (err) { ep.params = []; }
@@ -309,7 +359,7 @@ function writeDb(state) {
   const conn = open();
   conn.exec('BEGIN');
   try {
-    conn.exec('DELETE FROM settings; DELETE FROM categories; DELETE FROM items; DELETE FROM fav_categories; DELETE FROM fav_items; DELETE FROM scene_categories; DELETE FROM scenes; DELETE FROM web_bookmark_categories; DELETE FROM web_bookmarks; DELETE FROM api_categories; DELETE FROM api_projects; DELETE FROM api_endpoints;');
+    conn.exec('DELETE FROM settings; DELETE FROM categories; DELETE FROM items; DELETE FROM fav_categories; DELETE FROM fav_items; DELETE FROM scene_categories; DELETE FROM scenes; DELETE FROM web_bookmark_categories; DELETE FROM web_bookmarks; DELETE FROM api_categories; DELETE FROM api_projects; DELETE FROM api_endpoints; DELETE FROM toolbox_folders; DELETE FROM menu_nodes;');
     const setSetting = conn.prepare('INSERT OR REPLACE INTO settings(key, value) VALUES (?, ?)');
     for (const [k, v] of Object.entries(state.settings || {})) {
       setSetting.run(k, JSON.stringify(v));
@@ -404,6 +454,22 @@ function writeDb(state) {
         JSON.stringify(Array.isArray(e.headers) ? e.headers : []),
         e.body || '', e.response || '',
         e.sort || 0, e.createdAt || 0, e.updatedAt || 0
+      );
+    }
+    const insTf = conn.prepare(
+      'INSERT INTO toolbox_folders(id, name, icon, parent_id, tool_id, sort, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    for (const tf of state.toolboxFolders || []) {
+      insTf.run(tf.id, tf.name || '', tf.icon || '', tf.parentId || '', tf.toolId || '', tf.sort || 0, tf.createdAt || 0, tf.updatedAt || 0);
+    }
+    const insMenu = conn.prepare(
+      'INSERT INTO menu_nodes(id, name, icon, parent_id, node_type, action_type, action, tooltip, note, sort, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    for (const mn of state.menuNodes || []) {
+      insMenu.run(
+        mn.id, mn.name || '', mn.icon || '', mn.parentId || '', mn.nodeType || 'dir',
+        mn.actionType || '', mn.action || '', mn.tooltip || '', mn.note || '',
+        mn.sort || 0, mn.createdAt || 0, mn.updatedAt || 0
       );
     }
     conn.exec('COMMIT');
