@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>组件调试</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+    background: rgba(18,20,26,.98); color: #e8eaed;
+    font: 12px/1.5 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    border: 1px solid #3a7bd5; border-radius: 9px; user-select: none;
+  }
+  /* 标题栏:手动 JS 拖拽移动(不用 -webkit-app-region:drag —— 部分环境/GPU 组合下
+     它会吞掉鼠标事件却不真正拖动窗口;改为页面级 pointer 事件 + IPC setPosition,任何环境都可靠) */
+  .dbg-titlebar {
+    display: flex; align-items: center; gap: 6px; flex: 0 0 auto; height: 32px;
+    padding: 0 6px 0 10px; cursor: move;
+    background: linear-gradient(180deg, #1f2733, #161b24);
+    border-bottom: 1px solid #2a3340; border-radius: 8px 8px 0 0;
+    user-select: none; -webkit-user-select: none;
+  }
+  .dbg-titlebar .dbg-grip, .dbg-titlebar .dbg-title { pointer-events: none; }
+  .dbg-grip { color: #5b6b80; font-size: 13px; }
+  .dbg-title { font-weight: 700; color: #cfe0ff; }
+  .dbg-sub { color: #7fd1ff; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; }
+  .dbg-winbtns { display: flex; gap: 2px; }
+  .dbg-winbtn {
+    width: 24px; height: 22px; border: none; border-radius: 5px; cursor: pointer;
+    background: transparent; color: #cdd6e3; font-size: 14px; line-height: 1;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .dbg-winbtn:hover { background: rgba(255,255,255,.12); }
+  .dbg-winbtn.dbg-close:hover { background: #d34; color: #fff; }
+  /* 内容区：可复制 */
+  .dbg-body {
+    flex: 1 1 auto; overflow: auto; padding: 10px 12px;
+    user-select: text; cursor: text; -webkit-user-select: text;
+  }
+  .dbg-placeholder { color: #6b7c92; padding: 14px 4px; }
+  .dbg-row { display: flex; gap: 8px; align-items: baseline; margin: 2px 0; }
+  .dbg-k { flex: 0 0 60px; color: #8aa0c0; }
+  .dbg-v { color: #fff; word-break: break-word; }
+  .dbg-cn { color: #ffd479; }
+  code { background: rgba(255,255,255,.08); padding: 0 4px; border-radius: 3px; color: #9ad; }
+  .dbg-sel { color: #7fd1ff; font-weight: 600; word-break: break-all; }
+  .dbg-children { max-height: 150px; overflow: auto; margin: 5px 0; padding: 5px 0; border-top: 1px dashed #333; border-bottom: 1px dashed #333; }
+  .dbg-children ul { margin: 0; padding-left: 14px; }
+  .dbg-children li { margin: 1px 0; }
+  .dbg-empty { color: #777; list-style: none; margin-left: -14px; }
+  .dbg-path code { color: #9aa; font-size: 11px; word-break: break-all; }
+  .dbg-desc .dbg-v { color: #cfe; }
+  /* 源码位置文件名:可悬浮看完整路径,右键打开目录/编辑文件 */
+  .dbg-srcfile {
+    color: #7fd1ff; font-weight: 600; cursor: pointer;
+    text-decoration: underline dotted rgba(127, 209, 255, .7);
+    word-break: break-all; user-select: none; -webkit-user-select: none;
+  }
+  .dbg-srcfile:hover { color: #aee4ff; background: rgba(58, 123, 213, .22); border-radius: 3px; }
+  /* 右键上下文菜单 */
+  #dbg-ctxmenu {
+    position: fixed; z-index: 99; min-width: 132px; padding: 4px;
+    background: #1d2531; border: 1px solid #3a4a5e; border-radius: 7px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, .5);
+  }
+  #dbg-ctxmenu[hidden] { display: none; }
+  #dbg-ctxmenu .ctx-item {
+    padding: 5px 10px; border-radius: 4px; font-size: 12px; color: #dfe7f2;
+    cursor: pointer; white-space: nowrap;
+  }
+  #dbg-ctxmenu .ctx-item:hover { background: rgba(58, 123, 213, .35); }
+  #dbg-ctxmenu .ctx-sep { height: 1px; background: #33404f; margin: 4px 6px; }
+  /* 底部操作条 */
+  .dbg-foot {
+    flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 6px 10px; border-top: 1px solid #2a3340; background: #141922;
+  }
+  .dbg-hint { color: #6b7c92; font-size: 10.5px; }
+  .dbg-copy {
+    border: 1px solid #3a7bd5; background: #1d3a5f; color: #cfe6ff; border-radius: 5px;
+    padding: 3px 10px; font-size: 11px; cursor: pointer; white-space: nowrap;
+  }
+  .dbg-copy:hover { background: #28527f; }
+</style>
+</head>
+<body>
+  <div class="dbg-titlebar">
+    <span class="dbg-grip">⠿</span>
+    <span class="dbg-title">组件调试</span>
+    <span class="dbg-sub" id="dbg-sub"></span>
+    <div class="dbg-winbtns">
+      <button class="dbg-winbtn" data-act="min" title="最小化">－</button>
+      <button class="dbg-winbtn" data-act="toggleMax" title="最大化 / 还原">▢</button>
+      <button class="dbg-winbtn dbg-close" data-act="close" title="关闭">×</button>
+    </div>
+  </div>
+  <div class="dbg-body" id="dbg-body">
+    <div class="dbg-placeholder">将鼠标移到主程序任意组件上，这里会显示它的调试信息。<br/>本窗口是独立窗口，可以拖到主程序外面、拖边缘调整大小。</div>
+  </div>
+  <div class="dbg-foot">
+    <span class="dbg-hint" id="dbg-hint">可拖出主窗口 · 拖边缘调整大小 · 内容可复制</span>
+    <button class="dbg-copy" id="dbg-copy">复制信息</button>
+  </div>
+  <div id="dbg-ctxmenu" hidden>
+    <div class="ctx-item" data-act="openDir">📂 打开目录</div>
+    <div class="ctx-item" data-act="edit">✏️ 编辑文件</div>
+  </div>
+  <script src="./debugInspectRenderer.js"></script>
+</body>
+</html>

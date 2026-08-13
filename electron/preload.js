@@ -48,6 +48,11 @@ contextBridge.exposeInMainWorld('api', {
   probeSk2spine: (args) => ipcRenderer.invoke('tool:probeSk2spine', args),
   sk2spinePreview: (args) => ipcRenderer.invoke('tool:sk2spinePreview', args),
 
+  // ---- 资源工具箱:Spine 骨骼格式/版本转换(C++ SpineSkeletonDataConverter) ----
+  spineConvert: (args) => ipcRenderer.invoke('tool:spineConvert', args),
+  spineProbe: (args) => ipcRenderer.invoke('tool:spineProbe', args),
+  spinePreviewRegister: (args) => ipcRenderer.invoke('tool:spinePreviewRegister', args),
+
   // ---- FGUI 逆向:探测 / 单包解析 / 目录批量导出 / 源工程还原 ----
   fguiProbe: (args) => ipcRenderer.invoke('fgui:probe', args),
   fguiParse: (args) => ipcRenderer.invoke('fgui:parse', args),
@@ -114,6 +119,26 @@ contextBridge.exposeInMainWorld('api', {
 
   // ---- 开发工具箱:API 管理 接口测试 ----
   apiTest: (args) => ipcRenderer.invoke('api:test', args),
+
+  // ---- 调试模式:独立窗口检视(可拖到主窗口外面) ----
+  debugOpen: () => ipcRenderer.invoke('debug:open'),
+  debugClose: () => ipcRenderer.invoke('debug:close'),
+  debugUpdate: (info) => ipcRenderer.send('debug:update', info),
+  onDebugUpdate: (cb) => ipcRenderer.on('debug:update', (_e, d) => cb(d)),
+  debugAction: (act) => ipcRenderer.send('debug:action', act),
+  // 调试窗口标题栏手动拖拽(JS 方案):光标屏幕坐标 → 主进程 setPosition
+  debugDragStart: () => ipcRenderer.send('debug:dragStart'),
+  debugDragMove: () => ipcRenderer.send('debug:dragMove'),
+  debugDragEnd: () => ipcRenderer.send('debug:dragEnd'),
+  // 焦点在调试窗口时按 Ctrl → 通知主窗口暂停/恢复调试信息获取
+  debugTogglePause: () => ipcRenderer.send('debug:togglePause'),
+  onDebugTogglePause: (cb) => ipcRenderer.on('debug:togglePause', () => cb()),
+  // 调试窗口「源码位置」:获取项目源码根目录 / 执行 打开目录·编辑文件 / 接收操作结果提示
+  debugGetEnv: () => ipcRenderer.invoke('debug:getEnv'),
+  debugSourceAction: (payload) => ipcRenderer.send('debug:sourceAction', payload),
+  onDebugSourceResult: (cb) => ipcRenderer.on('debug:sourceResult', (_e, msg) => cb(msg)),
+  // 用户在调试窗口点「×」关闭 → 主进程通知主窗口退出调试模式
+  onDebugUserClosed: (cb) => ipcRenderer.on('debug:userClosed', () => cb()),
 });
 
 // 冒烟测试标志(仅开发时传入 --smoke,通过 URL 参数传递,见 main.js)

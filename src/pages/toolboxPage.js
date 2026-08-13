@@ -4,12 +4,14 @@
 
 import { toast, confirmDialog } from '../dialogs.js';
 import { packImages, serializeAtlas } from '../atlasPacker.js';
+import { renderSpineConvertTool, disposeSpineConvertPreview } from './spineConvertPage.js';
 
 /**
  * 渲染工具箱页面。tool: 'astc2png' | 'skel2json' | 'spinefix' | 'imageedit' | '__home__'
  */
 export function renderToolboxPage(container, tool) {
   if (!container) return;
+  disposeSpineConvertPreview(); // 离开 spine 格式转换页时销毁预览 WebGL 上下文,避免泄漏
   container.innerHTML = '';
   // ---- 工具箱主页(汇总视图):列出所有子菜单入口 ----
   if (tool === '__home__') {
@@ -24,6 +26,7 @@ export function renderToolboxPage(container, tool) {
     fgui: { title: 'FGUI 导出源', desc: '把 FairyGUI 发布的 .bin 包批量还原为标准源工程:每个包在其同目录生成 FGUI_src/<包名>(package.xml + 组件 XML + 碎图 + 字体 + 动画),可直接用 FairyGUI 编辑器打开。', render: renderFguiTool },
     sk2spine: { title: 'Laya .sk → Spine', desc: '把 LayaAir 骨骼动画二进制(.sk,DragonBones 导出)逆向转换为 Spine 可读文件:骨架 .json + 纹理图集 .atlas。可单选/多选文件或整个目录(含子目录);选择时自动探测是否为 .sk 格式。', render: renderSk2SpineTool },
     atlas: { title: '图片集打包', desc: '把多张图片合并为纹理图集(精灵表):MaxRects 装箱、支持旋转/修剪透明像素/内边距/强制 2 的幂尺寸,导出 PixiJS / Phaser3 / Cocos2d / CSS 雪碧图,并内联预览。', render: renderAtlasTool },
+    spineconvert: { title: 'Spine 格式转换', desc: '双向转换 skel ↔ json,并支持跨 Spine 版本升级/降级(3.5-3.8 / 4.0-4.3),自动识别输入版本。拖入文件自动加入待转换列表;目标格式默认 .skel → .json、.json → .skel;点击列表行打开预览,右键可加入资源库分类;转换产物自动汇入下方列表。', render: renderSpineConvertTool },
   };
   const cfg = tools[tool] || tools.astc2png;
   const head = document.createElement('div');
@@ -46,6 +49,7 @@ function renderToolboxHome(container) {
     { id: 'fgui', icon: '🧩', title: 'FGUI 导出源', desc: '把 FairyGUI 发布的 .bin 包批量还原为标准源工程:每个包在其同目录生成 FGUI_src/<包名>(package.xml + 组件 XML + 碎图 + 字体 + 动画),可直接用 FairyGUI 编辑器打开。' },
     { id: 'sk2spine', icon: '🦴', title: 'Laya .sk → Spine', desc: '把 LayaAir 骨骼动画二进制(.sk,DragonBones 导出)逆向转换为 Spine 可读文件:骨架 .json + 纹理图集 .atlas。可单选/多选文件或整个目录(含子目录);选择时自动探测是否为 .sk 格式。' },
     { id: 'atlas', icon: '🗂', title: '图片集打包', desc: '把多张图片合并为纹理图集(精灵表):MaxRects 装箱、支持旋转/修剪透明像素/内边距/强制 2 的幂尺寸,导出 PixiJS / Phaser3 / Cocos2d / CSS 雪碧图,并内联预览。' },
+    { id: 'spineconvert', icon: '🔄', title: 'Spine 格式转换', desc: '双向转换 skel ↔ json,并支持跨 Spine 版本升级/降级(3.5-3.8 / 4.0-4.3),自动识别输入版本。拖入文件自动加入待转换列表,点击行预览,右键加入资源库分类,产物自动汇入下方列表。' },
   ];
   const head = document.createElement('div');
   head.className = 'tool-head';

@@ -33,6 +33,7 @@ import { renderToolboxPage } from './pages/toolboxPage.js';
 import { renderSceneHome, renderSceneFolderPage, renderFguiPreviewPage, promptRegisterFgui, renderSceneSearchResults } from './pages/scenePage.js';
 import { renderFguiEditorPage } from './pages/fguiEditorPage.js';
 import { renderSettingsPage } from './pages/settingsPage.js';
+import { initDebugInspect, toggleDebugMode } from './debugInspect.js';
 import { renderWebGamePage } from './pages/webGamePage.js';
 import { renderApiPage } from './pages/apiPage.js';
 import { ImageViewerController } from './viewers/imageViewer.js';
@@ -58,8 +59,9 @@ let folderSearchText = ''; // 目录列表页搜索(名称/属性/标签)
 let favHomeShown = false; // 右侧是否显示收藏夹主页
 let currentFavCategoryId = null; // 当前收藏夹目录列表页的收藏分类 id(null = 不在收藏夹目录页)
 let previewReturnFav = null; // 从收藏夹页面进入预览时记录返回目标 {home, catId}
+let previewToolReturnTab = null; // 从资源工具箱(Spline 转换工具「▶ 预览」)进入预览时,记录返回的工具箱标签 id
 // ---- 工具箱 / 场景管理 导航状态 ----
-let currentTool = null; // null | 'astc2png' | 'skel2json' | 'spinefix' | 'imageedit' | 'fgui' | 'sk2spine' | 'atlas'
+let currentTool = null; // null | 'astc2png' | 'skel2json' | 'spinefix' | 'imageedit' | 'fgui' | 'sk2spine' | 'atlas' | 'spineconvert'
 let toolboxHomeShown = false; // 右侧是否显示资源工具箱主页(汇总视图,含所有子菜单入口)
 let sceneHomeShown = false; // 右侧是否显示场景主页
 let currentSceneCatId = null; // 当前场景目录列表页的场景分类 id(null = 不在场景目录页;'' = 未分类)
@@ -269,7 +271,7 @@ function previewTypeIcon(type) {
 }
 
 function toolLabel(tool) {
-  return ({ astc2png: 'ASTC→PNG', skel2json: 'SKEL→JSON', spinefix: 'Spine 修复', imageedit: '图片编辑', sk2spine: 'Laya .sk → Spine', atlas: '图片集打包' })[tool] || tool;
+  return ({ astc2png: 'ASTC→PNG', skel2json: 'SKEL→JSON', spinefix: 'Spine 修复', imageedit: '图片编辑', sk2spine: 'Laya .sk → Spine', atlas: '图片集打包', spineconvert: 'Spine 格式转换' })[tool] || tool;
 }
 
 export function initUI(pv) {
@@ -322,6 +324,7 @@ export function initUI(pv) {
     if (audioPlayer) audioPlayer.refreshUI();
   });
   bindToolbar();
+  initDebugInspect();
   bindList();
   bindPreviewControls();
   bindTabs();
@@ -329,6 +332,17 @@ export function initUI(pv) {
   document.addEventListener('toolbox:navigate', (e) => {
     const id = e.detail && e.detail.id;
     if (id) openTool(id);
+  });
+  // 资源库条目变更(如 Spine 转换工具把文件加入分类)后刷新侧栏资源树
+  document.addEventListener('library:changed', () => {
+    try { renderTree(); } catch (e) { /* ignore */ }
+  });
+  // Spine 转换工具「▶ 预览」→ 用资源预览页打开库中条目;记录返回标签,预览页返回时回到转换页面
+  document.addEventListener('app:previewFromTool', (e) => {
+    const id = e.detail && e.detail.itemId;
+    if (!id) return;
+    previewToolReturnTab = activeTabId; // 当前活动标签(应为 toolbox-<tool>)
+    selectItem(id);
   });
   // 场景管理主页「FGUI 编辑器」入口卡片 / 场景条目 → 进入 FGUI 编辑器(binPath 可选,进入后自动加载)
   document.addEventListener('scene:navigate', (e) => {
@@ -684,7 +698,7 @@ function renderToolboxSection(parent) {
     icon: '🔁',
     name: '文件格式转换',
     nodeId: '__tools_conv__',
-    active: ['astc2png', 'skel2json', 'spinefix', 'sk2spine'].includes(currentTool || ''),
+    active: ['astc2png', 'skel2json', 'spinefix', 'sk2spine', 'spineconvert'].includes(currentTool || ''),
     paddingLeft: 22,
     hasChildren: convHas,
     isOpen: convOpen,
@@ -709,6 +723,7 @@ function renderToolboxSection(parent) {
       { id: 'skel2json', icon: '📦', name: 'skel 转 json' },
       { id: 'spinefix', icon: '🛠', name: 'spine 文件修复' },
       { id: 'sk2spine', icon: '🦴', name: 'Laya .sk 转 Spine' },
+      { id: 'spineconvert', icon: '🔄', name: 'spine 格式转换' },
     ];
     for (const l of leaves) {
       const n = makeTreeNode({
@@ -3618,6 +3633,7 @@ function renderBreadcrumb() {
       spinefix: 'Spine 文件修复',
       imageedit: '图片编辑',
       sk2spine: 'Laya .sk → Spine',
+      spineconvert: 'Spine 格式转换',
     };
     nav.innerHTML = '<span class="crumb" data-crumb="home">主页</span>'
       + '<span class="crumb-sep">/</span>'
@@ -3734,6 +3750,13 @@ function bindPreviewPageNav() {
   const back = document.getElementById('pv-back');
   if (back) {
     back.addEventListener('click', () => {
+      // 从资源工具箱「▶ 预览」进入 → 返回工具箱标签(转换页面)
+      if (previewToolReturnTab) {
+        const backTo = previewToolReturnTab;
+        previewToolReturnTab = null;
+        switchTab(backTo);
+        return;
+      }
       // 后台播放:返回时不停音频播放器,音频在后台继续(迷你条可见)
       // 从收藏夹页面进入预览 → 返回收藏夹页面
       if (previewReturnFav) {
@@ -5454,6 +5477,16 @@ function bindToolbar() {
   // 系统设置
   const btnSettings = document.getElementById('btn-settings');
   if (btnSettings) btnSettings.addEventListener('click', () => openSettings());
+
+  // 调试模式:开启后鼠标悬停组件显示名称/中文名/尺寸/子组件/源码位置等信息
+  const btnDebug = document.getElementById('btn-debug');
+  if (btnDebug) {
+    btnDebug.addEventListener('click', () => {
+      const on = toggleDebugMode();
+      btnDebug.classList.toggle('active', on);
+      toast(on ? '调试模式已开启：鼠标悬停组件查看信息（Ctrl+Shift+D 切换，Esc 关闭）' : '调试模式已关闭', on ? 'ok' : '', 2200);
+    });
+  }
 
   // 顶栏左侧「资源树」按钮:切换侧栏显示/隐藏(active 状态反映当前可见性)
   const toggleSide = document.getElementById('btn-toggle-side');

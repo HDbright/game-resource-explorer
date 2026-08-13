@@ -130,6 +130,18 @@ async function main() {
   const samplesTarget = path.join(resourcesDir, 'samples');
   copyDir(path.join(ROOT, 'samples'), samplesTarget);
 
+  // 4.5 复制 Spine 格式转换 C++ EXE → resources/spine-converter/(asar 内无法直接执行二进制,必须置于 asar 外)
+  //     electron/tools/spine-converter/SpineSkeletonDataConverter.exe 为独立原生程序(dev 模式也走此路径)。
+  const spineConvSrc = path.join(ROOT, 'electron', 'tools', 'spine-converter', 'SpineSkeletonDataConverter.exe');
+  if (fs.existsSync(spineConvSrc)) {
+    const spineConvDst = path.join(resourcesDir, 'spine-converter');
+    fs.mkdirSync(spineConvDst, { recursive: true });
+    copyFileRetry(spineConvSrc, path.join(spineConvDst, 'SpineSkeletonDataConverter.exe'));
+    console.log('Spine 转换 EXE 已复制 →', path.join(spineConvDst, 'SpineSkeletonDataConverter.exe'));
+  } else {
+    console.warn('[pack] 未找到 Spine 转换 EXE(跳过):', spineConvSrc);
+  }
+
   // 5. rcedit 注入图标/版本(中文名 exe 需先复制成 ASCII 名再 rcedit,最后覆盖回来)
   //    临时 exe 用唯一名(含 stamp),避免反复覆盖旧文件被杀软扫描锁定(EBUSY);旧 tmp 文件保留但 zip 已排除。
   const exeName = `${APP_NAME}.exe`;
@@ -139,11 +151,22 @@ async function main() {
   const rcedit = path.join(ROOT, 'node_modules', 'electron-winstaller', 'vendor', 'rcedit.exe');
   const iconPath = path.join(ROOT, 'build', 'icon.ico');
   if (fs.existsSync(rcedit) && fs.existsSync(iconPath)) {
-    try {
-      run(`"${rcedit}" "${asciiTmp}" --set-icon "${iconPath}" --set-version-string "ProductName" "${APP_NAME}" --set-version-string "FileDescription" "${APP_NAME} v${VERSION}" --set-version-string "ProductVersion" "${VERSION}" --set-version-string "FileVersion" "${VERSION}" --set-version-string "CompanyName" "game-resource-explorer"`);
-    } catch (err) {
-      console.error('rcedit 失败(可忽略,继续):', err.message);
+    // 刚复制大文件(含 spine-converter EXE ~3.4MB),Defender 可能正在扫描 app 目录并锁住 asciiTmp;
+    // 先稍候,再带重试地 rcedit(本机常见 EBUSY: Unable to commit changes)。
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 2500);
+    const rcCmd = `"${rcedit}" "${asciiTmp}" --set-icon "${iconPath}" --set-version-string "ProductName" "${APP_NAME}" --set-version-string "FileDescription" "${APP_NAME} v${VERSION}" --set-version-string "ProductVersion" "${VERSION}" --set-version-string "FileVersion" "${VERSION}" --set-version-string "CompanyName" "game-resource-explorer"`;
+    let rcOk = false;
+    for (let attempt = 1; attempt <= 10 && !rcOk; attempt++) {
+      try {
+        run(rcCmd);
+        rcOk = true;
+      } catch (err) {
+        const msg = String(err.message || '').split('\n')[0];
+        console.warn(`[pack] rcedit 被锁,重试 ${attempt}/10: ${msg}`);
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 2500);
+      }
     }
+    if (!rcOk) console.error('[pack] rcedit 最终失败,exe 将无图标/版本(应用仍可用)');
   } else {
     console.warn('rcedit 或 icon 不存在,跳过图标注入');
   }

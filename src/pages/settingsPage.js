@@ -128,6 +128,29 @@ export function renderSettingsPage(container, opts = {}) {
           <button class="btn primary" id="cdp-save">保存并重启</button>
         </div>
       </section>
+
+      <section class="settings-card">
+        <h3>开发者调试 · 组件源码定位</h3>
+        <div class="form-row">
+          <label class="f-label">默认代码编辑器</label>
+          <input id="dbg-editor" class="text-input flex-1" type="text"
+                 placeholder="C:\Program Files\Notepad++\notepad++.exe"
+                 value="${esc(s.editorPath || '')}" />
+          <button class="btn sm" id="dbg-editor-pick">选择程序</button>
+        </div>
+        <p class="settings-hint">调试模式中右键组件「源码位置」→「编辑文件」使用的编辑器。未设置时优先用 Notepad++（存在则打开并<b>定位到组件代码行号</b>）；找不到则弹窗选择并自动记住。VS Code(code.exe)会自动用 --goto 定位。</p>
+        <div class="form-row">
+          <label class="f-label">项目源码根目录</label>
+          <input id="dbg-srcroot" class="text-input flex-1" type="text"
+                 placeholder="默认:应用目录(app.getAppPath())"
+                 value="${esc(s.sourceRoot || '')}" />
+          <button class="btn sm" id="dbg-srcroot-pick">选择目录</button>
+        </div>
+        <p class="settings-hint">「源码位置」的相对路径(如 <code>src/ui.js</code>)基于该目录解析为绝对路径。打包版若源码不在应用目录，请填写源码目录(如 <code>E:\MyProject\spine_viewer</code>)。</p>
+        <div class="settings-actions">
+          <button class="btn primary" id="dbg-save">保存</button>
+        </div>
+      </section>
     </div>
   `;
 
@@ -266,6 +289,32 @@ export function renderSettingsPage(container, opts = {}) {
     } catch (err) {
       toast('打开工具面板失败: ' + err.message, 'error');
     }
+  });
+
+  // ---- 开发者调试 · 组件源码定位:默认编辑器 / 项目源码根目录 ----
+  const dbgEditor = container.querySelector('#dbg-editor');
+  const dbgSrcRoot = container.querySelector('#dbg-srcroot');
+  container.querySelector('#dbg-editor-pick').addEventListener('click', async () => {
+    try {
+      const r = await window.api.pickFiles({ title: '选择代码编辑器', filters: [{ name: '程序', extensions: ['exe', 'bat', 'cmd'] }] });
+      if (r && !r.canceled && r.filePaths && r.filePaths.length) dbgEditor.value = r.filePaths[0];
+    } catch (err) {
+      toast('选择编辑器失败: ' + err.message, 'error');
+    }
+  });
+  container.querySelector('#dbg-srcroot-pick').addEventListener('click', async () => {
+    try {
+      const r = await window.api.pickDirs({ title: '选择项目源码根目录' });
+      if (r && !r.canceled && r.filePaths && r.filePaths.length) dbgSrcRoot.value = r.filePaths[0];
+    } catch (err) {
+      toast('选择目录失败: ' + err.message, 'error');
+    }
+  });
+  container.querySelector('#dbg-save').addEventListener('click', () => {
+    setSetting('editorPath', dbgEditor.value.trim());
+    setSetting('sourceRoot', dbgSrcRoot.value.trim());
+    saveState();
+    toast('设置已保存');
   });
 
   // 返回

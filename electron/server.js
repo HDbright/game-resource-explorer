@@ -40,9 +40,10 @@ const AUDIO_EXTS = ['.mp3', '.wav', '.ogg', '.flac', '.wma', '.m4a', '.aac', '.o
  * 内部 HTTP 服务:
  * - `/`、`/index.html`、`/assets/*` → 渲染端构建产物(dist)
  * - `/a/<itemId>/<相对路径>` → 某个动画条目根目录下的资源(用于加载骨骼/贴图)
+ * - `/spine-pv/<token>/<相对路径>` → Spine 转换工具预览目录(spine-converter 注册)
  * - `/afile?p=<绝对路径>` → 任意音频文件(播放列表/后台播放,仅音频扩展名)
  */
-function createServer({ dist, roots }) {
+function createServer({ dist, roots, previewRoots }) {
   const server = http.createServer(async (req, res) => {
     try {
       const u = new URL(req.url, 'http://localhost');
@@ -62,6 +63,24 @@ function createServer({ dist, roots }) {
         const rootNorm = path.resolve(root);
         const full = path.resolve(rootNorm, rel);
         // 防目录穿越:必须位于该条目根目录之内
+        if (full !== rootNorm && !full.startsWith(rootNorm + path.sep)) {
+          return send(res, 403, 'Forbidden');
+        }
+        return serveFile(req, res, full);
+      }
+
+      // Spine 转换工具预览目录:token 由 tool:spinePreviewRegister 注册
+      if (pathname.startsWith('/spine-pv/')) {
+        const rest = pathname.slice(10); // "<token>/<rel>"
+        const slash = rest.indexOf('/');
+        if (slash < 0) return send(res, 404, 'Not Found');
+        const token = rest.slice(0, slash);
+        const rel = rest.slice(slash + 1);
+        if (!token || !rel) return send(res, 404, 'Not Found');
+        const root = previewRoots && previewRoots().get(token);
+        if (!root) return send(res, 404, 'Preview Not Found');
+        const rootNorm = path.resolve(root);
+        const full = path.resolve(rootNorm, rel);
         if (full !== rootNorm && !full.startsWith(rootNorm + path.sep)) {
           return send(res, 403, 'Forbidden');
         }

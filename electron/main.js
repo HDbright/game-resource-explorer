@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { createServer } = require('./server');
@@ -18,6 +18,36 @@ const webPreviewWindow = require('./tools/webPreviewWindow');
 const bookmarkDialog = require('./tools/bookmarkDialog');
 const { apiTest } = require('./tools/apiTest');
 const devCdp = require('./tools/devCdp');
+const { spawn } = require('child_process');
+const crypto = require('crypto');
+
+// ---- Spine 骨骼格式/版本转换(C++ SpineSkeletonDataConverter,来自 SpineSkeletonDataConverter 项目) ----
+// 该 EXE 为独立原生程序:dev 模式位于 electron/tools/spine-converter/;打包版置于 resources/spine-converter/(asar 外)。
+function spineConverterExePath() {
+  const packed = path.join(process.resourcesPath || '', 'spine-converter', 'SpineSkeletonDataConverter.exe');
+  if (fs.existsSync(packed)) return packed;
+  return path.join(__dirname, 'tools', 'spine-converter', 'SpineSkeletonDataConverter.exe');
+}
+// 主版本.次版本 → 完整 x.y.z(转换器的 -v 必须完整三段式;patch 仅写入输出骨架的 version 字段,逻辑只查主.次)
+const SPINE_FULL_VERSION = {
+  '3.5': '3.5.51', '3.6': '3.6.53', '3.7': '3.7.94', '3.8': '3.8.99',
+  '4.0': '4.0.64', '4.1': '4.1.43', '4.2': '4.2.11', '4.3': '4.3.0',
+};
+function spineMajorMinorToFull(v) { return SPINE_FULL_VERSION[v] || (v + '.0'); }
+// 探测文件头 256 字节中的 x.y.z,返回 { ok, format, version, versionLabel }
+function probeSpineFile(filePath) {
+  const ext = (path.extname(filePath) || '').toLowerCase();
+  const format = ext === '.json' ? 'json' : (ext === '.skel' || ext === '.bin') ? 'skel' : 'unknown';
+  let buf;
+  try { buf = fs.readFileSync(filePath); } catch (e) { return { ok: false, reason: e.message }; }
+  const head = buf.subarray(0, Math.min(256, buf.length)).toString('latin1');
+  const m = /(\d+)\.(\d+)\.(\d+)/.exec(head);
+  if (!m) return { ok: false, format, reason: '未检测到 Spine 版本号(x.y.z)' };
+  const mm = `${m[1]}.${m[2]}`;
+  const known = ['3.5', '3.6', '3.7', '3.8', '4.0', '4.1', '4.2', '4.3'];
+  if (!known.includes(mm)) return { ok: false, format, version: mm, reason: `不支持的 Spine 版本: ${mm}` };
+  return { ok: true, format, version: mm, versionLabel: `${mm}.${m[3]}` };
+}
 
 // ---- 通用:扩展名 → MIME / 下载到临时目录 → data URL / 抓取文本(主窗口与悬浮预览窗共用) ----
 const MIME_EXT = {
@@ -88,6 +118,8 @@ const SAMPLES_DIR = fs.existsSync(path.join(__dirname, '..', 'samples'))
 
 let db = readDb();
 let roots = new Map();
+// 预览专用目录注册表(spine 格式转换工具预览用,与条目 roots 隔离,避免被 DB 重载覆盖)
+const previewRoots = new Map();
 
 /** 文件名安全化(itemId 用于缩略图缓存文件名) */
 function safeId(id) {
@@ -252,6 +284,7 @@ function enrichItemsMeta() {
 let win = null;
 let server = null;
 let cdpDocWin = null; // 「Chrome DevTools 连接说明」独立文档窗口
+let debugWin = null;  // 调试模式独立检视窗口(可拖到主窗口外面)
 
 async function createWindow() {
   win = new BrowserWindow({
@@ -287,6 +320,7 @@ async function createWindow() {
   win.on('closed', () => {
     try { webPreviewWindow.close(); } catch (e) { /* ignore */ }
     try { webGame.destroy(); } catch (e) { /* ignore */ } // 内部会销毁 floatWin
+    try { if (debugWin && !debugWin.isDestroyed()) debugWin.close(); } catch (e) { /* ignore */ }
     try { app.quit(); } catch (e) { /* ignore */ }
   });
 
@@ -300,6 +334,96 @@ async function createWindow() {
 
   if (isSmoke) runSmoke();
 }
+
+// 调试模式独立检视窗口：独立原生 BrowserWindow(无 parent)，因此可拖到主窗口外面，
+// 自带标题栏拖拽(-webkit-app-region)、可调整窗口大小、最小化/最大化/关闭。
+// 位置/大小在关闭时持久化到 userData/debug-win-bounds.json，下次弹出恢复上次位置。
+let debugWinBounds = null; // { x, y, width, height, maximized }
+const DEBUG_BOUNDS_FILE = () => path.join(app.getPath('userData'), 'debug-win-bounds.json');
+
+function loadDebugWinBounds() {
+  try {
+    const o = JSON.parse(fs.readFileSync(DEBUG_BOUNDS_FILE(), 'utf8'));
+    if (o && typeof o.x === 'number' && typeof o.y === 'number' && typeof o.width === 'number' && o.width >= 280) {
+      debugWinBounds = o;
+    }
+  } catch (e) { /* 首次运行无存档文件 */ }
+}
+
+function saveDebugWinBounds() {
+  if (!debugWin || debugWin.isDestroyed()) return;
+  try {
+    // 最大化时记录还原后的正常边界,便于下次弹出仍是原位置
+    const b = debugWin.isMaximized()
+      ? (debugWin.getNormalBounds ? debugWin.getNormalBounds() : debugWin.getBounds())
+      : debugWin.getBounds();
+    fs.writeFileSync(DEBUG_BOUNDS_FILE(), JSON.stringify({
+      x: Math.round(b.x), y: Math.round(b.y),
+      width: Math.round(b.width), height: Math.round(b.height),
+      maximized: debugWin.isMaximized(),
+    }));
+  } catch (e) { /* ignore */ }
+}
+
+let debugUserClosed = false; // 用户点了调试窗口的「×」按钮主动关闭(需通知主窗口退出调试模式)
+let debugDragOffset = null;  // JS 拖拽:光标相对窗口左上角的偏移 {dx, dy}
+
+function openDebugWindow() {
+  if (debugWin && !debugWin.isDestroyed()) {
+    // 已打开:移到最前但不抢占焦点(避免主窗口被盖住)
+    try { debugWin.showInactive(); debugWin.moveTop(); } catch (e) { /* ignore */ }
+    return;
+  }
+  // 恢复上次位置/大小;若存档位置超出当前屏幕(如拔掉外接显示器),夹回所在显示器工作区内
+  let w = 380, h = 440, x, y;
+  if (debugWinBounds && typeof debugWinBounds.x === 'number') {
+    w = Math.min(Math.max(debugWinBounds.width || 380, 280), 1400);
+    h = Math.min(Math.max(debugWinBounds.height || 440, 160), 1000);
+    const wa = screen.getDisplayMatching({ x: debugWinBounds.x, y: debugWinBounds.y, width: w, height: h }).workArea;
+    x = Math.max(wa.x, Math.min(debugWinBounds.x, wa.x + wa.width - 120));
+    y = Math.max(wa.y, Math.min(debugWinBounds.y, wa.y + wa.height - 40));
+  } else {
+    const b = win && !win.isDestroyed() ? win.getBounds() : { x: 80, y: 80, width: 1460 };
+    x = Math.max(0, b.x + Math.max(0, b.width - w - 40));
+    y = Math.max(0, b.y + 70);
+  }
+  debugWin = new BrowserWindow({
+    width: w, height: h, x, y, minWidth: 280, minHeight: 120,
+    frame: false, resizable: true, backgroundColor: '#12141a', show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true, nodeIntegration: false, sandbox: false,
+    },
+  });
+  debugWin.setSkipTaskbar(true); // 作为调试面板,不占任务栏
+  // 调试窗口的渲染端 console 转发到主进程终端,便于排查
+  debugWin.webContents.on('console-message', (ev) => {
+    try { console.log('[debugWin]', (ev && ev.message) || ''); } catch (e) { /* ignore */ }
+  });
+  debugWin.loadFile(path.join(__dirname, 'debugInspect.html'));
+  debugWin.once('ready-to-show', () => {
+    if (debugWin && !debugWin.isDestroyed()) {
+      // 显示但不抢占焦点:主窗口保持焦点,保证 Ctrl 暂停/恢复快捷键、复制等可直接使用
+      try { debugWin.showInactive(); } catch (e) { try { debugWin.show(); } catch (e2) { /* ignore */ } }
+    }
+  });
+  debugWin.on('close', () => saveDebugWinBounds()); // 关闭前记录位置/大小
+  debugWin.on('closed', () => {
+    // 用户主动点「×」关闭 → 通知主窗口退出调试模式(悬停高亮/监听一并清理)
+    if (debugUserClosed) {
+      try { if (win && !win.isDestroyed()) win.webContents.send('debug:userClosed'); } catch (e) { /* ignore */ }
+    }
+    debugUserClosed = false;
+    debugWin = null;
+  });
+}
+
+function closeDebugWindow() {
+  debugUserClosed = false; // 主窗口主动关闭(如 Esc/按钮退出),无需再通知
+  if (debugWin && !debugWin.isDestroyed()) { try { debugWin.close(); } catch (e) {} }
+  debugWin = null;
+}
+
 
 async function runSmoke() {
   const out = path.join(app.getPath('temp'), 'skeleton-previewer-smoke');
@@ -437,7 +561,7 @@ app.whenReady().then(async () => {
   refreshRoots();
   _T('refreshRoots');
 
-  server = createServer({ dist: DIST_DIR, roots: () => roots });
+  server = createServer({ dist: DIST_DIR, roots: () => roots, previewRoots: () => previewRoots });
   await server.ready;
   _T('server ready');
 
@@ -467,10 +591,119 @@ app.whenReady().then(async () => {
       return { ok: false, error: err.message };
     }
   });
+
+  // ---- 调试模式独立检视窗口 ----
+  ipcMain.handle('debug:open', () => { try { openDebugWindow(); } catch (e) { console.error('debug:open', e); } });
+  ipcMain.handle('debug:close', () => { try { closeDebugWindow(); } catch (e) {} });
+  // 主渲染进程把悬停组件信息发来 → 转发给调试窗口
+  ipcMain.on('debug:update', (_e, info) => {
+    if (debugWin && !debugWin.isDestroyed()) {
+      try { debugWin.webContents.send('debug:update', info); } catch (e) {}
+    }
+  });
+  // 调试窗口按钮:min / toggleMax / close
+  ipcMain.on('debug:action', (_e, act) => {
+    if (!debugWin || debugWin.isDestroyed()) return;
+    try {
+      if (act === 'min') debugWin.minimize();
+      else if (act === 'toggleMax') { if (debugWin.isMaximized()) debugWin.restore(); else debugWin.maximize(); }
+      else if (act === 'close') {
+        debugUserClosed = true; // 标记用户主动关闭 → closed 时通知主窗口退出调试模式
+        debugWin.close();
+      }
+    } catch (e) {}
+  });
+  // 调试窗口标题栏手动拖拽(JS 方案):按光标屏幕坐标移动窗口
+  ipcMain.on('debug:dragStart', () => {
+    if (!debugWin || debugWin.isDestroyed()) return;
+    try {
+      const cp = screen.getCursorScreenPoint();
+      const b = debugWin.getBounds();
+      debugDragOffset = { dx: cp.x - b.x, dy: cp.y - b.y };
+    } catch (e) { debugDragOffset = null; }
+  });
+  ipcMain.on('debug:dragMove', () => {
+    if (!debugWin || debugWin.isDestroyed() || !debugDragOffset) return;
+    try {
+      const cp = screen.getCursorScreenPoint();
+      debugWin.setPosition(Math.round(cp.x - debugDragOffset.dx), Math.round(cp.y - debugDragOffset.dy));
+    } catch (e) { /* ignore */ }
+  });
+  ipcMain.on('debug:dragEnd', () => { debugDragOffset = null; });
+  // 焦点在调试窗口时按 Ctrl → 转发主窗口执行暂停/恢复调试信息获取
+  ipcMain.on('debug:togglePause', () => {
+    try { if (win && !win.isDestroyed()) win.webContents.send('debug:togglePause'); } catch (e) { /* ignore */ }
+  });
+  // 项目源码根目录:settings.sourceRoot 优先,默认应用目录
+  ipcMain.handle('debug:getEnv', () => {
+    try {
+      let root = app.getAppPath();
+      try {
+        const db = readDb();
+        if (db && db.settings && db.settings.sourceRoot) root = db.settings.sourceRoot;
+      } catch (e) { /* ignore */ }
+      return { root };
+    } catch (e) { return { root: app.getAppPath() }; }
+  });
+  // 调试窗口「源码位置」右键:打开目录 / 编辑文件(默认 Notepad++ 定位行号,可配置编辑器)
+  ipcMain.on('debug:sourceAction', async (_e, payload) => {
+    const { action, rel, line } = payload || {};
+    if (!rel) return;
+    const respond = (msg) => {
+      try { if (debugWin && !debugWin.isDestroyed()) debugWin.webContents.send('debug:sourceResult', String(msg)); } catch (e) { /* ignore */ }
+    };
+    let root = app.getAppPath();
+    let editor = '';
+    try {
+      const db = readDb();
+      if (db && db.settings) {
+        if (db.settings.sourceRoot) root = db.settings.sourceRoot;
+        editor = db.settings.editorPath || '';
+      }
+    } catch (e) { /* ignore */ }
+    const file = path.resolve(root, String(rel));
+    try {
+      if (action === 'openDir') {
+        if (fs.existsSync(file)) { shell.showItemInFolder(file); respond('已打开所在目录并选中文件'); }
+        else {
+          const dir = path.dirname(file);
+          if (fs.existsSync(dir)) { shell.openPath(dir); respond('文件不存在,已打开上级目录'); }
+          else respond('文件与目录均不存在: ' + file);
+        }
+      } else if (action === 'edit') {
+        if (!fs.existsSync(file)) { respond('源码文件不存在: ' + file); return; }
+        if (!editor || !fs.existsSync(editor)) {
+          const def = 'C:\\Program Files\\Notepad++\\notepad++.exe';
+          if (fs.existsSync(def)) editor = def;
+        }
+        if (!editor || !fs.existsSync(editor)) {
+          const r = await dialog.showOpenDialog(win, {
+            title: '选择代码编辑器',
+            properties: ['openFile'],
+            filters: [{ name: '程序', extensions: ['exe', 'bat', 'cmd'] }],
+          });
+          if (r.canceled || !r.filePaths.length) return;
+          editor = r.filePaths[0];
+          try { const d = readDb(); d.settings = d.settings || {}; d.settings.editorPath = editor; writeDb(d); } catch (e) { /* ignore */ }
+        }
+        const bn = path.basename(editor).toLowerCase();
+        let args;
+        if (Number.isInteger(line) && line > 0) {
+          if (bn.startsWith('code')) args = ['--goto', `${file}:${line}`]; // VS Code
+          else if (bn.includes('notepad++')) args = ['-n' + line, file];   // Notepad++
+          else args = [file];
+        } else args = [file];
+        try {
+          spawn(editor, args, { detached: true, stdio: 'ignore' }).unref();
+          respond(`已打开 ${path.basename(file)}${Number.isInteger(line) && line > 0 ? '，定位到第 ' + line + ' 行' : ''}`);
+        } catch (err) { respond('启动编辑器失败: ' + err.message); }
+      }
+    } catch (err) { respond('操作失败: ' + err.message); }
+  });
   ipcMain.handle('fs:stat', (_e, p) => {
     try {
       const s = fs.statSync(p);
-      return { size: s.size, mtime: Math.round(s.mtimeMs) };
+      return { size: s.size, mtime: Math.round(s.mtimeMs), created: Math.round(s.birthtimeMs || s.ctimeMs || 0) };
     } catch (err) {
       return null;
     }
@@ -759,6 +992,57 @@ app.whenReady().then(async () => {
         }
       }
       return { ok: true, json: r.json, atlas: r.atlas, pngBase64, version: r.version, warn: r.warn };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // ============ 资源工具箱:Spine 骨骼格式/版本转换 ============
+  // 复用 SpineSkeletonDataConverter(C++ 原生):skel ↔ json,跨版本 3.5-3.8 / 4.0-4.3 升降级,自动识别输入版本。
+  ipcMain.handle('tool:spineConvert', async (_e, { inputPath, outputPath, targetVersion, removeCurve }) => {
+    const exe = spineConverterExePath();
+    if (!fs.existsSync(exe)) {
+      return { ok: false, error: '未找到 SpineSkeletonDataConverter.exe,请先构建转换工具(npm run build:spine-converter)。' };
+    }
+    if (!inputPath || !outputPath) return { ok: false, error: '缺少输入或输出路径' };
+    const args = [inputPath, outputPath];
+    if (targetVersion && targetVersion !== 'auto') {
+      args.push('-v', spineMajorMinorToFull(targetVersion));
+    }
+    if (removeCurve) args.push('--remove-curve');
+    return new Promise((resolve) => {
+      let out = '', err = '';
+      try {
+        const cp = spawn(exe, args, { windowsHide: true });
+        cp.stdout.on('data', (d) => { out += d.toString('utf8'); });
+        cp.stderr.on('data', (d) => { err += d.toString('utf8'); });
+        cp.on('error', (e) => resolve({ ok: false, error: '启动转换程序失败:' + e.message }));
+        cp.on('close', (code) => {
+          if (code === 0) resolve({ ok: true, stdout: out.trim() });
+          else resolve({ ok: false, error: (err || out || '转换失败(exit ' + code + ')').trim() });
+        });
+      } catch (e) {
+        resolve({ ok: false, error: e.message });
+      }
+    });
+  });
+  // 探测文件:版本 + 格式(供 UI 自动识别显示)
+  ipcMain.handle('tool:spineProbe', async (_e, { inputPath }) => {
+    try {
+      return probeSpineFile(inputPath);
+    } catch (err) {
+      return { ok: false, reason: err.message };
+    }
+  });
+  // 注册一个临时目录到静态服务 previewRoots,返回 token,供预览用 /spine-pv/<token>/ 加载骨架+图集
+  ipcMain.handle('tool:spinePreviewRegister', async (_e, { dir }) => {
+    try {
+      if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
+        return { ok: false, error: '目录不存在或无效:' + dir };
+      }
+      const token = 'spc_' + crypto.randomBytes(8).toString('hex');
+      previewRoots.set(token, dir);
+      return { ok: true, token };
     } catch (err) {
       return { ok: false, error: err.message };
     }
@@ -1175,6 +1459,7 @@ app.whenReady().then(async () => {
     try { win.webContents.send('web:previewAction', payload); } catch (err) { /* ignore */ }
   });
 
+  loadDebugWinBounds(); // 读取调试窗口上次位置/大小存档
   await createWindow();
 });
 

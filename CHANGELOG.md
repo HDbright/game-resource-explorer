@@ -3,11 +3,175 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.70`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v1.9.89`）。
 
 ---
 
 ## 2026-08-13
+
+### [优化] 发布 v1.9.89：Spine 转换产物列表 — 标题去重 + 禁止拖入
+- 输出列表头部 hint「转换成功后产物自动加入 · 点击行预览 · 右键加入资源库/删除 · 悬停行尾 × 删除」与空状态标题「转换产物列表(转换成功后自动加入)」重复「转换成功后(产物)自动加入」→ 从 hint 移除首句,改为「点击行预览 · 右键加入资源库/删除 · 悬停行尾 × 删除」,与待转换列表 hint 风格对齐;空状态标题保留括号说明(说明产物仅转换成功后自动加入)。
+- 输出列表(spc-outwrap)新增拖放拦截:`blockDrop` 在 dragover/drop 均 `preventDefault+stopPropagation` 并清除 contentPanel 的「松开鼠标添加资源」提示,使拖到该区域既不加入任何列表,也不误触发主界面资源库添加流程(只有待转换列表接受拖入)。
+- 实现:`src/pages/spineConvertPage.js`(输出列表 hint 文案、outWrapEl 引用 + blockDrop)。
+
+---
+
+## 2026-08-13
+
+### [优化] 发布 v1.9.88：Spine 格式转换列表 — 移除缩略图下方占位小图标并放大缩略图
+- 行模板删除 `<span class="spc-thumb-ph">🎞</span>` 占位小图标（之前缩略图未生成/未识别时显示的胶片符号），仅保留 `<img class="spc-thumb">`。
+- 缩略图尺寸由 40×40 放大到 **72×72**，`col-thumb` 列宽同步由 46px 调整为 **80px**，表格行高自动撑开。
+- 样式删除 `.spc-thumb-ph` 规则（已无引用）。
+- 已实测：待转换列表与转换产物列表同模板同步生效，缩略图更醒目，无残留占位图标。
+
+---
+
+## 2026-08-13
+
+### [优化] 发布 v1.9.87：Spine 格式转换页面标题合并去重
+- 页面自身渲染的「Spine 格式转换」标题+说明与工具箱外壳(toolboxPage)的公共 tool-head 重复 → 删除页面内的重复块，仅保留外壳标题
+- 说明文案合并为最新功能描述(待转换列表/默认目标格式/产物列表),工具箱主页卡片文案同步对齐
+
+---
+
+## 2026-08-13
+
+### [新增] 发布 v1.9.86：Spine 格式转换页面底部新增「转换产物文件列表」
+- 页面底部新增**转换产物列表区**：转换成功后产物文件（.skel/.json）**自动加入**该列表（自动去重、探测版本、读取大小/创建时间、匹配资源库）。
+- **样式与功能完全对齐待转换列表**：缩略图 · 类型 · 资源库(在库名称·分类位置) · 文件名/版本 · 大小 · 创建时间；行勾选 + 表头全选；点击行工具内预览、**「▶ 预览」用资源预览页**打开（库中文件）；**右键**「加入资源库分类…/从列表删除」；**悬停行尾 × 删除**；「清空输出列表」按钮。
+- 渲染逻辑抽取为通用 `renderSpcList`（待转换列表与产物列表共用同一套行模板/绑定/缩略图/勾选逻辑）；产物列表数据 `_toolOutFiles` 为**模块级**，标签切换/页面重建后保留。
+- 已实测：转换 diaoyu1.skel → 产物 diaoyu1.json(Spine 3.8.84) 自动出现在产物列表（outRows=1），列表 DOM 正常。
+- 实现：`src/pages/spineConvertPage.js`（通用列表渲染、`addOutFile`、`doConvert` 成功后自动入列、右键按列表区分）、`src/style.css`（底部产物列表样式）。
+
+## 2026-08-13
+
+### [新增] 发布 v1.9.85：Spine 转换列表「▶ 预览」按钮 → 资源预览页，可返回转换页
+- 文件列表每行新增 **「▶ 预览」按钮**：库中文件点击后用**主程序资源预览页**（`selectItem` → `showPreviewPage`，含完整播放器/动画列表/骨骼开关等）预览；不在资源库的文件点击提示"请先右键加入资源库分类后再预览"（点击行本身仍是工具内嵌预览）。
+- **返回转换页面**：从转换工具进入预览时记录返回标签，预览页「返回」按钮会切回**工具箱转换页面**（而不是默认的资源目录页）。
+- **列表状态保留**：工具箱页面在标签切换/重建时会把局部列表状态清空——现将文件列表与缩略图缓存提升为**模块级状态**（`_toolFiles`/`_toolThumbs`），预览返回后转换列表、缩略图完整恢复。
+- 实现：`src/pages/spineConvertPage.js`（预览按钮、模块级状态、removeFiles/清空改原地修改）、`src/style.css`（预览按钮列样式）、`src/ui.js`（`app:previewFromTool` 事件 → `selectItem` + 记录 `previewToolReturnTab`；`pv-back` 拦截返回工具箱标签）。
+- 已实测：库中条目 `sample-spine` → 事件打开资源预览页 → `pv-back` 返回工具箱标签，`#spc-filelist` 恢复。
+
+## 2026-08-13
+
+### [修复] 发布 v1.9.84：Spine 转换工具拖入文件不进列表 + 重复文件弹窗确认
+- **根因**：主内容面板 `contentPanel` 有全局拖拽处理（把拖入的文件加入资源库并 `renderMainArea()` 重建主区）。Spine 转换工具在 contentPanel 内部，拖入的文件被该流程接管——提示"未添加新资源到「xxx」,N 个重复已跳过"（资源库流程），且 `renderMainArea()` 重建页面把工具的列表状态清空 → **提示已拖入但列表为空**。
+- **修复1（工具接管拖拽）**：转换工具的拖放区 `dragover/drop` 增加 `e.stopPropagation()`，拖到列表区/拖放区的文件只进转换列表，不再触发资源库流程与页面重建。
+- **修复2（重复文件弹窗确认）**：`addPaths` 检测重复（已在待转换列表 或 已在资源库）→ 弹出确认框「检测到重复…是否仍将这些文件加入待转换列表?」；点「仍加入列表」则强制加入（含重复），点「取消」不加入。无重复时直接加入。
+- 已实测（合成拖拽 + 真实文件 dazuo1.skel）：拖入列表区后 contentPanel 不再触发（`cpDropFired=0`）；库中已有文件拖入 → 弹确认 → 确认后 count 0→1 成功入列；已在列表的文件再拖入 → 再次弹确认。
+
+## 2026-08-13
+
+### [修复] 发布 v1.9.83：Spine 格式转换拖入文件失效(含资源库已有文件)修复
+- **根因**：拖拽处理里用 `f.path` 取文件路径——Electron 43 已移除 `File.path`，得到 `undefined` 后被过滤，导致**所有拖入的文件都进不了列表**（与资源库中是否已有无关）。主界面其它拖拽早已改用 `dragUtils.getPathForFile`，本工具漏改。
+- **修复**：`src/pages/spineConvertPage.js` 拖拽改用 `window.dragUtils.getPathForFile(file)`（`f.path` 兜底），并支持 `webkitGetAsEntry` 区分文件/目录——**拖入整个文件夹也会递归扫描**其中全部 .skel/.json/.bin 自动加入列表。
+- 库中已有的资源文件**同样可以拖入**待转换列表（列表去重仅针对列表内重复路径；库中匹配仅用于显示在库名称/分类位置）。
+- 已实测：拖入目录 `diaoyu1` 自动加入 `diaoyu1.json` + `diaoyu1.skel` 两行，去重正常。
+
+## 2026-08-13
+
+### [优化] 发布 v1.9.82：Spine 格式转换「预览区」改为「文件列表区」
+- **文件列表区**：右侧原预览区改为文件列表（缩略图 · 类型 · 资源库信息 · 文件名/版本 · 大小 · 创建时间）。拖入/选择的 .skel/.json 文件自动进入列表；同一文件自动去重。
+- **资源库联动**：已在资源库中的文件，列表显示**在库中名称**与**分类目录位置**（如 `怪物A @ 动画 / 怪物`）；不在库中显示「不在资源库」。
+- **勾选**：每行前勾选框，支持单选/多选；表头勾选框全选/取消全选（半选状态自动显示）；「开始转换」按勾选转换，未勾选则转换全部有效文件。
+- **预览缩略图**：每行自动生成动画首帧缩略图（库内文件复用缩略图服务；外部文件走 `/spine-pv/` 路由自建隐藏渲染，串行队列防并发冲突）。
+- **点击打开预览**：点击列表行切换到预览播放页（画布 + 播放/动画/速度/骨骼/适配控件），左上角「← 返回列表」可返回。
+- **目标格式默认相反**：.skel → .json、.json → .skel（选择器默认「自动」即相反格式）。
+- **右键菜单**：右键列表行弹出「➕ 加入资源库分类…」（弹层选择分类，勾选多行时批量加入，已存在跳过，并自动匹配同名 .atlas；加入后侧栏资源树即时刷新）与「🗑 从列表删除」。
+- **悬停删除**：鼠标悬停列表行时行尾显示 × 图标，点击即从列表删除。
+- 实现：`src/pages/spineConvertPage.js`（列表/勾选/缩略图/预览视图切换/右键菜单/分类弹层）、`src/style.css`（列表表格/右键菜单/弹层样式）、`src/ui.js`（`library:changed` 事件刷新侧栏树）、`electron/main.js`（`fs:stat` 增加创建时间 `created`）。
+- 已实测：拖入文件入列表、缩略图生成、点击预览/返回、加入临时分类（库中名称+分类位置正确）后清理均通过。
+
+## 2026-08-13
+
+### [新增] 发布 v1.9.81：调试窗口「源码位置」可悬浮看路径、右键 打开目录 / 编辑文件(定位行号)
+- **组件源码位置映射**：为 22 个常用组件（主区/侧边栏/分类树/标签条/各功能页/顶栏等）建立 `file + line` 真实源码位置（相对「项目源码根目录」，如 `src/ui.js:562`），悬停组件时随调试信息一起计算出来。
+- **悬浮提示**：调试窗口「源码位置」行的**文件名**（如 `ui.js:562`）带虚线样式，鼠标悬浮显示**完整绝对路径**（`E:\MyProject\spine_viewer\src\ui.js`）。
+- **右键菜单**：右键文件名弹出 `📂 打开目录` / `✏️ 编辑文件`：
+  - 打开目录：系统资源管理器打开并**选中该文件**（文件不存在则打开上级目录并提示）；
+  - 编辑文件：默认用 `C:\Program Files\Notepad++\notepad++.exe` 打开并**定位到组件代码行号**（`-n<行>`）；找不到该程序则弹窗选择打开程序并自动记住；VS Code(code.exe) 自动改用 `--goto file:line`。
+- **可配置**：系统设置新增「开发者调试 · 组件源码定位」卡片——**默认代码编辑器**（可手动填或选程序）与**项目源码根目录**（打包版可指向源码目录，如 `E:\MyProject\spine_viewer`），保存即生效。
+- 操作结果（成功/文件不存在等）在调试窗口底部提示栏短暂显示。
+- 实现：`src/debugInspect.js`（COMP_META 加 file/line、computeInfo 输出 file/line/abs、debugGetEnv 取源码根）、`electron/debugInspectRenderer.js`（srcfile 元素 + 右键菜单 + 结果提示）、`electron/debugInspect.html`（菜单/样式）、`electron/main.js`（`debug:getEnv`、`debug:sourceAction` 打开目录/编辑文件/编辑器回退选择并写回设置）、`electron/preload.js`（新桥接）、`src/pages/settingsPage.js`（编辑器与源码根目录设置）。
+- 已实测：悬停侧边栏 → 解析 `src/ui.js:562` → 打开目录成功、Notepad++ 打开并定位 562 行成功。
+
+## 2026-08-13
+
+### [新增] 发布 v1.9.80：焦点在调试信息窗口时，按 Ctrl 键也可暂停/恢复调试模式
+- **需求**：此前 Ctrl 暂停/恢复只在焦点位于主窗口时生效；焦点移到调试信息窗口（去操作/复制信息）时按 Ctrl 无反应。
+- **实现**：调试窗口渲染脚本 `electron/debugInspectRenderer.js` 新增 `keydown` 监听（`e.key === 'Control'`、忽略长按 `e.repeat` 与修饰键组合），按下时经 `bridge.debugTogglePause()` → 主进程 `debug:togglePause` → 转发主窗口 → `src/debugInspect.js` 收到后执行与主窗口内 Ctrl 相同的 `setPaused(!paused)`（仅调试模式开启时生效），暂停/恢复行为完全一致（信息冻结、按钮 `⏸` 图标、toast 提示）。
+- 新增桥接：`electron/preload.js` 的 `debugTogglePause`（调试窗口发送）与 `onDebugTogglePause`（主窗口接收）；`electron/main.js` 的 `debug:togglePause` 转发。
+- **已验证（系统级输入模拟）**：点击调试窗口获得焦点 → 按 Ctrl → 主进程收到 `debug:togglePause` → 主窗口 `setPaused(true)`；再按 Ctrl → `setPaused(false)`，暂停/恢复正确往返。
+
+## 2026-08-13
+
+### [修复] 发布 v1.9.79：调试窗口可拖拽移动；点「×」关闭同时退出调试模式
+- **拖拽失效修复**：弃用 `-webkit-app-region: drag`（部分环境/GPU 组合下会吞掉鼠标事件却不真正拖动窗口），改为**纯 JS 拖拽**——标题栏 `pointerdown` 记录起点并 `setPointerCapture`，`pointermove` 期间把光标屏幕坐标经 IPC（`debug:dragStart/Move/End`）发给主进程，主进程按光标相对窗口左上角的偏移 `setPosition` 移动窗口；光标拖出标题栏/窗口外依然跟手（pointer capture 保证）。
+- **细节**：标题栏仅按钮区（`.dbg-winbtns`）不触发拖拽，中部 `.dbg-sub`（占满标题栏）可拖；`.dbg-grip/.dbg-title` 设 `pointer-events:none` 避免干扰。
+- **关闭即退出调试模式**：点调试窗口「×」→ 主进程标记 `debugUserClosed` → 窗口关闭后向主窗口发 `debug:userClosed` → `src/debugInspect.js` 收到后调用 `disable()` 退出调试模式（清理悬停高亮/监听/按钮 active 状态），并保持"记住位置"能力（关闭时仍会保存位置/大小）。
+- 已验证：系统级鼠标事件实测——标题栏拖拽窗口按光标跟随（含拖出标题栏 80px 仍跟手）；点「×」窗口关闭且 `debug:userClosed` 通知到达主进程。
+- 实现：`electron/debugInspectRenderer.js`（JS 拖拽）、`electron/debugInspect.html`（移除 app-region）、`electron/main.js`（`debug:dragStart/Move/End` + `debugUserClosed` 通知）、`electron/preload.js`（新桥接）、`src/debugInspect.js`（监听 `onDebugUserClosed` 退出调试模式）。
+
+## 2026-08-13
+
+### [修复] 发布 v1.9.78：修复调试窗口信息不更新 / 按钮失效，并记住窗口位置
+- **根因**：`electron/debugInspectRenderer.js` 顶层写了 `const api = window.api;`。`contextBridge.exposeInMainWorld('api', …)` 会把 `window.api` 定义为**不可配置的全局属性**，页面顶层再用 `const/let api` 声明同名标识符会直接抛 `SyntaxError: Identifier 'api' has already been declared`，导致**整个渲染脚本解析失败**——悬停信息不更新（`onDebugUpdate` 未注册）、最小化/最大化/关闭按钮全部失效（事件未绑定）。
+- **修复**：渲染脚本改用别名 `const bridge = window.api;`，并显式注释该坑（勿再写顶层 `const api`）；已用最小 Electron 43 复现用例验证修复前后差异（修复前必现 SyntaxError，修复后 `loaded ok`）。
+- **按钮更可靠**：标题栏「最小化 / 最大化·还原 / 关闭」按钮由 `click` 改为 `mousedown` 触发，避免在 `-webkit-app-region: drag` 拖拽区域内 `click` 被拖拽机制吞掉。
+- **记住位置**：调试窗口关闭时把位置/大小写入 `userData/debug-win-bounds.json`，下次弹出**恢复上次关闭时的位置与大小**；若存档位置超出当前屏幕（如拔掉外接显示器），自动夹回所在显示器工作区内。
+- **焦点回主窗口**：调试窗口弹出时用 `showInactive()` 显示——窗口保持可见在最前，但**焦点留在主窗口**，Ctrl 暂停/恢复、复制等快捷键可直接使用（不因 `win.focus()` 把主窗口抬到调试窗口之上而遮住它）。
+- 实现：`electron/debugInspectRenderer.js`（bridge 别名 + mousedown）、`electron/main.js`（`debugWinBounds` 持久化、`openDebugWindow` 恢复位置 + `showInactive`）、`electron/debugInspect.html`（清理诊断代码）。
+- 主进程新增调试窗口渲染端 console 转发（`console-message`），便于日后排查。
+
+## 2026-08-13
+
+### [新增] 发布 v1.9.77：调试模式支持 Ctrl 键暂停/恢复信息获取
+- 调试模式下**按一下 Ctrl 键**即可暂停/恢复调试信息获取（自动重复长按不触发，且不与 Ctrl+Shift+D 切换调试模式冲突）。
+- **暂停状态**：调试按钮出现 `⏸` 暂停图标提示（红色高亮样式），且已获取的调试信息在独立窗口中**保持不变**，方便鼠标移入调试窗口进行操作与复制。
+- 恢复后正常悬停刷新；退出调试模式（Esc 或再次点按钮）会一并清除暂停状态与按钮图标。
+- 实现：`src/debugInspect.js` 新增 `paused` 状态与 `setPaused()`，`onMove` 在暂停时直接冻结（不更新信息、不改变高亮）；`#btn-debug.paused` 样式新增 `⏸` 伪元素与配色。
+
+## 2026-08-13
+
+### [优化] 发布 v1.9.76：调试窗口升级为独立原生窗口（可拖到主程序外面）
+- 调试信息窗不再用主窗口内的 DOM 浮层（会被主窗口裁剪、无法移出），改为独立的原生 `BrowserWindow`（`electron/debugInspect.html` + `electron/debugInspectRenderer.js`，由 `electron/main.js` 的 `openDebugWindow()` 创建，**无 parent**）。
+- 因为是独立 OS 窗口，可拖到主程序窗口**外面**任意位置；标题栏用 `-webkit-app-region: drag` 拖拽，窗口边缘可自由调整大小，并带原生 `最小化 / 最大化·还原 / 关闭` 按钮（经 `debug:action` IPC 调用 `win.minimize/maximize/restore/close`）。
+- 主窗口渲染端 `src/debugInspect.js` 仅在悬停时计算可序列化信息，经 `window.api.debugUpdate` → 主进程 `debug:update` → 转发到调试窗口渲染；`enable/disable` 调用 `debugOpen/debugClose`。主窗口 `closed` 时同步关闭调试窗口。
+- 调试窗口内的信息可直接选中复制，底部「复制信息」一键复制为纯文本（剪贴板 + execCommand 兜底）。
+- 主窗口 `src/style.css` 删除已废弃的 `#dbg-popup` DOM 样式（保留 `.dbg-hover` 高亮）。
+
+## 2026-08-13
+
+### [优化] 发布 v1.9.75：调试弹窗改为可固定/拖拽/调整大小的独立窗口
+- 调试信息弹窗不再随鼠标移动：位置固定，首次出现在右上区域。
+- 标题栏可拖拽移动；窗口右下角可拖拽调整大小（`resize: both`）。
+- 标题栏标准按钮：`－` 最小化（仅留标题栏）、`▢` 最大化/还原切换、`×` 关闭（调试模式保持开启，悬停新组件即重新弹出）。
+- 弹窗内容区可鼠标选中复制；底部「复制信息」按钮一键复制全部信息为纯文本。
+- 悬停到弹窗自身/拖拽时不再刷新内容，检视更稳定。
+
+## 2026-08-13
+
+### [新增] 发布 v1.9.74：顶栏「🐞 调试」按钮 — UI 组件悬停检视模式
+- 顶栏「⚙ 设置」前新增「🐞 调试」按钮，点击(或 `Ctrl+Shift+D`)进入调试模式；`Esc` 退出。
+- 调试模式下，鼠标悬停任意组件即弹出**独立悬浮窗**，展示：`名称`(标签#id.类)、`中文名称`、`父组件`、`尺寸`(宽×高)、`子组件`(数量+前 15 个列表)、`源码位置`、`组件相关介绍`、`DOM 路径`，并对悬停元素加蓝色描边高亮。
+- 组件元数据表 `COMP_META`(`src/debugInspect.js`)按主要容器 id 提供中文名/介绍/源码位置，并在初始化时自动打进 `data-cn`/`data-desc`/`data-src`，使页面内动态元素也能继承所属模块的中文名与源码信息。
+- 悬浮窗 `pointer-events:none`，不拦截点击，不影响正常操作。
+
+## 2026-08-13
+
+### [修复] 发布 v1.9.73：Spine 格式转换工具 中文路径崩溃 + 预览 clientWidth 崩溃
+- **转换中文路径崩溃**：`SpineSkeletonDataConverter.exe`(C++/MinGW)在 Windows 上把 `char* argv` 按系统代码页解释,中文路径字节非法,`std::filesystem::path`/`std::filesystem::exists` 构造时抛 `filesystem_error: Cannot convert character sequence: Illegal byte sequence` 且未捕获 → `terminate`。修复:`main` 内用 `GetCommandLineW`+`CommandLineToArgvW` 取真正的 UTF-16 命令行,经 `wtoU8()` 转 UTF-8,新增 `u8path()` 把 UTF-8 窄串转宽串直接构造 `std::filesystem::path`,所有 `ifstream/ofstream/exists/path` 均走该辅助。实测 `E:\backup\游戏场景\异兽灵境\spine\diaoyu1\diaoyu1.skel` 同目录/跨版本(3.8→4.3)转换均成功。
+- **顺带修复悬垂指针**:`GetCommandLineW` 重取参数时 `u8args/argv8` 原声明在内部 `{}` 块内,块结束即销毁,`argv` 指向已释放内存 → 参数解析读到垃圾(扩展名为空)。已将两 vector 提升到 `main` 作用域。
+- **预览 clientWidth 崩溃**:`SpineConvertPreview.load()` 调用 `init(this.canvas, this.wrap)`,但 `this.canvas/wrap` 始终是构造时的 `null`,且创建 preview 后从未把真实 canvas 元素赋给它,导致 `init` 里 `canvas.clientWidth` 读 null 抛 `Cannot read properties of null`。修复:在 `renderSpineConvertTool` 创建 preview 后立即 `preview.canvas = canvasEl; preview.wrap = canvasEl.parentElement`。
+- 同步修复至独立仓库 `SpineSkeletonDataConverter`(gitee/github 的 `SpineSkeletonConverter`),提交 `347264a`。
+
+## 2026-08-13
+
+### [新增] 发布 v1.9.72：Spine 格式转换新增 Spine 4.3 支持
+- 转换器内核 `SpineSkeletonDataConverter` 新增 4 个 `SkeletonData43{BinaryReader,BinaryWriter,JsonReader,JsonWriter}.cpp`(基于 4.2 复制,命名空间 `spine42`→`spine43`),并在 `main.cpp` 枚举/版本解析/输入检测/读写路由/帮助文本 6 处注册 `Version43`,在 `SkeletonData.h` 补 `namespace spine43` 的 `readBinaryData/writeBinaryData/readJsonData/writeJsonData` 声明。
+- UI 选项扩展:版本下拉 `VERSION_CHOICES` 加入 `4.3`;主进程 `SPINE_FULL_VERSION` 映射加 `'4.3':'4.3.0'`;文件探测 `known` 版本列表补 `4.3`(否则 4.3 文件识别为"不支持");工具描述文案 `4.0-4.2`→`4.0-4.3`(toolboxPage.js / spineConvertPage.js / main.js 注释)。
+- 复用 `skel_to_json` 项目的结论:Spine 4.x 内部数据格式(4.0–4.3)稳定兼容,4.3 无新增 timeline/属性,故 4.3 复用 4.2 读写逻辑、仅扩展版本号,输出 `spine:"4.3.0"`。
+- 端到端验证:4.2↔4.3 跨版本升降级、`4.3`↔skel 双向,输出版本字段均正确(`4.3.0`/`4.2.11`)。
 
 ### [修复] 发布 v1.9.70：skel→json 动画曲线 NaN + IK order 缺失 + 空动画丢弃
 - 报障(三个文件):① 257.skel 新转换后可正常播放;② dazuo1.skel 新转换后**不报错但无法正常播放**;③ yl_4004.skel 新转换后报 **"该骨骼没有可播放的动作"**。
@@ -20,6 +184,13 @@
 - 实测:三文件转换 → 加载 → 播放全部正常,dazuo1 二进制 vs json 播放 13 帧差异 **0.00003(亚像素)**;diaoyu1.skel(3.8.84,72 骨骼/47 槽)转换后 51 个 DeformTimeline 帧 `vertices` 全部为普通数组(无 Object),Attack 动画 diaoyu_9 变形帧顶点坐标正确(如 `[0,0,0,0,0.65,...]`),2 倍放大与 JSON 解析失败均消除。
 - ⚠️ 教训:① 3.8 与 4.x 的 JSON 曲线格式不同(curve 单值+c2/c3/c4 vs 数组);② 约束 order 决定应用顺序,必须序列化;③ NaN 对比 NaN 差异为 0,诊断播放保真必须先排除 NaN;④ 空动画(0 时间线)在 Spine 中合法,须保留。
 
+### [新增] 发布 v1.9.71：资源工具箱新增「Spine 格式转换」(skel↔json + 跨版本升降级 + 动画预览)
+- 新增:资源工具箱 → 文件格式转换 → 「spine 格式转换」入口。复用独立 C++ 原生程序 `SpineSkeletonDataConverter`(来自 SpineSkeletonDataConverter 项目,已编译为 `electron/tools/spine-converter/SpineSkeletonDataConverter.exe`)做转换,**不改动项目现有转换工具**。
+- 能力:① skel ↔ json 双向转换;② 跨 Spine 版本升级/降级(支持 3.5–3.8、4.0–4.2),自动识别输入文件版本;③ 移除曲线插值(stepped)选项;④ 输出目录可选(源文件同目录 / 指定目录 + 保持相对结构)。
+- 预览:右侧预览区复用 spine 播放器(3.x→Spine38Player,4.x→SpinePlayer),点击文件「预览」即可播放动画;支持动画选择、播放/暂停、变速、骨骼显示、适配窗口。
+- 交互:支持选择文件/目录(递归收集);从 Windows 文件管理器或桌面**拖拽文件到预览区**即可添加并预览;列表逐文件显示格式(JSON/SKEL)与检测到的版本徽章;勾选批量转换或单文件「转换」。
+- IPC:`tool:spineConvert`(spawn EXE,`-v x.y.z` 指定目标版本、`--remove-curve`)、`tool:spineProbe`(读头 256 字节识别 x.y.z 版本+格式)、`tool:spinePreviewRegister`(注册预览目录到静态服务 `/spine-pv/<token>/`,主进程 `previewRoots` 独立于资源库,避免重载污染)。
+- 打包:`scripts/pack-manual.js` 新增 step 4.5,将转换 EXE 复制到 `resources/spine-converter/`(asar 外,原生二进制无法直接执行 asar 内文件)。
 
 ## 2026-08-13
 
