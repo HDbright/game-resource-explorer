@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, screen, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
@@ -902,6 +902,25 @@ app.whenReady().then(async () => {
       defaultPath: (typeof opts.defaultPath === 'string' && opts.defaultPath) ? opts.defaultPath : undefined,
     });
     return { canceled: r.canceled, filePaths: r.filePaths };
+  });
+  // 图标库:导入 PNG/ICO → PNG dataURL(供节点图标使用;nativeImage 支持 ICO,统一转 PNG)
+  ipcMain.handle('icon:import', async (_e) => {
+    if (!win) return { ok: false, error: 'no window' };
+    const r = await dialog.showOpenDialog(win, {
+      title: '选择图标文件(PNG / ICO)',
+      properties: ['openFile'],
+      filters: [{ name: '图标文件', extensions: ['png', 'ico'] }],
+    });
+    if (r.canceled || !r.filePaths.length) return { ok: false, canceled: true };
+    const p = r.filePaths[0];
+    try {
+      const img = nativeImage.createFromPath(p);
+      if (img.isEmpty()) return { ok: false, error: '无法读取图片文件' };
+      const buf = img.resize({ width: 96, height: 96, quality: 'good' }).toPNG();
+      return { ok: true, path: p, dataUrl: `data:image/png;base64,${buf.toString('base64')}`, size: buf.length };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
   });
   ipcMain.handle('fs:readBase64', (_e, p) => {
     try {

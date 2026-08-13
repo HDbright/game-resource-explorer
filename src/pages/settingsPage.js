@@ -3,7 +3,7 @@
 
 import { state, setSetting, saveState, getMenuRoots, getMenuChildren, menuNodeById, menuNodePath, getMenuNodeDescendants, addMenuNode, updateMenuNode, removeMenuNode, moveMenuNodeBeside, moveMenuNodeToParent, getToolboxChildren, getCategoryChildren, catVisibleInGroup, getSceneCategoryChildren, getWebBookmarkCategoryChildren, webBookmarksInCategory, typeGroup, addToolboxFolder, updateToolboxFolder, removeToolboxFolder, toolboxFolderById, addCategory, updateCategory, removeCategoryAdvanced, categoryById, addSceneCategory, updateSceneCategory, removeSceneCategory, sceneCategoryById, addWebBookmarkCategory, updateWebBookmarkCategory, removeWebBookmarkCategory, webBookmarkCategoryById, removeWebBookmark, addFavCategory, updateFavCategory, removeFavCategory, removeFavItem, favCategoryById } from '../state.js';
 import { applyAppearance } from '../appearance.js';
-import { toast, openModal, footButtons, confirmDialog, promptDialog, showContextMenu, openEmojiPicker } from '../dialogs.js';
+import { toast, openModal, footButtons, confirmDialog, promptDialog, showContextMenu, openEmojiPicker, iconNode } from '../dialogs.js';
 
 function basename(p) {
   return String(p || '').split(/[\\/]/).pop() || '';
@@ -14,6 +14,42 @@ function pathJoin(dir, name) {
 }
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+// ================= 系统设置页卡片:默认定义 / 顺序 / 自定义标题与图标 =================
+const SETTING_CARDS = [
+  { id: 'shot', title: '动画截图' },
+  { id: 'audio', title: '音频播放器' },
+  { id: 'tabs', title: '资源标签页' },
+  { id: 'webgame', title: '网络资源抓取' },
+  { id: 'devtools', title: '开发者调试 (Chrome DevTools)' },
+  { id: 'srcdbg', title: '开发者调试 · 组件源码定位' },
+  { id: 'font', title: '系统字体字号' },
+  { id: 'theme', title: '主题背景' },
+  { id: 'menumgr', title: '菜单管理' },
+];
+function settingCardMeta() {
+  return (state.settings && state.settings.settingCardMeta) || {};
+}
+/** 生成卡片标题行 HTML(图标 + 标题 + 折叠箭头);支持用户自定义标题/图标 */
+function cardHeadHtml(id, defTitle) {
+  const m = settingCardMeta()[id];
+  const title = (m && m.title) ? m.title : defTitle;
+  const icon = (m && m.icon) ? m.icon : '';
+  return (icon ? `<span class="settings-card-icon">${esc(icon)}</span>` : '') +
+    `<span class="settings-card-title">${esc(title)}</span><span class="cat-arrow">▸</span>`;
+}
+function saveCardMeta(id, patch) {
+  const meta = { ...settingCardMeta() };
+  meta[id] = { ...(meta[id] || {}), ...patch };
+  setSetting('settingCardMeta', meta);
+}
+function clearCardMeta(id) {
+  const meta = { ...settingCardMeta() };
+  if (!meta[id]) return false;
+  delete meta[id];
+  setSetting('settingCardMeta', meta);
+  return true;
 }
 
 /**
@@ -31,8 +67,8 @@ export function renderSettingsPage(container, opts = {}) {
       <h2>系统设置</h2>
     </div>
     <div class="settings-body">
-      <section class="settings-card collapsed">
-        <h3 class="settings-card-head">动画截图<span class="cat-arrow">▸</span></h3>
+      <section class="settings-card collapsed" data-card="shot">
+        <h3 class="settings-card-head">${cardHeadHtml('shot', '动画截图')}</h3>
         <div class="settings-card-body">
           <div class="form-row">
             <label class="f-label">默认保存路径</label>
@@ -69,8 +105,8 @@ export function renderSettingsPage(container, opts = {}) {
         </div>
       </section>
 
-      <section class="settings-card collapsed">
-        <h3 class="settings-card-head">音频播放器<span class="cat-arrow">▸</span></h3>
+      <section class="settings-card collapsed" data-card="audio">
+        <h3 class="settings-card-head">${cardHeadHtml('audio', '音频播放器')}</h3>
         <div class="settings-card-body">
           <p class="settings-hint">播放列表 / 播放队列的条目中显示哪些信息(元信息来自音频文件内置 ID3 标签,仅支持含标签的格式;时长自动识别)。</p>
           <div class="form-row">
@@ -89,8 +125,8 @@ export function renderSettingsPage(container, opts = {}) {
         </div>
       </section>
 
-      <section class="settings-card collapsed">
-        <h3 class="settings-card-head">资源标签页<span class="cat-arrow">▸</span></h3>
+      <section class="settings-card collapsed" data-card="tabs">
+        <h3 class="settings-card-head">${cardHeadHtml('tabs', '资源标签页')}</h3>
         <div class="settings-card-body">
           <p class="settings-hint">控制从资源列表打开动画 / 图片 / 音频 / 3D 文件时,主区标签页的行为。</p>
           <div class="form-row">
@@ -104,8 +140,8 @@ export function renderSettingsPage(container, opts = {}) {
         </div>
       </section>
 
-      <section class="settings-card collapsed">
-        <h3 class="settings-card-head">网络资源抓取<span class="cat-arrow">▸</span></h3>
+      <section class="settings-card collapsed" data-card="webgame">
+        <h3 class="settings-card-head">${cardHeadHtml('webgame', '网络资源抓取')}</h3>
         <div class="settings-card-body">
           <p class="settings-hint">控制从「网络资源抓取」(网页浏览器)页面切到其它模块时的行为。</p>
           <div class="form-row">
@@ -119,8 +155,8 @@ export function renderSettingsPage(container, opts = {}) {
         </div>
       </section>
 
-      <section class="settings-card collapsed">
-        <h3 class="settings-card-head">开发者调试 (Chrome DevTools)<span class="cat-arrow">▸</span></h3>
+      <section class="settings-card collapsed" data-card="devtools">
+        <h3 class="settings-card-head">${cardHeadHtml('devtools', '开发者调试 (Chrome DevTools)')}</h3>
         <div class="settings-card-body">
           <div class="form-row">
             <label class="f-label">调试服务</label>
@@ -140,8 +176,8 @@ export function renderSettingsPage(container, opts = {}) {
         </div>
       </section>
 
-      <section class="settings-card collapsed">
-        <h3 class="settings-card-head">开发者调试 · 组件源码定位<span class="cat-arrow">▸</span></h3>
+      <section class="settings-card collapsed" data-card="srcdbg">
+        <h3 class="settings-card-head">${cardHeadHtml('srcdbg', '开发者调试 · 组件源码定位')}</h3>
         <div class="settings-card-body">
           <div class="form-row">
             <label class="f-label">默认代码编辑器</label>
@@ -165,8 +201,8 @@ export function renderSettingsPage(container, opts = {}) {
         </div>
       </section>
 
-      <section class="settings-card collapsed">
-        <h3 class="settings-card-head">系统字体字号<span class="cat-arrow">▸</span></h3>
+      <section class="settings-card collapsed" data-card="font">
+        <h3 class="settings-card-head">${cardHeadHtml('font', '系统字体字号')}</h3>
         <div class="settings-card-body">
           <p class="settings-hint">调整整个应用界面的字体与控件大小(作用于主窗口 #app,缩放含字号与布局)。修改后实时预览,点「保存设置」固化,下次启动自动应用。</p>
           <div class="form-row">
@@ -191,8 +227,8 @@ export function renderSettingsPage(container, opts = {}) {
         </div>
       </section>
 
-      <section class="settings-card collapsed">
-        <h3 class="settings-card-head">主题背景<span class="cat-arrow">▸</span></h3>
+      <section class="settings-card collapsed" data-card="theme">
+        <h3 class="settings-card-head">${cardHeadHtml('theme', '主题背景')}</h3>
         <div class="settings-card-body">
           <p class="settings-hint">深色 / 浅色 / 自定义 / 跟随系统 四种主题各自独立保存「强调色 / 背景色 / 前景色 / 模块背景 / 菜单背景 / 按钮背景 / 悬停高亮 / 边框 / 背景图」,互不共享;「跟随系统」会按系统配色自动套用深色或浅色主题的设置。下方颜色控件始终编辑当前所选主题的配置,切换主题模式时自动载入该主题自己的设定。修改后实时预览,点「保存设置」固化,下次启动自动应用。</p>
           <div class="form-row">
@@ -279,8 +315,8 @@ export function renderSettingsPage(container, opts = {}) {
         </div>
       </section>
 
-      <section class="settings-card collapsed">
-        <h3 class="settings-card-head">菜单管理<span class="cat-arrow">▸</span></h3>
+      <section class="settings-card collapsed" data-card="menumgr">
+        <h3 class="settings-card-head">${cardHeadHtml('menumgr', '菜单管理')}</h3>
         <div class="settings-card-body">
           <p class="settings-hint">管理左侧菜单栏的全部目录节点与终端节点:改名、改图标、排序、移动到其它目录、编辑悬停提示/备注;终端节点可指定点击后打开的内置页面或调用外部程序。目录节点右键可 新建子目录 / 新建终端 / 编辑 / 移动 / 删除;点击目录前的箭头可展开或折叠其子节点(也可用上方「展开全部/折叠全部」)。拖拽可排序或移入其它目录。改动实时反映到左侧菜单栏。</p>
           <div class="settings-actions">
@@ -305,6 +341,121 @@ export function renderSettingsPage(container, opts = {}) {
     head.addEventListener('click', () => {
       const nowCollapsed = card.classList.toggle('collapsed');
       arrow.textContent = nowCollapsed ? '▸' : '▾';
+    });
+  });
+
+  // ---------- 卡片:按上次拖拽顺序重排 ----------
+  const body = container.querySelector('.settings-body');
+  const cardOrder = Array.isArray(state.settings.settingCardOrder) ? state.settings.settingCardOrder : [];
+  if (cardOrder.length) {
+    const secs = [...body.querySelectorAll('.settings-card')];
+    const byId = new Map(secs.map((s) => [s.dataset.card, s]));
+    const frag = document.createDocumentFragment();
+    for (const id of cardOrder) { const el = byId.get(id); if (el) frag.appendChild(el); }
+    for (const el of secs) if (!frag.contains(el)) frag.appendChild(el);
+    body.appendChild(frag);
+  }
+
+  // ---------- 卡片:鼠标拖动排序(仅头部可拖) ----------
+  let dragCard = null;
+  const clearCardDrop = () => {
+    dragCard = null;
+    body.querySelectorAll('.settings-card.dragging, .settings-card.drop-before, .settings-card.drop-after')
+      .forEach((el) => el.classList.remove('dragging', 'drop-before', 'drop-after'));
+  };
+  body.querySelectorAll('.settings-card').forEach((sec) => {
+    const head = sec.querySelector('.settings-card-head');
+    head.draggable = true;
+    head.addEventListener('dragstart', (e) => {
+      dragCard = sec;
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', sec.dataset.card); } catch (_) {}
+      sec.classList.add('dragging');
+    });
+    head.addEventListener('dragend', clearCardDrop);
+    sec.addEventListener('dragover', (e) => {
+      if (!dragCard || dragCard === sec) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const r = sec.getBoundingClientRect();
+      sec.classList.remove('drop-before', 'drop-after');
+      sec.classList.toggle('drop-before', e.clientY - r.top < r.height / 2);
+      sec.classList.toggle('drop-after', e.clientY - r.top >= r.height / 2);
+    });
+    sec.addEventListener('dragleave', () => sec.classList.remove('drop-before', 'drop-after'));
+    sec.addEventListener('drop', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      sec.classList.remove('drop-before', 'drop-after');
+      if (!dragCard || dragCard === sec) { clearCardDrop(); return; }
+      const r = sec.getBoundingClientRect();
+      body.insertBefore(dragCard, e.clientY - r.top < r.height / 2 ? sec : sec.nextSibling);
+      const ids = [...body.querySelectorAll('.settings-card')].map((s) => s.dataset.card);
+      setSetting('settingCardOrder', ids);
+      clearCardDrop();
+      toast('卡片顺序已调整');
+    });
+  });
+
+  // ---------- 卡片:右键编辑标题与图标 ----------
+  const editCardDialog = (sec, id, defTitle) => {
+    const m = settingCardMeta()[id] || {};
+    const dlgBody = document.createElement('div');
+    dlgBody.className = 'modal-body';
+    const makeRow = (label) => {
+      const row = document.createElement('div'); row.className = 'form-row';
+      const lb = document.createElement('label'); lb.className = 'f-label'; lb.textContent = label; row.appendChild(lb);
+      return row;
+    };
+    const titleRow = makeRow('标题');
+    const titleInp = document.createElement('input'); titleInp.type = 'text'; titleInp.value = m.title || defTitle; titleRow.appendChild(titleInp);
+    const iconRow = makeRow('图标(emoji)');
+    const iconInp = document.createElement('input'); iconInp.type = 'text'; iconInp.value = m.icon || ''; iconRow.appendChild(iconInp);
+    const pickBtn = document.createElement('button');
+    pickBtn.type = 'button'; pickBtn.className = 'btn sm emoji-pick-btn'; pickBtn.textContent = '😀'; pickBtn.title = '选择图标';
+    pickBtn.addEventListener('click', (e) => { e.stopPropagation(); openEmojiPicker(pickBtn, iconInp); });
+    iconRow.appendChild(pickBtn);
+    dlgBody.appendChild(titleRow); dlgBody.appendChild(iconRow);
+    const { close } = openModal({
+      title: '编辑卡片标题与图标',
+      body: dlgBody,
+      foot: footButtons([
+        { text: '取消', cls: '', onClick: () => close() },
+        {
+          text: '确定', cls: 'primary', onClick: () => {
+            const title = titleInp.value.trim();
+            if (!title) { toast('标题不能为空', 'error'); return; }
+            const icon = iconInp.value.trim();
+            saveCardMeta(id, { title, icon });
+            const hd = sec.querySelector('.settings-card-head');
+            const ar = hd.querySelector('.cat-arrow');
+            hd.innerHTML = (icon ? `<span class="settings-card-icon">${esc(icon)}</span>` : '') + `<span class="settings-card-title">${esc(title)}</span>`;
+            hd.appendChild(ar);
+            close();
+            toast('已保存');
+          },
+        },
+      ]),
+    });
+  };
+  body.querySelectorAll('.settings-card').forEach((sec) => {
+    const id = sec.dataset.card;
+    const def = (SETTING_CARDS.find((c) => c.id === id) || {}).title || '';
+    const head = sec.querySelector('.settings-card-head');
+    head.addEventListener('contextmenu', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      showContextMenu(e.clientX, e.clientY, [
+        { label: '✎ 编辑标题与图标', onClick: () => editCardDialog(sec, id, def) },
+        {
+          label: '恢复默认标题', onClick: () => {
+            if (!clearCardMeta(id)) { toast('已是默认标题', 'info', 1500); return; }
+            const hd = sec.querySelector('.settings-card-head');
+            const ar = hd.querySelector('.cat-arrow');
+            hd.innerHTML = `<span class="settings-card-title">${esc(def)}</span>`;
+            hd.appendChild(ar);
+            toast('已恢复默认标题');
+          },
+        },
+      ]);
     });
   });
 
@@ -859,10 +1010,7 @@ function bindMenuManagement(container) {
         }
       });
 
-      const ic = document.createElement('span');
-      ic.className = 'cat-icon';
-      ic.textContent = node.icon || (node.nodeType === 'term' ? '•' : '📁');
-      row.appendChild(ic);
+      row.appendChild(iconNode(node.icon || (node.nodeType === 'term' ? '•' : '📁'), 'cat-icon'));
 
       const nm = document.createElement('span');
       nm.className = 'cat-name';
@@ -1031,10 +1179,7 @@ function bindMenuManagement(container) {
         }
       });
 
-      const ic = document.createElement('span');
-      ic.className = 'cat-icon';
-      ic.textContent = desc.icon || '•';
-      row.appendChild(ic);
+      row.appendChild(iconNode(desc.icon || '•', 'cat-icon'));
 
       const nm = document.createElement('span');
       nm.className = 'cat-name';

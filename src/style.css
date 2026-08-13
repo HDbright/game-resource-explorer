@@ -441,6 +441,8 @@ input[type="color"] { width: 30px; height: 26px; border: 1px solid var(--border)
   border-radius: 10px; box-shadow: 0 8px 28px rgba(0,0,0,.45);
   padding: 8px 10px 10px; max-height: 60vh; overflow-y: auto; width: 320px;
 }
+.emoji-pop-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.emoji-pop-title { font-size: 13px; font-weight: 600; color: var(--text); }
 .emoji-pop-group { font-size: 12px; font-weight: 600; color: var(--text2); margin: 8px 2px 4px; }
 .emoji-pop-group:first-child { margin-top: 2px; }
 .emoji-grid { display: flex; flex-wrap: wrap; gap: 2px; }
@@ -450,7 +452,60 @@ input[type="color"] { width: 30px; height: 26px; border: 1px solid var(--border)
   color: var(--text);
 }
 .emoji-item:hover { background: var(--bg4); }
+.emoji-item img { width: 24px; height: 24px; vertical-align: middle; object-fit: contain; }
 .emoji-pick-btn { flex-shrink: 0; }
+
+/* ---------- 图标库管理对话框 ---------- */
+.icon-lib-body { display: flex; gap: 16px; min-height: 360px; padding: 14px 16px; }
+.icon-lib-groups {
+  width: 180px; flex-shrink: 0; border-right: 1px solid var(--border); padding-right: 12px;
+  display: flex; flex-direction: column; gap: 4px; overflow-y: auto;
+}
+.icon-lib-side-head { font-size: 12px; font-weight: 600; color: var(--text2); margin-bottom: 6px; }
+.icon-lib-group {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  padding: 5px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--text);
+}
+.icon-lib-group:hover { background: var(--bg4); }
+.icon-lib-group.active { background: var(--bg3); color: var(--accent2); }
+.icon-lib-group-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.icon-lib-group-ops { display: flex; gap: 2px; opacity: 0; }
+.icon-lib-group:hover .icon-lib-group-ops { opacity: 1; }
+.icon-lib-group-ops .btn { padding: 0 5px; height: 20px; font-size: 11px; }
+.icon-lib-groups > .btn { margin-top: 6px; align-self: flex-start; }
+.icon-lib-items { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+.icon-lib-item {
+  position: relative; width: 58px; height: 62px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg3); display: flex; flex-direction: column; align-items: center;
+  justify-content: space-between; padding: 3px 2px; box-sizing: border-box; cursor: grab;
+}
+.icon-lib-item.dragging { opacity: .4; }
+.icon-lib-item.drop-before { box-shadow: -2px 0 0 var(--accent2); }
+.icon-lib-item.drop-after { box-shadow: 2px 0 0 var(--accent2); }
+.icon-lib-item-show { height: 36px; display: flex; align-items: center; justify-content: center; font-size: 22px; line-height: 1; }
+.icon-lib-item-show img { width: 30px; height: 30px; object-fit: contain; }
+/* 操作条常驻在格子底部(不悬停隐藏,确保点得到) */
+.icon-lib-item-ops { display: flex; gap: 2px; }
+.icon-lib-item-ops .btn { padding: 0 5px; height: 18px; font-size: 11px; line-height: 1; }
+.icon-lib-add { display: flex; gap: 8px; margin-top: 4px; }
+.icon-lib-add .btn { flex-shrink: 0; }
+
+/* 多选 emoji 选中态 */
+.emoji-item.selected {
+  background: color-mix(in srgb, var(--accent2) 14%, var(--bg3));
+  outline: 2px solid var(--accent2); outline-offset: -1px;
+}
+
+/* 图标即时名称提示(悬停跟随) */
+.icon-tip {
+  position: fixed; z-index: 400; pointer-events: none; display: none;
+  max-width: 280px; background: var(--bg3); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 4px 9px; font-size: 12px; line-height: 1.4;
+  box-shadow: 0 4px 14px rgba(0,0,0,.35); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ---------- 树节点图片图标(菜单/工具箱等,dataURL) ---------- */
+.cat-icon img { width: 16px; height: 16px; vertical-align: middle; object-fit: contain; }
 
 .file-name-wrap { flex: 1; display: flex; align-items: stretch; }
 .file-name-wrap .file-name-input { flex: 1; min-width: 0; border-top-right-radius: 0; border-bottom-right-radius: 0; }
@@ -1267,8 +1322,14 @@ input[type="color"] { width: 30px; height: 26px; border: 1px solid var(--border)
 .settings-card h3 { font-size: 14px; margin: 0 0 14px; font-weight: 600; color: var(--text); }
 .settings-card-head { display: flex; align-items: center; cursor: pointer; user-select: none; margin: 0; }
 .settings-card-head:hover { color: var(--accent2); }
+.settings-card-icon { margin-right: 8px; font-size: 15px; }
+.settings-card-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .settings-card-head .cat-arrow { margin-left: auto; font-size: 12px; color: var(--text2); transition: transform .15s ease; }
 .settings-card.collapsed .settings-card-body { display: none; }
+/* 卡片拖拽排序视觉 */
+.settings-card.dragging { opacity: .45; }
+.settings-card.drop-before { box-shadow: 0 -3px 0 var(--accent2); }
+.settings-card.drop-after { box-shadow: 0 3px 0 var(--accent2); }
 .settings-hint { font-size: 12px; color: var(--text2); margin: 12px 0 0; line-height: 1.6; }
 .ss-check { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text); cursor: pointer; }
 .ss-check input[type="checkbox"] { accent-color: var(--accent2); width: 15px; height: 15px; cursor: pointer; }

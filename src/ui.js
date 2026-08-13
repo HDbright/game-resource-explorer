@@ -30,7 +30,7 @@ import {
   menuNodeById, getMenuChildren, getMenuRoots, isMenuNodeDescendant, getMenuNodeDescendants, menuNodePath,
   addMenuNode, updateMenuNode, removeMenuNode, reorderMenuNode, moveMenuNodeBeside, moveMenuNodeToParent,
 } from './state.js';
-import { openModal, footButtons, confirmDialog, promptDialog, toast, showContextMenu, openEmojiPicker } from './dialogs.js';
+import { openModal, footButtons, confirmDialog, promptDialog, toast, showContextMenu, openEmojiPicker, iconNode } from './dialogs.js';
 import { initBgColorBar, customBgColor, BG_DARK, BG_LIGHT } from './bgColor.js';
 import { runAddFlow, addPathsToCategory } from './addFlow.js';
 import { renderHomePage, renderFavHome } from './pages/homePage.js';
@@ -974,19 +974,90 @@ const MENU_ACTION_OPTIONS = [
 /** 新建菜单节点(目录或终端) */
 function newMenuNodeDialog(parentId = '', nodeType = 'dir') {
   const isTerm = nodeType === 'term';
-  promptDialog({
+  const body = document.createElement('div');
+  body.className = 'modal-body';
+  const makeRow = (label) => {
+    const row = document.createElement('div');
+    row.className = 'form-row';
+    const lb = document.createElement('label');
+    lb.className = 'f-label';
+    lb.textContent = label;
+    row.appendChild(lb);
+    return row;
+  };
+  const nameRow = makeRow('名称');
+  const nameInp = document.createElement('input'); nameInp.type = 'text'; nameInp.value = ''; nameRow.appendChild(nameInp);
+  const iconRow = makeRow('图标(emoji)');
+  const iconInp = document.createElement('input'); iconInp.type = 'text'; iconInp.value = ''; iconRow.appendChild(iconInp);
+  const iconPick = document.createElement('button');
+  iconPick.type = 'button';
+  iconPick.className = 'btn sm emoji-pick-btn';
+  iconPick.textContent = '😀';
+  iconPick.title = '从图标库选择';
+  iconPick.addEventListener('click', (e) => { e.stopPropagation(); openEmojiPicker(iconPick, iconInp); });
+  iconRow.appendChild(iconPick);
+  body.appendChild(nameRow);
+  body.appendChild(iconRow);
+
+  let typeSel = null, actSel = null, exeRow = null, exeInp = null;
+  if (isTerm) {
+    const typeRow = makeRow('动作类型');
+    typeSel = document.createElement('select');
+    [['builtin', '内置页面/工具'], ['exe', '外部程序']].forEach(([v, l]) => {
+      const op = document.createElement('option'); op.value = v; op.textContent = l; typeSel.appendChild(op);
+    });
+    typeSel.value = 'builtin';
+    typeRow.appendChild(typeSel);
+    body.appendChild(typeRow);
+
+    const actRow = makeRow('目标页面');
+    actSel = document.createElement('select');
+    for (const o of MENU_ACTION_OPTIONS) {
+      const op = document.createElement('option'); op.value = o.value; op.textContent = o.label; actSel.appendChild(op);
+    }
+    actSel.value = MENU_ACTION_OPTIONS[0].value;
+    actRow.appendChild(actSel);
+    body.appendChild(actRow);
+
+    exeRow = makeRow('程序路径');
+    exeInp = document.createElement('input'); exeInp.type = 'text'; exeInp.value = '';
+    exeInp.placeholder = '例如 C:\\Tools\\app.exe';
+    exeRow.appendChild(exeInp);
+    body.appendChild(exeRow);
+
+    const sync = () => {
+      const isExe = typeSel.value === 'exe';
+      actSel.style.display = isExe ? 'none' : '';
+      actRow.style.display = isExe ? 'none' : '';
+      exeRow.style.display = isExe ? '' : 'none';
+    };
+    typeSel.addEventListener('change', sync);
+    sync();
+  }
+
+  const { close } = openModal({
     title: isTerm ? '新建终端节点' : '新建目录',
-    fields: [
-      { key: 'name', label: '名称', type: 'text', value: '' },
-      { key: 'icon', label: '图标(emoji)', type: 'text', value: '' },
-    ],
-    onOk: ({ name, icon }) => {
-      if (!name) return toast('名称不能为空', 'error');
-      addMenuNode({ name, icon: icon.trim(), parentId, nodeType, actionType: isTerm ? 'builtin' : '', action: '' });
-      expandedCats.add(parentId || '');
-      renderTree();
-      toast('已创建');
-    },
+    body,
+    foot: footButtons([
+      { text: '取消', cls: '', onClick: () => close() },
+      {
+        text: '创建', cls: 'primary', onClick: () => {
+          const name = nameInp.value.trim();
+          if (!name) { toast('名称不能为空', 'error'); return; }
+          let actionType = '', action = '';
+          if (isTerm) {
+            const isExe = typeSel.value === 'exe';
+            actionType = isExe ? 'exe' : 'builtin';
+            action = isExe ? exeInp.value.trim() : actSel.value;
+            if (!action) { toast(isExe ? '程序路径不能为空' : '请选择目标页面', 'error'); return; }
+          }
+          addMenuNode({ name, icon: iconInp.value.trim(), parentId, nodeType, actionType, action });
+          expandedCats.add(parentId || '');
+          renderTree();
+          toast('已创建');
+        },
+      },
+    ]),
   });
 }
 
@@ -1011,6 +1082,13 @@ function editMenuNodeDialog(id) {
   const nameInp = document.createElement('input'); nameInp.type = 'text'; nameInp.value = node.name; nameRow.appendChild(nameInp);
   const iconRow = makeRow('图标(emoji)');
   const iconInp = document.createElement('input'); iconInp.type = 'text'; iconInp.value = node.icon || ''; iconRow.appendChild(iconInp);
+  const iconPick = document.createElement('button');
+  iconPick.type = 'button';
+  iconPick.className = 'btn sm emoji-pick-btn';
+  iconPick.textContent = '😀';
+  iconPick.title = '从图标库选择';
+  iconPick.addEventListener('click', (e) => { e.stopPropagation(); openEmojiPicker(iconPick, iconInp); });
+  iconRow.appendChild(iconPick);
   const tipRow = makeRow('悬停提示');
   const tipInp = document.createElement('input'); tipInp.type = 'text'; tipInp.value = node.tooltip || ''; tipRow.appendChild(tipInp);
   const noteRow = makeRow('备注');
@@ -2001,10 +2079,7 @@ function makeTreeNode({ icon, name, nodeId, active, paddingLeft, hasChildren, is
   arrow.className = 'cat-arrow';
   arrow.textContent = hasChildren ? (isOpen ? '▼' : '▶') : '·';
   node.appendChild(arrow);
-  const ic = document.createElement('span');
-  ic.className = 'cat-icon';
-  ic.textContent = icon;
-  node.appendChild(ic);
+  node.appendChild(iconNode(icon, 'cat-icon'));
   const nm = document.createElement('span');
   nm.className = 'cat-name';
   nm.textContent = name;
@@ -2978,10 +3053,7 @@ function renderFavSection(tree, menuNode) {
   arrow.className = 'cat-arrow';
   arrow.textContent = total > 0 ? (isOpen ? '▼' : '▶') : '·';
   node.appendChild(arrow);
-  const icon = document.createElement('span');
-  icon.className = 'cat-icon fav-icon';
-  icon.textContent = favIcon;
-  node.appendChild(icon);
+  node.appendChild(iconNode(favIcon, 'cat-icon fav-icon'));
   const name = document.createElement('span');
   name.className = 'cat-name';
   name.textContent = favName;
