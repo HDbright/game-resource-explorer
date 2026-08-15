@@ -3,7 +3,162 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.0.24`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.0.36`）。
+
+---
+
+## 2026-08-15
+
+### [新增] 发布 v2.0.36：图片资源右键菜单增加「打开方式」(外部编辑/浏览软件)
+
+- 右键菜单(列表页/收藏夹/图片预览页共用 `openItemMenu`)新增「打开方式 ▸」二级菜单：可选用设置中配置的「图片编辑软件」或「图片浏览软件」打开当前图片文件。
+- 右键菜单引擎 `showContextMenu` 升级支持二级子菜单（hover 弹出、视口越界自动左移/上移、离开 260ms 后收起；子菜单项支持禁用态）。
+- 设置页新增「外部打开方式」卡片：配置图片编辑软件 / 图片浏览软件（可「选择程序」或手填 exe 路径，保存生效）；两者都未配置时右键「打开方式」显示「未配置外部程序」禁用项 + 「到设置页配置」快捷入口。
+- 主进程新增 `shell:openWith` IPC（`spawn(exe, [filePath])` 数组参数，含空格/中文路径安全，detached 不阻塞）；preload 暴露 `window.api.openWith`。
+- 存储：`DEFAULT_SETTINGS` 新增 `imageEditApp` / `imageViewApp`（exe 绝对路径）。
+- 发布：版本 2.0.35 → 2.0.36；`npm run build` 通过（导入自检 + 739 模块）；产物 `release/游戏资源管理器-v2.0.36-便携版.zip`（data/ 已排除）。
+
+### [优化] 发布 v2.0.35：「隐藏工具栏」「全屏」按钮移到顶部工具栏
+
+- 图片预览的「⇕ 隐藏/显示工具栏」与「⛶ 全屏」按钮从底部工具栏移到**顶部信息栏右侧**（与「打开目录」「重新加载」并列）。
+- 这两个按钮仅图片预览时显示（`showPreviewPage` 按类型控制 `hidden`），动画/音频/FGUI 预览不显示。
+- 按钮绑定改为 `document.getElementById`（按钮已不在图片视图容器内）；沉浸高亮等逻辑不变。
+- 文件：`index.html`、`src/ui.js`、`src/viewers/imageViewer.js`。
+
+---
+
+## 2026-08-15
+
+### [优化+重构] 发布 v2.0.34：沉浸隐藏 200ms 快速 + 隐藏按钮高亮 + 背景色合并弹出面板
+
+- **1. 沉浸显示/隐藏防抖 1s → 200ms**：缩短「从显示→隐藏」的延时等待，避免离开后长时间不收起。
+- **2. 沉浸隐藏按钮（⇕）背景亮 2 档**：`#page-preview.chrome-hidden #img-chrome` 背景 `color-mix(in srgb, var(--bg3) 28%, #fff)` + accent 边框，提示当前工具栏已隐藏状态（点击即恢复显示）。
+- **3+4. 背景色按钮合并为弹出面板**：原 4 个元素（调色盘 input +「存」+「深」+「浅」+「自定」）整合为一个「▾」触发按钮 + popover 弹窗，弹窗内含调色盘/存/深/浅/自定，**点击外部或 ESC 关闭**；触发按钮前置色块（`::before` + `--bg-swatch` CSS 变量）实时显示当前背景色。
+- 文件：`src/viewers/imageViewer.js`、`src/ui.js`、`src/style.css`、`index.html`。
+
+---
+
+## 2026-08-15
+
+### [优化] 发布 v2.0.33：全屏隐藏标题栏 + 沉浸感应距离减半 + 显示/隐藏 1s 防抖
+
+- **1. 全屏预览隐藏系统标题栏**：新增 `win:setFullScreen` IPC（`electron/main.js` + `electron/preload.js`），「⛶ 全屏」切换时调用 `BrowserWindow.setFullScreen()`，真正隐藏窗口标题栏，配合原有应用内隐藏顶栏/侧栏/标签条，全屏查看更纯净。
+- **2. 沉浸感应距离减半**：显示阈值由「3× 工具栏高」减半为「**1.5× 工具栏高」**，鼠标更靠近时即显示；隐藏滞回保持「离开 2× 才隐藏」（合计 3.5×）。
+- **3. 显示↔隐藏 1 秒防抖**：显示立即生效；隐藏操作延迟 **1 秒**执行，期间鼠标若重新进入感应区则取消隐藏，避免快速反复显示/隐藏导致画面抖动。
+- 文件：`src/viewers/imageViewer.js`、`electron/main.js`、`electron/preload.js`。
+
+---
+
+## 2026-08-15
+
+### [优化+新增] 发布 v2.0.32：沉浸查看距离感应(3× 显示/2× 滞回,上下同时) + 全屏预览模式
+
+- **沉浸查看优化**：
+  - 原实现为"热区 hover"显示（贴边才触发 + 边界反复 hover 抖动）。改为**鼠标距离感应**：距顶部或底部工具栏 ≤ **3× 工具栏高度**即显示，无需贴到边框线；
+  - **显示干脆**：过渡动画缩短至 0.12s，状态守卫 + rAF 节流，无抖动；
+  - **隐藏滞回**：已显示时鼠标离开到 **2× 工具栏高度**（合计 5×）之外才隐藏，避免边界来回闪烁；
+  - **上下工具栏同时显示/隐藏**（统一 `chrome-on` 状态，不再分别触发）。
+- **新增全屏预览模式**：图片预览工具栏新增「⛶ 全屏」按钮——进入应用内全屏（隐藏顶栏/侧栏/标签条，预览撑满窗口），并自动进入沉浸模式（上下工具栏隐藏）；「✕ 退出全屏」或按 **ESC** 退出并恢复用户原有的沉浸设置；全屏切换后自动重新计算「适配窗口」缩放（ResizeObserver + 兜底）。
+- 文件：`src/viewers/imageViewer.js`、`src/style.css`、`index.html`。
+
+---
+
+## 2026-08-15
+
+### [优化] 发布 v2.0.31：沉浸查看按「靠近对应工具栏位置」分别显示上下工具栏
+
+- **需求调整**：鼠标靠近**顶部工具栏位置**才显示顶部信息栏、靠近**底部工具栏位置**才显示底部工具栏（原实现为 hover 整个预览区同时显示两者）；顶部信息栏也要能隐藏。
+- **实现**：
+  - `src/style.css`：沉浸模式由 `#page-preview.chrome-hidden` 控制（顶部 `.preview-head`、图片底部 `.preview-controls` 布局收缩隐藏）；`#page-preview` 加 `position: relative` 作为热区定位容器；新增顶部/底部各 44px 透明热区 `.pv-chrome-zone.top/.bottom`。
+  - `src/viewers/imageViewer.js`：init 时创建两个热区并挂到 `#page-preview`；热区 hover → 对应工具栏展开（`chrome-top-on`/`chrome-bottom-on` class）；**工具栏自身 hover 保持显示**（鼠标移到按钮上不消失）；移开热区/工具栏自动收起；工具栏展开时盖过热区（热区让位，不拦截按钮点击）。
+  - 隐藏/显示均为真实布局收缩 → 画布尺寸变化 → `ResizeObserver` 在「适配窗口」模式下自动重新计算缩放，图片正好适合可用窗口空间。
+- 文件：`src/style.css`、`src/viewers/imageViewer.js`。
+
+---
+
+## 2026-08-15
+
+### [新增+修复] 发布 v2.0.30：图片属性/预览工具栏显示尺寸 + 编辑保存无反应修复 + 沉浸查看(隐藏上下工具栏)
+
+- **1. 图片尺寸信息**：
+  - 图片属性窗口新增「尺寸」行（异步加载图片视觉尺寸，EXIF 自动旋转后，如 `3024 × 4032 px`）。
+  - 图片预览底部工具栏状态栏显示尺寸（`#img-status`，随图片加载更新）。
+- **2. 编辑图片信息点保存无反应（修复）**：根因是 `editItemDialog` 中文件名输入框 `fileInput` 为 if 块内 `const`（块级作用域），保存 handler 在块外引用 → `ReferenceError: fileInput is not defined` → 保存中断、窗口不关、无任何提示。修复：`fileInput/fileWrap/extSpan` 提升到函数作用域声明（`let … = null`）。
+  - 顺带健壮性：`dialogs.js` 的 `footButtons` 对 async onClick 统一捕获异常并 toast「操作失败:…」，杜绝"点按钮无反应"。
+- **3. 沉浸查看（隐藏上下工具栏）**：图片预览工具栏新增「⇕」按钮，点击后隐藏顶部信息栏与底部工具栏（布局收缩，画布区域变大）；鼠标靠近画面区域（hover 预览容器）时临时显示，移开自动隐藏；隐藏/显示状态持久化（localStorage `imageChromeHidden`）；配合 `ResizeObserver` 监听画布尺寸变化，在「适配窗口」模式下自动重新计算缩放，使图片正好适合可用窗口空间。
+- 文件：`src/ui.js`、`src/dialogs.js`、`src/viewers/imageViewer.js`、`index.html`、`src/style.css`。
+
+---
+
+## 2026-08-15
+
+### [修复] 发布 v2.0.29：图片预览适配窗口「看起来不生效」(CSS max-width/max-height 双重压缩)
+
+- **现象**：图片预览里 .jpg 显示很小（缩放 22%），点「适配窗口」也不变大。
+- **根因**：`src/style.css` 的 `#img-display` 设了 `max-width: 100%; max-height: 100%;`——把 img 的 **layout** 撑满整个容器（1265×670），然后 `transform: scale(0.22)` 把渲染尺寸缩到 278×147（container 的 22%×layout）。即便 `fit()` 算出了正确的 22% 用于 transform，但 img 自身的 layout 已经是容器大小，**视觉被双重压缩**（CSS max 撑大 layout × transform scale 缩小渲染），导致图片看起来"点适配窗口没反应/图片太小"。
+- **修复**（`src/style.css` + `src/viewers/imageViewer.js`）：
+  1. 去掉 `#img-display` 的 `max-width/max-height`，layout 尺寸由 JS 完全控制（`img.style.width/height = 视觉自然尺寸 × zoom`，旋转 90/270 时交换宽高）。
+  2. `_layoutSize()` 新增：根据 visualSize + rotation + zoom 计算并设置 img 的 layout 宽高。
+  3. `setZoom()` 调 `_layoutSize()`；rotate 后也调（旋转交换 layout 宽高）。
+  4. `_apply()` 移除 transform 中的 zoom（zoom 已并入 layout），transform 只做 translate + rotate + 翻转（scale ±1）。
+- 效果：fit 后图片视觉尺寸 == layout 尺寸 == 自然 × zoom，**真正填满容器短边**（如 4032×3024 适配 1265×670 → 887×665，填满高度）；旋转/缩放/拖拽/保存到原文件行为保持。
+- 文件：`src/style.css`、`src/viewers/imageViewer.js`。
+
+---
+
+## 2026-08-15
+
+### [修复] 发布 v2.0.28：重载缩略图每次点击都全量重新生成（卡几秒）
+
+- **现象**：点「⟳ 重载」提示"正在重新生成缩略图"要好几秒，且每次点击都这样。
+- **根因**：`reloadAll()` 内部复用了 `invalidate()`，而 `invalidate()` 会调 `thumbDelete(itemId)` **删除磁盘缩略图缓存**（按前缀全删）→ 重载后所有条目磁盘缓存都没了 → 全部重新离屏生成（Pixi 渲染每个缩略图，几百个条目自然要几秒）。此外 `_fileMtime` 每次都对同一文件重复发起 `statFile` IPC，也拖慢渲染。
+- **修复**（`src/thumbnails.js`）：
+  1. `reloadAll()` 改为**只清内存缓存 + 清 pending + 清文件 mtime 短缓存，不再删磁盘缓存**——磁盘缓存 key 已含文件 mtime：未修改的文件 mtime 不变 → 重渲染命中旧磁盘缓存（读 base64，秒回）；只有磁盘文件真正被修改过（mtime 变）的条目才重新生成。
+  2. `_fileMtime()` 增加 **3 秒 TTL 内存缓存**，列表重渲染时对同一文件不再重复发起 stat IPC。
+- 文件：`src/thumbnails.js`、`src/pages/folderPage.js`（toast 文案同步为"正在刷新缩略图(仅修改过的文件会重新生成)"）。
+
+---
+
+## 2026-08-15
+
+### [优化] 发布 v2.0.27：重载缩略图只重新生成「磁盘文件被修改过」的条目
+
+- **需求**：列表页「⟳ 重载」只对修改过的文件重新生成缩略图，未修改的保留旧缓存。
+- **实现**（`src/thumbnails.js`）：缩略图缓存 key 由 `itemId_updatedAt` 扩展为 `itemId_updatedAt_fileMtime`——
+  - `getAnimThumb` 先 `window.api.statFile(filePath)` 取磁盘文件 mtime（失败回退 0）；
+  - 磁盘缓存文件名含 mtime，文件被外部修改（mtime 变化）→ 文件名变 → 读不到旧缓存 → 自动重新生成；
+  - 文件未修改 → 重载后仍命中旧磁盘缓存，不重新生成；
+  - 「⟳ 重载」保留清内存缓存 + 重渲染（磁盘按 key 天然按需失效）。
+- 说明：图片类缩略图为直连原图 URL（实时显示，无缓存），不受影响；首次升级后旧格式缓存（无 mtime 段）会重新生成一次。
+- 文件：`src/thumbnails.js`。
+
+---
+
+## 2026-08-15
+
+### [新增+修复] 发布 v2.0.26：管理按钮/编辑信息/编辑窗去删除/缩略图重载/JPEG 适配窗口再优化
+
+- **1. 列表页工具栏「✎ 编辑」→「✎ 管理」**：`src/pages/folderPage.js` 编辑模式按钮文案改为「管理」（批量编辑语义）。
+- **2. 编辑信息窗口去掉「删除」按钮**：`editItemDialog` 底部仅保留「取消 / 保存」（删除走右键菜单）。
+- **3. 右键菜单「编辑」→「编辑信息」**：列表页/预览页 `openItemMenu` 与收藏夹 `openFavItemMenu` 统一改为「编辑信息」。
+- **4. 列表页工具栏新增「⟳ 重载」图标按钮（悬停提示）**：点击后 `thumbnailService.reloadAll(sortedIds)` 清空当前列表条目的内存+磁盘缩略图缓存，重渲染后缩略图按文件最新内容重新生成（刷新被修改过的文件）。
+- **5. .jpg 适配窗口再优化**：`createImageBitmap(imageOrientation:'from-image')` 不可用或失败时，新增**显式解析 JPEG EXIF Orientation**（fetch 字节 → APP1 EXIF → TIFF IFD → Orientation，5-8 视为旋转 90/270 宽高互换），双保险保证手机竖拍照片 fit 正确、不再被缩小。
+- 文件：`src/pages/folderPage.js`、`src/ui.js`、`src/thumbnails.js`、`src/viewers/imageViewer.js`。
+
+---
+
+## 2026-08-15
+
+### [修复+新增] 发布 v2.0.25：图片预览适配窗口修正手机竖拍 EXIF 方向 + 左旋按钮 + 旋转/镜像修改保存到原文件
+
+- **问题 1：适配窗口效果异常（手机竖拍图片被严重缩小）**：原 `fit()` 直接用 `img.naturalWidth/naturalHeight` 计算缩放。手机竖拍照片带 EXIF orientation（如 6=旋转 90°），浏览器视觉上已自动旋转显示，但 `naturalWidth/Height` 仍是旋转前像素（横向），导致 fit 按横向像素等比缩放到容器 → 视觉上图片被严重缩小（22%、16%）。
+  - 修复：`src/viewers/imageViewer.js` 用 `createImageBitmap(img, { imageOrientation: 'from-image' })` 解析 EXIF 自动旋转，得到「视觉正确」的 `width/height`，fit 改用该尺寸计算；视觉与浏览器渲染完全一致。
+- **问题 2：旋转/镜像只改当前图片**：`ImageViewerController.load()` 现在清零 `rotation/flipX/flipY/_dirty`，切下一张图前一次变换不会带到下一张。
+- **新增：向左旋转按钮**：`#img-rotate-left`（↺，逆时针 90°）加在原 `↻` 之前；新增 `rotateLeft()` 方法，重命名原 `rotate()` 为 `rotateRight()`（保持「顺时针」语义）。
+- **新增：旋转/镜像修改保存到原文件**：
+  - 当 `rotation/flipX/flipY` 任一非默认时，`#img-save-edit`（💾 保存）按钮自动显示；点击 → 弹确认对话框（危险样式，提示「原图将被覆盖、EXIF 会丢失」）→ 用 canvas 按当前变换绘制（旋转移位 + 缩放翻转）→ 按原扩展名编码（jpg→jpeg q0.92, png→png）→ `window.api.writeFileBase64(itemPath, base64)` 覆盖写回原文件 → toast 反馈。
+  - `src/dialogs.js` 的 `confirmDialog` 扩展为返回 `Promise<boolean>` 并支持 `cancelText`，旧回调风格调用兼容。
+- 文件：`src/viewers/imageViewer.js`、`src/ui.js`、`src/dialogs.js`、`index.html`。
 
 ---
 

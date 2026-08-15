@@ -20,6 +20,7 @@ export class ThumbnailService {
     this._app = null;
     this._viewC = null;
     this._initPromise = null;
+    this._mtimeCache = new Map(); // filePath -> { mtime, at } 短 TTL,减少重渲染时的 stat IPC
   }
 
   /** 懒初始化隐藏 PIXI app(canvas 不入 DOM) */
@@ -62,18 +63,23 @@ export class ThumbnailService {
   /**
    * 获取动画缩略图(异步;dataURL)
    * 命中顺序:内存缓存 → 磁盘缓存(读 base64 拼 dataURL)→ 离屏生成并写盘。
+   * 缓存 key 含 条目 updatedAt + 磁盘文件 mtime:
+   * - 条目元数据编辑(updatedAt 变)→ 失效;
+   * - 磁盘文件被外部修改(mtime 变)→ 失效;
+   * 因此「⟳ 重载」只对磁盘文件被修改过的条目重新生成,未修改的命中旧缓存。
    * @returns {Promise<string|null>}
    */
   async getAnimThumb(item) {
-    const key = `${item.id}_${item.updatedAt || 0}`;
+    const mt = await this._fileMtime(item.filePath);
+    const key = `${item.id}_${item.updatedAt || 0}_${mt}`;
     const hit = this.cache.get(item.id);
     if (hit && hit.key === key) return hit.url;
 
     // 并发防抖:同 id 只发起一次
     if (this.pending.has(item.id)) return this.pending.get(item.id);
 
-    // 磁盘缓存(仅当条目未修改过)
-    const diskUrl = await this._readDisk(item);
+    // 磁盘缓存(文件名含 key → 文件 mtime 变化自动失效)
+    const diskUrl = await this._readDisk(key);
     if (diskUrl) {
       this.cache.set(item.id, { key, url: diskUrl });
       return diskUrl;
@@ -83,7 +89,7 @@ export class ThumbnailService {
       this.cache.set(item.id, { key, url });
       this.pending.delete(item.id);
       this.active--;
-      if (url) this._writeDisk(item, url);
+      if (url) this._writeDisk(key, url);
       return url;
     }).catch((err) => {
       console.warn('[thumb] 生成失败:', item.displayName, err && err.message || err);
@@ -96,12 +102,30 @@ export class ThumbnailService {
     return promise;
   }
 
-  /** 读磁盘缓存(文件名含 updatedAt,条目编辑后自动失效) */
-  async _readDisk(item) {
+  /** 磁盘文件 mtime(ms);失败返回 0(无 mtime 时回退到仅 updatedAt 判定)。
+   *  短 TTL 缓存:列表重渲染时对同一文件不重复发起 stat IPC。 */
+  async _fileMtime(filePath) {
+    if (!filePath) return 0;
+    const hit = this._mtimeCache.get(filePath);
+    if (hit && Date.now() - hit.at < 3000) return hit.mtime;
+    try {
+      const api = window.api;
+      if (!api || !api.statFile) return 0;
+      const r = await api.statFile(filePath);
+      const mtime = (r && r.mtime) || 0;
+      this._mtimeCache.set(filePath, { mtime, at: Date.now() });
+      return mtime;
+    } catch (err) {
+      return 0;
+    }
+  }
+
+  /** 读磁盘缓存(key = itemId_updatedAt_mtime) */
+  async _readDisk(key) {
     try {
       const api = window.api;
       if (!api || !api.thumbGet) return null;
-      const b64 = await api.thumbGet(`${item.id}_${item.updatedAt || 0}`);
+      const b64 = await api.thumbGet(key);
       if (!b64) return null;
       return `data:image/png;base64,${b64}`;
     } catch (err) {
@@ -109,11 +133,11 @@ export class ThumbnailService {
     }
   }
 
-  /** 写磁盘缓存 */
-  _writeDisk(item, dataUrl) {
+  /** 写磁盘缓存(key = itemId_updatedAt_mtime) */
+  _writeDisk(key, dataUrl) {
     try {
       const api = window.api;
-      if (api && api.thumbSave) api.thumbSave(`${item.id}_${item.updatedAt || 0}`, dataUrl);
+      if (api && api.thumbSave) api.thumbSave(key, dataUrl);
     } catch (err) { /* ignore */ }
   }
 
@@ -187,6 +211,20 @@ export class ThumbnailService {
       const api = window.api;
       if (api && api.thumbDelete) api.thumbDelete(itemId);
     } catch (err) { /* ignore */ }
-  }}
+  }
+
+  /**
+   * 批量重新生成(「⟳ 重载」):只清内存缓存 + 强制刷新文件 mtime 缓存,【不删磁盘缓存】。
+   * 磁盘缓存 key 含文件 mtime:未修改的文件 mtime 不变 → 重渲染时命中旧磁盘缓存(读 base64,秒回),
+   * 只有磁盘文件被修改过的条目(mtime 变化 → key 变读不到)才会真正重新离屏生成。
+   */
+  reloadAll(itemIds) {
+    this._mtimeCache.clear(); // 强制重新 stat,拿到用户改文件后的最新 mtime
+    for (const id of itemIds || []) {
+      this.cache.delete(id);
+      this.pending.delete(id);
+    }
+  }
+}
 
 export const thumbnailService = new ThumbnailService();

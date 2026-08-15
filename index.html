@@ -98,6 +98,8 @@
                 <span class="pv-path" id="pv-path" title=""></span>
               </div>
               <div class="ph-right">
+                <button class="icon-btn" id="img-chrome" title="隐藏/显示上下工具栏(沉浸查看)" type="button" hidden>⇕</button>
+                <button class="btn sm" id="img-fullscreen" title="全屏预览(隐藏标题栏/顶栏/侧栏/标签条)" type="button" hidden>⛶ 全屏</button>
                 <button class="btn sm" id="pv-atlas-open" hidden title="进入图集拆分浏览">🗂 图集拆分</button>
                 <button class="btn sm" id="pv-open-dir">打开目录</button>
                 <button class="btn sm" id="pv-reload">重新加载</button>
@@ -191,16 +193,20 @@
                   <button class="btn sm" id="img-fit">适配窗口</button>
                   <button class="btn sm" id="img-actual">100%</button>
                   <span class="ctrl-sep"></span>
+                  <button class="icon-btn" id="img-rotate-left" title="逆时针旋转 90°">↺</button>
                   <button class="icon-btn" id="img-rotate" title="顺时针旋转 90°">↻</button>
                   <button class="icon-btn" id="img-flip-h" title="水平镜像(左右翻转)">⇋</button>
                   <button class="icon-btn" id="img-flip-v" title="垂直镜像(上下翻转)">⇅</button>
                   <button class="icon-btn" id="img-reset" title="重置视图(清除旋转/镜像,恢复适配窗口)">⟲</button>
+                  <button class="btn sm" id="img-save-edit" title="把旋转/镜像修改保存到原文件(会覆盖原图)" hidden>💾 保存</button>
                   <label class="ctrl-label" style="margin-left:14px">背景</label>
-                  <input type="color" id="img-bg-color" value="#22242b" title="调色盘选背景色(立即生效)" />
-                  <button class="btn sm bg-save-btn" id="img-bg-save" title="把调色盘当前颜色保存为自定义颜色">存</button>
-                  <button class="btn sm" id="img-bg-dark" title="深色背景 #22242b">深</button>
-                  <button class="btn sm" id="img-bg-light" title="浅色背景 #eef0f5">浅</button>
-                  <button class="btn sm" id="img-bg-custom" title="使用自定义颜色">自定</button>
+                  <span class="bg-popover-wrap">
+                    <button class="btn sm" id="img-bg-trigger" type="button" title="背景色(点击弹出深/浅/自定义/调色板)" aria-haspopup="dialog" aria-expanded="false">▾</button>
+                    <div class="bg-popover" id="img-bg-popover" hidden>
+                      <div class="bg-pop-row"><span class="ctrl-label">调色</span><input type="color" id="img-bg-color" value="#22242b" title="调色盘选背景色(立即生效)" /><button class="btn sm bg-save-btn" id="img-bg-save" title="把当前颜色保存为自定义">存</button></div>
+                      <div class="bg-pop-row"><button class="btn sm" id="img-bg-dark" title="深色背景">深</button><button class="btn sm" id="img-bg-light" title="浅色背景">浅</button><button class="btn sm" id="img-bg-custom" title="应用自定义颜色">自定</button></div>
+                    </div>
+                  </span>
                   <div class="ctrl-spacer"></div>
                   <span class="status" id="img-status"></span>
                 </div>

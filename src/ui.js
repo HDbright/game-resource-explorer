@@ -3914,10 +3914,15 @@ async function openItemMenu(x, y, it) {
   const items = [
     { label: firstLabel, onClick: () => (hasAtlas ? openAtlasViewer(it) : selectItem(it.id)) },
     { label: '打开目录', onClick: () => window.api.showItem(it.filePath) },
-    { label: '编辑', onClick: () => editItemDialog(it.id) },
+    { label: '编辑信息', onClick: () => editItemDialog(it.id) },
     { label: '重命名', onClick: () => renameItemDialog(it) },
     { label: '移动到...', onClick: () => moveItemDialog(it) },
   ];
+  // 图片:右键「打开方式」→ 用设置中配置的外部编辑/浏览软件打开(未配置 → 子菜单显示配置入口)
+  if (it.type === 'image' && it.filePath) {
+    const owSub = openWithSubItems(it);
+    if (owSub && owSub.length) items.splice(2, 0, { label: '打开方式', sub: owSub });
+  }
   // 图片图集(同名 .atlas):拆分浏览/查看原图/拆分图集(导出单图)
   if (hasAtlas) {
     items.push({ label: '查看原图', onClick: () => selectItem(it.id, { forceRaw: true }) });
@@ -3940,6 +3945,34 @@ async function openItemMenu(x, y, it) {
     { label: '属性', onClick: () => itemPropertiesDialog(it) },
   );
   showContextMenu(x, y, items);
+}
+
+/** 图片右键「打开方式」二级菜单项:基于设置中配置的外部编辑/浏览软件;
+ *  两者都未配置 → 返回含「未配置」禁用项 + 「到设置页配置」入口。 */
+function openWithSubItems(it) {
+  if (!it || it.type !== 'image' || !it.filePath) return null;
+  const st = state.settings || {};
+  const editApp = String(st.imageEditApp || '').trim();
+  const viewApp = String(st.imageViewApp || '').trim();
+  const sub = [];
+  if (editApp) sub.push({ label: `用图片编辑软件打开(${basename(editApp)})`, onClick: () => openWithApp(editApp, it.filePath) });
+  if (viewApp) sub.push({ label: `用图片浏览软件打开(${basename(viewApp)})`, onClick: () => openWithApp(viewApp, it.filePath) });
+  if (!sub.length) {
+    sub.push({ label: '未配置外部程序', disabled: true });
+    sub.push({ label: '到设置页配置...', onClick: () => openSettings() });
+  }
+  return sub;
+}
+
+/** 用外部程序打开文件(主进程 spawn;失败 toast 反馈) */
+async function openWithApp(exe, filePath) {
+  try {
+    const r = await window.api.openWith({ exe, filePath });
+    if (r && r.ok) return;
+    toast(`打开失败:${(r && r.error) || '未知错误'}`, 'error');
+  } catch (err) {
+    toast('打开失败:' + (err.message || err), 'error');
+  }
 }
 
 /** 右键菜单「转换成源格式」:.sk → 同目录 Spine .json + .atlas */
@@ -3989,8 +4022,13 @@ function openFavItemMenu(x, y, it) {
   const items = [
     { label: firstLabel, onClick: () => selectItem(it.id) },
     { label: '打开目录', onClick: () => window.api.showItem(it.filePath) },
-    { label: '编辑', onClick: () => editItemDialog(it.id) },
+    { label: '编辑信息', onClick: () => editItemDialog(it.id) },
   ];
+  // 图片:右键「打开方式」(与列表页一致,基于设置中配置的外部软件)
+  if (it.type === 'image' && it.filePath) {
+    const owSub = openWithSubItems(it);
+    if (owSub && owSub.length) items.splice(2, 0, { label: '打开方式', sub: owSub });
+  }
   if (favId) {
     items.push({
       label: '移动到其他收藏分类',
@@ -4123,8 +4161,40 @@ function itemPropertiesDialog(it) {
     }
     body.appendChild(row);
   }
+  // 图片属性:追加「尺寸」行(异步读取图片视觉尺寸,EXIF 旋转后)
+  if (isImageType(it.type) && it.filePath) {
+    const sizeRow = document.createElement('div');
+    sizeRow.className = 'form-row';
+    sizeRow.innerHTML = '<label class="f-label">尺寸</label><span class="ro" style="flex:1">加载中…</span>';
+    const sizeSpan = sizeRow.querySelector('.ro');
+    // 插到「大小」行之后
+    const sizeLabelRow = [...body.querySelectorAll('.form-row')].find((r) => r.querySelector('.f-label') && r.querySelector('.f-label').textContent === '大小');
+    body.insertBefore(sizeRow, sizeLabelRow ? sizeLabelRow.nextSibling : body.firstChild);
+    loadImageDimensions(it).then((d) => { sizeSpan.textContent = d || '—'; });
+  }
   const title = it.type === 'image' ? '图片属性' : it.type === 'audio' ? '音频属性' : '动画属性';
   openModal({ title, body, foot: footButtons([{ text: '关闭', cls: 'primary', onClick: (btn) => btn.closest('.modal-mask').remove() }]) });
+}
+
+/** 读取图片的"视觉尺寸"(EXIF 自动旋转后),返回 "宽 × 高 px";失败返回 null */
+async function loadImageDimensions(it) {
+  try {
+    const url = `${location.origin}/a/${it.id}/${encodeURIComponent(basename(it.filePath))}`;
+    const img = new Image();
+    img.src = url;
+    await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; });
+    if (typeof window.createImageBitmap === 'function') {
+      try {
+        const bmp = await window.createImageBitmap(img, { imageOrientation: 'from-image' });
+        const s = `${bmp.width} × ${bmp.height} px`;
+        bmp.close && bmp.close();
+        return s;
+      } catch (_) { /* fallback natural */ }
+    }
+    return `${img.naturalWidth} × ${img.naturalHeight} px`;
+  } catch (e) {
+    return null;
+  }
 }
 
 /** 渲染收藏夹内的条目节点 */
@@ -5439,6 +5509,12 @@ function showPreviewPage(item) {
   if (imgView) imgView.hidden = !(isImageType(item.type));
   if (audioView) audioView.hidden = !(item.type === 'audio');
   if (fguiView) fguiView.hidden = !(item.type === 'fgui');
+  // 顶部工具栏的「⇕ 隐藏工具栏」「⛶ 全屏」仅图片预览显示
+  const isImage = isImageType(item.type);
+  const chromeBtn = document.getElementById('img-chrome');
+  const fsBtn = document.getElementById('img-fullscreen');
+  if (chromeBtn) chromeBtn.hidden = !isImage;
+  if (fsBtn) fsBtn.hidden = !isImage;
   // 顶部信息
   document.getElementById('pv-name').textContent = item.displayName;
   document.getElementById('pv-type').textContent = typeLabel(item.type);
@@ -5589,7 +5665,10 @@ async function showImageViewer(item) {
   // 同步图片预览背景(与动画预览共用 bgColor 设置)
   const bgInput = document.getElementById('img-bg-color');
   if (bgInput) bgInput.value = state.settings.bgColor || '#22242b';
-  if (imageViewer) imageViewer.setBgColor(state.settings.bgColor || '#22242b');
+  if (imageViewer) {
+    imageViewer.setBgColor(state.settings.bgColor || '#22242b');
+    imageViewer.setBgSwatch && imageViewer.setBgSwatch(state.settings.bgColor || '#22242b');
+  }
   const url = `${location.origin}/a/${item.id}/${encodeURIComponent(basename(item.filePath))}`;
   // 图片右键菜单:与图片列表页条目一致(预览/拆分浏览/打开目录/编辑/重命名/移动到/收藏/删除/属性 等)
   const imgEl = document.getElementById('img-display');
@@ -5600,8 +5679,28 @@ async function showImageViewer(item) {
       openItemMenu(e.clientX, e.clientY, item);
     };
   }
+  // 「💾 保存」按钮:覆盖原文件的危险操作,弹确认对话框(仅当存在未保存修改时由 ImageViewer 显示)
+  const saveBtn = document.getElementById('img-save-edit');
+  if (saveBtn) {
+    saveBtn.onclick = async () => {
+      const ok = await confirmDialog({
+        title: '保存修改到原文件',
+        message: `将把当前的旋转/镜像修改保存到原文件「${item.displayName || basename(item.filePath)}」,原图将被覆盖(EXIF 信息也会丢失)。确定吗?`,
+        danger: true,
+        confirmText: '保存',
+        cancelText: '取消',
+      });
+      if (!ok) return;
+      try {
+        await imageViewer.save();
+        toast('已保存到原文件', 'ok');
+      } catch (err) {
+        toast('保存失败:' + (err && err.message ? err.message : err), 'error');
+      }
+    };
+  }
   try {
-    await imageViewer.load(url);
+    await imageViewer.load(url, item.filePath);
   } catch (err) {
     if (errEl) {
       errEl.hidden = false;
@@ -6593,6 +6692,8 @@ function editItemDialog(id) {
 
   // 文件名(仅图片类型:修改磁盘文件名,扩展名保持不变)
   let fileBase = null, fileExt = '', fileDir = '';
+  // ⚠ 必须在函数作用域声明(而非 if 块内 const):保存 handler 在块外引用 fileInput
+  let fileInput = null, fileWrap = null, extSpan = null;
   if (it.type === 'image' && it.filePath) {
     const nm = it.filePath.split(/[\\/]/).pop();
     const dot = nm.lastIndexOf('.');
@@ -6602,14 +6703,14 @@ function editItemDialog(id) {
     const fileRow = document.createElement('div');
     fileRow.className = 'form-row';
     fileRow.innerHTML = '<label class="f-label">文件名</label>';
-    const fileWrap = document.createElement('div');
+    fileWrap = document.createElement('div');
     fileWrap.className = 'file-name-wrap';
-    const fileInput = document.createElement('input');
+    fileInput = document.createElement('input');
     fileInput.type = 'text';
     fileInput.value = fileBase;
     fileInput.className = 'file-name-input';
     fileInput.setAttribute('data-ext', fileExt);
-    const extSpan = document.createElement('span');
+    extSpan = document.createElement('span');
     extSpan.className = 'file-ext';
     extSpan.textContent = fileExt;
     fileWrap.appendChild(fileInput);
@@ -6661,7 +6762,6 @@ function editItemDialog(id) {
     title,
     body,
     foot: footButtons([
-      { text: '删除', cls: 'danger', onClick: () => deleteItemDialog(id) },
       { text: '取消', cls: '', onClick: () => close() },
       {
         text: '保存',
@@ -7363,7 +7463,10 @@ function bindPreviewControls() {
     saveBtn: document.getElementById('img-bg-save'),
     onApply: (c) => {
       setSetting('bgColor', c);
-      if (imageViewer) imageViewer.setBgColor(c);
+      if (imageViewer) {
+        imageViewer.setBgColor(c);
+        imageViewer.setBgSwatch && imageViewer.setBgSwatch(c);
+      }
       const animInput = document.getElementById('bg-color');
       if (animInput) animInput.value = c;
     },

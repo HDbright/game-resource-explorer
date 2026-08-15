@@ -44,13 +44,27 @@ export function footButtons(buttons) {
     const btn = document.createElement('button');
     btn.className = 'btn' + (b.cls ? ' ' + b.cls : '');
     btn.textContent = b.text;
-    btn.addEventListener('click', () => b.onClick(btn));
+    // onClick 支持 async;异常统一捕获并 toast,避免"点保存无反应"
+    btn.addEventListener('click', () => {
+      try {
+        const r = b.onClick(btn);
+        if (r && typeof r.catch === 'function') {
+          r.catch((err) => {
+            console.error('[modal action]', err);
+            toast('操作失败:' + ((err && err.message) || err), 'error');
+          });
+        }
+      } catch (err) {
+        console.error('[modal action]', err);
+        toast('操作失败:' + ((err && err.message) || err), 'error');
+      }
+    });
     foot.appendChild(btn);
   }
   return foot;
 }
 
-export function confirmDialog({ title, message, okText = '确定', danger = false, onOk, onCancel }) {
+export function confirmDialog({ title, message, okText = '确定', cancelText = '取消', danger = false, onOk, onCancel }) {
   const body = document.createElement('div');
   body.className = 'modal-body';
   const p = document.createElement('p');
@@ -58,14 +72,20 @@ export function confirmDialog({ title, message, okText = '确定', danger = fals
   p.innerHTML = message;
   body.appendChild(p);
 
+  // 返回 Promise<boolean>:resolve(true)=用户点确定,resolve(false)=取消/关闭。
+  // 旧调用方式(传 onOk/onCancel 回调)继续兼容(若不再 await,返回 Promise 无影响)。
+  let resolveOuter;
+  const resultPromise = new Promise((r) => { resolveOuter = r; });
+
   const { close } = openModal({
     title,
     body,
     foot: footButtons([
-      { text: '取消', cls: '', onClick: () => { close(); onCancel && onCancel(); } },
-      { text: okText, cls: danger ? 'danger' : 'primary', onClick: () => { close(); onOk && onOk(); } },
+      { text: cancelText, cls: '', onClick: () => { close(); resolveOuter(false); onCancel && onCancel(); } },
+      { text: okText, cls: danger ? 'danger' : 'primary', onClick: () => { close(); resolveOuter(true); try { onOk && onOk(); } catch (_) {} } },
     ]),
   });
+  return resultPromise;
 }
 
 /**
@@ -79,14 +99,70 @@ export function showContextMenu(x, y, items) {
   const menu = document.createElement('div');
   menu.className = 'ctx-menu';
   menu.style.cssText = `left:${x}px;top:${y}px;`;
+  let submenu = null;
+  let hideTimer = 0;
+
+  const closeSub = () => {
+    clearTimeout(hideTimer);
+    if (submenu) { submenu.remove(); submenu = null; }
+  };
+  const scheduleHide = () => {
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => {
+      if (submenu && !submenu._hover) closeSub();
+    }, 260);
+  };
+  const cancelHide = () => clearTimeout(hideTimer);
+
+  /** 渲染二级菜单:父项右侧弹出(视口越界自动左移/上移) */
+  const showSub = (itemEl, it) => {
+    closeSub();
+    const sm = document.createElement('div');
+    sm.className = 'ctx-submenu';
+    for (const si of it.sub) {
+      const sItem = document.createElement('div');
+      sItem.className = 'ctx-item' + (si.danger ? ' danger' : '') + (si.disabled ? ' disabled' : '');
+      sItem.textContent = si.label;
+      if (!si.disabled) {
+        sItem.addEventListener('click', () => {
+          sm.remove(); menu.remove();
+          si.onClick && si.onClick();
+        });
+      }
+      sm.appendChild(sItem);
+    }
+    sm.addEventListener('mousedown', (e) => e.stopPropagation());
+    sm.addEventListener('mouseenter', () => { sm._hover = true; cancelHide(); });
+    sm.addEventListener('mouseleave', () => { sm._hover = false; scheduleHide(); });
+    document.body.appendChild(sm);
+    submenu = sm;
+    // 定位:父项右侧,视口越界则左移;垂直方向钳制
+    const ir = itemEl.getBoundingClientRect();
+    const sr = sm.getBoundingClientRect();
+    let lx = ir.right + 4;
+    if (lx + sr.width > window.innerWidth - 8) lx = ir.left - sr.width - 4;
+    let ty = ir.top;
+    if (ty + sr.height > window.innerHeight - 8) ty = Math.max(8, window.innerHeight - sr.height - 8);
+    sm.style.left = lx + 'px';
+    sm.style.top = ty + 'px';
+  };
+
   for (const it of items) {
     const item = document.createElement('div');
     item.className = 'ctx-item' + (it.danger ? ' danger' : '');
     item.textContent = it.label;
-    item.addEventListener('click', () => {
-      menu.remove();
-      it.onClick && it.onClick();
-    });
+    if (it.sub && it.sub.length) {
+      item.classList.add('has-sub');
+      item.addEventListener('mouseenter', () => { cancelHide(); showSub(item, it); });
+      item.addEventListener('mouseleave', scheduleHide);
+      item.addEventListener('click', (e) => { e.stopPropagation(); }); // 仅展开,不执行动作
+    } else {
+      item.addEventListener('click', () => {
+        menu.remove();
+        closeSub();
+        it.onClick && it.onClick();
+      });
+    }
     menu.appendChild(item);
   }
   // 阻止 mousedown 冒泡,避免外部关闭监听先移除菜单导致 click 丢失
@@ -100,7 +176,7 @@ export function showContextMenu(x, y, items) {
   menu.style.left = Math.min(x, window.innerWidth - mw) + 'px';
   menu.style.top = Math.min(y, window.innerHeight - mh) + 'px';
 
-  const close = () => menu.remove();
+  const close = () => { closeSub(); menu.remove(); };
   setTimeout(() => {
     window.addEventListener('mousedown', close, { once: true });
     window.addEventListener('blur', close, { once: true });

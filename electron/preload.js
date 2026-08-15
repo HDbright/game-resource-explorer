@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('api', {
   showItem: (p) => ipcRenderer.invoke('shell:showItem', p),
   openPath: (p) => ipcRenderer.invoke('shell:openPath', p),
   openExternal: (cmd) => ipcRenderer.invoke('app:openExternal', cmd),
+  openWith: (p) => ipcRenderer.invoke('shell:openWith', p),
   statFile: (p) => ipcRenderer.invoke('fs:stat', p),
 
   // 缩略图持久化缓存(userData/thumbnails)
@@ -30,6 +31,9 @@ contextBridge.exposeInMainWorld('api', {
   cdpSetState: (payload) => ipcRenderer.invoke('cdp:setState', payload),
   cdpOpenDoc: () => ipcRenderer.invoke('cdp:doc'),
   cdpOpenDashboard: () => ipcRenderer.invoke('cdp:dashboard'),
+
+  // ---- 窗口控制(全屏预览) ----
+  setFullScreen: (flag) => ipcRenderer.invoke('win:setFullScreen', flag),
 
   // ---- 资源工具箱:通用文件 I/O ----
   pickFiles: (opts) => ipcRenderer.invoke('fs:pickFiles', opts),

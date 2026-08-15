@@ -32,6 +32,9 @@ export const DEFAULT_SETTINGS = {
   fguiBgColor: '#1b1d23',
   // 自定义背景色(动画/图片/FGUI 背景色条共用,「保存」按钮写入)
   customBgColor: '#3a4150',
+  // 图片资源右键「打开方式」:外部编辑/浏览软件(exe 绝对路径,空=未配置,右键菜单显示配置入口)
+  imageEditApp: '', // 图片编辑软件(如 Photoshop / 画图)
+  imageViewApp: '', // 图片浏览软件(如 看图软件)
   audioListFields: { // 播放列表条目显示字段(在设置页配置)
     fileName: true, // 文件名
     title: true, // 标题(ID3)

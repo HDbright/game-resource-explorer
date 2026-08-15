@@ -1,5 +1,6 @@
 import { state, getFolderData, sortItems, formatSize, formatDate, typeGroup, typeLabel, isImageType, categoryById, getCategoryPathList, itemTags, categoryLabel, favCategoryById, itemById, catVisibleInGroup, catVisibleInAnyGroup, categoryTypeTagNames, getCategoryChildren, getCategoryDescendants, TYPE_GROUPS } from '../state.js';
 import { thumbnailService } from '../thumbnails.js';
+import { toast } from '../dialogs.js';
 import { loadSearchHistory, saveSearchHistory, addSearchHistory, removeSearchHistory } from '../searchHistory.js';
 import { findAtlasCompanion } from '../atlasView.js';
 
@@ -231,7 +232,8 @@ export function renderFolderPage(container, opts) {
         <button class="folder-search-clear" id="folder-search-clear" type="button" title="清空搜索" ${searchText ? '' : 'hidden'}>×</button>
         <div class="search-history" id="folder-search-history" hidden></div>
       </div>
-      <button class="btn sm ${editMode ? 'active' : ''}" id="edit-mode-btn" title="进入/退出编辑模式">✎ 编辑</button>
+      <button class="icon-btn" id="folder-reload-thumbs" title="重新生成缩略图(刷新被修改过的文件)" type="button">⟳</button>
+      <button class="btn sm ${editMode ? 'active' : ''}" id="edit-mode-btn" title="进入/退出管理模式(批量编辑)">✎ 管理</button>
       ${editMode ? `
         <button class="btn sm" data-edit-act="select-all" title="全选">☑ 全选</button>
         <button class="btn sm" data-edit-act="select-none" title="取消全选">☐ 取消</button>
@@ -500,6 +502,16 @@ export function renderFolderPage(container, opts) {
   }
   // 图集标识:图片带同名 .atlas/.plist → 「图片」徽章细化为「图集」
   bindAtlasBadges(container, sorted);
+
+  // 「⟳ 重载」按钮:清当前列表条目的缩略图缓存(内存+磁盘),重渲染后重新生成
+  const reloadThumbsBtn = container.querySelector('#folder-reload-thumbs');
+  if (reloadThumbsBtn) {
+    reloadThumbsBtn.addEventListener('click', () => {
+      thumbnailService.reloadAll(sorted.map((i) => i.id));
+      toast('正在刷新缩略图(仅修改过的文件会重新生成)…', 'ok', 1800);
+      actions.onRefresh && actions.onRefresh();
+    });
+  }
 
   // 恢复滚动位置(编辑模式下点击条目重渲染时滚动条保持原位;新内容高度不足时浏览器自动钳制)
   const newBody = container.querySelector('.folder-body');

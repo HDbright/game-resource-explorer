@@ -24,6 +24,7 @@ const SETTING_CARDS = [
   { id: 'webgame', title: '网络资源抓取' },
   { id: 'devtools', title: '开发者调试 (Chrome DevTools)' },
   { id: 'srcdbg', title: '开发者调试 · 组件源码定位' },
+  { id: 'openwith', title: '外部打开方式' },
   { id: 'font', title: '系统字体字号' },
   { id: 'theme', title: '主题背景' },
   { id: 'menumgr', title: '菜单管理' },
@@ -314,6 +315,30 @@ export function renderSettingsPage(container, opts = {}) {
           <p class="settings-hint">「源码位置」的相对路径(如 <code>src/ui.js</code>)基于该目录解析为绝对路径。打包版若源码不在应用目录，请填写源码目录(如 <code>E:\MyProject\spine_viewer</code>)。</p>
           <div class="settings-actions">
             <button class="btn primary" id="dbg-save">保存</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="settings-card collapsed" data-card="openwith">
+        <h3 class="settings-card-head">${cardHeadHtml('openwith', '外部打开方式')}</h3>
+        <div class="settings-card-body">
+          <p class="settings-hint">为「图片资源」右键菜单新增的「打开方式」配置外部程序：配置后右键任意图片 → 「打开方式」即可选择用图片编辑软件或浏览软件打开该图片文件。未配置时右键菜单会显示「到设置页配置」入口。</p>
+          <div class="form-row">
+            <label class="f-label">图片编辑软件</label>
+            <input id="ow-edit-app" class="text-input flex-1" type="text"
+                   placeholder="如 C:\Program Files\Adobe\Photoshop.exe"
+                   value="${esc(s.imageEditApp || '')}" />
+            <button class="btn sm" id="ow-edit-pick">选择程序</button>
+          </div>
+          <div class="form-row">
+            <label class="f-label">图片浏览软件</label>
+            <input id="ow-view-app" class="text-input flex-1" type="text"
+                   placeholder="如 C:\Program Files\看图王\KingViewer.exe"
+                   value="${esc(s.imageViewApp || '')}" />
+            <button class="btn sm" id="ow-view-pick">选择程序</button>
+          </div>
+          <div class="settings-actions">
+            <button class="btn primary" id="ow-save">保存</button>
           </div>
         </div>
       </section>
@@ -977,6 +1002,32 @@ export function renderSettingsPage(container, opts = {}) {
   container.querySelector('#dbg-save').addEventListener('click', () => {
     setSetting('editorPath', dbgEditor.value.trim());
     setSetting('sourceRoot', dbgSrcRoot.value.trim());
+    saveState();
+    toast('设置已保存');
+  });
+
+  // ---- 外部打开方式:图片编辑/浏览软件(图片右键「打开方式」) ----
+  const owEdit = container.querySelector('#ow-edit-app');
+  const owView = container.querySelector('#ow-view-app');
+  container.querySelector('#ow-edit-pick').addEventListener('click', async () => {
+    try {
+      const r = await window.api.pickFiles({ title: '选择图片编辑软件', filters: [{ name: '程序', extensions: ['exe', 'bat', 'cmd'] }] });
+      if (r && !r.canceled && r.filePaths && r.filePaths.length) owEdit.value = r.filePaths[0];
+    } catch (err) {
+      toast('选择程序失败: ' + err.message, 'error');
+    }
+  });
+  container.querySelector('#ow-view-pick').addEventListener('click', async () => {
+    try {
+      const r = await window.api.pickFiles({ title: '选择图片浏览软件', filters: [{ name: '程序', extensions: ['exe', 'bat', 'cmd'] }] });
+      if (r && !r.canceled && r.filePaths && r.filePaths.length) owView.value = r.filePaths[0];
+    } catch (err) {
+      toast('选择程序失败: ' + err.message, 'error');
+    }
+  });
+  container.querySelector('#ow-save').addEventListener('click', () => {
+    setSetting('imageEditApp', owEdit.value.trim());
+    setSetting('imageViewApp', owView.value.trim());
     saveState();
     toast('设置已保存');
   });

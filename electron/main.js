@@ -801,6 +801,32 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle('shell:showItem', (_e, p) => shell.showItemInFolder(p));
   ipcMain.handle('shell:openPath', (_e, p) => shell.openPath(p));
+  // 用指定外部程序打开文件(图片右键「打开方式」):spawn(exe, [filePath]) 数组参数,
+  // 不经 shell,含空格/中文路径安全;detached + unref 不阻塞主进程
+  ipcMain.handle('shell:openWith', (_e, { exe, filePath } = {}) => {
+    const e = String(exe || '').trim();
+    const f = String(filePath || '').trim();
+    if (!e) return { ok: false, error: '未配置外部程序' };
+    if (!f) return { ok: false, error: '缺少文件路径' };
+    return new Promise((resolve) => {
+      try {
+        const child = spawn(e, [f], { detached: true, stdio: 'ignore', windowsHide: false });
+        child.on('error', (err) => resolve({ ok: false, error: err.message }));
+        child.once('spawn', () => resolve({ ok: true }));
+        child.unref();
+      } catch (err) {
+        resolve({ ok: false, error: err.message });
+      }
+    });
+  });
+  // 全屏预览:切换主窗口系统全屏(隐藏标题栏)
+  ipcMain.handle('win:setFullScreen', (e, flag) => {
+    try {
+      const w = BrowserWindow.fromWebContents(e.sender);
+      if (w) w.setFullScreen(!!flag);
+      return true;
+    } catch (err) { return false; }
+  });
   // 启动外部程序/打开网页(侧栏菜单终端节点 action=exe 时调用)。
   // - URL(如 https://...) → 系统默认浏览器打开
   // - 本地程序 → 支持「"路径含空格" 参数」或「直接粘贴含空格/中文的路径」,spawn 不经过 shell,路径安全
