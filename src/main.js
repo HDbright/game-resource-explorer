@@ -1010,7 +1010,7 @@ function installSmoke() {
         const rootDir = state.categories.find((c) => c.name === '__root_dir_1__');
         out.rootDirTop = !!rootDir && rootDir.parentId === '';
         out.ok = out.menuShown && out.subCreated && out.moveOk && out.subInTree
-          && JSON.stringify(out.menuItems) === JSON.stringify(['添加资源', '批量添加', '新建目录', '编辑目录', '移动...', '删除'])
+          && JSON.stringify(out.menuItems) === JSON.stringify(['添加资源', '批量添加', '新建目录', '编辑分类目录', '移动...', '删除'])
           && out.rootMenuItems.includes('新建目录') && out.rootNewDirClicked
           && out.newDirTitle === '新建目录' && out.topBtnGone && out.rootDirTop;
         // 清理

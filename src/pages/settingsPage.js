@@ -1,7 +1,7 @@
 // ============ 系统设置页面 ============
 // 当前包含「截图」相关设置:默认保存路径 / 默认格式(PNG·WebP) / WebP 质量。
 
-import { state, setSetting, saveState, getMenuRoots, getMenuChildren, menuNodeById, menuNodePath, getMenuNodeDescendants, addMenuNode, updateMenuNode, removeMenuNode, moveMenuNodeBeside, moveMenuNodeToParent, getToolboxChildren, getCategoryChildren, catVisibleInGroup, getSceneCategoryChildren, getWebBookmarkCategoryChildren, webBookmarksInCategory, typeGroup, addToolboxFolder, updateToolboxFolder, removeToolboxFolder, toolboxFolderById, addCategory, updateCategory, removeCategoryAdvanced, categoryById, getCategoryDescendants, categoryPath, addSceneCategory, updateSceneCategory, removeSceneCategory, sceneCategoryById, addWebBookmarkCategory, updateWebBookmarkCategory, removeWebBookmarkCategory, webBookmarkCategoryById, removeWebBookmark, addFavCategory, updateFavCategory, removeFavCategory, removeFavItem, favCategoryById, isUrlPath, nameFromPath, customPages, customPageById, addCustomPage, updateCustomPage, removeCustomPage, PAGE_TEMPLATES, customTypes, customTypeById, addCustomType, updateCustomType, removeCustomType, customTypeGroups, customTypeGroupById, addCustomTypeGroup, updateCustomTypeGroup, removeCustomTypeGroup, typeLabel, TYPE_EXTENSIONS, groupTagOptions, CAT_TYPE_TAG_LABELS } from '../state.js';
+import { state, setSetting, saveState, getMenuRoots, getMenuChildren, menuNodeById, menuNodePath, getMenuNodeDescendants, addMenuNode, updateMenuNode, removeMenuNode, moveMenuNodeBeside, moveMenuNodeToParent, getToolboxChildren, getCategoryChildren, catVisibleInGroup, getSceneCategoryChildren, getWebBookmarkCategoryChildren, webBookmarksInCategory, typeGroup, addToolboxFolder, updateToolboxFolder, removeToolboxFolder, toolboxFolderById, addCategory, updateCategory, removeCategoryAdvanced, categoryById, getCategoryDescendants, categoryPath, addSceneCategory, updateSceneCategory, removeSceneCategory, sceneCategoryById, addWebBookmarkCategory, updateWebBookmarkCategory, removeWebBookmarkCategory, webBookmarkCategoryById, removeWebBookmark, addFavCategory, updateFavCategory, removeFavCategory, removeFavItem, favCategoryById, isUrlPath, nameFromPath, customPages, customPageById, addCustomPage, updateCustomPage, removeCustomPage, PAGE_TEMPLATES, customTypes, customTypeById, addCustomType, updateCustomType, removeCustomType, customTypeGroups, customTypeGroupById, addCustomTypeGroup, updateCustomTypeGroup, removeCustomTypeGroup, typeLabel, TYPE_EXTENSIONS, groupTagOptions, groupTagOptionSections, extOwners, CAT_TYPE_TAG_LABELS, isCategoryLocked, isMenuNodeLocked } from '../state.js';
 import { applyAppearance } from '../appearance.js';
 import { toast, openModal, footButtons, confirmDialog, promptDialog, showContextMenu, openEmojiPicker, iconNode, attachIconPreview, newPageDialog } from '../dialogs.js';
 
@@ -476,7 +476,7 @@ export function renderSettingsPage(container, opts = {}) {
             <div class="menu-mgr-tree" id="mm-tree"></div>
           </div>
           <div id="mm-pane-cat" style="display:none">
-            <p class="settings-hint">管理所有资源分类目录(含各资源类型下、以及跨资源类型显示的分类)。子分类会自动继承父分类的资源组,且继承的资源组不可修改,避免分类"消失"。<b>若某个分类找不到了,通常是因为它的资源组与父分类不一致,在此编辑它会自动补回父分类的资源组。</b></p>
+            <p class="settings-hint">管理所有资源分类目录(含各资源类型下、以及跨资源类型显示的分类)。子分类会自动继承父分类的资源组,且继承的资源组不可修改,避免分类"消失"。<b>若某个分类找不到了,通常是因为它的资源组与父分类不一致,在此编辑它会自动补回父分类的资源组。</b>勾选了「视频/文章」组的分类会自动在左侧菜单创建「视频资源/文章资源」根目录进行挂载。</p>
             <div class="settings-actions">
               <button class="btn sm" id="cat-add-top">＋ 新增顶级分类</button>
               <span class="spacer"></span>
@@ -509,7 +509,7 @@ export function renderSettingsPage(container, opts = {}) {
       <section class="settings-card collapsed" data-card="types">
         <h3 class="settings-card-head">${cardHeadHtml('types', '资源类型管理')}</h3>
         <div class="settings-card-body">
-          <p class="settings-hint">自定义资源分组(如 图标/数据/文件)可接收额外扩展名的文件并作为资源浏览分组与目录可选项;自定义资源类型(如「图标资源」)归属某个分组。分组/类型扩展名优先于内置类型匹配。创建分组/类型后,可在终端/目录节点的「目标页面」选择「资源浏览页 · 名称」,或在目录节点「编辑节点」窗口的「设置类型组」中勾选。</p>
+          <p class="settings-hint"><b>自定义分组</b>(如 图标/数据/文件/视频资源)= 独立资源组:文件按扩展名归入,侧栏自动创建对应资源根。<b>自定义类型</b>(如「视频」)= 一种类型,必须归属某个内置分组(动画/图片/音频/3D),文件显示在该分组下(如「视频」归「图片」组 → .mp4 会出现在图片资源下)。<br>⚠ <b>优先级:自定义类型 &gt; 自定义分组 &gt; 内置类型</b>。若同一扩展名同时被「自定义类型」和「自定义分组」声明,文件只会归类型,分组收不到该文件——建议同一扩展名只配置其中一套。创建分组/类型后,可在目录节点「编辑节点」窗口的「设置类型组」中勾选。</p>
           <div class="form-row">
             <label class="f-label">资源分组(内置)</label>
             <div class="pg-templates" id="cg-builtin"></div>
@@ -1171,6 +1171,30 @@ export function renderSettingsPage(container, opts = {}) {
     }
   }
   // 自定义分组增删改
+  /** 扩展名重叠检测:输入 exts 与其它自定义类型/分组(排除 selfId)重叠时返回提示 DOM,否则 null */
+  const extConflictHint = (extsText, selfId) => {
+    const exts = String(extsText || '').split(/[,，;\s]+/).map((e) => e.trim().toLowerCase()).filter(Boolean);
+    const hits = [];
+    for (const e of exts) {
+      for (const o of extOwners(e)) {
+        if (o.id === selfId) continue;
+        hits.push(`${e} ← ${o.kind === 'type' ? '自定义类型' : '自定义分组'}「${o.name}」`);
+      }
+    }
+    if (!hits.length) return null;
+    const div = document.createElement('div');
+    div.className = 'form-hint conflict';
+    div.innerHTML = '⚠ 扩展名已被声明: ' + hits.map((h) => `<b>${esc(h)}</b>`).join('; ') + '。按优先级(自定义类型 &gt; 自定义分组)文件只会归前者,建议同一扩展名只保留一套。';
+    return div;
+  };
+  /** 给扩展名输入行挂接重叠检测 */
+  const attachExtConflictCheck = (extsInp, selfId) => {
+    const box = document.createElement('div');
+    extsInp.closest('.form-row').appendChild(box);
+    const refresh = () => { box.innerHTML = ''; const h = extConflictHint(extsInp.value, selfId); if (h) box.appendChild(h); };
+    extsInp.addEventListener('input', refresh);
+    refresh();
+  };
   const editCustomTypeGroupDialog = (g, after) => {
     const dlgBody = document.createElement('div');
     dlgBody.className = 'modal-body';
@@ -1185,6 +1209,7 @@ export function renderSettingsPage(container, opts = {}) {
     const extsRow = makeRow('扩展名');
     const extsInp = document.createElement('input'); extsInp.type = 'text'; extsInp.value = g ? (g.exts || []).join(',') : ''; extsInp.placeholder = '逗号分隔,如 .db,.txt,.json,.xml';
     extsRow.appendChild(extsInp);
+    attachExtConflictCheck(extsInp, g ? g.id : null);
     const iconRow = makeRow('图标(emoji 或导入图片)');
     const iconInp = document.createElement('input'); iconInp.type = 'text'; iconInp.value = g ? (g.icon || '') : '';
     iconRow.appendChild(iconInp);
@@ -1241,7 +1266,7 @@ export function renderSettingsPage(container, opts = {}) {
       ops.className = 'pg-ops';
       const eb = document.createElement('button');
       eb.type = 'button'; eb.className = 'btn sm ghost'; eb.textContent = '✎ 编辑';
-      eb.addEventListener('click', () => editCustomTypeGroupDialog(g, renderCgList));
+      eb.addEventListener('click', () => editCustomTypeGroupDialog(g, refreshAfterCgChange));
       const db = document.createElement('button');
       db.type = 'button'; db.className = 'btn sm ghost danger'; db.textContent = '删除';
       db.addEventListener('click', () => {
@@ -1249,7 +1274,7 @@ export function renderSettingsPage(container, opts = {}) {
           title: '删除资源分组「' + g.name + '」?',
           message: '已按该分组入库的条目将保留(类型名显示为 id);其扩展名恢复由内置类型接管。',
           danger: true,
-          onOk: () => { removeCustomTypeGroup(g.id); renderCgList(); toast('已删除'); },
+          onOk: () => { removeCustomTypeGroup(g.id); refreshAfterCgChange(); toast('已删除'); },
         });
       });
       ops.appendChild(eb); ops.appendChild(db);
@@ -1258,8 +1283,13 @@ export function renderSettingsPage(container, opts = {}) {
     }
   };
   renderCgList();
+  // 分组增删改后:刷新分组列表 + 立即刷新侧栏(自定义分组 → 自动资源根立即可见)
+  const refreshAfterCgChange = () => {
+    renderCgList();
+    document.dispatchEvent(new CustomEvent('library:changed'));
+  };
   const cgAdd = container.querySelector('#cg-add');
-  if (cgAdd) cgAdd.addEventListener('click', () => editCustomTypeGroupDialog(null, renderCgList));
+  if (cgAdd) cgAdd.addEventListener('click', () => editCustomTypeGroupDialog(null, refreshAfterCgChange));
 
   const ctBuiltinEl = container.querySelector('#ct-builtin');
   if (ctBuiltinEl) {
@@ -1302,6 +1332,7 @@ export function renderSettingsPage(container, opts = {}) {
     const extsRow = makeRow('扩展名');
     const extsInp = document.createElement('input'); extsInp.type = 'text'; extsInp.value = ct ? (ct.exts || []).join(',') : ''; extsInp.placeholder = '逗号分隔,如 .png,.ico';
     extsRow.appendChild(extsInp);
+    attachExtConflictCheck(extsInp, ct ? ct.id : null);
     const iconRow = makeRow('图标(emoji 或导入图片)');
     const iconInp = document.createElement('input'); iconInp.type = 'text'; iconInp.value = ct ? (ct.icon || '') : '';
     iconRow.appendChild(iconInp);
@@ -1449,9 +1480,12 @@ function bindMenuManagement(container) {
       items.push({ label: '新建子目录', onClick: () => newMmNodeDialog(node.id, 'dir') });
       items.push({ label: '新建终端', onClick: () => newMmNodeDialog(node.id, 'term') });
     }
-    items.push({ label: node.nodeType === 'term' ? '编辑终端' : '编辑节点', onClick: () => editMmNodeDialog(node.id) });
-    items.push({ label: '移动...', onClick: () => moveMmNodeDialog(node) });
-    items.push({ label: '删除', danger: true, onClick: () => deleteMmNodeDialog(node.id) });
+    items.push({ label: node.nodeType === 'term' ? '编辑终端节点' : '编辑目录节点', onClick: () => editMmNodeDialog(node.id) });
+    // 锁定节点:隐藏「移动...」「删除」项(锁定即防移动/删除)
+    if (!isMenuNodeLocked(node.id)) {
+      items.push({ label: '移动...', onClick: () => moveMmNodeDialog(node) });
+      items.push({ label: '删除', danger: true, onClick: () => deleteMmNodeDialog(node.id) });
+    }
     showContextMenu(x, y, items);
   };
 
@@ -1594,7 +1628,7 @@ function bindMenuManagement(container) {
 
       const nm = document.createElement('span');
       nm.className = 'cat-name';
-      nm.textContent = node.name;
+      nm.textContent = node.name + (node.locked ? ' 🔒' : '');
       row.appendChild(nm);
 
       const kind = document.createElement('span');
@@ -1819,6 +1853,75 @@ function bindMenuManagement(container) {
     return { row, nameInp, resCb };
   }
 
+  /** 上溯祖先,取最近的 res:* 动作(父节点自身 action 可能为空但祖先为资源型) */
+  const nearestResAction = (node) => {
+    let cur = node;
+    while (cur) {
+      if (cur.action && String(cur.action).startsWith('res:')) return cur.action;
+      cur = cur.parentId ? menuNodeById(cur.parentId) : null;
+    }
+    return '';
+  };
+
+  /** 资源类型下拉(仅目录节点):动画/图片/音频/3D + 自定义分组;存量 res:* 值不在选项内时追加临时选项保留 */
+  const fillResTypeSelect = (sel, currentVal, opts = {}) => {
+    sel.innerHTML = '';
+    const locked = !!opts.locked;
+    const builtins = [['res:anim', '动画资源'], ['res:image', '图片资源'], ['res:audio', '音频资源'], ['res:3d', '3D资源']];
+    for (const [v, l] of builtins) {
+      const op = document.createElement('option'); op.value = v; op.textContent = l; sel.appendChild(op);
+    }
+    const cgs = customTypeGroups();
+    if (cgs.length) {
+      const sep = document.createElement('option');
+      sep.disabled = true;
+      sep.textContent = '──────── 自定义分组 ────────';
+      sel.appendChild(sep);
+      for (const g of cgs) {
+        const op = document.createElement('option');
+        op.value = 'res:group:' + g.id;
+        op.textContent = g.name;
+        sel.appendChild(op);
+      }
+    }
+    const cur = String(currentVal || '');
+    if (cur.startsWith('res:') && ![...sel.options].some((o) => o.value === cur)) {
+      const tmp = document.createElement('option');
+      tmp.value = cur;
+      tmp.textContent = cur;
+      sel.appendChild(tmp);
+    }
+    if (cur && [...sel.options].some((o) => o.value === cur)) sel.value = cur;
+    else sel.value = builtins[1][0]; // 默认图片资源
+    if (locked) sel.disabled = true;
+  };
+
+  /** 目录节点:勾选「资源」→ 显示「资源类型」行并隐藏「目标页面」行(action 由资源类型决定);取消 → 反向(保留 actSel 原值) */
+  const buildResTypeRow = ({ resCb, actRow, actSel, isTerm }) => {
+    const resTypeRow = document.createElement('div');
+    resTypeRow.className = 'form-row';
+    const lb = document.createElement('label');
+    lb.className = 'f-label';
+    lb.textContent = '资源类型';
+    resTypeRow.appendChild(lb);
+    const resTypeSel = document.createElement('select');
+    resTypeRow.appendChild(resTypeSel);
+    const tip = document.createElement('span');
+    tip.className = 'form-hint';
+    tip.style.margin = '0 0 0 8px';
+    tip.textContent = '资源型目录：可创建分类目录、侧栏显示分类树';
+    resTypeRow.appendChild(tip);
+    resTypeRow.style.display = 'none';
+    const syncRes = () => {
+      if (isTerm) return;
+      const isRes = resCb.checked;
+      resTypeRow.style.display = isRes ? '' : 'none';
+      if (actRow) actRow.style.display = isRes ? 'none' : '';
+    };
+    resCb.addEventListener('change', syncRes);
+    return { resTypeRow, resTypeSel, syncRes };
+  };
+
   const newMmNodeDialog = (parentId, nodeType) => {
     const isTerm = nodeType === 'term';
     const parentNodeMM = parentId ? menuNodeById(parentId) : null;
@@ -1845,7 +1948,7 @@ function bindMenuManagement(container) {
     attachIconPreview(iconInp, iconRow);
     body.appendChild(iconRow);
 
-    let typeSel = null, actSel = null, exeRow = null, exeInp = null, typeTagsRow = null;
+    let typeSel = null, actSel = null, exeRow = null, exeInp = null, typeTagsRow = null, resTypeSel = null;
     // 目录:「设置类型组」默认继承父目录已勾选的组,且灰显不可改
     const inheritSetMM = new Set(parentNodeMM && Array.isArray(parentNodeMM.typeTags) ? parentNodeMM.typeTags : []);
     // 目标页面(目录可空,默认仅展开/折叠;终端必选)
@@ -1877,25 +1980,17 @@ function bindMenuManagement(container) {
       typeSel.addEventListener('change', sync); sync();
     } else {
       body.appendChild(actRow);
+      // 资源型目录:勾选「资源」→ 显示「资源类型」行并隐藏「目标页面」行(action 由资源类型决定)
+      const resInit = resLockedMM ? (nearestResAction(parentNodeMM) || 'res:image') : 'res:image';
+      const builtRes = buildResTypeRow({ resCb, actRow, actSel, isTerm: false });
+      resTypeSel = builtRes.resTypeSel;
+      fillResTypeSelect(resTypeSel, resInit, { locked: resLockedMM });
+      body.appendChild(builtRes.resTypeRow);
+      builtRes.syncRes();
       // 目录:「设置类型组」(继承父目录已勾选的组,灰显不可改)
       const tagsRowMM = makeRow('设置类型组');
       tagsRowMM.style.alignItems = 'flex-start';
-      typeTagsRow = document.createElement('div');
-      typeTagsRow.className = 'check-group';
-      for (const o of groupTagOptions()) {
-        const lb = document.createElement('label');
-        const locked = inheritSetMM.has(o.value);
-        lb.className = 'check-item' + (locked ? ' checked disabled' : '');
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.value = o.value;
-        cb.checked = locked;
-        if (locked) cb.disabled = true;
-        cb.addEventListener('change', () => lb.classList.toggle('checked', cb.checked));
-        lb.appendChild(cb);
-        lb.appendChild(document.createTextNode(o.label));
-        typeTagsRow.appendChild(lb);
-      }
+      typeTagsRow = buildTypeTagCheckGroup(groupTagOptionSections(), { inheritSet: inheritSetMM });
       const hintMM = document.createElement('div');
       hintMM.className = 'form-hint';
       hintMM.textContent = '勾选该目录下允许显示的类型组(可多选)。点击该目录时,分类树中只显示「资源组命中了勾选类型组」或「未勾选任何资源组(全部)」的目录;不勾选 = 点击目录仅展开/折叠。';
@@ -1905,8 +2000,21 @@ function bindMenuManagement(container) {
       body.appendChild(tagsRowMM);
     }
 
+    // 锁定:禁止删除(右键删除项置灰)
+    const lockRowMM = makeRow('锁定');
+    const lockCbMM = document.createElement('input');
+    lockCbMM.type = 'checkbox';
+    lockCbMM.checked = false;
+    const lockLbMM = document.createElement('span');
+    lockLbMM.style.fontSize = '13px';
+    lockLbMM.style.color = 'var(--text2)';
+    lockLbMM.textContent = ' 锁定(禁止删除)';
+    lockRowMM.appendChild(lockCbMM);
+    lockRowMM.appendChild(lockLbMM);
+    body.appendChild(lockRowMM);
+
     const { close } = openModal({
-      title: isTerm ? '新建终端节点' : '新建目录',
+      title: isTerm ? '新建终端节点' : '新建目录节点',
       body,
       foot: footButtons([
         { text: '取消', cls: '', onClick: () => close() },
@@ -1922,13 +2030,24 @@ function bindMenuManagement(container) {
               if (!action) { toast(isExe ? '程序路径不能为空' : '请选择目标页面', 'error'); return; }
             } else {
               actionType = 'builtin';
-              action = actSel.value; // 目录目标页面可为空
+              // 资源型目录(勾选「资源」):action 由「资源类型」下拉决定;否则取目标页面(可为空)
+              action = resCb.checked && resTypeSel ? resTypeSel.value : actSel.value;
             }
-            addMenuNode({ name, icon: iconInp.value.trim(), parentId, nodeType, actionType, action, isResource: resCb.checked, typeTags: typeTagsRow ? [...typeTagsRow.querySelectorAll('input:checked')].map((c) => c.value) : [] });
+            addMenuNode({ name, icon: iconInp.value.trim(), parentId, nodeType, actionType, action, isResource: resCb.checked, locked: lockCbMM.checked, typeTags: typeTagsRow ? [...typeTagsRow.querySelectorAll('input:checked')].map((c) => c.value) : [] });
             close();
             if (parentId) mmExpanded.add(parentId); // 新建子节点后展开父目录,便于看到
             refresh();
             toast('已创建');
+            // 新建顶级资源根 → 通知主界面引导用户在该根下建立第一个分类(资源管理流程:建根 → 建分类 → 加资源)
+            if (!parentId && action && String(action).startsWith('res:')) {
+              const grp = action === 'res:anim' ? 'anim'
+                : action === 'res:image' ? 'image'
+                : action === 'res:audio' ? 'audio'
+                : action === 'res:3d' ? '3d'
+                : action.startsWith('res:group:') ? action.slice('res:group:'.length)
+                : '';
+              if (grp) setTimeout(() => document.dispatchEvent(new CustomEvent('mm:request-new-top-cat', { detail: { grp } })), 50);
+            }
           },
         },
       ]),
@@ -1946,7 +2065,7 @@ function bindMenuManagement(container) {
       const lb = document.createElement('label'); lb.className = 'f-label'; lb.textContent = label; row.appendChild(lb);
       return row;
     };
-    const { row: nameRow, nameInp, resCb } = buildNameResourceRow(node.name, { isResource: node.isResource, locked: true });
+    const { row: nameRow, nameInp, resCb } = buildNameResourceRow(node.name, { isResource: node.isResource, locked: false });
     body.appendChild(nameRow);
     const iconRow = makeRow('图标(emoji)');
     const iconInp = document.createElement('input'); iconInp.type = 'text'; iconInp.value = node.icon || ''; iconRow.appendChild(iconInp);
@@ -1964,7 +2083,7 @@ function bindMenuManagement(container) {
     const noteInp = document.createElement('textarea'); noteInp.value = node.note || ''; noteRow.appendChild(noteInp);
     body.appendChild(iconRow); body.appendChild(tipRow); body.appendChild(noteRow);
 
-    let typeSel = null, actSel = null, exeRow = null, exeInp = null;
+    let typeSel = null, actSel = null, exeRow = null, exeInp = null, resTypeSel = null;
     // 目标页面(目录可空,默认仅展开/折叠;终端必选)
     const actRow = makeRow('目标页面');
     actSel = document.createElement('select');
@@ -1974,30 +2093,22 @@ function bindMenuManagement(container) {
     let typeTagsList = null;
     if (!isTerm) {
       body.appendChild(actRow);
+      // 资源型目录:勾选「资源」→ 显示「资源类型」行并隐藏「目标页面」行;存量 isResource=true 且 action 非 res:* → 默认图片(保存时自动补 res:image)
+      const resInit = node.isResource ? (node.action && String(node.action).startsWith('res:') ? node.action : 'res:image') : 'res:image';
+      const builtRes = buildResTypeRow({ resCb, actRow, actSel, isTerm: false });
+      resTypeSel = builtRes.resTypeSel;
+      fillResTypeSelect(resTypeSel, resInit, { locked: false });
+      body.appendChild(builtRes.resTypeRow);
+      builtRes.syncRes();
       const tagsRow = makeRow('设置类型组');
       tagsRow.style.alignItems = 'flex-start';
       typeTagsList = document.createElement('div');
       typeTagsList.className = 'check-group';
-      const opts = groupTagOptions();
       const cur = new Set(Array.isArray(node.typeTags) ? node.typeTags : []);
       // 继承自父目录的类型组:默认勾选且灰显不可改
       const parentNodeEditMM = node.parentId ? menuNodeById(node.parentId) : null;
       const inheritSetMM = new Set(parentNodeEditMM && Array.isArray(parentNodeEditMM.typeTags) ? parentNodeEditMM.typeTags : []);
-      for (const o of opts) {
-        const locked = inheritSetMM.has(o.value);
-        const isChecked = cur.has(o.value) || locked;
-        const lb = document.createElement('label');
-        lb.className = 'check-item' + (isChecked ? ' checked' : '') + (locked ? ' disabled' : '');
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.value = o.value;
-        cb.checked = isChecked;
-        if (locked) cb.disabled = true;
-        cb.addEventListener('change', () => lb.classList.toggle('checked', cb.checked));
-        lb.appendChild(cb);
-        lb.appendChild(document.createTextNode(o.label));
-        typeTagsList.appendChild(lb);
-      }
+      typeTagsList.appendChild(buildTypeTagCheckGroup(groupTagOptionSections(), { curSet: cur, inheritSet: inheritSetMM }));
       const hint = document.createElement('div');
       hint.className = 'form-hint';
       hint.textContent = '勾选该目录下允许显示的类型组(可多选)。点击该目录时,分类树中只显示「资源组命中了勾选类型组」或「未勾选任何资源组(全部)」的目录;不勾选 = 点击目录仅展开/折叠。';
@@ -2030,6 +2141,19 @@ function bindMenuManagement(container) {
       typeSel.addEventListener('change', sync); sync();
     }
 
+    // 锁定:禁止删除(右键删除项置灰)
+    const lockRowMM = makeRow('锁定');
+    const lockCbMM = document.createElement('input');
+    lockCbMM.type = 'checkbox';
+    lockCbMM.checked = !!node.locked;
+    const lockLbMM = document.createElement('span');
+    lockLbMM.style.fontSize = '13px';
+    lockLbMM.style.color = 'var(--text2)';
+    lockLbMM.textContent = ' 锁定(禁止删除)';
+    lockRowMM.appendChild(lockCbMM);
+    lockRowMM.appendChild(lockLbMM);
+    body.appendChild(lockRowMM);
+
     const { close } = openModal({
       title: isTerm ? '编辑终端节点' : '编辑目录节点',
       body,
@@ -2039,14 +2163,15 @@ function bindMenuManagement(container) {
           text: '确定', cls: 'primary', onClick: () => {
             const name = nameInp.value.trim();
             if (!name) { toast('名称不能为空', 'error'); return; }
-            const patch = { name, icon: iconInp.value.trim(), tooltip: tipInp.value.trim(), note: noteInp.value.trim(), isResource: resCb.checked };
+            const patch = { name, icon: iconInp.value.trim(), tooltip: tipInp.value.trim(), note: noteInp.value.trim(), isResource: resCb.checked, locked: lockCbMM.checked };
             if (isTerm) {
               const isExe = typeSel.value === 'exe';
               patch.actionType = isExe ? 'exe' : 'builtin';
               patch.action = isExe ? exeInp.value.trim() : actSel.value;
             } else {
               patch.actionType = 'builtin';
-              patch.action = actSel.value; // 目录目标页面可为空
+              // 资源型目录(勾选「资源」):action 由「资源类型」下拉决定(存量 isResource=true 且 action 非 res:* → 自动补默认图片)
+              patch.action = resCb.checked && resTypeSel ? resTypeSel.value : actSel.value;
               patch.typeTags = typeTagsList ? [...typeTagsList.querySelectorAll('input:checked')].map((c) => c.value) : [];
             }
             updateMenuNode(id, patch);
@@ -2099,11 +2224,16 @@ function bindMenuManagement(container) {
   const deleteMmNodeDialog = (id) => {
     const node = menuNodeById(id);
     if (!node) return;
+    if (isMenuNodeLocked(id)) return toast('该节点已锁定,无法删除', 'error');
     const subs = getMenuNodeDescendants(id).length;
     confirmDialog({
       title: `删除「${node.name}」?`,
       message: subs ? `其下 ${subs} 个子节点将一并删除。` : '该节点将被删除。',
-      onOk: () => { removeMenuNode(id); refresh(); toast('已删除'); },
+      onOk: () => {
+        if (!removeMenuNode(id)) return toast('删除失败:该节点或其子节点已锁定', 'error');
+        refresh();
+        toast('已删除');
+      },
     });
   };
 
@@ -2125,27 +2255,50 @@ function bindMenuManagement(container) {
   const catTree = container.querySelector('#cat-tree');
   const catExpanded = new Set();
 
+  /** 类型组勾选:按分区(内置标签 / 自定义分组)渲染复选框,分区标题 + 说明,避免「视频」标签与「视频资源」分组混淆 */
+  const buildTypeTagCheckGroup = (sections, { curSet, inheritSet } = {}) => {
+    const cur = new Set(Array.isArray(curSet) ? curSet : []);
+    const inh = new Set(Array.isArray(inheritSet) ? inheritSet : []);
+    const list = document.createElement('div');
+    list.className = 'check-group';
+    for (const sec of sections) {
+      const sep = document.createElement('div');
+      sep.className = 'tag-opt-sep';
+      const t = document.createElement('span');
+      t.className = 'tag-opt-sep-title';
+      t.textContent = sec.title;
+      sep.appendChild(t);
+      if (sec.note) {
+        const n = document.createElement('span');
+        n.className = 'tag-opt-sep-note';
+        n.textContent = ' ' + sec.note;
+        sep.appendChild(n);
+      }
+      list.appendChild(sep);
+      for (const o of sec.options) {
+        const locked = inh.has(o.value);
+        const isChecked = cur.has(o.value) || locked;
+        const lb = document.createElement('label');
+        lb.className = 'check-item' + (isChecked ? ' checked' : '') + (locked ? ' disabled' : '');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = o.value;
+        cb.checked = isChecked;
+        if (locked) cb.disabled = true;
+        cb.addEventListener('change', () => lb.classList.toggle('checked', cb.checked));
+        lb.appendChild(cb);
+        lb.appendChild(document.createTextNode(o.label));
+        list.appendChild(lb);
+      }
+    }
+    return list;
+  };
+
   // 资源组勾选字段(带继承锁):继承项灰显不可改,且默认勾选
   const catTypeTagField = (value, inherited) => {
     const inheritSet = new Set(Array.isArray(inherited) ? inherited : []);
-    const list = document.createElement('div');
-    list.className = 'check-group';
     const cur = new Set(Array.isArray(value) ? value : []);
-    for (const o of groupTagOptions()) {
-      const locked = inheritSet.has(o.value);
-      const isChecked = cur.has(o.value) || locked;
-      const lb = document.createElement('label');
-      lb.className = 'check-item' + (isChecked ? ' checked' : '') + (locked ? ' disabled' : '');
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.value = o.value;
-      cb.checked = isChecked;
-      if (locked) cb.disabled = true;
-      cb.addEventListener('change', () => lb.classList.toggle('checked', cb.checked));
-      lb.appendChild(cb);
-      lb.appendChild(document.createTextNode(o.label));
-      list.appendChild(lb);
-    }
+    const list = buildTypeTagCheckGroup(groupTagOptionSections(), { curSet: cur, inheritSet });
     const hint = document.createElement('div');
     hint.className = 'form-hint';
     hint.textContent = '不勾选 = 在所有资源组中显示;勾选后仅在该资源组(可多选)的资源树中显示。';
@@ -2188,7 +2341,7 @@ function bindMenuManagement(container) {
       row.appendChild(iconNode('📂', 'cat-icon'));
       const nm = document.createElement('span');
       nm.className = 'cat-name';
-      nm.textContent = cat.name;
+      nm.textContent = cat.name + (cat.locked ? ' 🔒' : '');
       row.appendChild(nm);
 
       // 资源组徽标(显示该分类归属的资源组)
@@ -2219,10 +2372,13 @@ function bindMenuManagement(container) {
   const catNodeMenu = (x, y, cat) => {
     const items = [
       { label: '新建子目录', onClick: () => newCatDialog(cat.id) },
-      { label: '编辑', onClick: () => editCatDialog(cat.id) },
-      { label: '移动...', onClick: () => moveCatDialog(cat) },
-      { label: '删除', danger: true, onClick: () => deleteCatDialog(cat.id) },
+      { label: '编辑分类目录', onClick: () => editCatDialog(cat.id) },
     ];
+    // 锁定分类:隐藏「移动...」「删除」项(锁定即防移动/删除)
+    if (!isCategoryLocked(cat.id)) {
+      items.push({ label: '移动...', onClick: () => moveCatDialog(cat) });
+      items.push({ label: '删除', danger: true, onClick: () => deleteCatDialog(cat.id) });
+    }
     showContextMenu(x, y, items);
   };
 
@@ -2247,6 +2403,18 @@ function bindMenuManagement(container) {
     const list = catTypeTagField([], inherited);
     tagsRow.appendChild(list);
     body.appendChild(tagsRow);
+    // 锁定:禁止删除(右键删除项置灰)
+    const lockRow = makeRow('锁定');
+    const lockCb = document.createElement('input');
+    lockCb.type = 'checkbox';
+    lockCb.checked = false;
+    const lockLb = document.createElement('span');
+    lockLb.style.fontSize = '13px';
+    lockLb.style.color = 'var(--text2)';
+    lockLb.textContent = ' 锁定(禁止删除)';
+    lockRow.appendChild(lockCb);
+    lockRow.appendChild(lockLb);
+    body.appendChild(lockRow);
     const { close } = openModal({
       title: '新建分类目录',
       body,
@@ -2256,7 +2424,7 @@ function bindMenuManagement(container) {
           const name = nameInp.value.trim();
           if (!name) { toast('目录名称不能为空', 'error'); return; }
           const merged = Array.from(new Set([...inherited, ...catTagsFromList(list)]));
-          addCategory({ name, typeTags: merged, parentId: parentId || '' });
+          addCategory({ name, typeTags: merged, parentId: parentId || '', locked: lockCb.checked });
           if (parentId) catExpanded.add(parentId);
           close();
           renderCatTree();
@@ -2288,6 +2456,18 @@ function bindMenuManagement(container) {
     const list = catTypeTagField(cat.typeTags, inherited);
     tagsRow.appendChild(list);
     body.appendChild(tagsRow);
+    // 锁定:禁止删除(右键删除项置灰)
+    const lockRow = makeRow('锁定');
+    const lockCb = document.createElement('input');
+    lockCb.type = 'checkbox';
+    lockCb.checked = !!cat.locked;
+    const lockLb = document.createElement('span');
+    lockLb.style.fontSize = '13px';
+    lockLb.style.color = 'var(--text2)';
+    lockLb.textContent = ' 锁定(禁止删除)';
+    lockRow.appendChild(lockCb);
+    lockRow.appendChild(lockLb);
+    body.appendChild(lockRow);
     const { close } = openModal({
       title: '编辑分类目录',
       body,
@@ -2298,7 +2478,7 @@ function bindMenuManagement(container) {
           if (!name) { toast('目录名称不能为空', 'error'); return; }
           // 强制保留继承自父分类的资源组(安全兜底)
           const merged = Array.from(new Set([...inherited, ...catTagsFromList(list)]));
-          updateCategory(id, { name, typeTags: merged });
+          updateCategory(id, { name, typeTags: merged, locked: lockCb.checked });
           close();
           renderCatTree();
           document.dispatchEvent(new CustomEvent('library:changed'));
@@ -2311,6 +2491,7 @@ function bindMenuManagement(container) {
   const deleteCatDialog = (id) => {
     const cat = categoryById(id);
     if (!cat) return;
+    if (isCategoryLocked(id)) return toast('该分类已锁定,无法删除', 'error');
     const subs = getCategoryChildren(id);
     const subDesc = getCategoryDescendants(id);
     const nItems = state.items.filter((i) => i.categoryId === id || subDesc.includes(i.categoryId)).length;
@@ -2347,7 +2528,10 @@ function bindMenuManagement(container) {
         { text: '删除', cls: 'danger', onClick: () => {
           const deleteItems = body.querySelector('input[name="delcat-anim"]:checked').value === 'delete';
           const subAction = hasSubs ? body.querySelector('input[name="delcat-sub"]:checked').value : 'parent';
-          removeCategoryAdvanced(id, { deleteItems, subAction });
+          if (!removeCategoryAdvanced(id, { deleteItems, subAction })) {
+            close();
+            return toast('删除失败:该分类或其子分类已锁定', 'error');
+          }
           close();
           renderCatTree();
           document.dispatchEvent(new CustomEvent('library:changed'));

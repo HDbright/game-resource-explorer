@@ -343,10 +343,21 @@ body {
 .preview-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg); }
 /* 沉浸查看热区(pv-chrome-zone)的相对定位容器 */
 #page-preview { position: relative; }
-/* 三个预览子视图必须撑满 flex 容器,否则 #preview-body 的 flex:1 塌陷、canvas 高度为 0 */
-#pv-anim-view, #pv-image-view, #pv-audio-view {
+/* 预览子视图必须撑满 flex 容器,否则 #preview-body 的 flex:1 塌陷、canvas 高度为 0(FGUI 查看器同样依赖) */
+#pv-anim-view, #pv-image-view, #pv-audio-view, #pv-fgui-view, #pv-video-view {
   flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden;
 }
+#pv-fgui-view .fgui-viewer { flex: 1; min-height: 0; }
+/* 视频播放器 */
+.video-wrap {
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 10px; padding: 14px;
+}
+#video-el {
+  max-width: 100%; max-height: 100%; background: #000;
+  border-radius: 8px; outline: none;
+}
+.video-toolbar { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .preview-empty {
   flex: 1; display: flex; align-items: center; justify-content: center; color: var(--text2);
 }
@@ -492,6 +503,19 @@ input[type="color"] { width: 30px; height: 26px; border: 1px solid var(--border)
 .form-row .check-item.disabled input { cursor: not-allowed; }
 .form-row .check-item input { accent-color: var(--accent2); margin: 0; }
 .form-row .form-hint { width: 100%; font-size: 12px; color: var(--text2); line-height: 1.5; margin-top: 2px; }
+/* 类型组勾选分区标题(内置标签 / 自定义分组) */
+.form-row .tag-opt-sep {
+  flex-basis: 100%; width: 100%;
+  display: flex; align-items: baseline; gap: 8px;
+  font-size: 12px; color: var(--text2); margin: 4px 0 0;
+  border-top: 1px dashed var(--border); padding-top: 6px;
+}
+.form-row .tag-opt-sep:first-child { border-top: none; padding-top: 0; margin-top: 0; }
+.form-row .tag-opt-sep-title { color: var(--accent2); font-weight: 600; white-space: nowrap; }
+.form-row .tag-opt-sep-note { font-size: 11.5px; color: var(--text2); opacity: .85; }
+/* 扩展名重叠警告(自定义类型/分组重复配置) */
+.form-row .form-hint.conflict { color: #d9a05a; }
+.form-row .form-hint.conflict b { color: #e0573c; }
 .form-row .form-info { flex: 1; min-width: 0; font-size: 12.5px; color: var(--text2); line-height: 1.6; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; }
 .form-row .form-info b { color: var(--text1); font-weight: 600; }
 /* 名称行内联「资源」勾选框(目录资源属性标识) */
@@ -1578,6 +1602,25 @@ body.app-preview-fullscreen #page-preview { display: flex !important; }
   background: var(--accent2); color: #fff; border-color: var(--accent2);
 }
 .btn.primary:hover { filter: brightness(1.08); }
+
+/* pv-fgui-view 双标签:🧩 FGUI编辑器(默认) / 🗂 资源清单 */
+.fgui-pv-tabs {
+  display: flex; gap: 4px; padding: 6px 12px 0; flex-shrink: 0;
+  border-bottom: 1px solid var(--border, #333);
+}
+.fgui-pv-tab {
+  background: transparent; border: 1px solid transparent; border-bottom: none;
+  color: var(--text2, #aaa); padding: 5px 14px; border-radius: 8px 8px 0 0;
+  cursor: pointer; font-size: 13px;
+}
+.fgui-pv-tab:hover { color: var(--text, #eee); }
+.fgui-pv-tab.active {
+  color: var(--text, #eee); background: rgba(255,255,255,.06);
+  border-color: var(--border, #333); font-weight: 600;
+}
+.fgui-pv-pane { flex: 1; min-height: 0; display: flex; }
+.fgui-pv-editor { flex-direction: column; } /* 内嵌 fge-wrap(flex:1)撑满 */
+.fgui-pv-list { } /* .fgui-viewer height:100% 撑满 */
 
 /* ============ FGUI 包逆向查看器 ============ */
 .fgui-viewer {

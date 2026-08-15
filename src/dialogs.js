@@ -149,14 +149,14 @@ export function showContextMenu(x, y, items) {
 
   for (const it of items) {
     const item = document.createElement('div');
-    item.className = 'ctx-item' + (it.danger ? ' danger' : '');
+    item.className = 'ctx-item' + (it.danger ? ' danger' : '') + (it.disabled ? ' disabled' : '');
     item.textContent = it.label;
     if (it.sub && it.sub.length) {
       item.classList.add('has-sub');
       item.addEventListener('mouseenter', () => { cancelHide(); showSub(item, it); });
       item.addEventListener('mouseleave', scheduleHide);
       item.addEventListener('click', (e) => { e.stopPropagation(); }); // 仅展开,不执行动作
-    } else {
+    } else if (!it.disabled) {
       item.addEventListener('click', () => {
         menu.remove();
         closeSub();

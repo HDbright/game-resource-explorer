@@ -1,5 +1,5 @@
 import { createPlayer } from './preview/playerFactory.js';
-import { typeGroup } from './state.js';
+import { typeGroup, isVideoItem } from './state.js';
 import { getPixi } from './pixiLazy.js';
 
 function basename(p) {
@@ -48,7 +48,7 @@ export class ThumbnailService {
     return this._initPromise;
   }
 
-  /** 资源类型对应的缩略图 URL:动画 → dataURL;图片(含自定义 image 分组类型)→ 静态服务 URL;音频 → null */
+  /** 资源类型对应的缩略图 URL:动画 → dataURL;图片(含自定义 image 分组类型)→ 静态服务 URL;FGUI → 徽标 dataURL;视频 → 首帧 dataURL;音频 → null */
   thumbnailUrl(item) {
     if (!item) return null;
     if (item.type === 'audio') return null;
@@ -57,6 +57,8 @@ export class ThumbnailService {
     if (g === 'image') {
       return `${location.origin}/a/${item.id}/${encodeURIComponent(basename(item.filePath))}`;
     }
+    if (item.type === 'fgui') return this.getFguiThumb(item);
+    if (isVideoItem(item)) return this.getVideoThumb(item);
     return null;
   }
 
@@ -100,6 +102,131 @@ export class ThumbnailService {
     });
     this.pending.set(item.id, promise);
     return promise;
+  }
+
+  /**
+   * FGUI 包缩略图(与动画缩略图同缓存结构:内存 → 磁盘 → 生成写盘)。
+   * FGUI .bin 无现成可渲染帧,用 canvas 绘制徽标(底色 + 🧩 + 包名),不依赖 PIXI。
+   */
+  async getFguiThumb(item) {
+    const mt = await this._fileMtime(item.filePath);
+    const key = `${item.id}_${item.updatedAt || 0}_${mt}`;
+    const hit = this.cache.get(item.id);
+    if (hit && hit.key === key) return hit.url;
+    if (this.pending.has(item.id)) return this.pending.get(item.id);
+    const diskUrl = await this._readDisk(key);
+    if (diskUrl) {
+      this.cache.set(item.id, { key, url: diskUrl });
+      return diskUrl;
+    }
+    const promise = this._genFguiThumb(item).then((url) => {
+      this.cache.set(item.id, { key, url });
+      this.pending.delete(item.id);
+      if (url) this._writeDisk(key, url);
+      return url;
+    }).catch((err) => {
+      console.warn('[thumb] FGUI 生成失败:', item.displayName, err && err.message || err);
+      this.pending.delete(item.id);
+      this.cache.set(item.id, { key, url: null });
+      return null;
+    });
+    this.pending.set(item.id, promise);
+    return promise;
+  }
+
+  /** canvas 绘制 FGUI 包徽标(96×96 圆角底 + 🧩 + 包名) */
+  _genFguiThumb(item) {
+    return new Promise((resolve) => {
+      try {
+        const c = document.createElement('canvas');
+        c.width = 96; c.height = 96;
+        const ctx = c.getContext('2d');
+        const R = 14;
+        ctx.beginPath();
+        ctx.moveTo(R, 0); ctx.arcTo(96, 0, 96, 96, R); ctx.arcTo(96, 96, 0, 96, R);
+        ctx.arcTo(0, 96, 0, 0, R); ctx.arcTo(0, 0, 96, 0, R); ctx.closePath();
+        ctx.fillStyle = '#2f3b66';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,.16)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = '34px sans-serif';
+        ctx.fillText('🧩', 48, 40);
+        ctx.font = '10px sans-serif';
+        ctx.fillStyle = 'rgba(255,255,255,.92)';
+        ctx.fillText(String(item.displayName || '').slice(0, 8), 48, 80);
+        resolve(c.toDataURL('image/png'));
+      } catch (err) {
+        resolve(null);
+      }
+    });
+  }
+
+  /**
+   * 视频缩略图(与动画缩略图同缓存结构:内存 → 磁盘 → 生成写盘)。
+   * 用隐藏 video 元素加载首帧(静音,seek 到 0.5s)绘制到 canvas(contain 适配,黑底)。
+   */
+  async getVideoThumb(item) {
+    const mt = await this._fileMtime(item.filePath);
+    const key = `${item.id}_${item.updatedAt || 0}_${mt}`;
+    const hit = this.cache.get(item.id);
+    if (hit && hit.key === key) return hit.url;
+    if (this.pending.has(item.id)) return this.pending.get(item.id);
+    const diskUrl = await this._readDisk(key);
+    if (diskUrl) {
+      this.cache.set(item.id, { key, url: diskUrl });
+      return diskUrl;
+    }
+    const promise = this._genVideoThumb(item).then((url) => {
+      this.cache.set(item.id, { key, url });
+      this.pending.delete(item.id);
+      if (url) this._writeDisk(key, url);
+      return url;
+    }).catch((err) => {
+      console.warn('[thumb] 视频生成失败:', item.displayName, err && err.message || err);
+      this.pending.delete(item.id);
+      this.cache.set(item.id, { key, url: null });
+      return null;
+    });
+    this.pending.set(item.id, promise);
+    return promise;
+  }
+
+  /** 视频首帧绘制(96×96 contain 适配,黑底) */
+  _genVideoThumb(item) {
+    return new Promise((resolve) => {
+      const video = document.createElement('video');
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = 'auto';
+      video.src = `${location.origin}/a/${item.id}/${encodeURIComponent(basename(item.filePath))}`;
+      const cleanup = () => { try { video.removeAttribute('src'); video.load(); } catch (e) { /* ignore */ } };
+      const fail = () => { cleanup(); clearTimeout(to); resolve(null); };
+      const to = setTimeout(fail, 10000);
+      video.addEventListener('loadeddata', () => {
+        try { video.currentTime = Math.min(0.5, (video.duration || 1) / 2); } catch (e) { /* ignore */ }
+      });
+      video.addEventListener('seeked', () => {
+        clearTimeout(to);
+        try {
+          const vw = video.videoWidth, vh = video.videoHeight;
+          if (!vw || !vh) return fail();
+          const c = document.createElement('canvas');
+          c.width = 96; c.height = 96;
+          const ctx = c.getContext('2d');
+          const s = Math.min(88 / vw, 88 / vh, 4);
+          const w = vw * s, h = vh * s;
+          ctx.fillStyle = '#000';
+          ctx.fillRect(0, 0, 96, 96);
+          ctx.drawImage(video, (96 - w) / 2, (96 - h) / 2, w, h);
+          cleanup();
+          resolve(c.toDataURL('image/png'));
+        } catch (err) { fail(); }
+      });
+      video.addEventListener('error', fail);
+    });
   }
 
   /** 磁盘文件 mtime(ms);失败返回 0(无 mtime 时回退到仅 updatedAt 判定)。

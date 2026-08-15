@@ -1,4 +1,4 @@
-import { state, getFolderData, sortItems, formatSize, formatDate, typeGroup, typeLabel, isImageType, categoryById, getCategoryPathList, itemTags, categoryLabel, favCategoryById, itemById, catVisibleInGroup, catVisibleInAnyGroup, categoryTypeTagNames, getCategoryChildren, getCategoryDescendants, TYPE_GROUPS } from '../state.js';
+import { state, getFolderData, sortItems, formatSize, formatDate, typeGroup, typeLabel, isImageType, isVideoItem, categoryById, getCategoryPathList, itemTags, categoryLabel, favCategoryById, itemById, catVisibleInGroup, catVisibleInAnyGroup, categoryTypeTagNames, getCategoryChildren, getCategoryDescendants, TYPE_GROUPS } from '../state.js';
 import { thumbnailService } from '../thumbnails.js';
 import { toast } from '../dialogs.js';
 import { loadSearchHistory, saveSearchHistory, addSearchHistory, removeSearchHistory } from '../searchHistory.js';
@@ -492,6 +492,16 @@ export function renderFolderPage(container, opts) {
       if (isImageType(it.type)) {
         const url = thumbnailService.thumbnailUrl(it);
         if (url) { imgEl.src = url; imgEl.onerror = () => { imgEl.style.display = 'none'; }; }
+      } else if (it.type === 'fgui') {
+        thumbnailService.getFguiThumb(it).then((url) => {
+          if (url) { imgEl.src = url; imgEl.onerror = () => { imgEl.style.display = 'none'; }; }
+          else imgEl.style.display = 'none';
+        });
+      } else if (isVideoItem(it)) {
+        thumbnailService.getVideoThumb(it).then((url) => {
+          if (url) { imgEl.src = url; imgEl.onerror = () => { imgEl.style.display = 'none'; }; }
+          else imgEl.style.display = 'none';
+        });
       } else {
         thumbnailService.getAnimThumb(it).then((url) => {
           if (url) { imgEl.src = url; imgEl.onerror = () => { imgEl.style.display = 'none'; }; }
@@ -800,6 +810,16 @@ export function renderFavFolderPage(container, opts) {
       if (isImageType(it.type)) {
         const url = thumbnailService.thumbnailUrl(it);
         if (url) { imgEl.src = url; imgEl.onerror = () => { imgEl.style.display = 'none'; }; }
+      } else if (it.type === 'fgui') {
+        thumbnailService.getFguiThumb(it).then((url) => {
+          if (url) { imgEl.src = url; imgEl.onerror = () => { imgEl.style.display = 'none'; }; }
+          else imgEl.style.display = 'none';
+        });
+      } else if (isVideoItem(it)) {
+        thumbnailService.getVideoThumb(it).then((url) => {
+          if (url) { imgEl.src = url; imgEl.onerror = () => { imgEl.style.display = 'none'; }; }
+          else imgEl.style.display = 'none';
+        });
       } else {
         thumbnailService.getAnimThumb(it).then((url) => {
           if (url) { imgEl.src = url; imgEl.onerror = () => { imgEl.style.display = 'none'; }; }

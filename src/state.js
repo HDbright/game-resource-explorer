@@ -1079,6 +1079,22 @@ export const TYPE_GROUPS = {
   fgui: ['fgui'],
 };
 
+/** 视频文件扩展名(按路径判定,不依赖入库 type——视频条目 type 通常是自定义分组 id) */
+export const VIDEO_EXTS = ['.mp4', '.m4v', '.webm', '.ogv', '.mkv', '.avi', '.mov', '.flv', '.mpg', '.mpeg', '.wmv', '.ts', '.3gp'];
+
+/** 路径是否为视频文件(按扩展名) */
+export function isVideoPath(p) {
+  const s = String(p || '');
+  const dot = s.lastIndexOf('.');
+  if (dot < 0) return false;
+  return VIDEO_EXTS.includes(s.slice(dot).toLowerCase());
+}
+
+/** 条目是否为视频资源 */
+export function isVideoItem(item) {
+  return !!(item && isVideoPath(item.filePath));
+}
+
 /** 类型显示名 */
 export const TYPE_LABEL = {
   spine: 'Spine',
@@ -1165,6 +1181,8 @@ export function addCustomTypeGroup({ name = '', icon = '', exts = [] }) {
   };
   customTypeGroups().push(g);
   setSetting('customTypeGroups', customTypeGroups());
+  // 立即为新建分组创建侧栏资源根(用户新建分组后即可见可管理)
+  ensureResourceRootsForCategories();
   return g;
 }
 export function updateCustomTypeGroup(id, patch) {
@@ -1176,6 +1194,8 @@ export function updateCustomTypeGroup(id, patch) {
   }
   Object.assign(g, patch);
   setSetting('customTypeGroups', customTypeGroups());
+  // 分组改名/改图标 → 同步侧栏资源根名称/图标
+  ensureResourceRootsForCategories();
   return g;
 }
 export function removeCustomTypeGroup(id) {
@@ -1186,13 +1206,32 @@ export function removeCustomTypeGroup(id) {
   setSetting('customTypeGroups', arr);
 }
 /**
- * 自修复:凡是被「分类目录」引用到的自定义资源分组,都确保左侧栏存在对应的资源根菜单节点
- * (action = 'res:group:<分组id>')。否则该分类在左侧菜单栏无挂载点 → 看不见,
- * 但系统设置「分类目录」里能看到。转换菜单目录为分类、或分类引用了某自定义分组时都可能触发。
+ * 内置「无默认侧栏挂载点」的类型标签 → 自动创建的资源根元信息。
+ * 分类目录勾选了这些标签后,仅靠 4 个内置资源根(动画/图片/音频/3D)无法挂载
+ * (catVisibleInGroup 要求 group === 标签),会导致分类在左侧菜单"消失"。
+ * 与自定义资源分组(res:group:<id>)同机制,自动补建对应资源根。
+ */
+export const BUILTIN_TAG_ROOTS = [
+  { tag: 'video', name: '视频资源', icon: '🎞', action: 'res:video' },
+  { tag: 'article', name: '文章资源', icon: '📄', action: 'res:article' },
+];
+
+/** 判断菜单节点 action 是否为「资源根」(内置四组 + 内置标签根 + 自定义分组根) */
+export function isResourceRootAction(action) {
+  const a = action || '';
+  if (a === 'res:anim' || a === 'res:image' || a === 'res:audio' || a === 'res:3d') return true;
+  if (a.startsWith('res:group:')) return true;
+  return BUILTIN_TAG_ROOTS.some((r) => r.action === a);
+}
+
+/**
+ * 自修复:凡是被「分类目录」引用到的资源挂载点,都确保左侧栏存在对应的资源根菜单节点。
+ * - 自定义资源分组 → action = 'res:group:<分组id>'
+ * - 内置无默认挂载点标签(video/article) → action = 'res:video' / 'res:article'
+ * 否则该分类在左侧菜单栏无挂载点 → 看不见,但系统设置「分类目录」里能看到。
+ * 转换菜单目录为分类、或分类引用了某自定义分组/标签时都可能触发。
  */
 export function ensureResourceRootsForCategories() {
-  const groups = customTypeGroups();
-  if (!groups.length) return;
   const used = new Set();
   for (const c of state.categories || []) {
     for (const t of (Array.isArray(c.typeTags) ? c.typeTags : [])) used.add(t);
@@ -1202,19 +1241,16 @@ export function ensureResourceRootsForCategories() {
     ? state.menuNodes[idx3d].sort : state.menuNodes.length - 1;
   let gi = 0;
   let changed = false;
-  for (const g of groups) {
-    if (!used.has(g.id)) continue;
-    const action = 'res:group:' + g.id;
-    if (state.menuNodes.some((m) => (m.action || '') === action)) continue;
+  const pushRoot = (meta) => {
     state.menuNodes.push({
       id: uid('mn'),
-      name: g.name || '未命名分组',
-      icon: (g.icon && String(g.icon).trim()) ? g.icon : '🗂',
+      name: meta.name,
+      icon: meta.icon || '🗂',
       parentId: '',
       nodeType: 'dir',
       actionType: 'builtin',
-      action,
-      tooltip: g.name || '',
+      action: meta.action,
+      tooltip: meta.tooltip || meta.name,
       note: '',
       typeTags: [],
       isResource: true,
@@ -1224,11 +1260,34 @@ export function ensureResourceRootsForCategories() {
     });
     gi++;
     changed = true;
+  };
+  // 1) 自定义资源分组:所有分组都确保有资源根(不依赖是否被分类引用;分组改名/改图标后根名同步)
+  for (const g of customTypeGroups()) {
+    const action = 'res:group:' + g.id;
+    const existing = state.menuNodes.find((m) => (m.action || '') === action);
+    if (existing) {
+      const wantIcon = (g.icon && String(g.icon).trim()) ? g.icon : '🗂';
+      if (existing.name !== (g.name || '未命名分组') || existing.icon !== wantIcon) {
+        existing.name = g.name || '未命名分组';
+        existing.icon = wantIcon;
+        existing.updatedAt = now();
+        changed = true;
+      }
+      continue;
+    }
+    pushRoot({ name: g.name || '未命名分组', icon: (g.icon && String(g.icon).trim()) ? g.icon : '🗂', action, tooltip: g.name || '' });
+  }
+  // 2) 内置标签(video/article) → 对应资源根;若已存在同名资源根(如自定义分组也叫「视频资源」)则跳过,避免重复根
+  for (const r of BUILTIN_TAG_ROOTS) {
+    if (!used.has(r.tag)) continue;
+    if (state.menuNodes.some((m) => (m.action || '') === r.action)) continue;
+    if (state.menuNodes.some((m) => m.name === r.name && isResourceRootAction(m.action))) continue;
+    pushRoot(r);
   }
   if (changed) {
-    // 把新建的资源根(及既有 res:group 根)统一挪到「3D资源」之后,使资源根成组
+    // 把新建/既有的资源根(内置标签根 + res:group 根)统一挪到「3D资源」之后,使资源根成组
     if (idx3d >= 0) {
-      const gNodes = state.menuNodes.filter((m) => (m.action || '').startsWith('res:group:'));
+      const gNodes = state.menuNodes.filter((m) => isResourceRootAction(m.action) && (m.action || '').startsWith('res:') && !['res:anim', 'res:image', 'res:audio', 'res:3d'].includes(m.action || ''));
       for (const n of gNodes) state.menuNodes.splice(state.menuNodes.indexOf(n), 1);
       const at = state.menuNodes.findIndex((m) => m.id === '__m_res_3d__') + 1;
       state.menuNodes.splice(at, 0, ...gNodes);
@@ -1325,11 +1384,49 @@ export function extToType(ext) {
   return null;
 }
 
-/** 目录/分类可标记的分组标签选项(内置 + 自定义分组);数据与设置页资源类型管理一致 */
+/** 目录/分类可标记的分组标签选项(内置 + 自定义分组);选项带 kind('tag' 内置标签 | 'group' 自定义分组),数据与设置页资源类型管理一致 */
 export function groupTagOptions() {
   const out = [];
-  for (const [v, l] of Object.entries(CAT_TYPE_TAG_LABELS)) out.push({ value: v, label: l });
-  for (const g of customTypeGroups()) out.push({ value: g.id, label: g.name });
+  for (const [v, l] of Object.entries(CAT_TYPE_TAG_LABELS)) out.push({ value: v, label: l, kind: 'tag' });
+  for (const g of customTypeGroups()) out.push({ value: g.id, label: g.name, kind: 'group' });
+  return out;
+}
+
+/**
+ * 类型组勾选的「分区」结构(内置标签区 + 自定义分组区),供设置页/菜单对话框分区渲染。
+ * 避免「视频」(内置标签)与「视频资源」(自定义分组)混在一起造成混淆:
+ * - tag   内置标签:仅分类挂载标记,不承载文件;video/article 勾选后侧栏自动补建对应资源根。
+ * - group 自定义分组:独立资源组,文件按扩展名归入,侧栏显示独立资源根。
+ */
+export function groupTagOptionSections() {
+  const opts = groupTagOptions();
+  return [
+    {
+      kind: 'tag',
+      title: '内置标签(挂载标记)',
+      note: '仅决定分类在哪些资源根下显示,不承载文件。勾选「视频/文章」时侧栏自动补建对应资源根。',
+      options: opts.filter((o) => o.kind === 'tag'),
+    },
+    {
+      kind: 'group',
+      title: '自定义分组(独立资源组)',
+      note: '文件按扩展名自动归入该组,侧栏显示独立资源根(如「视频资源」.mp4/.mkv)。',
+      options: opts.filter((o) => o.kind === 'group'),
+    },
+  ].filter((s) => s.options.length);
+}
+
+/** 某扩展名的「声明方」(自定义类型/自定义分组);用于设置页检测重复配置,返回 [{kind:'type'|'group', id, name}] */
+export function extOwners(ext) {
+  const e = String(ext || '').toLowerCase();
+  if (!e.startsWith('.') || e.length < 2) return [];
+  const out = [];
+  for (const ct of customTypes()) {
+    if (ct.exts && ct.exts.includes(e)) out.push({ kind: 'type', id: ct.id, name: ct.name });
+  }
+  for (const g of customTypeGroups()) {
+    if (g.exts && g.exts.includes(e)) out.push({ kind: 'group', id: g.id, name: g.name });
+  }
   return out;
 }
 /** 是否为有效分组标签(内置或自定义分组) */
@@ -1436,6 +1533,7 @@ export async function loadState() {
     if (mn.actionType == null) mn.actionType = '';
     if (mn.action == null) mn.action = '';
     if (!Array.isArray(mn.typeTags)) mn.typeTags = [];
+    if (mn.locked == null) mn.locked = false;
     // 资源属性:命名资源目录(动画资源/图片资源/图标库资源/音频资源/3D资源/项目管理)及其子孙恒为「是」;
     // 其余目录沿用已存储值(旧库缺字段时按祖先链推导并默认否)。命名目录子孙即使库中存 0 也强制 true。
     const derivedRes = computeIsResource(mn, state.menuNodes);
@@ -1455,9 +1553,10 @@ export async function loadState() {
   for (const it of state.items) {
     if (!Array.isArray(it.tags)) it.tags = [];
   }
-  // 兼容字段:旧库分类无 typeTags 时补 [](无标签 = 所有资源类型显示)
+  // 兼容字段:旧库分类无 typeTags 时补 [](无标签 = 所有资源类型显示);无 locked 时补 false
   for (const c of state.categories) {
     if (!Array.isArray(c.typeTags)) c.typeTags = [];
+    if (c.locked == null) c.locked = false;
   }
   // 图标库:无自定义数据时 seed 默认 5 组(emoji)
   if (!Array.isArray(state.settings.iconGroups) || !state.settings.iconGroups.length) {
@@ -1505,19 +1604,22 @@ export function now() {
 
 // ---------------- 分类 ----------------
 
-/** 新增分类;parentId 为 '' 表示顶级分类,否则为父分类 id(子分类);typeTags 为资源类型标签数组(如 ['audio'],空 = 所有类型显示) */
-export function addCategory({ name, remark = '', parentId = '', typeTags = [] }) {
+/** 新增分类;parentId 为 '' 表示顶级分类,否则为父分类 id(子分类);typeTags 为资源类型标签数组(如 ['audio'],空 = 所有类型显示);locked 锁定后禁止删除 */
+export function addCategory({ name, remark = '', parentId = '', typeTags = [], locked = false }) {
   const cat = {
     id: uid('c'),
     name,
     remark,
     parentId: parentId || '',
     typeTags: Array.isArray(typeTags) ? typeTags.filter((t) => isValidTypeTag(t)) : [],
+    locked: !!locked,
     sort: state.categories.length,
     createdAt: now(),
   };
   state.categories.push(cat);
   saveState();
+  // 若勾选了无默认挂载点的标签(如 video/article),自动补建侧栏资源根,避免分类"消失"
+  ensureResourceRootsForCategories();
   return cat;
 }
 
@@ -1526,11 +1628,25 @@ export function updateCategory(id, patch) {
   if (!cat) return null;
   Object.assign(cat, patch, { updatedAt: now() });
   saveState();
+  ensureResourceRootsForCategories();
   return cat;
 }
 
-/** 删除分类:其子分类提升为顶级,其下动画移到「未分类」(categoryId = '') */
+/** 分类是否锁定(禁止删除);自身或任一祖先锁定均视为锁定(父锁定 → 子无法被连带删除) */
+export function isCategoryLocked(id) {
+  let cur = id ? categoryById(id) : null;
+  while (cur) {
+    if (cur.locked) return true;
+    cur = cur.parentId ? categoryById(cur.parentId) : null;
+  }
+  return false;
+}
+
+/** 删除分类:其子分类提升为顶级,其下动画移到「未分类」(categoryId = '')。锁定分类(或其锁定子孙)拒绝删除 */
 export function removeCategory(id) {
+  const cat = categoryById(id);
+  if (!cat) return false;
+  if (cat.locked || getCategoryDescendants(id).some((cid) => isCategoryLocked(cid))) return false;
   state.categories = state.categories.filter((c) => c.id !== id);
   for (const c of state.categories) {
     if (c.parentId === id) c.parentId = '';
@@ -1539,6 +1655,7 @@ export function removeCategory(id) {
     if (it.categoryId === id) it.categoryId = '';
   }
   saveState();
+  return true;
 }
 
 /**
@@ -1556,8 +1673,10 @@ export function removeCategory(id) {
  */
 export function removeCategoryAdvanced(id, opts = {}) {
   const cat = categoryById(id);
-  if (!cat) return;
+  if (!cat) return false;
   const { deleteItems = false, subAction = 'parent', subTargetId = '' } = opts;
+  // 锁定拦截:自身锁定,或"删除子分类"模式下存在锁定子孙 → 拒绝删除
+  if (cat.locked || (deleteItems && getCategoryDescendants(id).some((cid) => isCategoryLocked(cid)))) return false;
   const subs = getCategoryChildren(id);
   const catIds = new Set([id, ...getCategoryDescendants(id)]);
   const parentPid = cat.parentId || '';
@@ -1589,6 +1708,7 @@ export function removeCategoryAdvanced(id, opts = {}) {
   // 3) 移除自身
   state.categories = state.categories.filter((c) => c.id !== id);
   saveState();
+  return true;
 }
 
 export function categoryById(id) {
@@ -2765,7 +2885,7 @@ export function menuNodePath(id) {
 }
 
 /** 新增菜单节点(目录或终端);parentId '' = 顶级 */
-export function addMenuNode({ name, icon = '', parentId = '', nodeType = 'dir', actionType = '', action = '', tooltip = '', note = '', typeTags = [], isResource = false }) {
+export function addMenuNode({ name, icon = '', parentId = '', nodeType = 'dir', actionType = '', action = '', tooltip = '', note = '', typeTags = [], isResource = false, locked = false }) {
   const node = {
     id: uid('mn'),
     name,
@@ -2778,6 +2898,7 @@ export function addMenuNode({ name, icon = '', parentId = '', nodeType = 'dir', 
     note: note || '',
     typeTags: Array.isArray(typeTags) ? typeTags.filter((t) => isValidTypeTag(t)) : [],
     isResource: !!isResource,
+    locked: !!locked,
     sort: state.menuNodes.length,
     createdAt: now(),
     updatedAt: now(),
@@ -2795,11 +2916,23 @@ export function updateMenuNode(id, patch) {
   return n;
 }
 
-/** 删除菜单节点:递归删除其全部子节点(终端节点直接删除) */
+/** 菜单节点是否锁定(禁止删除);自身或任一祖先锁定均视为锁定 */
+export function isMenuNodeLocked(id) {
+  let cur = id ? menuNodeById(id) : null;
+  while (cur) {
+    if (cur.locked) return true;
+    cur = cur.parentId ? menuNodeById(cur.parentId) : null;
+  }
+  return false;
+}
+
+/** 删除菜单节点:递归删除其全部子节点(终端节点直接删除)。锁定节点(或其锁定子孙)拒绝删除 */
 export function removeMenuNode(id) {
   const ids = new Set([id, ...getMenuNodeDescendants(id)]);
+  if ([...ids].some((mid) => isMenuNodeLocked(mid))) return false;
   state.menuNodes = state.menuNodes.filter((m) => !ids.has(m.id));
   saveState();
+  return true;
 }
 
 /** 拖动排序:把 fromId 移到 toId 的上方(before)或下方(after) */

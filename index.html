@@ -265,41 +265,69 @@
               <audio id="audio-el" preload="metadata"></audio>
             </div>
 
-            <!-- FGUI 包逆向查看器 -->
-            <div id="pv-fgui-view" hidden>
-              <div class="fgui-viewer">
-                <div class="fgui-head">
-                  <span class="fgui-name" id="fgui-name"></span>
-                  <span class="fgui-badge" id="fgui-version"></span>
-                  <span class="fgui-badge" id="fgui-pkg-id"></span>
-                  <span class="fgui-meta">资源: <span id="fgui-items"></span></span>
-                  <span class="fgui-meta">精灵: <span id="fgui-sprites"></span></span>
-                  <span class="fgui-meta" title="依赖的其它 FGUI 包">依赖: <span id="fgui-deps"></span></span>
-                  <div class="ctrl-spacer"></div>
-                  <button class="btn sm" id="fgui-export-pkg" title="把当前目录下全部 FGUI 包导出为 JSON + XML 到所选目录">📤 导出全部包</button>
-                  <button class="btn sm" id="fgui-copy-src" title="复制当前源码标签页内容">📋 复制</button>
-                  <span class="status" id="fgui-status"></span>
+            <!-- 视频播放器(mp4/webm 等;原生 controls + 倍速) -->
+            <div id="pv-video-view" hidden>
+              <div class="video-wrap">
+                <video id="video-el" controls preload="metadata" playsinline></video>
+                <div class="video-toolbar">
+                  <label class="ctrl-label">倍速</label>
+                  <select id="video-rate" title="变速播放">
+                    <option value="0.5">0.5x</option>
+                    <option value="0.75">0.75x</option>
+                    <option value="1" selected>1x</option>
+                    <option value="1.25">1.25x</option>
+                    <option value="1.5">1.5x</option>
+                    <option value="2">2x</option>
+                  </select>
+                  <span class="status" id="video-status"></span>
                 </div>
-                <div class="fgui-body">
-                  <div class="fgui-col fgui-comp-col">
-                    <div class="fgui-col-title">
-                      组件清单
-                      <span class="fgui-badge" id="fgui-comp-type" style="margin-left:6px"></span>
-                    </div>
-                    <select id="fgui-comp-select" class="fgui-comp-select"></select>
-                    <div class="fgui-tree" id="fgui-tree"></div>
+              </div>
+            </div>
+
+            <!-- FGUI 包查看:🧩 FGUI编辑器(默认) + 🗂 资源清单(逆向查看器) 双标签页 -->
+            <div id="pv-fgui-view" hidden>
+              <div class="fgui-pv-tabs">
+                <button class="fgui-pv-tab active" data-pvtab="editor" title="用内置 FGUI 编辑器查看/编辑该包">🧩 FGUI编辑器</button>
+                <button class="fgui-pv-tab" data-pvtab="list" title="组件清单 / 属性 / 源码逆向查看">🗂 资源清单</button>
+              </div>
+              <!-- FGUI 编辑器(内嵌 fguiEditorPage,完整 IDE:组件树/资源/画布/属性/编辑保存) -->
+              <div class="fgui-pv-pane fgui-pv-editor" id="pv-fgui-editor"></div>
+              <!-- 资源清单(原 FGUI 逆向查看器:组件清单 + 属性 + 源码) -->
+              <div class="fgui-pv-pane fgui-pv-list" id="pv-fgui-list" style="display:none">
+                <div class="fgui-viewer">
+                  <div class="fgui-head">
+                    <span class="fgui-name" id="fgui-name"></span>
+                    <span class="fgui-badge" id="fgui-version"></span>
+                    <span class="fgui-badge" id="fgui-pkg-id"></span>
+                    <span class="fgui-meta">资源: <span id="fgui-items"></span></span>
+                    <span class="fgui-meta">精灵: <span id="fgui-sprites"></span></span>
+                    <span class="fgui-meta" title="依赖的其它 FGUI 包">依赖: <span id="fgui-deps"></span></span>
+                    <div class="ctrl-spacer"></div>
+                    <button class="btn sm" id="fgui-export-pkg" title="把当前目录下全部 FGUI 包导出为 JSON + XML 到所选目录">📤 导出全部包</button>
+                    <button class="btn sm" id="fgui-copy-src" title="复制当前源码标签页内容">📋 复制</button>
+                    <span class="status" id="fgui-status"></span>
                   </div>
-                  <div class="fgui-col fgui-props-col">
-                    <div class="fgui-col-title">属性</div>
-                    <div class="fgui-props" id="fgui-props"><div class="hint">点击左侧树节点查看属性</div></div>
-                  </div>
-                  <div class="fgui-col fgui-src-col">
-                    <div class="fgui-col-title">
-                      <span class="fg-src-tab active" data-tab="component">组件 XML</span>
-                      <span class="fg-src-tab" data-tab="package">包 XML</span>
-                      <span class="fg-src-tab" data-tab="json">包 JSON</span>
+                  <div class="fgui-body">
+                    <div class="fgui-col fgui-comp-col">
+                      <div class="fgui-col-title">
+                        组件清单
+                        <span class="fgui-badge" id="fgui-comp-type" style="margin-left:6px"></span>
+                      </div>
+                      <select id="fgui-comp-select" class="fgui-comp-select"></select>
+                      <div class="fgui-tree" id="fgui-tree"></div>
                     </div>
-                    <pre class="fgui-src" id="fgui-src"></pre>
+                    <div class="fgui-col fgui-props-col">
+                      <div class="fgui-col-title">属性</div>
+                      <div class="fgui-props" id="fgui-props"><div class="hint">点击左侧树节点查看属性</div></div>
+                    </div>
+                    <div class="fgui-col fgui-src-col">
+                      <div class="fgui-col-title">
+                        <span class="fg-src-tab active" data-tab="component">组件 XML</span>
+                        <span class="fg-src-tab" data-tab="package">包 XML</span>
+                        <span class="fg-src-tab" data-tab="json">包 JSON</span>
+                      </div>
+                      <pre class="fgui-src" id="fgui-src"></pre>
+                    </div>
                   </div>
                 </div>
               </div>

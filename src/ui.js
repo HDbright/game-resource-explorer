@@ -10,8 +10,8 @@ import {
   addFavItem, removeFavItem, moveFavItem, favCategoryById,
   reorderFavCategory,
   favLocations, isFavored,
-  TYPE_LABEL, TYPE_GROUPS, typeGroup, formatSize, typeLabel, isImageType, customTypes, customTypeById,
-  customTypeGroups, customTypeGroupById, groupTagOptions, isValidTypeTag,
+  TYPE_LABEL, TYPE_GROUPS, typeGroup, formatSize, typeLabel, isImageType, isVideoItem, customTypes, customTypeById,
+  customTypeGroups, customTypeGroupById, groupTagOptions, groupTagOptionSections, isValidTypeTag,
   CAT_TYPE_TAG_LABELS, CAT_TYPE_TAGS, categoryTypeTags, categoryTypeTagNames, catVisibleInGroup,
   getCategoryPathList, getFolderData, sortItems,
   setResourceTab, setListViewMode, setListSort,
@@ -30,6 +30,7 @@ import {
   moveToolboxNodeBeside, moveToolboxNodeToParent,
   menuNodeById, getMenuChildren, getMenuRoots, isMenuNodeDescendant, getMenuNodeDescendants, menuNodePath,
   addMenuNode, updateMenuNode, removeMenuNode, reorderMenuNode, moveMenuNodeBeside, moveMenuNodeToParent,
+  isCategoryLocked, isMenuNodeLocked,
   ensureResourceRootsForCategories,
   isUrlPath, nameFromPath, isLocalHtmlPath, toFileUrl,
   customPages, customPageById, updateCustomPage,
@@ -62,6 +63,8 @@ let preview = null;
 let imageViewer = null;
 let audioPlayer = null;
 let fguiViewer = null;
+let fguiPvTab = 'editor'; // pv-fgui-view 当前标签: 'editor'(FGUI编辑器) | 'list'(资源清单)
+let fguiPvListItem = null; // 资源清单待加载的 item(切到该标签时懒加载)
 let lastFolderTab = 'anim'; // 进入预览前所在 tab,返回时恢复
 let editModeActive = false; // 目录列表页编辑模式开关
 const editSelected = new Set(); // 编辑模式下选中的资源 id
@@ -291,6 +294,7 @@ function previewTypeIcon(type) {
   if (type === 'image') return '🖼';
   if (type === 'audio') return '♪';
   if (type === 'model') return '🧊';
+  if (type === 'fgui') return '🧩';
   return '📄';
 }
 
@@ -346,10 +350,21 @@ export function initUI(pv) {
     miniName: document.getElementById('audio-mini-name'),
     miniPlay: document.getElementById('audio-mini-play'),
   });
-  // FGUI 包逆向查看器
+  // FGUI 包查看:逆向查看器(资源清单标签) + 内置 FGUI 编辑器(默认标签)
   fguiViewer = new FguiViewerController();
   const fguiWrap = document.getElementById('pv-fgui-view');
-  if (fguiWrap) fguiViewer.init(fguiWrap);
+  if (fguiWrap) {
+    fguiViewer.init(fguiWrap);
+    bindFguiPvTabs();
+  }
+  // 视频播放器:倍速选择 → 播放器 playbackRate
+  const videoRateSel = document.getElementById('video-rate');
+  if (videoRateSel) {
+    videoRateSel.addEventListener('change', () => {
+      const v = document.getElementById('video-el');
+      if (v) v.playbackRate = Number(videoRateSel.value) || 1;
+    });
+  }
   bindAudioPlayerExtras();
   // 设置页修改播放列表显示字段后,立即刷新队列显示
   document.addEventListener('audio:fieldsChanged', () => {
@@ -684,13 +699,31 @@ function renderTree() {
   renderFavSection(tree, menuNodeById('__m_fav__'));
 
   // 其余菜单节点按 menuNodes 顺序渲染(动画/图片/音频/3D资源 + 场景 + 抓取 + 工具箱 + 开发工具箱 + 设置 + 自定义节点)
-  const roots = getMenuRoots().filter((n) => (n.action || '') !== 'fav');
+  const roots = getMenuRoots().filter((n) => (n.action || '') !== 'fav' && !menuRootEmpty(n));
   for (const node of roots) {
     const sep = document.createElement('div');
     sep.className = 'tree-section-sep';
     tree.appendChild(sep);
     renderMenuNode(tree, node, 0);
   }
+}
+
+/** 监听设置页等非 ui.js 模块的「请引导用户新建顶级分类」请求(解耦避免循环 import) */
+document.addEventListener('mm:request-new-top-cat', (e) => {
+  const grp = e && e.detail && e.detail.grp;
+  if (grp) newTopCategoryDialog(grp);
+});
+
+/** 资源根是否为空(该资源组下无可见分类且无条目)→ 渲染时隐藏;内置四组与收藏夹等恒显 */
+function menuRootEmpty(node) {
+  const a = node.action || '';
+  const grp = menuNodeResourceGroup(node);
+  if (!grp) return false;
+  if (a === 'res:anim' || a === 'res:image' || a === 'res:audio' || a === 'res:3d') return false;
+  if (a.startsWith('res:group:') && !customTypeGroupById(grp)) return true; // 自定义分组已被删除
+  // 自定义分组(存在)即使为空也显示:用户可通过根上的「＋新建分类」按钮建立第一个分类
+  // (避免新建顶级资源根后因无内容被静默隐藏,操作路径中断)
+  return false;
 }
 
 // ================= 侧栏菜单节点渲染(数据驱动) =================
@@ -714,6 +747,8 @@ function menuNodeActive(node) {
   if (a === 'res:image') return currentGroup() === 'image';
   if (a === 'res:audio') return currentGroup() === 'audio';
   if (a === 'res:3d') return currentGroup() === '3d';
+  if (a === 'res:video') return currentGroup() === 'video';
+  if (a === 'res:article') return currentGroup() === 'article';
   if (a === 'scene') return sceneHomeShown || currentSceneCatId !== null;
   if (a === 'webgame') return webGameShown;
   if (a === 'toolbox') return !!currentTool || toolboxHomeShown || fguiEditorShown;
@@ -739,6 +774,8 @@ function defaultMenuIcon(node) {
   if (a === 'res:image') return '🖼';
   if (a === 'res:audio') return '♪';
   if (a === 'res:3d') return '🧊';
+  if (a === 'res:video') return '🎞';
+  if (a === 'res:article') return '📄';
   if (a === 'scene') return '🎬';
   if (a === 'webgame') return '🌐';
   if (a === 'toolbox') return '🧰';
@@ -1133,13 +1170,15 @@ function attachMenuDrag(n, node) {
   });
 }
 
-/** 取菜单节点的资源分组(动画=anim/图片=image/音频=audio/3D=3d/自定义分组=groupId);非资源根返回 null */
+/** 取菜单节点的资源分组(动画=anim/图片=image/音频=audio/3D=3d/视频=video/文章=article/自定义分组=groupId);非资源根返回 null */
 function menuNodeResourceGroup(node) {
   const a = node.action || '';
   if (a === 'res:anim') return 'anim';
   if (a === 'res:image') return 'image';
   if (a === 'res:audio') return 'audio';
   if (a === 'res:3d') return '3d';
+  if (a === 'res:video') return 'video';
+  if (a === 'res:article') return 'article';
   if (a.startsWith('res:group:')) return a.slice('res:group:'.length);
   return null;
 }
@@ -1147,21 +1186,25 @@ function menuNodeResourceGroup(node) {
 /** 菜单节点右键菜单 */
 function openMenuNodeMenu(x, y, node) {
   const items = [];
+  const locked = isMenuNodeLocked(node.id);
   if (node.nodeType === 'dir') {
     const grp = menuNodeResourceGroup(node);
     if (grp) {
       // 资源类型根:直接新建该类型的顶层资源分类
       items.push({ label: '新建分类', onClick: () => newTopCategoryDialog(grp) });
-    } else {
-      // 普通目录(非资源根):可整体转换为资源分类目录
+    } else if (!locked) {
+      // 普通目录(非资源根):可整体转换为资源分类目录(锁定节点保持只读,不提供转换=删除重建)
       items.push({ label: '转换为资源分类', onClick: () => convertMenuNodeToCategoryDialog(node) });
     }
     items.push({ label: '新建子目录', onClick: () => newMenuNodeDialog(node.id, 'dir') });
     items.push({ label: '新建终端', onClick: () => newMenuNodeDialog(node.id, 'term') });
   }
-  items.push({ label: node.nodeType === 'term' ? '编辑终端' : '编辑节点', onClick: () => editMenuNodeDialog(node.id) });
-  items.push({ label: '移动...', onClick: () => moveMenuNodeDialog(node) });
-  items.push({ label: '删除', danger: true, onClick: () => deleteMenuNodeDialog(node.id) });
+  // 锁定节点:侧栏隐藏「编辑目录节点/移动.../删除」,保持只读(系统设置「菜单和分类管理」仍可编辑/解锁)
+  if (!locked) {
+    items.push({ label: node.nodeType === 'term' ? '编辑终端节点' : '编辑目录节点', onClick: () => editMenuNodeDialog(node.id) });
+    items.push({ label: '移动...', onClick: () => moveMenuNodeDialog(node) });
+    items.push({ label: '删除', danger: true, onClick: () => deleteMenuNodeDialog(node.id) });
+  }
   showContextMenu(x, y, items);
 }
 
@@ -1328,6 +1371,75 @@ function buildNameResourceRow(nameValue, opts = {}) {
   return { row, nameInp, resCb };
 }
 
+/** 上溯祖先,取最近的 res:* 动作(父节点自身 action 可能为空但祖先为资源型) */
+function nearestResAction(node) {
+  let cur = node;
+  while (cur) {
+    if (cur.action && String(cur.action).startsWith('res:')) return cur.action;
+    cur = cur.parentId ? menuNodeById(cur.parentId) : null;
+  }
+  return '';
+}
+
+/** 资源类型下拉(仅目录节点使用):动画/图片/音频/3D + 自定义分组;currentVal 为存量 res:* 值(如 res:type:* / res:video)时追加临时选项保留 */
+function fillResTypeSelect(sel, currentVal, opts = {}) {
+  sel.innerHTML = '';
+  const locked = !!opts.locked;
+  const builtins = [['res:anim', '动画资源'], ['res:image', '图片资源'], ['res:audio', '音频资源'], ['res:3d', '3D资源']];
+  for (const [v, l] of builtins) {
+    const op = document.createElement('option'); op.value = v; op.textContent = l; sel.appendChild(op);
+  }
+  const cgs = customTypeGroups();
+  if (cgs.length) {
+    const sep = document.createElement('option');
+    sep.disabled = true;
+    sep.textContent = '──────── 自定义分组 ────────';
+    sel.appendChild(sep);
+    for (const g of cgs) {
+      const op = document.createElement('option');
+      op.value = 'res:group:' + g.id;
+      op.textContent = g.name;
+      sel.appendChild(op);
+    }
+  }
+  const cur = String(currentVal || '');
+  if (cur.startsWith('res:') && ![...sel.options].some((o) => o.value === cur)) {
+    const tmp = document.createElement('option');
+    tmp.value = cur;
+    tmp.textContent = cur;
+    sel.appendChild(tmp);
+  }
+  if (cur && [...sel.options].some((o) => o.value === cur)) sel.value = cur;
+  else sel.value = builtins[1][0]; // 默认图片资源
+  if (locked) sel.disabled = true;
+}
+
+/** 目录节点:勾选「资源」→ 显示「资源类型」行并隐藏「目标页面」行(action 由资源类型决定);取消 → 反向(保留 actSel 原值,避免误清存量 res:*) */
+function buildResTypeRow({ resCb, actRow, actSel, isTerm }) {
+  const resTypeRow = document.createElement('div');
+  resTypeRow.className = 'form-row';
+  const lb = document.createElement('label');
+  lb.className = 'f-label';
+  lb.textContent = '资源类型';
+  resTypeRow.appendChild(lb);
+  const resTypeSel = document.createElement('select');
+  resTypeRow.appendChild(resTypeSel);
+  const tip = document.createElement('span');
+  tip.className = 'form-hint';
+  tip.style.margin = '0 0 0 8px';
+  tip.textContent = '资源型目录：可创建分类目录、侧栏显示分类树';
+  resTypeRow.appendChild(tip);
+  resTypeRow.style.display = 'none';
+  const syncRes = () => {
+    if (isTerm) return; // 终端无资源类型概念
+    const isRes = resCb.checked;
+    resTypeRow.style.display = isRes ? '' : 'none';
+    if (actRow) actRow.style.display = isRes ? 'none' : '';
+  };
+  resCb.addEventListener('change', syncRes);
+  return { resTypeRow, resTypeSel, syncRes };
+}
+
 function newMenuNodeDialog(parentId = '', nodeType = 'dir') {
   const isTerm = nodeType === 'term';
   const parentNode = parentId ? menuNodeById(parentId) : null;
@@ -1360,7 +1472,7 @@ function newMenuNodeDialog(parentId = '', nodeType = 'dir') {
   body.appendChild(nameRow);
   body.appendChild(iconRow);
 
-  let typeSel = null, actSel = null, exeRow = null, exeInp = null, typeTagsRow = null;
+  let typeSel = null, actSel = null, exeRow = null, exeInp = null, typeTagsRow = null, resTypeSel = null;
   // 目录:「设置类型组」默认继承父目录已勾选的组,且灰显不可改
   const inheritedTags = parentNode && Array.isArray(parentNode.typeTags) ? parentNode.typeTags : [];
   // 目标页面(目录可空,默认仅展开/折叠;终端必选)
@@ -1396,12 +1508,32 @@ function newMenuNodeDialog(parentId = '', nodeType = 'dir') {
     sync();
   } else {
     body.appendChild(actRow);
+    // 资源型目录:勾选「资源」→ 显示「资源类型」行并隐藏「目标页面」行(action 由资源类型决定)
+    const resInit = resLocked ? (nearestResAction(parentNode) || 'res:image') : 'res:image';
+    const builtRes = buildResTypeRow({ resCb, actRow, actSel, isTerm: false });
+    resTypeSel = builtRes.resTypeSel;
+    fillResTypeSelect(resTypeSel, resInit, { locked: resLocked });
+    body.appendChild(builtRes.resTypeRow);
+    builtRes.syncRes();
     typeTagsRow = buildTypeTagsRow([], inheritedTags);
     body.appendChild(typeTagsRow);
   }
 
+  // 锁定:禁止删除(右键删除项置灰)
+  const lockRow = makeRow('锁定');
+  const lockCb = document.createElement('input');
+  lockCb.type = 'checkbox';
+  lockCb.checked = false;
+  const lockLabel = document.createElement('span');
+  lockLabel.style.fontSize = '13px';
+  lockLabel.style.color = 'var(--text2)';
+  lockLabel.textContent = ' 锁定(禁止删除)';
+  lockRow.appendChild(lockCb);
+  lockRow.appendChild(lockLabel);
+  body.appendChild(lockRow);
+
   const { close } = openModal({
-    title: isTerm ? '新建终端节点' : '新建目录',
+    title: isTerm ? '新建终端节点' : '新建目录节点',
     body,
     foot: footButtons([
       { text: '取消', cls: '', onClick: () => close() },
@@ -1417,7 +1549,8 @@ function newMenuNodeDialog(parentId = '', nodeType = 'dir') {
             if (!action) { toast(isExe ? '程序路径不能为空' : '请选择目标页面', 'error'); return; }
           } else {
             actionType = 'builtin';
-            action = actSel.value; // 目录目标页面可为空
+            // 资源型目录(勾选「资源」):action 由「资源类型」下拉决定;否则取目标页面(可为空)
+            action = resCb.checked && resTypeSel ? resTypeSel.value : actSel.value;
           }
           addMenuNode({
             name,
@@ -1427,12 +1560,18 @@ function newMenuNodeDialog(parentId = '', nodeType = 'dir') {
             actionType,
             action,
             isResource: resCb.checked,
+            locked: lockCb.checked,
             typeTags: typeTagsRow ? [...typeTagsRow.querySelectorAll('input:checked')].map((c) => c.value) : [],
           });
           expandedCats.add(parentId || '');
           renderTree();
           close();
           toast('已创建');
+          // 新建顶级资源根 → 引导用户在该根下建立第一个分类(资源管理流程:建根 → 建分类 → 加资源)
+          if (!parentId && action && String(action).startsWith('res:')) {
+            const grp = menuNodeResourceGroup({ action });
+            if (grp) setTimeout(() => newTopCategoryDialog(grp), 50);
+          }
         },
       },
     ]),
@@ -1456,7 +1595,7 @@ function editMenuNodeDialog(id) {
     row.appendChild(lb);
     return row;
   };
-  const { row: nameRow, nameInp, resCb } = buildNameResourceRow(node.name, { isResource: node.isResource, locked: true });
+  const { row: nameRow, nameInp, resCb } = buildNameResourceRow(node.name, { isResource: node.isResource, locked: false });
   body.appendChild(nameRow);
   const iconRow = makeRow('图标(emoji)');
   const iconInp = document.createElement('input'); iconInp.type = 'text'; iconInp.value = node.icon || ''; iconRow.appendChild(iconInp);
@@ -1477,10 +1616,24 @@ function editMenuNodeDialog(id) {
   body.appendChild(tipRow);
   body.appendChild(noteRow);
 
+  // 锁定:禁止删除(右键删除项置灰)
+  const lockRow = makeRow('锁定');
+  const lockCb = document.createElement('input');
+  lockCb.type = 'checkbox';
+  lockCb.checked = !!node.locked;
+  const lockLabel = document.createElement('span');
+  lockLabel.style.fontSize = '13px';
+  lockLabel.style.color = 'var(--text2)';
+  lockLabel.textContent = ' 锁定(禁止删除)';
+  lockRow.appendChild(lockCb);
+  lockRow.appendChild(lockLabel);
+  body.appendChild(lockRow);
+
   let typeSel = null;
   let actSel = null;
   let exeRow = null;
   let exeInp = null;
+  let resTypeSel = null;
   // 目标页面(目录可空,默认仅展开/折叠;终端必选)
   const actRow = makeRow('目标页面');
   actSel = document.createElement('select');
@@ -1490,30 +1643,22 @@ function editMenuNodeDialog(id) {
   let typeTagsList = null;
   if (!isTerm) {
     body.appendChild(actRow);
+    // 资源型目录:勾选「资源」→ 显示「资源类型」行并隐藏「目标页面」行;存量 isResource=true 且 action 非 res:* → 默认图片(保存时自动补 res:image)
+    const resInit = node.isResource ? (node.action && String(node.action).startsWith('res:') ? node.action : 'res:image') : 'res:image';
+    const builtRes = buildResTypeRow({ resCb, actRow, actSel, isTerm: false });
+    resTypeSel = builtRes.resTypeSel;
+    fillResTypeSelect(resTypeSel, resInit, { locked: false });
+    body.appendChild(builtRes.resTypeRow);
+    builtRes.syncRes();
     const tagsRow = makeRow('设置类型组');
     tagsRow.style.alignItems = 'flex-start';
     typeTagsList = document.createElement('div');
     typeTagsList.className = 'check-group';
-    const opts = groupTagOptions();
     const cur = new Set(Array.isArray(node.typeTags) ? node.typeTags : []);
     // 继承自父目录的类型组:默认勾选且灰显不可改
     const parentNodeEdit = node.parentId ? menuNodeById(node.parentId) : null;
     const inheritSet = new Set(parentNodeEdit && Array.isArray(parentNodeEdit.typeTags) ? parentNodeEdit.typeTags : []);
-    for (const o of opts) {
-      const locked = inheritSet.has(o.value);
-      const isChecked = cur.has(o.value) || locked;
-      const lb = document.createElement('label');
-      lb.className = 'check-item' + (isChecked ? ' checked' : '') + (locked ? ' disabled' : '');
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.value = o.value;
-      cb.checked = isChecked;
-      if (locked) cb.disabled = true;
-      cb.addEventListener('change', () => lb.classList.toggle('checked', cb.checked));
-      lb.appendChild(cb);
-      lb.appendChild(document.createTextNode(o.label));
-      typeTagsList.appendChild(lb);
-    }
+    typeTagsList.appendChild(tagSectionCheckboxes(groupTagOptionSections(), cur, inheritSet));
     const hint = document.createElement('div');
     hint.className = 'form-hint';
     hint.textContent = '勾选该目录下允许显示的类型组(可多选)。点击该目录时,分类树中只显示「资源组命中了勾选类型组」或「未勾选任何资源组(全部)」的目录;不勾选 = 点击目录仅展开/折叠。';
@@ -1565,6 +1710,7 @@ function editMenuNodeDialog(id) {
               tooltip: tipInp.value.trim(),
               note: noteInp.value.trim(),
               isResource: resCb.checked,
+              locked: lockCb.checked,
             };
           if (isTerm) {
             const isExe = typeSel.value === 'exe';
@@ -1572,7 +1718,8 @@ function editMenuNodeDialog(id) {
             patch.action = isExe ? exeInp.value.trim() : actSel.value;
           } else {
             patch.actionType = 'builtin';
-            patch.action = actSel.value; // 目录目标页面可为空
+            // 资源型目录(勾选「资源」):action 由「资源类型」下拉决定(存量 isResource=true 且 action 非 res:* → 自动补默认图片)
+            patch.action = resCb.checked && resTypeSel ? resTypeSel.value : actSel.value;
             patch.typeTags = typeTagsList ? [...typeTagsList.querySelectorAll('input:checked')].map((c) => c.value) : [];
           }
           updateMenuNode(id, patch);
@@ -1638,12 +1785,13 @@ function moveMenuNodeDialog(node) {
 function deleteMenuNodeDialog(id) {
   const node = menuNodeById(id);
   if (!node) return;
+  if (isMenuNodeLocked(id)) return toast('该节点已锁定,无法删除', 'error');
   const subs = getMenuNodeDescendants(id).length;
   confirmDialog({
     title: `删除「${node.name}」?`,
     message: subs ? `其下 ${subs} 个子节点将一并删除。` : '该节点将被删除。',
     onOk: () => {
-      removeMenuNode(id);
+      if (!removeMenuNode(id)) return toast('删除失败:该节点或其子节点已锁定', 'error');
       renderTree();
       toast('已删除');
     },
@@ -3279,14 +3427,57 @@ function renderCatNode(parent, cat, depth, group = currentGroup()) {
 
 /** 分类右键菜单 */
 function openCategoryMenu(x, y, cat) {
-  showContextMenu(x, y, [
+  const items = [
     { label: '添加资源', onClick: () => runAddFlow(false, cat.id) },
     { label: '批量添加', onClick: () => runAddFlow(true, cat.id) },
     { label: '新建目录', onClick: () => newSubCategoryDialog(cat) },
-    { label: '编辑目录', onClick: () => editCategoryDialog(cat.id) },
-    { label: '移动...', onClick: () => moveCategoryDialog(cat) },
-    { label: '删除', danger: true, onClick: () => deleteCategoryDialog(cat.id) },
-  ]);
+  ];
+  // 锁定分类:侧栏隐藏「编辑分类目录/移动.../删除」,保持只读(系统设置「菜单和分类管理」仍可编辑/解锁)
+  if (!isCategoryLocked(cat.id)) {
+    items.push({ label: '编辑分类目录', onClick: () => editCategoryDialog(cat.id) });
+    items.push({ label: '移动...', onClick: () => moveCategoryDialog(cat) });
+    items.push({ label: '删除', danger: true, onClick: () => deleteCategoryDialog(cat.id) });
+  }
+  showContextMenu(x, y, items);
+}
+
+/** 类型组勾选:按分区(内置标签 / 自定义分组)渲染复选框(带继承锁)。避免「视频」标签与「视频资源」分组混淆 */
+function tagSectionCheckboxes(sections, curSet, inheritSet) {
+  const cur = new Set(Array.isArray(curSet) ? curSet : []);
+  const inh = new Set(Array.isArray(inheritSet) ? inheritSet : []);
+  const list = document.createElement('div');
+  list.className = 'check-group';
+  for (const sec of sections) {
+    const sep = document.createElement('div');
+    sep.className = 'tag-opt-sep';
+    const t = document.createElement('span');
+    t.className = 'tag-opt-sep-title';
+    t.textContent = sec.title;
+    sep.appendChild(t);
+    if (sec.note) {
+      const n = document.createElement('span');
+      n.className = 'tag-opt-sep-note';
+      n.textContent = ' ' + sec.note;
+      sep.appendChild(n);
+    }
+    list.appendChild(sep);
+    for (const o of sec.options) {
+      const locked = inh.has(o.value);
+      const isChecked = cur.has(o.value) || locked;
+      const item = document.createElement('label');
+      item.className = 'check-item' + (isChecked ? ' checked' : '') + (locked ? ' disabled' : '');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = o.value;
+      cb.checked = isChecked;
+      if (locked) cb.disabled = true;
+      cb.addEventListener('change', () => item.classList.toggle('checked', cb.checked));
+      item.appendChild(cb);
+      item.appendChild(document.createTextNode(o.label));
+      list.appendChild(item);
+    }
+  }
+  return list;
 }
 
 /** 目录的资源组勾选字段(新建/编辑目录对话框复用;不勾选 = 在所有资源组中显示)
@@ -3297,6 +3488,7 @@ function typeTagField(value, inherited) {
   const options = groupTagOptions().map((o) => ({
     value: o.value,
     label: o.label,
+    kind: o.kind, // 'tag' 内置标签 | 'group' 自定义分组
     disabled: inheritSet.has(o.value), // 继承自父目录:默认勾选且不可修改
   }));
   const inheritNote = inheritSet.size
@@ -3326,21 +3518,7 @@ function buildTypeTagsRow(cur, inherited) {
   row.style.alignItems = 'flex-start';
   const list = document.createElement('div');
   list.className = 'check-group';
-  for (const o of groupTagOptions()) {
-    const item = document.createElement('label');
-    const locked = inheritSet.has(o.value);
-    const isChecked = curSet.has(o.value) || locked; // 继承自父目录的项默认勾选(且灰显不可改)
-    item.className = 'check-item' + (isChecked ? ' checked' : '') + (locked ? ' disabled' : '');
-    const cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.value = o.value;
-    cb.checked = isChecked;
-    if (locked) cb.disabled = true;
-    cb.addEventListener('change', () => item.classList.toggle('checked', cb.checked));
-    item.appendChild(cb);
-    item.appendChild(document.createTextNode(o.label));
-    list.appendChild(item);
-  }
+  list.appendChild(tagSectionCheckboxes(groupTagOptionSections(), curSet, inheritSet));
   const hint = document.createElement('div');
   hint.className = 'form-hint';
   hint.textContent = '勾选该目录下允许显示的类型组(可多选)。点击该目录时,分类树中只显示「资源组命中了勾选类型组」或「未勾选任何资源组(全部)」的目录;不勾选 = 点击目录仅展开/折叠。';
@@ -3358,10 +3536,11 @@ function newSubCategoryDialog(parent) {
     fields: [
       { key: 'name', label: '子目录名称', type: 'text', value: '' },
       typeTagField(inherited, inherited),
+      { key: 'locked', label: '🔒 锁定(禁止删除)', type: 'checkbox', value: false },
     ],
-    onOk: ({ name, typeTags }) => {
+    onOk: ({ name, typeTags, locked }) => {
       if (!name) return toast('目录名称不能为空', 'error');
-      addCategory({ name, typeTags, parentId: parent.id });
+      addCategory({ name, typeTags, parentId: parent.id, locked: !!locked });
       expandedCats.add(parent.id);
       renderCategories();
       renderMainArea();
@@ -3379,12 +3558,13 @@ function newTopCategoryDialog(group) {
     fields: [
       { key: 'name', label: '分类名称', type: 'text', value: '' },
       typeTagField([group], []), // 默认勾选当前资源类型,可额外勾选其它组
+      { key: 'locked', label: '🔒 锁定(禁止删除)', type: 'checkbox', value: false },
     ],
-    onOk: ({ name, typeTags }) => {
+    onOk: ({ name, typeTags, locked }) => {
       name = (name || '').trim();
       if (!name) return toast('分类名称不能为空', 'error');
       const tags = typeTags && typeTags.length ? typeTags : [group];
-      addCategory({ name, typeTags: tags, parentId: '' });
+      addCategory({ name, typeTags: tags, parentId: '', locked: !!locked });
       // 展开对应的资源类型根,使新分类立即可见
       const actionMap = { anim: 'res:anim', image: 'res:image', audio: 'res:audio', '3d': 'res:3d' };
       const a = actionMap[group] || ('res:group:' + group);
@@ -3405,6 +3585,7 @@ function newTopCategoryDialog(group) {
  */
 function convertMenuNodeToCategoryDialog(node) {
   if (!node || node.nodeType !== 'dir' || menuNodeResourceGroup(node)) return;
+  if (isMenuNodeLocked(node.id)) return toast('该节点已锁定,无法转换为资源分类', 'error');
 
   // 统计将被转换的子目录数量(仅 dir 子孙)
   let dirCount = 0;
@@ -4405,10 +4586,11 @@ export function newCategoryDialog() {
     fields: [
       { key: 'name', label: '目录名称', type: 'text', value: '' },
       typeTagField([]),
+      { key: 'locked', label: '🔒 锁定(禁止删除)', type: 'checkbox', value: false },
     ],
-    onOk: ({ name, typeTags }) => {
+    onOk: ({ name, typeTags, locked }) => {
       if (!name) return toast('目录名称不能为空', 'error');
-      addCategory({ name, typeTags });
+      addCategory({ name, typeTags, locked: !!locked });
       // 展开全部资源类型根节点,让新建的顶级目录在对应类型下可见
       ['__m_res_anim__', '__m_res_image__', '__m_res_audio__', '__m_res_3d__'].forEach((k) => expandedCats.add(k));
       renderCategories();
@@ -4425,16 +4607,17 @@ function editCategoryDialog(id) {
   const parent = cat.parentId ? categoryById(cat.parentId) : null;
   const inherited = parent && Array.isArray(parent.typeTags) ? parent.typeTags : [];
   promptDialog({
-    title: '编辑目录',
+    title: '编辑分类目录',
     fields: [
       { key: 'name', label: '目录名称', type: 'text', value: cat.name },
       typeTagField(cat.typeTags, inherited),
+      { key: 'locked', label: '🔒 锁定(禁止删除)', type: 'checkbox', value: !!cat.locked },
     ],
-    onOk: ({ name, typeTags }) => {
+    onOk: ({ name, typeTags, locked }) => {
       if (!name) return toast('目录名称不能为空', 'error');
       // 安全兜底:强制包含继承自父分类的资源组(locked+checked 项本就计入,这里再确保一次)
       const merged = Array.from(new Set([...(Array.isArray(inherited) ? inherited : []), ...(Array.isArray(typeTags) ? typeTags : [])]));
-      updateCategory(id, { name, typeTags: merged });
+      updateCategory(id, { name, typeTags: merged, locked: !!locked });
       renderCategories();
       renderItems();
       renderMainArea();
@@ -4446,6 +4629,7 @@ function editCategoryDialog(id) {
 function deleteCategoryDialog(id) {
   const cat = categoryById(id);
   if (!cat) return;
+  if (isCategoryLocked(id)) return toast('该分类已锁定,无法删除', 'error');
   const subs = getCategoryChildren(id);
   const subDesc = getCategoryDescendants(id);
   const nItems = state.items.filter((i) => i.categoryId === id || subDesc.includes(i.categoryId)).length;
@@ -4548,14 +4732,16 @@ function deleteCategoryDialog(id) {
             subAction = subChoice ? subChoice.value : 'parent';
             if (subAction === 'category') subTargetId = subSel.value;
           }
-          removeCategoryAdvanced(id, { deleteItems: delItems, subAction, subTargetId });
+          if (!removeCategoryAdvanced(id, { deleteItems: delItems, subAction, subTargetId })) {
+            close();
+            return toast('删除失败:该分类或其子分类已锁定', 'error');
+          }
           close();
           if (currentCategoryId === id) currentCategoryId = 'all';
           renderCategories();
           renderItems();
           renderMainArea();
-          toast('目录已删除');
-        },
+          toast('目录已删除');        },
       },
     ]),
   });
@@ -5506,9 +5692,11 @@ function showPreviewPage(item) {
   const imgView = document.getElementById('pv-image-view');
   const audioView = document.getElementById('pv-audio-view');
   const fguiView = document.getElementById('pv-fgui-view');
+  const videoView = document.getElementById('pv-video-view');
   if (imgView) imgView.hidden = !(isImageType(item.type));
   if (audioView) audioView.hidden = !(item.type === 'audio');
   if (fguiView) fguiView.hidden = !(item.type === 'fgui');
+  if (videoView) videoView.hidden = !isVideoItem(item);
   // 顶部工具栏的「⇕ 隐藏工具栏」「⛶ 全屏」仅图片预览显示
   const isImage = isImageType(item.type);
   const chromeBtn = document.getElementById('img-chrome');
@@ -5564,14 +5752,14 @@ export async function selectItem(id, opts = {}) {
     const tabKey = newTab ? `preview-${item.id}` : `preview-type-${typeGroup(item.type)}`;
     tab = ensureTab(tabKey, {
       kind: 'preview', params: { itemId: item.id },
-      label: item.displayName || '', icon: previewTypeIcon(item.type),
+      label: item.displayName || '', icon: isVideoItem(item) ? '🎞' : previewTypeIcon(item.type),
     });
   }
   // 复用标签(同类型复用 或 前后切换)时,更新名称/参数/图标
   if (replaceCurrent || !newTab) {
     if (tab) {
       tab.label = item.displayName || '';
-      tab.icon = previewTypeIcon(item.type);
+      tab.icon = isVideoItem(item) ? '🎞' : previewTypeIcon(item.type);
       tab.params = { itemId: item.id };
       renderTabStrip();
     }
@@ -5599,6 +5787,8 @@ export async function selectItem(id, opts = {}) {
       await showModelPlaceholder(item);
     } else if (item.type === 'fgui') {
       await showFguiViewer(item);
+    } else if (isVideoItem(item)) {
+      await showVideoPlayer(item);
     }
   } catch (err) {
     console.error('[load]', item.id, err);
@@ -5606,14 +5796,74 @@ export async function selectItem(id, opts = {}) {
   }
 }
 
-/** FGUI 包逆向查看 */
+/** pv-fgui-view 切换到指定标签(editor = FGUI编辑器 / list = 资源清单) */
+function setFguiPvTab(tab) {
+  fguiPvTab = tab;
+  const view = document.getElementById('pv-fgui-view');
+  if (!view) return;
+  view.querySelectorAll('.fgui-pv-tab').forEach((b) => b.classList.toggle('active', b.dataset.pvtab === tab));
+  const ed = document.getElementById('pv-fgui-editor');
+  const ls = document.getElementById('pv-fgui-list');
+  if (ed) ed.style.display = tab === 'editor' ? '' : 'none';
+  if (ls) ls.style.display = tab === 'list' ? '' : 'none';
+}
+
+/** FGUI 查看标签页切换绑定(编辑器 / 资源清单;资源清单懒加载) */
+function bindFguiPvTabs() {
+  const view = document.getElementById('pv-fgui-view');
+  if (!view) return;
+  view.querySelectorAll('.fgui-pv-tab').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const tab = btn.dataset.pvtab;
+      setFguiPvTab(tab);
+      // 资源清单懒加载:首次切到该标签时解析当前包
+      if (tab === 'list' && fguiPvListItem && fguiViewer) {
+        const item = fguiPvListItem;
+        fguiPvListItem = null;
+        fguiViewer.load(item).catch((err) => {
+          const errEl = document.getElementById('pv-error');
+          if (errEl) { errEl.hidden = false; errEl.textContent = '资源清单加载失败: ' + (err.message || err); }
+        });
+      }
+    });
+  });
+}
+
+/** FGUI 包打开:默认用内置 FGUI 编辑器(FGUI编辑器标签);「资源清单」标签为原逆向查看器(组件清单/属性/源码,懒加载) */
 async function showFguiViewer(item) {
   showPreviewPage(item);
   const errEl = document.getElementById('pv-error');
   if (errEl) errEl.hidden = true;
-  if (fguiViewer) {
-    await fguiViewer.load(item);
+  // 默认切到「FGUI编辑器」标签:复用 fguiEditorPage(完整 IDE,含状态保持)
+  setFguiPvTab('editor');
+  const editorC = document.getElementById('pv-fgui-editor');
+  if (editorC) {
+    if (!editorC._fguiEditorInited) {
+      renderFguiEditorPage(editorC, { initialBinPath: item.filePath });
+    } else if (editorC._fguiEditorLoad) {
+      editorC._fguiEditorLoad(item.filePath);
+    }
   }
+  // 资源清单懒加载(切到「资源清单」标签时再解析)
+  fguiPvListItem = item;
+}
+
+/** 视频播放器(HTML5 video,原生控制条 + 倍速;src 走内部静态服务 /a/<id>/ 支持 Range 拖动) */
+async function showVideoPlayer(item) {
+  showPreviewPage(item);
+  const v = document.getElementById('video-el');
+  if (!v) return;
+  const url = `${location.origin}/a/${item.id}/${encodeURIComponent(basename(item.filePath))}`;
+  if (v.src !== url) {
+    v.src = url;
+    v.currentTime = 0;
+  }
+  const statusEl = document.getElementById('video-status');
+  if (statusEl) {
+    v.onerror = () => { statusEl.textContent = '加载失败(编码可能不被支持)'; };
+    v.onplaying = () => { statusEl.textContent = ''; };
+  }
+  try { await v.play(); } catch (e) { /* 静音自动播放受限等情况忽略 */ }
 }
 
 /** 3D 模型预览占位(暂未内置 3D 渲染器,显示文件信息) */

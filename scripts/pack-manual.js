@@ -189,11 +189,11 @@ async function main() {
     }
   }
 
-  // 7. 打便携版 zip(排除 data 用户数据 + 历史遗留的 rcedit ASCII 临时 exe `app_*_tmp.exe` + 冗余的 electron.exe)
+  // 7. 打便携版 zip(排除 data 用户数据 + 历史遗留的 rcedit ASCII 临时 exe `app_*_tmp.exe` + 冗余的 electron.exe + 重命名占用的 `游戏资源管理器_old*` 旧版 exe)
   //    ⚠️ electron.exe 是「游戏资源管理器.exe」的原始模板(已 rcedit 改名),运行时自包含,不依赖该文件,排除可省 ~225MB。
   const py = process.env.PYTHON || 'python';
   const zipPath = path.join(releaseDir, `游戏资源管理器-v${VERSION}-便携版.zip`);
-  run(`"${py}" -c "import zipfile,os; root=r'${appDir}'.replace('\\\\','/'); out=r'${zipPath}'.replace('\\\\','/'); zf=zipfile.ZipFile(out,'w',zipfile.ZIP_DEFLATED); [zf.write(os.path.join(r,f), os.path.relpath(os.path.join(r,f), os.path.dirname(root))) for r,dirs,files in os.walk(root) if not (os.path.basename(r)=='data') for f in files if not f.endswith('_tmp.exe') and f != 'electron.exe' and '.locked' not in f and not f.endswith('.locked')]; zf.close(); print('zip done')"`);
+  run(`"${py}" -c "import zipfile,os; root=r'${appDir}'.replace('\\\\','/'); out=r'${zipPath}'.replace('\\\\','/'); zf=zipfile.ZipFile(out,'w',zipfile.ZIP_DEFLATED); [zf.write(os.path.join(r,f), os.path.relpath(os.path.join(r,f), os.path.dirname(root))) for r,dirs,files in os.walk(root) if not (os.path.basename(r)=='data') for f in files if not f.endswith('_tmp.exe') and f != 'electron.exe' and '.locked' not in f and not f.endswith('.locked') and not f.startswith('游戏资源管理器_old')]; zf.close(); print('zip done')"`);
 
   console.log('打包完成:', zipPath);
 }
