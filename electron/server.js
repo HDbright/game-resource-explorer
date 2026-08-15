@@ -3,6 +3,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { nativeImage } = require('electron');
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -134,6 +135,17 @@ function serveFile(req, res, file) {
   if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return send(res, 404, 'Not Found');
   const ext = path.extname(file).toLowerCase();
   const contentType = MIME[ext] || 'application/octet-stream';
+  // .ico 浏览器无法直接渲染 → 用 nativeImage 转 PNG 返回(资源浏览/预览图标格式支持)
+  if (ext === '.ico') {
+    try {
+      const img = nativeImage.createFromPath(file);
+      if (!img.isEmpty()) {
+        const buf = img.toPNG();
+        res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': buf.length, 'Cache-Control': 'no-cache' });
+        return res.end(buf);
+      }
+    } catch (e) { /* 降级:按原文件返回 */ }
+  }
   const stat = fs.statSync(file);
   const total = stat.size;
 

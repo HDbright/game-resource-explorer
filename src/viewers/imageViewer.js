@@ -10,6 +10,9 @@ export class ImageViewerController {
     this.statusEl = null;
     this.zoom = 1;
     this.fitMode = true;
+    this.rotation = 0;   // 旋转角度 0/90/180/270(顺时针)
+    this.flipX = false;  // 水平镜像
+    this.flipY = false;  // 垂直镜像
     this._drag = null;
   }
 
@@ -59,6 +62,16 @@ export class ImageViewerController {
     if (fitBtn) fitBtn.addEventListener('click', () => this.fit());
     const actualBtn = wrap.querySelector('#img-actual');
     if (actualBtn) actualBtn.addEventListener('click', () => this.setZoomUI(1));
+
+    // ---- 变换工具:旋转 / 水平镜像 / 垂直镜像 / 重置 ----
+    const rotBtn = wrap.querySelector('#img-rotate');
+    if (rotBtn) rotBtn.addEventListener('click', () => this.rotate());
+    const flipHBtn = wrap.querySelector('#img-flip-h');
+    if (flipHBtn) flipHBtn.addEventListener('click', () => this.flipH());
+    const flipVBtn = wrap.querySelector('#img-flip-v');
+    if (flipVBtn) flipVBtn.addEventListener('click', () => this.flipV());
+    const resetBtn = wrap.querySelector('#img-reset');
+    if (resetBtn) resetBtn.addEventListener('click', () => this.reset());
   }
 
   async load(url) {
@@ -82,13 +95,17 @@ export class ImageViewerController {
     this._apply();
   }
 
-  /** 适配窗口:按图片自然尺寸与容器比例缩放 */
+  /** 适配窗口:按图片自然尺寸(考虑旋转后宽高互换)与容器比例缩放 */
   fit() {
     if (!this.img || !this.img.naturalWidth) return;
     this.fitMode = true;
     const cw = this.wrap.clientWidth;
     const ch = this.wrap.clientHeight;
-    const s = Math.min(cw / this.img.naturalWidth, ch / this.img.naturalHeight, 1);
+    // 旋转 90/270 时图片的有效宽高互换
+    const rotated = this.rotation % 180 !== 0;
+    const iw = rotated ? this.img.naturalHeight : this.img.naturalWidth;
+    const ih = rotated ? this.img.naturalWidth : this.img.naturalHeight;
+    const s = Math.min(cw / iw, ch / ih, 1);
     this._tx = 0;
     this._ty = 0;
     this.setZoom(s);
@@ -99,6 +116,35 @@ export class ImageViewerController {
     this.setZoom(r);
   }
 
+  /** 顺时针旋转 90°(0/90/180/270);重置平移并重新适配窗口 */
+  rotate() {
+    this.rotation = (this.rotation + 90) % 360;
+    this._tx = 0;
+    this._ty = 0;
+    if (this.fitMode) this.fit();
+    else this._apply();
+  }
+
+  /** 水平镜像(左右翻转) */
+  flipH() {
+    this.flipX = !this.flipX;
+    this._apply();
+  }
+
+  /** 垂直镜像(上下翻转) */
+  flipV() {
+    this.flipY = !this.flipY;
+    this._apply();
+  }
+
+  /** 重置视图:清除旋转/镜像,恢复适配窗口 */
+  reset() {
+    this.rotation = 0;
+    this.flipX = false;
+    this.flipY = false;
+    this.fit();
+  }
+
   /** 设置查看区背景色(与动画预览的背景色设置一致) */
   setBgColor(color) {
     const bgEl = this.wrap ? this.wrap.querySelector('.img-canvas-wrap') : null;
@@ -107,7 +153,11 @@ export class ImageViewerController {
 
   _apply() {
     if (!this.img) return;
-    this.img.style.transform = `translate(${this._tx || 0}px, ${this._ty || 0}px) scale(${this.zoom})`;
+    const sx = this.zoom * (this.flipX ? -1 : 1);
+    const sy = this.zoom * (this.flipY ? -1 : 1);
+    this.img.style.transform =
+      `translate(${this._tx || 0}px, ${this._ty || 0}px) ` +
+      `rotate(${this.rotation}deg) scale(${sx}, ${sy})`;
   }
 
   dispose() {

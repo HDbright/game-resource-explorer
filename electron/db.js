@@ -206,6 +206,8 @@ function open() {
       action TEXT DEFAULT '',
       tooltip TEXT DEFAULT '',
       note TEXT DEFAULT '',
+      type_tags TEXT DEFAULT '[]',
+      is_resource INTEGER DEFAULT 0,
       sort INTEGER DEFAULT 0,
       created_at INTEGER DEFAULT 0,
       updated_at INTEGER DEFAULT 0
@@ -232,6 +234,18 @@ function open() {
     }
   } catch (err) {
     console.error('[db] migrate toolbox_folders icon error:', err);
+  }
+  // 旧库迁移:menu_nodes 缺 type_tags / is_resource 列时补上
+  try {
+    const mnCols = db.prepare('PRAGMA table_info(menu_nodes)').all().map((r) => r.name);
+    if (!mnCols.includes('type_tags')) {
+      db.exec("ALTER TABLE menu_nodes ADD COLUMN type_tags TEXT DEFAULT '[]'");
+    }
+    if (!mnCols.includes('is_resource')) {
+      db.exec('ALTER TABLE menu_nodes ADD COLUMN is_resource INTEGER DEFAULT 0');
+    }
+  } catch (err) {
+    console.error('[db] migrate menu_nodes type_tags/is_resource error:', err);
   }
   // 旧库迁移:items 缺 size / mtime 列时补上(游戏资源管理器排序/统计用)
   try {
@@ -333,8 +347,16 @@ function readDb() {
       'SELECT id, name, icon, parent_id AS parentId, tool_id AS toolId, sort, created_at AS createdAt, updated_at AS updatedAt FROM toolbox_folders ORDER BY sort'
     ).all();
     d.menuNodes = conn.prepare(
-      'SELECT id, name, icon, parent_id AS parentId, node_type AS nodeType, action_type AS actionType, action, tooltip, note, sort, created_at AS createdAt, updated_at AS updatedAt FROM menu_nodes ORDER BY sort'
+      'SELECT id, name, icon, parent_id AS parentId, node_type AS nodeType, action_type AS actionType, action, tooltip, note, type_tags AS typeTags, is_resource AS isResource, sort, created_at AS createdAt, updated_at AS updatedAt FROM menu_nodes ORDER BY sort'
     ).all();
+    // type_tags 列是 JSON 数组字符串 → 解析为数组;is_resource 整数 → 布尔
+    for (const mn of (d.menuNodes || [])) {
+      if (typeof mn.typeTags === 'string') {
+        try { mn.typeTags = JSON.parse(mn.typeTags || '[]'); } catch (err) { mn.typeTags = []; }
+      }
+      if (!Array.isArray(mn.typeTags)) mn.typeTags = [];
+      mn.isResource = !!mn.isResource;
+    }
     for (const ep of (d.apiEndpoints || [])) {
       if (typeof ep.params === 'string') {
         try { ep.params = JSON.parse(ep.params || '[]'); } catch (err) { ep.params = []; }
@@ -463,12 +485,14 @@ function writeDb(state) {
       insTf.run(tf.id, tf.name || '', tf.icon || '', tf.parentId || '', tf.toolId || '', tf.sort || 0, tf.createdAt || 0, tf.updatedAt || 0);
     }
     const insMenu = conn.prepare(
-      'INSERT INTO menu_nodes(id, name, icon, parent_id, node_type, action_type, action, tooltip, note, sort, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO menu_nodes(id, name, icon, parent_id, node_type, action_type, action, tooltip, note, type_tags, is_resource, sort, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     for (const mn of state.menuNodes || []) {
       insMenu.run(
         mn.id, mn.name || '', mn.icon || '', mn.parentId || '', mn.nodeType || 'dir',
         mn.actionType || '', mn.action || '', mn.tooltip || '', mn.note || '',
+        JSON.stringify(Array.isArray(mn.typeTags) ? mn.typeTags : []),
+        mn.isResource ? 1 : 0,
         mn.sort || 0, mn.createdAt || 0, mn.updatedAt || 0
       );
     }

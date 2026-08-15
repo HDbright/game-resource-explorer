@@ -6,7 +6,7 @@ const { probeSkeleton } = require('./tools/skel');
 const { probeLayaSk } = require('./tools/layaSk2Spine');
 
 // 图片 / 音频 / 3D 资源扩展名
-const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tga'];
+const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tga', '.ico'];
 const AUDIO_EXTS = ['.mp3', '.wav', '.ogg', '.flac', '.wma', '.m4a'];
 const MODEL_EXTS = ['.glb', '.gltf', '.obj', '.fbx', '.dae', '.stl', '.blend', '.3ds', '.pmx', '.pmd', '.vrm'];
 
@@ -42,11 +42,36 @@ function probeFguiBin(fp) {
 /**
  * 扫描一个目录,识别其中的 Spine / DragonBones 骨骼动画、图片、音频、3D 资源。
  * 返回条目列表:
- * { file, dir, type: 'spine' | 'dragonbones' | 'image' | 'audio' | 'model', base, problems: string[], atlasPath?: string, size?, mtime? }
+ * { file, dir, type: 'spine' | 'dragonbones' | 'image' | 'audio' | 'model' | <自定义类型 id>, base, problems: string[], atlasPath?: string, size?, mtime? }
+ * @param {string} dir 目录
+ * @param {boolean} recursive 是否递归子目录
+ * @param {Array<{id:string, exts:string[]}>} [customTypes] 自定义资源类型(扩展名优先于内置匹配)
+ * @param {Array<{id:string, exts:string[]}>} [customGroups] 自定义资源分组(扩展名匹配 → type=<分组id>;优先级低于自定义类型、高于内置)
  */
-function scanDir(dir, recursive) {
+function scanDir(dir, recursive, customTypes = [], customGroups = []) {
   const results = [];
   const visited = new Set();
+
+  // 自定义类型扩展名映射(小写 → 类型 id),优先于内置
+  const customExtMap = new Map();
+  for (const ct of customTypes) {
+    if (!ct || !ct.id || !Array.isArray(ct.exts)) continue;
+    for (const ex of ct.exts) {
+      const e = String(ex).trim().toLowerCase();
+      if (e.startsWith('.') && e.length > 1) customExtMap.set(e, ct.id);
+    }
+  }
+  // 自定义分组扩展名映射(小写 → 分组 id),优先级低于自定义类型、高于内置
+  const groupExtMap = new Map();
+  for (const g of customGroups) {
+    if (!g || !g.id || !Array.isArray(g.exts)) continue;
+    for (const ex of g.exts) {
+      const e = String(ex).trim().toLowerCase();
+      if (e.startsWith('.') && e.length > 1 && !customExtMap.has(e)) groupExtMap.set(e, g.id);
+    }
+  }
+  const isCustomExt = (ext) => customExtMap.has(ext);
+  const isGroupExt = (ext) => groupExtMap.has(ext);
 
   function statOf(fp) {
     try {
@@ -216,7 +241,7 @@ function scanDir(dir, recursive) {
       results.push({ file: fp, dir: d, type: 'spine', base, problems, ...statOf(fp) });
     }
 
-    // ---- 图片资源 ----
+    // ---- 图片资源(自定义类型扩展名优先,故跳过) ----
     const spineBases = new Set(skelFiles.map((f) => f.name.slice(0, -'.skel'.length).toLowerCase()));
     for (const b of binSkelBases) spineBases.add(b);
     for (const jf of jsonFiles) {
@@ -235,7 +260,7 @@ function scanDir(dir, recursive) {
 
     for (const f of files) {
       const ext = path.extname(f.name).toLowerCase();
-      if (!IMAGE_EXTS.includes(ext)) continue;
+      if (!IMAGE_EXTS.includes(ext) || isCustomExt(ext) || isGroupExt(ext)) continue;
       const base = f.name.slice(0, -ext.length);
       const problems = [];
       if (spineBases.has(base.toLowerCase()) || atlasBaseNames.has(base.toLowerCase())) {
@@ -245,10 +270,34 @@ function scanDir(dir, recursive) {
       results.push({ file: fp, dir: d, type: 'image', base, problems, ...statOf(fp) });
     }
 
+    // ---- 自定义资源类型(扩展名优先于内置;如 图标资源 .png/.ico) ----
+    if (customExtMap.size) {
+      for (const f of files) {
+        const ext = path.extname(f.name).toLowerCase();
+        const ctId = customExtMap.get(ext);
+        if (!ctId) continue;
+        const base = f.name.slice(0, -ext.length);
+        const fp = path.join(d, f.name);
+        results.push({ file: fp, dir: d, type: ctId, base, problems: [], ...statOf(fp) });
+      }
+    }
+
+    // ---- 自定义资源分组(扩展名匹配 → type=<分组id>;如 数据 .db/.txt、文件 .md/.html) ----
+    if (groupExtMap.size) {
+      for (const f of files) {
+        const ext = path.extname(f.name).toLowerCase();
+        const gId = groupExtMap.get(ext);
+        if (!gId) continue;
+        const base = f.name.slice(0, -ext.length);
+        const fp = path.join(d, f.name);
+        results.push({ file: fp, dir: d, type: gId, base, problems: [], ...statOf(fp) });
+      }
+    }
+
     // ---- 音频资源 ----
     for (const f of files) {
       const ext = path.extname(f.name).toLowerCase();
-      if (!AUDIO_EXTS.includes(ext)) continue;
+      if (!AUDIO_EXTS.includes(ext) || isCustomExt(ext) || isGroupExt(ext)) continue;
       const base = f.name.slice(0, -ext.length);
       const fp = path.join(d, f.name);
       results.push({ file: fp, dir: d, type: 'audio', base, problems: [], ...statOf(fp) });
@@ -257,7 +306,7 @@ function scanDir(dir, recursive) {
     // ---- 3D 模型资源 ----
     for (const f of files) {
       const ext = path.extname(f.name).toLowerCase();
-      if (!MODEL_EXTS.includes(ext)) continue;
+      if (!MODEL_EXTS.includes(ext) || isCustomExt(ext) || isGroupExt(ext)) continue;
       const base = f.name.slice(0, -ext.length);
       const fp = path.join(d, f.name);
       results.push({ file: fp, dir: d, type: 'model', base, problems: [], ...statOf(fp) });

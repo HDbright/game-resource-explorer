@@ -1,7 +1,7 @@
 import {
   getHomeData, getTypeHomeData, getCategoryChildren, categoryById,
   TYPE_LABEL, formatSize, TYPE_GROUPS, itemTags, getFavHomeData, favCategoryById,
-  categoryTypeTagNames, state,
+  categoryTypeTagNames, state, customTypeGroupById, typeGroup, typeLabel, catVisibleInAnyGroup,
 } from '../state.js';
 import { toast } from '../dialogs.js';
 
@@ -191,8 +191,9 @@ const GROUP_TITLE = { anim: '动画主页', image: '图片主页', audio: '音�
 
 function renderTypeHome(container, actions, group) {
   const data = getTypeHomeData(group);
-  const title = GROUP_TITLE[group] || '资源主页';
-  const typeDetail = TYPE_GROUPS[group] || [];
+  const cg = customTypeGroupById(group); // 自定义分组
+  const title = (GROUP_TITLE[group] || (cg ? cg.name + '主页' : '资源主页'));
+  const typeDetail = cg ? [group] : (TYPE_GROUPS[group] || []);
   const subParts = [`共 ${data.total} 项`];
   if (typeDetail.length > 1) {
     subParts.push(typeDetail.map((t) => `${TYPE_LABEL[t]} ${countByType(data.items, t)}`).join(' / '));
@@ -245,10 +246,72 @@ function renderTypeHome(container, actions, group) {
   `;
 }
 
+/**
+ * 目录「允许显示的类型组」视图:分类树只显示 分类标签命中勾选类型组 或 分类未勾选任何标签(全部) 的分类;条目按勾选类型组过滤。
+ * @param {HTMLElement} container
+ * @param {object} actions 同 renderHomePage 契约(onOpenCat/onOpenItem/onItemMenu/onCatMenu/onRefresh/onOpenRecent)
+ * @param {string[]} tags 勾选的类型组(分组标签数组)
+ * @param {string} title 视图标题(目录名)
+ */
+export function renderFilterHome(container, actions = {}, tags = [], title = '资源') {
+  const tagSet = new Set(tags);
+  const items = state.items.filter((it) => tagSet.has(typeGroup(it.type)));
+  let totalSize = 0;
+  for (const it of items) totalSize += it.size || 0;
+  const buildCatNode = (cat) => {
+    const subs = getCategoryChildren(cat.id)
+      .filter((c) => catVisibleInAnyGroup(c, tagSet))
+      .map(buildCatNode);
+    const direct = items.filter((it) => it.categoryId === cat.id);
+    let count = direct.length;
+    let sz = 0;
+    for (const it of direct) sz += it.size || 0;
+    for (const s of subs) { count += s.count; sz += s.totalSize; }
+    return { cat, count, totalSize: sz, subs, direct };
+  };
+  const categories = getCategoryChildren('')
+    .filter((c) => catVisibleInAnyGroup(c, tagSet))
+    .map(buildCatNode);
+
+  container.__homeItems = items;
+  container.innerHTML = `
+    <div class="home-title">${escapeHtml(title)}</div>
+    <div class="home-subtitle">${items.length} 项资源 · 占用 ${formatSize(totalSize)}</div>
+    <div class="home-cards">
+      <div class="stat-card total" data-act="card">
+        <div class="sc-num">${items.length}</div>
+        <div class="sc-label">资源总数</div>
+        <div class="sc-sub">${formatSize(totalSize)}</div>
+      </div>
+      <div class="stat-card total" data-act="card">
+        <div class="sc-num">${countCatNodes(categories)}</div>
+        <div class="sc-label">目录数</div>
+        <div class="sc-sub">&nbsp;</div>
+      </div>
+    </div>
+    <div class="home-section">
+      <div class="home-section-title">📁 目录</div>
+      <div class="type-cat-tree" id="type-cat-tree">
+        ${categories.length
+          ? categories.map((n) => renderTypeCatNode(n, null, 0, items, tagSet)).join('')
+          : '<div class="home-empty">暂无符合条件的目录(仅显示勾选类型组或未勾选任何标签的目录)</div>'}
+      </div>
+    </div>
+    <div class="home-section">
+      <div class="home-section-title">🕘 最近添加</div>
+      <div class="recent-list" id="home-recent-list">
+        ${renderRecentList([...items].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).slice(0, 10))}
+      </div>
+    </div>
+  `;
+  bindHomeEvents(container, actions);
+}
+
 /** 该类型组的最近打开记录(只显示对应类型的资源) */
 function typeRecentOpens(group) {
   const all = (state.settings && state.settings.recentOpens) || [];
   const typeSet = new Set(TYPE_GROUPS[group] || []);
+  if (customTypeGroupById(group)) typeSet.add(group); // 自定义分组:匹配分组 id
   return all.filter((r) => typeSet.has(r.type) || r.tab === group).slice(0, 10);
 }
 
@@ -256,14 +319,16 @@ function countByType(items, type) {
   return items.filter((i) => i.type === type).length;
 }
 
-/** 递归渲染类型主页的分类目录树节点(拓扑结构,缩进表示层级) */
-function renderTypeCatNode(node, group, depth, allItems) {
+/** 递归渲染类型主页的分类目录树节点(拓扑结构,缩进表示层级);typeSet 提供时按类型组集合过滤(目录「允许显示的类型组」视图) */
+function renderTypeCatNode(node, group, depth, allItems, typeSet) {
   const { cat, count, totalSize, subs } = node;
-  const isOpen = typeCatExpanded.has(cat.id);
+  // 默认展开顶层分类(用户尚未手动展开/折叠过),让动画主页直接显示资源文件,
+  // 避免「目录树折叠看不到文件」的体验问题;用户可点 ▶ 自行折叠
+  const userTouched = typeCatExpanded.size > 0;
+  const isOpen = typeCatExpanded.has(cat.id) || (depth === 0 && !userTouched);
   const hasChildren = subs.length > 0;
-  const types = TYPE_GROUPS[group] || [];
   const directItems = allItems
-    .filter((it) => it.categoryId === cat.id && types.includes(it.type))
+    .filter((it) => it.categoryId === cat.id && (typeSet ? typeSet.has(typeGroup(it.type)) : typeGroup(it.type) === group))
     .sort((a, b) => (a.displayName || '').localeCompare(b.displayName || '', 'zh-Hans-CN'));
 
   const arrow = (hasChildren || directItems.length > 0) ? (isOpen ? '▼' : '▶') : '·';
@@ -283,12 +348,12 @@ function renderTypeCatNode(node, group, depth, allItems) {
 
   if (isOpen && (hasChildren || directItems.length > 0)) {
     html += `<div class="type-cat-children">`;
-    for (const s of subs) html += renderTypeCatNode(s, group, depth + 1, allItems);
+    for (const s of subs) html += renderTypeCatNode(s, group, depth + 1, allItems, typeSet);
     for (const it of directItems) {
       html += `
-        <div class="type-cat-item" data-item="${it.id}" data-cat="${cat.id}" style="--cat-depth:${depth + 1}" title="${escapeHtml(itemTooltip(it))}">
+        <div class="type-cat-item" data-act="item" data-item="${it.id}" data-cat="${cat.id}" style="--cat-depth:${depth + 1}" title="${escapeHtml(itemTooltip(it))}">
           <span class="type-cat-item-spacer"></span>
-          <span class="type-badge ${it.type}">${TYPE_LABEL[it.type] || it.type}</span>
+          <span class="type-badge ${it.type}">${typeLabel(it.type)}</span>
           <span class="type-cat-item-name">${escapeHtml(it.displayName || '')}</span>
           <span class="type-cat-item-size">${formatSize(it.size)}</span>
         </div>

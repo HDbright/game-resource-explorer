@@ -1,9 +1,9 @@
 // ============ 系统设置页面 ============
 // 当前包含「截图」相关设置:默认保存路径 / 默认格式(PNG·WebP) / WebP 质量。
 
-import { state, setSetting, saveState, getMenuRoots, getMenuChildren, menuNodeById, menuNodePath, getMenuNodeDescendants, addMenuNode, updateMenuNode, removeMenuNode, moveMenuNodeBeside, moveMenuNodeToParent, getToolboxChildren, getCategoryChildren, catVisibleInGroup, getSceneCategoryChildren, getWebBookmarkCategoryChildren, webBookmarksInCategory, typeGroup, addToolboxFolder, updateToolboxFolder, removeToolboxFolder, toolboxFolderById, addCategory, updateCategory, removeCategoryAdvanced, categoryById, addSceneCategory, updateSceneCategory, removeSceneCategory, sceneCategoryById, addWebBookmarkCategory, updateWebBookmarkCategory, removeWebBookmarkCategory, webBookmarkCategoryById, removeWebBookmark, addFavCategory, updateFavCategory, removeFavCategory, removeFavItem, favCategoryById } from '../state.js';
+import { state, setSetting, saveState, getMenuRoots, getMenuChildren, menuNodeById, menuNodePath, getMenuNodeDescendants, addMenuNode, updateMenuNode, removeMenuNode, moveMenuNodeBeside, moveMenuNodeToParent, getToolboxChildren, getCategoryChildren, catVisibleInGroup, getSceneCategoryChildren, getWebBookmarkCategoryChildren, webBookmarksInCategory, typeGroup, addToolboxFolder, updateToolboxFolder, removeToolboxFolder, toolboxFolderById, addCategory, updateCategory, removeCategoryAdvanced, categoryById, getCategoryDescendants, categoryPath, addSceneCategory, updateSceneCategory, removeSceneCategory, sceneCategoryById, addWebBookmarkCategory, updateWebBookmarkCategory, removeWebBookmarkCategory, webBookmarkCategoryById, removeWebBookmark, addFavCategory, updateFavCategory, removeFavCategory, removeFavItem, favCategoryById, isUrlPath, nameFromPath, customPages, customPageById, addCustomPage, updateCustomPage, removeCustomPage, PAGE_TEMPLATES, customTypes, customTypeById, addCustomType, updateCustomType, removeCustomType, customTypeGroups, customTypeGroupById, addCustomTypeGroup, updateCustomTypeGroup, removeCustomTypeGroup, typeLabel, TYPE_EXTENSIONS, groupTagOptions, CAT_TYPE_TAG_LABELS } from '../state.js';
 import { applyAppearance } from '../appearance.js';
-import { toast, openModal, footButtons, confirmDialog, promptDialog, showContextMenu, openEmojiPicker, iconNode } from '../dialogs.js';
+import { toast, openModal, footButtons, confirmDialog, promptDialog, showContextMenu, openEmojiPicker, iconNode, attachIconPreview, newPageDialog } from '../dialogs.js';
 
 function basename(p) {
   return String(p || '').split(/[\\/]/).pop() || '';
@@ -27,16 +27,27 @@ const SETTING_CARDS = [
   { id: 'font', title: '系统字体字号' },
   { id: 'theme', title: '主题背景' },
   { id: 'menumgr', title: '菜单管理' },
+  { id: 'pages', title: '页面管理' },
+  { id: 'types', title: '资源类型管理' },
 ];
 function settingCardMeta() {
   return (state.settings && state.settings.settingCardMeta) || {};
+}
+/** 生成卡片图标 HTML:图片(dataURL)用 <img>,否则文本 emoji */
+function cardIconHtml(icon) {
+  if (!icon) return '';
+  if (icon.startsWith('data:image')) {
+    const safe = icon.replace(/"/g, '&quot;');
+    return `<span class="settings-card-icon"><img src="${safe}" alt="" /></span>`;
+  }
+  return `<span class="settings-card-icon">${esc(icon)}</span>`;
 }
 /** 生成卡片标题行 HTML(图标 + 标题 + 折叠箭头);支持用户自定义标题/图标 */
 function cardHeadHtml(id, defTitle) {
   const m = settingCardMeta()[id];
   const title = (m && m.title) ? m.title : defTitle;
   const icon = (m && m.icon) ? m.icon : '';
-  return (icon ? `<span class="settings-card-icon">${esc(icon)}</span>` : '') +
+  return cardIconHtml(icon) +
     `<span class="settings-card-title">${esc(title)}</span><span class="cat-arrow">▸</span>`;
 }
 function saveCardMeta(id, patch) {
@@ -50,6 +61,112 @@ function clearCardMeta(id) {
   delete meta[id];
   setSetting('settingCardMeta', meta);
   return true;
+}
+
+/** 外部程序路径输入自动填充:路径变化时,名称空→自动填程序名(去扩展名/网址取主机名);图标空→自动取文件图标 */
+function attachExeAutoFill(exeInp, nameInp, iconInp) {
+  let lastPath = '';
+  let deb = null;
+  const run = () => {
+    const p = exeInp.value;
+    if (p === lastPath) return;
+    lastPath = p;
+    const t = p.trim();
+    if (!t) return;
+    if (!nameInp.value.trim()) {
+      const n = nameFromPath(t);
+      if (n) nameInp.value = n;
+    }
+    if (!iconInp.value.trim() && !isUrlPath(t)) {
+      window.api.fileIcon(t).then((r) => { if (r && r.ok && !iconInp.value.trim()) iconInp.value = r.dataUrl; });
+    }
+  };
+  exeInp.addEventListener('input', () => {
+    clearTimeout(deb);
+    deb = setTimeout(run, 400);
+  });
+}
+
+/** 目标页面下拉:内置动作 + 自定义页面 + 「＋ 新建页面…」(基于模板建立,标题/图标默认取节点名称/图标) */
+/** 目标页面下拉:内置动作 + 自定义页面 + 「＋ 新建页面…」(基于模板建立,标题/图标默认取节点名称/图标);opts.allowEmpty=true 时首项为「(无)」且默认选中 */
+function fillTargetSelect(actSel, currentAction, ctx, opts = {}) {
+  actSel.innerHTML = '';
+  if (opts.allowEmpty) {
+    const none = document.createElement('option');
+    none.value = '';
+    none.textContent = opts.emptyLabel || '(无 - 仅展开/折叠)';
+    actSel.appendChild(none);
+  }
+  for (const o of MENU_ACTION_OPTIONS) {
+    const op = document.createElement('option');
+    op.value = o.value;
+    op.textContent = o.label;
+    actSel.appendChild(op);
+  }
+  const cts = customTypes();
+  if (cts.length) {
+    const sep = document.createElement('option');
+    sep.disabled = true;
+    sep.textContent = '──────── 资源浏览(自定义类型) ────────';
+    actSel.appendChild(sep);
+    for (const ct of cts) {
+      const op = document.createElement('option');
+      op.value = 'res:type:' + ct.id;
+      op.textContent = '资源浏览页 · ' + ct.name;
+      actSel.appendChild(op);
+    }
+  }
+  const cgs = customTypeGroups();
+  if (cgs.length) {
+    const sep = document.createElement('option');
+    sep.disabled = true;
+    sep.textContent = '──────── 资源浏览(自定义分组) ────────';
+    actSel.appendChild(sep);
+    for (const g of cgs) {
+      const op = document.createElement('option');
+      op.value = 'res:group:' + g.id;
+      op.textContent = '资源浏览页 · ' + g.name;
+      actSel.appendChild(op);
+    }
+  }
+  const pages = customPages();
+  if (pages.length) {
+    const sep = document.createElement('option');
+    sep.disabled = true;
+    sep.textContent = '──────── 自定义页面 ────────';
+    actSel.appendChild(sep);
+    for (const p of pages) {
+      const op = document.createElement('option');
+      op.value = 'page:custom:' + p.id;
+      op.textContent = p.title;
+      actSel.appendChild(op);
+    }
+  }
+  const np = document.createElement('option');
+  np.value = '__new_page__';
+  np.textContent = '＋ 新建页面…';
+  actSel.appendChild(np);
+  // 当前 action 不在可选项里(如内置页面尚未登记)时,补一个临时项,避免保存时被静默重置为第一项
+  const hasCurrent = currentAction && [...actSel.options].some((o) => o.value === currentAction);
+  if (currentAction && !hasCurrent) {
+    const op = document.createElement('option');
+    op.value = currentAction;
+    op.textContent = currentAction;
+    actSel.appendChild(op);
+  }
+  actSel.value = currentAction
+    ? currentAction
+    : (opts.allowEmpty ? '' : MENU_ACTION_OPTIONS[0].value);
+  actSel.onchange = () => {
+    if (actSel.value !== '__new_page__') return;
+    newPageDialog({
+      defaultTitle: (ctx && ctx.nameInp && ctx.nameInp.value.trim()) || '',
+      defaultIcon: (ctx && ctx.iconInp && ctx.iconInp.value.trim()) || '',
+    }, (pg) => {
+      actSel.value = 'page:custom:' + pg.id;
+      fillTargetSelect(actSel, 'page:custom:' + pg.id, ctx, opts);
+    });
+  };
 }
 
 /**
@@ -319,14 +436,77 @@ export function renderSettingsPage(container, opts = {}) {
         <h3 class="settings-card-head">${cardHeadHtml('menumgr', '菜单管理')}</h3>
         <div class="settings-card-body">
           <p class="settings-hint">管理左侧菜单栏的全部目录节点与终端节点:改名、改图标、排序、移动到其它目录、编辑悬停提示/备注;终端节点可指定点击后打开的内置页面或调用外部程序。目录节点右键可 新建子目录 / 新建终端 / 编辑 / 移动 / 删除;点击目录前的箭头可展开或折叠其子节点(也可用上方「展开全部/折叠全部」)。拖拽可排序或移入其它目录。改动实时反映到左侧菜单栏。</p>
-          <div class="settings-actions">
-            <button class="btn sm" id="mm-add-dir">＋ 新增顶级目录</button>
-            <button class="btn sm" id="mm-add-term">＋ 新增顶级终端</button>
-            <span class="spacer"></span>
-            <button class="btn sm ghost" id="mm-expand-all">展开全部</button>
-            <button class="btn sm ghost" id="mm-collapse-all">折叠全部</button>
+          <div class="mm-tabs">
+            <button class="mm-tab active" data-mm-tab="menu">菜单目录</button>
+            <button class="mm-tab" data-mm-tab="cat">分类目录</button>
           </div>
-          <div class="menu-mgr-tree" id="mm-tree"></div>
+          <div id="mm-pane-menu">
+            <div class="settings-actions">
+              <button class="btn sm" id="mm-add-dir">＋ 新增顶级目录</button>
+              <button class="btn sm" id="mm-add-term">＋ 新增顶级终端</button>
+              <span class="spacer"></span>
+              <button class="btn sm ghost" id="mm-expand-all">展开全部</button>
+              <button class="btn sm ghost" id="mm-collapse-all">折叠全部</button>
+            </div>
+            <div class="menu-mgr-tree" id="mm-tree"></div>
+          </div>
+          <div id="mm-pane-cat" style="display:none">
+            <p class="settings-hint">管理所有资源分类目录(含各资源类型下、以及跨资源类型显示的分类)。子分类会自动继承父分类的资源组,且继承的资源组不可修改,避免分类"消失"。<b>若某个分类找不到了,通常是因为它的资源组与父分类不一致,在此编辑它会自动补回父分类的资源组。</b></p>
+            <div class="settings-actions">
+              <button class="btn sm" id="cat-add-top">＋ 新增顶级分类</button>
+              <span class="spacer"></span>
+              <button class="btn sm ghost" id="cat-expand-all">展开全部</button>
+              <button class="btn sm ghost" id="cat-collapse-all">折叠全部</button>
+            </div>
+            <div class="menu-mgr-tree" id="cat-tree"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="settings-card collapsed" data-card="pages">
+        <h3 class="settings-card-head">${cardHeadHtml('pages', '页面管理')}</h3>
+        <div class="settings-card-body">
+          <p class="settings-hint">自定义页面可作为终端节点的「目标页面」(终端节点编辑框的「目标页面」→「＋ 新建页面…」即基于模板建立,标题/图标默认取该节点的名称/图标)。基于模板建立后,标题、图标、内容可随时在此修改;点击终端节点时:内嵌网页模板在主显示区打开网页,文本笔记模板在主显示区显示可编辑笔记。</p>
+          <div class="form-row">
+            <label class="f-label">模板页</label>
+            <div class="pg-templates" id="pg-templates"></div>
+          </div>
+          <div class="form-row">
+            <label class="f-label">已有页面</label>
+            <div class="pg-list" id="pg-list"></div>
+          </div>
+          <div class="settings-actions">
+            <button class="btn sm" id="pg-add">＋ 新建页面</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="settings-card collapsed" data-card="types">
+        <h3 class="settings-card-head">${cardHeadHtml('types', '资源类型管理')}</h3>
+        <div class="settings-card-body">
+          <p class="settings-hint">自定义资源分组(如 图标/数据/文件)可接收额外扩展名的文件并作为资源浏览分组与目录可选项;自定义资源类型(如「图标资源」)归属某个分组。分组/类型扩展名优先于内置类型匹配。创建分组/类型后,可在终端/目录节点的「目标页面」选择「资源浏览页 · 名称」,或在目录节点「编辑节点」窗口的「设置类型组」中勾选。</p>
+          <div class="form-row">
+            <label class="f-label">资源分组(内置)</label>
+            <div class="pg-templates" id="cg-builtin"></div>
+          </div>
+          <div class="form-row">
+            <label class="f-label">资源分组(自定义)</label>
+            <div class="pg-list" id="cg-list"></div>
+          </div>
+          <div class="settings-actions">
+            <button class="btn sm" id="cg-add">＋ 新增分组</button>
+          </div>
+          <div class="form-row">
+            <label class="f-label">内置类型</label>
+            <div class="pg-templates" id="ct-builtin"></div>
+          </div>
+          <div class="form-row">
+            <label class="f-label">自定义类型</label>
+            <div class="pg-list" id="ct-list"></div>
+          </div>
+          <div class="settings-actions">
+            <button class="btn sm" id="ct-add">＋ 新增资源类型</button>
+          </div>
         </div>
       </section>
     </div>
@@ -408,12 +588,13 @@ export function renderSettingsPage(container, opts = {}) {
     };
     const titleRow = makeRow('标题');
     const titleInp = document.createElement('input'); titleInp.type = 'text'; titleInp.value = m.title || defTitle; titleRow.appendChild(titleInp);
-    const iconRow = makeRow('图标(emoji)');
+    const iconRow = makeRow('图标(emoji 或导入图片)');
     const iconInp = document.createElement('input'); iconInp.type = 'text'; iconInp.value = m.icon || ''; iconRow.appendChild(iconInp);
     const pickBtn = document.createElement('button');
     pickBtn.type = 'button'; pickBtn.className = 'btn sm emoji-pick-btn'; pickBtn.textContent = '😀'; pickBtn.title = '选择图标';
     pickBtn.addEventListener('click', (e) => { e.stopPropagation(); openEmojiPicker(pickBtn, iconInp); });
     iconRow.appendChild(pickBtn);
+    attachIconPreview(iconInp, iconRow);
     dlgBody.appendChild(titleRow); dlgBody.appendChild(iconRow);
     const { close } = openModal({
       title: '编辑卡片标题与图标',
@@ -428,7 +609,7 @@ export function renderSettingsPage(container, opts = {}) {
             saveCardMeta(id, { title, icon });
             const hd = sec.querySelector('.settings-card-head');
             const ar = hd.querySelector('.cat-arrow');
-            hd.innerHTML = (icon ? `<span class="settings-card-icon">${esc(icon)}</span>` : '') + `<span class="settings-card-title">${esc(title)}</span>`;
+            hd.innerHTML = cardIconHtml(icon) + `<span class="settings-card-title">${esc(title)}</span>`;
             hd.appendChild(ar);
             close();
             toast('已保存');
@@ -803,6 +984,352 @@ export function renderSettingsPage(container, opts = {}) {
   // ---- 菜单管理 ----
   bindMenuManagement(container);
 
+  // ---- 页面管理:模板页说明 + 自定义页面增删改 ----
+  const pgTemplatesEl = container.querySelector('#pg-templates');
+  if (pgTemplatesEl) {
+    for (const t of PAGE_TEMPLATES) {
+      const row = document.createElement('div');
+      row.className = 'pg-row';
+      const nm = document.createElement('span');
+      nm.className = 'pg-tpl-name';
+      nm.textContent = t.name;
+      const ds = document.createElement('span');
+      ds.className = 'pg-tpl-desc';
+      ds.textContent = t.desc;
+      row.appendChild(nm);
+      row.appendChild(ds);
+      pgTemplatesEl.appendChild(row);
+    }
+  }
+  const editPageDialog = (p, after) => {
+    const dlgBody = document.createElement('div');
+    dlgBody.className = 'modal-body';
+    const makeRow = (label) => {
+      const row = document.createElement('div'); row.className = 'form-row';
+      const lb = document.createElement('label'); lb.className = 'f-label'; lb.textContent = label; row.appendChild(lb);
+      return row;
+    };
+    const titleRow = makeRow('页面标题');
+    const titleInp = document.createElement('input'); titleInp.type = 'text'; titleInp.value = p.title; titleRow.appendChild(titleInp);
+    const iconRow = makeRow('图标(emoji)');
+    const iconInp = document.createElement('input'); iconInp.type = 'text'; iconInp.value = p.icon || ''; iconRow.appendChild(iconInp);
+    const pickBtn = document.createElement('button');
+    pickBtn.type = 'button'; pickBtn.className = 'btn sm emoji-pick-btn'; pickBtn.textContent = '😀'; pickBtn.title = '从图标库选择';
+    pickBtn.addEventListener('click', (e) => { e.stopPropagation(); openEmojiPicker(pickBtn, iconInp); });
+    iconRow.appendChild(pickBtn);
+    attachIconPreview(iconInp, iconRow);
+    dlgBody.appendChild(titleRow); dlgBody.appendChild(iconRow);
+    let paramRow = null, paramInp = null;
+    if (p.templateId === 'web') {
+      paramRow = makeRow('网址');
+      paramInp = document.createElement('input'); paramInp.type = 'text'; paramInp.value = p.url || ''; paramInp.placeholder = '网页地址或本地 HTML 文件路径';
+      paramRow.appendChild(paramInp);
+    } else {
+      paramRow = makeRow('内容');
+      paramInp = document.createElement('textarea'); paramInp.value = p.content || ''; paramInp.placeholder = '笔记内容';
+      paramRow.appendChild(paramInp);
+    }
+    dlgBody.appendChild(paramRow);
+    const noteRow = makeRow('备注');
+    const noteInp = document.createElement('input'); noteInp.type = 'text'; noteInp.value = p.note || ''; noteRow.appendChild(noteInp);
+    dlgBody.appendChild(noteRow);
+    const { close } = openModal({
+      title: '编辑页面「' + p.title + '」',
+      body: dlgBody,
+      foot: footButtons([
+        { text: '取消', cls: '', onClick: () => close() },
+        {
+          text: '保存', cls: 'primary', onClick: () => {
+            const title = titleInp.value.trim();
+            if (!title) { toast('页面标题不能为空', 'error'); return; }
+            const patch = { title, icon: iconInp.value.trim(), note: noteInp.value.trim() };
+            if (p.templateId === 'web') patch.url = paramInp.value.trim();
+            else patch.content = paramInp.value;
+            updateCustomPage(p.id, patch);
+            close();
+            toast('已保存');
+            if (after) after();
+          },
+        },
+      ]),
+    });
+  };
+  const renderPgList = () => {
+    const el = container.querySelector('#pg-list');
+    if (!el) return;
+    el.innerHTML = '';
+    const pages = customPages();
+    if (!pages.length) {
+      const d = document.createElement('div');
+      d.className = 'hint';
+      d.textContent = '暂无自定义页面。可在终端节点编辑框「目标页面」→「＋ 新建页面…」创建,或点下方按钮。';
+      el.appendChild(d);
+      return;
+    }
+    for (const p of pages) {
+      const row = document.createElement('div');
+      row.className = 'pg-row';
+      row.appendChild(iconNode(p.icon || '📄'));
+      const nm = document.createElement('span');
+      nm.className = 'pg-name';
+      nm.textContent = p.title;
+      const tpl = document.createElement('span');
+      tpl.className = 'pg-tpl';
+      tpl.textContent = (PAGE_TEMPLATES.find((t) => t.id === p.templateId) || {}).name || p.templateId;
+      const ops = document.createElement('span');
+      ops.className = 'pg-ops';
+      const eb = document.createElement('button');
+      eb.type = 'button'; eb.className = 'btn sm ghost'; eb.textContent = '✎ 编辑';
+      eb.addEventListener('click', () => editPageDialog(p, renderPgList));
+      const db = document.createElement('button');
+      db.type = 'button'; db.className = 'btn sm ghost danger'; db.textContent = '删除';
+      db.addEventListener('click', () => {
+        confirmDialog({
+          title: '删除页面「' + p.title + '」?',
+          message: '引用该页面的终端节点将提示「页面不存在」。',
+          danger: true,
+          onOk: () => { removeCustomPage(p.id); renderPgList(); toast('已删除'); },
+        });
+      });
+      ops.appendChild(eb); ops.appendChild(db);
+      row.appendChild(nm); row.appendChild(tpl); row.appendChild(ops);
+      el.appendChild(row);
+    }
+  };
+  renderPgList();
+  const pgAdd = container.querySelector('#pg-add');
+  if (pgAdd) pgAdd.addEventListener('click', () => newPageDialog({}, () => renderPgList()));
+
+  // ---- 资源类型管理:内置类型只读 + 自定义类型增删改 ----
+  const GROUP_LABELS = { anim: '动画', image: '图片', audio: '音频', '3d': '3D' };
+  // 资源分组(内置只读)
+  const cgBuiltinEl = container.querySelector('#cg-builtin');
+  if (cgBuiltinEl) {
+    for (const [v, l] of Object.entries(GROUP_LABELS)) {
+      const row = document.createElement('div');
+      row.className = 'pg-row';
+      const nm = document.createElement('span');
+      nm.className = 'pg-tpl-name';
+      nm.textContent = l;
+      const ds = document.createElement('span');
+      ds.className = 'pg-tpl-desc';
+      ds.textContent = '内置分组(动画/图片/音频/3D)';
+      row.appendChild(nm);
+      row.appendChild(ds);
+      cgBuiltinEl.appendChild(row);
+    }
+  }
+  // 自定义分组增删改
+  const editCustomTypeGroupDialog = (g, after) => {
+    const dlgBody = document.createElement('div');
+    dlgBody.className = 'modal-body';
+    const makeRow = (label) => {
+      const row = document.createElement('div'); row.className = 'form-row';
+      const lb = document.createElement('label'); lb.className = 'f-label'; lb.textContent = label; row.appendChild(lb);
+      return row;
+    };
+    const nameRow = makeRow('分组名称');
+    const nameInp = document.createElement('input'); nameInp.type = 'text'; nameInp.value = g ? g.name : ''; nameInp.placeholder = '如 图标 / 数据 / 文件';
+    nameRow.appendChild(nameInp);
+    const extsRow = makeRow('扩展名');
+    const extsInp = document.createElement('input'); extsInp.type = 'text'; extsInp.value = g ? (g.exts || []).join(',') : ''; extsInp.placeholder = '逗号分隔,如 .db,.txt,.json,.xml';
+    extsRow.appendChild(extsInp);
+    const iconRow = makeRow('图标(emoji 或导入图片)');
+    const iconInp = document.createElement('input'); iconInp.type = 'text'; iconInp.value = g ? (g.icon || '') : '';
+    iconRow.appendChild(iconInp);
+    const pickBtn = document.createElement('button');
+    pickBtn.type = 'button'; pickBtn.className = 'btn sm emoji-pick-btn'; pickBtn.textContent = '😀'; pickBtn.title = '从图标库选择';
+    pickBtn.addEventListener('click', (e) => { e.stopPropagation(); openEmojiPicker(pickBtn, iconInp); });
+    iconRow.appendChild(pickBtn);
+    attachIconPreview(iconInp, iconRow);
+    dlgBody.appendChild(nameRow); dlgBody.appendChild(extsRow); dlgBody.appendChild(iconRow);
+    const { close } = openModal({
+      title: g ? '编辑资源分组「' + g.name + '」' : '新增资源分组',
+      body: dlgBody,
+      foot: footButtons([
+        { text: '取消', cls: '', onClick: () => close() },
+        {
+          text: '确定', cls: 'primary', onClick: () => {
+            const name = nameInp.value.trim();
+            if (!name) { toast('分组名称不能为空', 'error'); return; }
+            const exts = extsInp.value.split(/[,，;\s]+/).map((e) => e.trim().toLowerCase()).filter(Boolean);
+            if (!exts.length) { toast('请填写至少一个扩展名', 'error'); return; }
+            if (g) updateCustomTypeGroup(g.id, { name, exts, icon: iconInp.value.trim() });
+            else addCustomTypeGroup({ name, exts, icon: iconInp.value.trim() });
+            close();
+            toast('已保存');
+            if (after) after();
+          },
+        },
+      ]),
+    });
+  };
+  const renderCgList = () => {
+    const el = container.querySelector('#cg-list');
+    if (!el) return;
+    el.innerHTML = '';
+    const groups = customTypeGroups();
+    if (!groups.length) {
+      const d = document.createElement('div');
+      d.className = 'hint';
+      d.textContent = '暂无自定义资源分组。例如「数据」(.db,.txt,.json,.xml)、「文件」(.md,.htm,.html,.txt)。';
+      el.appendChild(d);
+      return;
+    }
+    for (const g of groups) {
+      const row = document.createElement('div');
+      row.className = 'pg-row';
+      const ic = iconNode(g.icon || '🗂', 'cat-icon');
+      const nm = document.createElement('span');
+      nm.className = 'pg-name';
+      nm.textContent = g.name;
+      const ex = document.createElement('span');
+      ex.className = 'pg-tpl-desc';
+      ex.textContent = (g.exts || []).join(' ');
+      const ops = document.createElement('span');
+      ops.className = 'pg-ops';
+      const eb = document.createElement('button');
+      eb.type = 'button'; eb.className = 'btn sm ghost'; eb.textContent = '✎ 编辑';
+      eb.addEventListener('click', () => editCustomTypeGroupDialog(g, renderCgList));
+      const db = document.createElement('button');
+      db.type = 'button'; db.className = 'btn sm ghost danger'; db.textContent = '删除';
+      db.addEventListener('click', () => {
+        confirmDialog({
+          title: '删除资源分组「' + g.name + '」?',
+          message: '已按该分组入库的条目将保留(类型名显示为 id);其扩展名恢复由内置类型接管。',
+          danger: true,
+          onOk: () => { removeCustomTypeGroup(g.id); renderCgList(); toast('已删除'); },
+        });
+      });
+      ops.appendChild(eb); ops.appendChild(db);
+      row.appendChild(ic); row.appendChild(nm); row.appendChild(ex); row.appendChild(ops);
+      el.appendChild(row);
+    }
+  };
+  renderCgList();
+  const cgAdd = container.querySelector('#cg-add');
+  if (cgAdd) cgAdd.addEventListener('click', () => editCustomTypeGroupDialog(null, renderCgList));
+
+  const ctBuiltinEl = container.querySelector('#ct-builtin');
+  if (ctBuiltinEl) {
+    const builtins = [['spine', 'Spine'], ['dragonbones', 'DragonBones'], ['image', '图片'], ['audio', '音频'], ['model', '3D模型']];
+    for (const [id, name] of builtins) {
+      const row = document.createElement('div');
+      row.className = 'pg-row';
+      const nm = document.createElement('span');
+      nm.className = 'pg-tpl-name';
+      nm.textContent = name;
+      const ds = document.createElement('span');
+      ds.className = 'pg-tpl-desc';
+      ds.textContent = (TYPE_EXTENSIONS[id] || []).join(' ');
+      row.appendChild(nm);
+      row.appendChild(ds);
+      ctBuiltinEl.appendChild(row);
+    }
+  }
+  const editCustomTypeDialog = (ct, after) => {
+    const dlgBody = document.createElement('div');
+    dlgBody.className = 'modal-body';
+    const makeRow = (label) => {
+      const row = document.createElement('div'); row.className = 'form-row';
+      const lb = document.createElement('label'); lb.className = 'f-label'; lb.textContent = label; row.appendChild(lb);
+      return row;
+    };
+    const nameRow = makeRow('类型名称');
+    const nameInp = document.createElement('input'); nameInp.type = 'text'; nameInp.value = ct ? ct.name : ''; nameInp.placeholder = '如 图标资源';
+    nameRow.appendChild(nameInp);
+    const groupRow = makeRow('资源分组');
+    const groupSel = document.createElement('select');
+    for (const [v, l] of Object.entries(GROUP_LABELS)) {
+      const op = document.createElement('option'); op.value = v; op.textContent = l; groupSel.appendChild(op);
+    }
+    for (const g of customTypeGroups()) {
+      const op = document.createElement('option'); op.value = g.id; op.textContent = g.name; groupSel.appendChild(op);
+    }
+    groupSel.value = ct ? (ct.group || 'image') : 'image';
+    groupRow.appendChild(groupSel);
+    const extsRow = makeRow('扩展名');
+    const extsInp = document.createElement('input'); extsInp.type = 'text'; extsInp.value = ct ? (ct.exts || []).join(',') : ''; extsInp.placeholder = '逗号分隔,如 .png,.ico';
+    extsRow.appendChild(extsInp);
+    const iconRow = makeRow('图标(emoji 或导入图片)');
+    const iconInp = document.createElement('input'); iconInp.type = 'text'; iconInp.value = ct ? (ct.icon || '') : '';
+    iconRow.appendChild(iconInp);
+    const pickBtn = document.createElement('button');
+    pickBtn.type = 'button'; pickBtn.className = 'btn sm emoji-pick-btn'; pickBtn.textContent = '😀'; pickBtn.title = '从图标库选择';
+    pickBtn.addEventListener('click', (e) => { e.stopPropagation(); openEmojiPicker(pickBtn, iconInp); });
+    iconRow.appendChild(pickBtn);
+    attachIconPreview(iconInp, iconRow);
+    dlgBody.appendChild(nameRow); dlgBody.appendChild(groupRow); dlgBody.appendChild(extsRow); dlgBody.appendChild(iconRow);
+    const { close } = openModal({
+      title: ct ? '编辑资源类型「' + ct.name + '」' : '新增资源类型',
+      body: dlgBody,
+      foot: footButtons([
+        { text: '取消', cls: '', onClick: () => close() },
+        {
+          text: '确定', cls: 'primary', onClick: () => {
+            const name = nameInp.value.trim();
+            if (!name) { toast('类型名称不能为空', 'error'); return; }
+            const exts = extsInp.value.split(/[,，;\s]+/).map((e) => e.trim().toLowerCase()).filter(Boolean);
+            if (!exts.length) { toast('请填写至少一个扩展名', 'error'); return; }
+            if (ct) updateCustomType(ct.id, { name, group: groupSel.value, exts, icon: iconInp.value.trim() });
+            else addCustomType({ name, group: groupSel.value, exts, icon: iconInp.value.trim() });
+            close();
+            toast('已保存');
+            if (after) after();
+          },
+        },
+      ]),
+    });
+  };
+  const renderCtList = () => {
+    const el = container.querySelector('#ct-list');
+    if (!el) return;
+    el.innerHTML = '';
+    const cts = customTypes();
+    if (!cts.length) {
+      const d = document.createElement('div');
+      d.className = 'hint';
+      d.textContent = '暂无自定义资源类型。点「＋ 新增资源类型」创建,例如 图标资源(.png,.ico)。';
+      el.appendChild(d);
+      return;
+    }
+    for (const ct of cts) {
+      const row = document.createElement('div');
+      row.className = 'pg-row';
+      const ic = iconNode(ct.icon || '🗂', 'cat-icon');
+      const nm = document.createElement('span');
+      nm.className = 'pg-name';
+      nm.textContent = ct.name;
+      const grp = document.createElement('span');
+      grp.className = 'pg-tpl';
+      grp.textContent = GROUP_LABELS[ct.group] || ct.group;
+      const ex = document.createElement('span');
+      ex.className = 'pg-tpl-desc';
+      ex.textContent = (ct.exts || []).join(' ');
+      const ops = document.createElement('span');
+      ops.className = 'pg-ops';
+      const eb = document.createElement('button');
+      eb.type = 'button'; eb.className = 'btn sm ghost'; eb.textContent = '✎ 编辑';
+      eb.addEventListener('click', () => editCustomTypeDialog(ct, renderCtList));
+      const db = document.createElement('button');
+      db.type = 'button'; db.className = 'btn sm ghost danger'; db.textContent = '删除';
+      db.addEventListener('click', () => {
+        confirmDialog({
+          title: '删除资源类型「' + ct.name + '」?',
+          message: '已按该类型入库的条目将保留(类型名显示为 id);其扩展名恢复由内置类型接管。',
+          danger: true,
+          onOk: () => { removeCustomType(ct.id); renderCtList(); toast('已删除'); },
+        });
+      });
+      ops.appendChild(eb); ops.appendChild(db);
+      row.appendChild(ic); row.appendChild(nm); row.appendChild(grp); row.appendChild(ex); row.appendChild(ops);
+      el.appendChild(row);
+    }
+  };
+  renderCtList();
+  const ctAdd = container.querySelector('#ct-add');
+  if (ctAdd) ctAdd.addEventListener('click', () => editCustomTypeDialog(null, renderCtList));
+
   // 返回
   container.querySelector('#settings-back').addEventListener('click', () => {
     if (opts.onClose) opts.onClose();
@@ -818,6 +1345,7 @@ const MENU_ACTION_OPTIONS = [
   { value: 'page:scene', label: '游戏场景管理主页' },
   { value: 'page:toolbox', label: '资源工具箱主页' },
   { value: 'page:fav', label: '收藏夹主页' },
+  { value: 'page:emoji', label: 'emoji 图标管理' },
   { value: 'res:anim', label: '动画资源' },
   { value: 'res:image', label: '图片资源' },
   { value: 'res:audio', label: '音频资源' },
@@ -899,6 +1427,7 @@ function bindMenuManagement(container) {
     pickBtn.title = '选择图标';
     pickBtn.addEventListener('click', (e) => { e.stopPropagation(); openEmojiPicker(pickBtn, iconInp); });
     iconRow.appendChild(pickBtn);
+    attachIconPreview(iconInp, iconRow);
     body.appendChild(nameRow); body.appendChild(iconRow);
 
     const { close } = openModal({
@@ -1210,8 +1739,40 @@ function bindMenuManagement(container) {
       .forEach((el) => el.classList.remove('dragging', 'drop-before', 'drop-after', 'drop-in'));
   };
 
+  // 名称行 + 内联「资源」勾选框(与 ui.js buildNameResourceRow 逻辑一致,因为本文件未从 ui 导入)
+  function buildNameResourceRow(nameValue, opts = {}) {
+    const isResource = !!opts.isResource;
+    const locked = !!opts.locked;
+    const row = document.createElement('div');
+    row.className = 'form-row';
+    const lb = document.createElement('label');
+    lb.className = 'f-label';
+    lb.textContent = '名称';
+    row.appendChild(lb);
+    const nameInp = document.createElement('input');
+    nameInp.type = 'text';
+    nameInp.className = 'name-input-short';
+    nameInp.value = nameValue;
+    row.appendChild(nameInp);
+    const resWrap = document.createElement('label');
+    resWrap.className = 'res-flag-wrap' + (locked ? ' locked' : '');
+    const resCb = document.createElement('input');
+    resCb.type = 'checkbox';
+    resCb.checked = isResource;
+    if (locked) resCb.disabled = true;
+    resWrap.appendChild(resCb);
+    const resTxt = document.createElement('span');
+    resTxt.textContent = '资源';
+    resWrap.appendChild(resTxt);
+    row.appendChild(resWrap);
+    return { row, nameInp, resCb };
+  }
+
   const newMmNodeDialog = (parentId, nodeType) => {
     const isTerm = nodeType === 'term';
+    const parentNodeMM = parentId ? menuNodeById(parentId) : null;
+    const resLockedMM = !!(parentNodeMM && parentNodeMM.isResource);
+    const resDefaultMM = resLockedMM;
     const body = document.createElement('div');
     body.className = 'modal-body';
     const makeRow = (label) => {
@@ -1219,8 +1780,8 @@ function bindMenuManagement(container) {
       const lb = document.createElement('label'); lb.className = 'f-label'; lb.textContent = label; row.appendChild(lb);
       return row;
     };
-    const nameRow = makeRow('名称');
-    const nameInp = document.createElement('input'); nameInp.type = 'text'; nameInp.value = ''; nameRow.appendChild(nameInp);
+    const { row: nameRow, nameInp, resCb } = buildNameResourceRow('', { isResource: resDefaultMM, locked: resLockedMM });
+    body.appendChild(nameRow);
     const iconRow = makeRow('图标(emoji)');
     const iconInp = document.createElement('input'); iconInp.type = 'text'; iconInp.value = ''; iconRow.appendChild(iconInp);
     const iconPickBtn = document.createElement('button');
@@ -1230,9 +1791,17 @@ function bindMenuManagement(container) {
     iconPickBtn.title = '选择图标';
     iconPickBtn.addEventListener('click', (e) => { e.stopPropagation(); openEmojiPicker(iconPickBtn, iconInp); });
     iconRow.appendChild(iconPickBtn);
-    body.appendChild(nameRow); body.appendChild(iconRow);
+    attachIconPreview(iconInp, iconRow);
+    body.appendChild(iconRow);
 
-    let typeSel = null, actSel = null, exeRow = null, exeInp = null;
+    let typeSel = null, actSel = null, exeRow = null, exeInp = null, typeTagsRow = null;
+    // 目录:「设置类型组」默认继承父目录已勾选的组,且灰显不可改
+    const inheritSetMM = new Set(parentNodeMM && Array.isArray(parentNodeMM.typeTags) ? parentNodeMM.typeTags : []);
+    // 目标页面(目录可空,默认仅展开/折叠;终端必选)
+    const actRow = makeRow('目标页面');
+    actSel = document.createElement('select');
+    fillTargetSelect(actSel, '', { nameInp, iconInp }, { allowEmpty: !isTerm, emptyLabel: '(无 - 仅展开/折叠)' });
+    actRow.appendChild(actSel);
     if (isTerm) {
       const typeRow = makeRow('动作类型');
       typeSel = document.createElement('select');
@@ -1241,19 +1810,13 @@ function bindMenuManagement(container) {
       });
       typeSel.value = 'builtin';
       typeRow.appendChild(typeSel); body.appendChild(typeRow);
-
-      const actRow = makeRow('目标页面');
-      actSel = document.createElement('select');
-      for (const o of MENU_ACTION_OPTIONS) {
-        const op = document.createElement('option'); op.value = o.value; op.textContent = o.label; actSel.appendChild(op);
-      }
-      actSel.value = MENU_ACTION_OPTIONS[0].value;
-      actRow.appendChild(actSel); body.appendChild(actRow);
+      body.appendChild(actRow); // 目标页面在动作类型之后,与选外部程序时「动作类型」位置一致
 
       exeRow = makeRow('程序路径');
       exeInp = document.createElement('input'); exeInp.type = 'text'; exeInp.value = '';
-      exeInp.placeholder = '例如 C:\\Tools\\app.exe 参数';
+      exeInp.placeholder = '例如 C:\\Program Files\\App.exe 参数 或 https://example.com';
       exeRow.appendChild(exeInp); body.appendChild(exeRow);
+      attachExeAutoFill(exeInp, nameInp, iconInp);
 
       const sync = () => {
         const isExe = typeSel.value === 'exe';
@@ -1261,6 +1824,34 @@ function bindMenuManagement(container) {
         exeRow.style.display = isExe ? '' : 'none';
       };
       typeSel.addEventListener('change', sync); sync();
+    } else {
+      body.appendChild(actRow);
+      // 目录:「设置类型组」(继承父目录已勾选的组,灰显不可改)
+      const tagsRowMM = makeRow('设置类型组');
+      tagsRowMM.style.alignItems = 'flex-start';
+      typeTagsRow = document.createElement('div');
+      typeTagsRow.className = 'check-group';
+      for (const o of groupTagOptions()) {
+        const lb = document.createElement('label');
+        const locked = inheritSetMM.has(o.value);
+        lb.className = 'check-item' + (locked ? ' checked disabled' : '');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = o.value;
+        cb.checked = locked;
+        if (locked) cb.disabled = true;
+        cb.addEventListener('change', () => lb.classList.toggle('checked', cb.checked));
+        lb.appendChild(cb);
+        lb.appendChild(document.createTextNode(o.label));
+        typeTagsRow.appendChild(lb);
+      }
+      const hintMM = document.createElement('div');
+      hintMM.className = 'form-hint';
+      hintMM.textContent = '勾选该目录下允许显示的类型组(可多选)。点击该目录时,分类树中只显示「资源组命中了勾选类型组」或「未勾选任何资源组(全部)」的目录;不勾选 = 点击目录仅展开/折叠。';
+      if (inheritSetMM.size) hintMM.textContent += '（带灰色的组继承自父目录,默认勾选且不可修改,可额外勾选其它组）';
+      typeTagsRow.appendChild(hintMM);
+      tagsRowMM.appendChild(typeTagsRow);
+      body.appendChild(tagsRowMM);
     }
 
     const { close } = openModal({
@@ -1278,8 +1869,11 @@ function bindMenuManagement(container) {
               actionType = isExe ? 'exe' : 'builtin';
               action = isExe ? exeInp.value.trim() : actSel.value;
               if (!action) { toast(isExe ? '程序路径不能为空' : '请选择目标页面', 'error'); return; }
+            } else {
+              actionType = 'builtin';
+              action = actSel.value; // 目录目标页面可为空
             }
-            addMenuNode({ name, icon: iconInp.value.trim(), parentId, nodeType, actionType, action });
+            addMenuNode({ name, icon: iconInp.value.trim(), parentId, nodeType, actionType, action, isResource: resCb.checked, typeTags: typeTagsRow ? [...typeTagsRow.querySelectorAll('input:checked')].map((c) => c.value) : [] });
             close();
             if (parentId) mmExpanded.add(parentId); // 新建子节点后展开父目录,便于看到
             refresh();
@@ -1301,8 +1895,8 @@ function bindMenuManagement(container) {
       const lb = document.createElement('label'); lb.className = 'f-label'; lb.textContent = label; row.appendChild(lb);
       return row;
     };
-    const nameRow = makeRow('名称');
-    const nameInp = document.createElement('input'); nameInp.type = 'text'; nameInp.value = node.name; nameRow.appendChild(nameInp);
+    const { row: nameRow, nameInp, resCb } = buildNameResourceRow(node.name, { isResource: node.isResource, locked: true });
+    body.appendChild(nameRow);
     const iconRow = makeRow('图标(emoji)');
     const iconInp = document.createElement('input'); iconInp.type = 'text'; iconInp.value = node.icon || ''; iconRow.appendChild(iconInp);
     const iconPickBtn = document.createElement('button');
@@ -1312,13 +1906,55 @@ function bindMenuManagement(container) {
     iconPickBtn.title = '选择图标';
     iconPickBtn.addEventListener('click', (e) => { e.stopPropagation(); openEmojiPicker(iconPickBtn, iconInp); });
     iconRow.appendChild(iconPickBtn);
+    attachIconPreview(iconInp, iconRow);
     const tipRow = makeRow('悬停提示');
     const tipInp = document.createElement('input'); tipInp.type = 'text'; tipInp.value = node.tooltip || ''; tipRow.appendChild(tipInp);
     const noteRow = makeRow('备注');
     const noteInp = document.createElement('textarea'); noteInp.value = node.note || ''; noteRow.appendChild(noteInp);
-    body.appendChild(nameRow); body.appendChild(iconRow); body.appendChild(tipRow); body.appendChild(noteRow);
+    body.appendChild(iconRow); body.appendChild(tipRow); body.appendChild(noteRow);
 
     let typeSel = null, actSel = null, exeRow = null, exeInp = null;
+    // 目标页面(目录可空,默认仅展开/折叠;终端必选)
+    const actRow = makeRow('目标页面');
+    actSel = document.createElement('select');
+    fillTargetSelect(actSel, node.action, { nameInp, iconInp }, { allowEmpty: !isTerm, emptyLabel: '(无 - 仅展开/折叠)' });
+    actRow.appendChild(actSel);
+    // 目录:「设置类型组」(继承父目录已勾选的组,灰显不可改;其余可勾选)
+    let typeTagsList = null;
+    if (!isTerm) {
+      body.appendChild(actRow);
+      const tagsRow = makeRow('设置类型组');
+      tagsRow.style.alignItems = 'flex-start';
+      typeTagsList = document.createElement('div');
+      typeTagsList.className = 'check-group';
+      const opts = groupTagOptions();
+      const cur = new Set(Array.isArray(node.typeTags) ? node.typeTags : []);
+      // 继承自父目录的类型组:默认勾选且灰显不可改
+      const parentNodeEditMM = node.parentId ? menuNodeById(node.parentId) : null;
+      const inheritSetMM = new Set(parentNodeEditMM && Array.isArray(parentNodeEditMM.typeTags) ? parentNodeEditMM.typeTags : []);
+      for (const o of opts) {
+        const locked = inheritSetMM.has(o.value);
+        const isChecked = cur.has(o.value) || locked;
+        const lb = document.createElement('label');
+        lb.className = 'check-item' + (isChecked ? ' checked' : '') + (locked ? ' disabled' : '');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = o.value;
+        cb.checked = isChecked;
+        if (locked) cb.disabled = true;
+        cb.addEventListener('change', () => lb.classList.toggle('checked', cb.checked));
+        lb.appendChild(cb);
+        lb.appendChild(document.createTextNode(o.label));
+        typeTagsList.appendChild(lb);
+      }
+      const hint = document.createElement('div');
+      hint.className = 'form-hint';
+      hint.textContent = '勾选该目录下允许显示的类型组(可多选)。点击该目录时,分类树中只显示「资源组命中了勾选类型组」或「未勾选任何资源组(全部)」的目录;不勾选 = 点击目录仅展开/折叠。';
+      if (inheritSetMM.size) hint.textContent += '（带灰色的组继承自父目录,默认勾选且不可修改,可额外勾选其它组）';
+      typeTagsList.appendChild(hint);
+      tagsRow.appendChild(typeTagsList);
+      body.appendChild(tagsRow);
+    }
     if (isTerm) {
       const typeRow = makeRow('动作类型');
       typeSel = document.createElement('select');
@@ -1327,22 +1963,13 @@ function bindMenuManagement(container) {
       });
       typeSel.value = node.actionType === 'exe' ? 'exe' : 'builtin';
       typeRow.appendChild(typeSel); body.appendChild(typeRow);
-
-      const actRow = makeRow('目标页面');
-      actSel = document.createElement('select');
-      for (const o of MENU_ACTION_OPTIONS) {
-        const op = document.createElement('option'); op.value = o.value; op.textContent = o.label; actSel.appendChild(op);
-      }
-      if (!MENU_ACTION_OPTIONS.some((o) => o.value === node.action)) {
-        const op = document.createElement('option'); op.value = node.action; op.textContent = node.action; actSel.appendChild(op);
-      }
-      actSel.value = node.action || MENU_ACTION_OPTIONS[0].value;
-      actRow.appendChild(actSel); body.appendChild(actRow);
+      body.appendChild(actRow); // 目标页面放在动作类型之后,与选外部程序时「动作类型」位置一致
 
       exeRow = makeRow('程序路径');
       exeInp = document.createElement('input'); exeInp.type = 'text'; exeInp.value = node.actionType === 'exe' ? (node.action || '') : '';
-      exeInp.placeholder = '例如 C:\\Tools\\app.exe 参数';
+      exeInp.placeholder = '例如 C:\\Program Files\\App.exe 参数 或 https://example.com';
       exeRow.appendChild(exeInp); body.appendChild(exeRow);
+      attachExeAutoFill(exeInp, nameInp, iconInp);
 
       const sync = () => {
         const isExe = typeSel.value === 'exe';
@@ -1361,11 +1988,15 @@ function bindMenuManagement(container) {
           text: '确定', cls: 'primary', onClick: () => {
             const name = nameInp.value.trim();
             if (!name) { toast('名称不能为空', 'error'); return; }
-            const patch = { name, icon: iconInp.value.trim(), tooltip: tipInp.value.trim(), note: noteInp.value.trim() };
+            const patch = { name, icon: iconInp.value.trim(), tooltip: tipInp.value.trim(), note: noteInp.value.trim(), isResource: resCb.checked };
             if (isTerm) {
               const isExe = typeSel.value === 'exe';
               patch.actionType = isExe ? 'exe' : 'builtin';
               patch.action = isExe ? exeInp.value.trim() : actSel.value;
+            } else {
+              patch.actionType = 'builtin';
+              patch.action = actSel.value; // 目录目标页面可为空
+              patch.typeTags = typeTagsList ? [...typeTagsList.querySelectorAll('input:checked')].map((c) => c.value) : [];
             }
             updateMenuNode(id, patch);
             close();
@@ -1437,6 +2068,301 @@ function bindMenuManagement(container) {
   container.querySelector('#mm-collapse-all').addEventListener('click', () => {
     mmExpanded.clear();
     renderMmTree();
+  });
+
+  // ================= 分类目录(独立标签页) =================
+  const catTree = container.querySelector('#cat-tree');
+  const catExpanded = new Set();
+
+  // 资源组勾选字段(带继承锁):继承项灰显不可改,且默认勾选
+  const catTypeTagField = (value, inherited) => {
+    const inheritSet = new Set(Array.isArray(inherited) ? inherited : []);
+    const list = document.createElement('div');
+    list.className = 'check-group';
+    const cur = new Set(Array.isArray(value) ? value : []);
+    for (const o of groupTagOptions()) {
+      const locked = inheritSet.has(o.value);
+      const isChecked = cur.has(o.value) || locked;
+      const lb = document.createElement('label');
+      lb.className = 'check-item' + (isChecked ? ' checked' : '') + (locked ? ' disabled' : '');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = o.value;
+      cb.checked = isChecked;
+      if (locked) cb.disabled = true;
+      cb.addEventListener('change', () => lb.classList.toggle('checked', cb.checked));
+      lb.appendChild(cb);
+      lb.appendChild(document.createTextNode(o.label));
+      list.appendChild(lb);
+    }
+    const hint = document.createElement('div');
+    hint.className = 'form-hint';
+    hint.textContent = '不勾选 = 在所有资源组中显示;勾选后仅在该资源组(可多选)的资源树中显示。';
+    if (inheritSet.size) hint.textContent += '（带灰色的组继承自父分类,默认勾选且不可修改,可额外勾选其它组）';
+    list.appendChild(hint);
+    return list;
+  };
+
+  const renderCatTree = () => {
+    catTree.innerHTML = '';
+    const roots = getCategoryChildren('');
+    if (!roots.length) {
+      const empty = document.createElement('div');
+      empty.className = 'mm-empty';
+      empty.textContent = '（暂无分类目录,可点击「＋ 新增顶级分类」创建）';
+      catTree.appendChild(empty);
+      return;
+    }
+    const render = (parent, cat, depth) => {
+      const kids = getCategoryChildren(cat.id);
+      const hasKids = kids.length > 0;
+      const isOpen = catExpanded.has(cat.id);
+      const row = document.createElement('div');
+      row.className = 'cat-node mm-node';
+      row.style.paddingLeft = 10 + depth * 18 + 'px';
+      row.dataset.id = cat.id;
+
+      const arrow = document.createElement('span');
+      arrow.className = 'cat-arrow';
+      arrow.textContent = hasKids ? (isOpen ? '▼' : '▶') : '·';
+      row.appendChild(arrow);
+      arrow.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!hasKids) return;
+        if (catExpanded.has(cat.id)) catExpanded.delete(cat.id);
+        else catExpanded.add(cat.id);
+        renderCatTree();
+      });
+
+      row.appendChild(iconNode('📂', 'cat-icon'));
+      const nm = document.createElement('span');
+      nm.className = 'cat-name';
+      nm.textContent = cat.name;
+      row.appendChild(nm);
+
+      // 资源组徽标(显示该分类归属的资源组)
+      const tags = Array.isArray(cat.typeTags) ? cat.typeTags : [];
+      if (tags.length) {
+        const tg = document.createElement('span');
+        tg.className = 'mm-badge group';
+        tg.textContent = tags.map((t) => (CAT_TYPE_TAG_LABELS[t] || (customTypeGroupById(t) || {}).name || t)).join('/');
+        tg.title = '资源组';
+        row.appendChild(tg);
+      } else {
+        const tg = document.createElement('span');
+        tg.className = 'mm-badge group all';
+        tg.textContent = '全部';
+        tg.title = '未限定资源组(所有类型显示)';
+        row.appendChild(tg);
+      }
+
+      row.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); catNodeMenu(e.clientX, e.clientY, cat); });
+      row.addEventListener('click', () => editCatDialog(cat.id));
+
+      catTree.appendChild(row);
+      if (hasKids && isOpen) for (const c of kids) render(catTree, c, depth + 1);
+    };
+    for (const r of roots) render(catTree, r, 0);
+  };
+
+  const catNodeMenu = (x, y, cat) => {
+    const items = [
+      { label: '新建子目录', onClick: () => newCatDialog(cat.id) },
+      { label: '编辑', onClick: () => editCatDialog(cat.id) },
+      { label: '移动...', onClick: () => moveCatDialog(cat) },
+      { label: '删除', danger: true, onClick: () => deleteCatDialog(cat.id) },
+    ];
+    showContextMenu(x, y, items);
+  };
+
+  const catTagsFromList = (list) => [...list.querySelectorAll('input:checked')].map((c) => c.value);
+
+  const newCatDialog = (parentId) => {
+    const parent = parentId ? categoryById(parentId) : null;
+    const inherited = parent && Array.isArray(parent.typeTags) ? parent.typeTags : [];
+    const body = document.createElement('div');
+    body.className = 'modal-body';
+    const makeRow = (label) => {
+      const row = document.createElement('div'); row.className = 'form-row';
+      const lb = document.createElement('label'); lb.className = 'f-label'; lb.textContent = label; row.appendChild(lb);
+      return row;
+    };
+    const nameRow = makeRow('目录名称');
+    const nameInp = document.createElement('input'); nameInp.type = 'text'; nameInp.value = '';
+    nameRow.appendChild(nameInp);
+    body.appendChild(nameRow);
+    const tagsRow = makeRow('资源组');
+    tagsRow.style.alignItems = 'flex-start';
+    const list = catTypeTagField([], inherited);
+    tagsRow.appendChild(list);
+    body.appendChild(tagsRow);
+    const { close } = openModal({
+      title: '新建分类目录',
+      body,
+      foot: footButtons([
+        { text: '取消', cls: '', onClick: () => close() },
+        { text: '创建', cls: 'primary', onClick: () => {
+          const name = nameInp.value.trim();
+          if (!name) { toast('目录名称不能为空', 'error'); return; }
+          const merged = Array.from(new Set([...inherited, ...catTagsFromList(list)]));
+          addCategory({ name, typeTags: merged, parentId: parentId || '' });
+          if (parentId) catExpanded.add(parentId);
+          close();
+          renderCatTree();
+          document.dispatchEvent(new CustomEvent('library:changed'));
+          toast('已创建分类目录');
+        } },
+      ]),
+    });
+  };
+
+  const editCatDialog = (id) => {
+    const cat = categoryById(id);
+    if (!cat) return;
+    const parent = cat.parentId ? categoryById(cat.parentId) : null;
+    const inherited = parent && Array.isArray(parent.typeTags) ? parent.typeTags : [];
+    const body = document.createElement('div');
+    body.className = 'modal-body';
+    const makeRow = (label) => {
+      const row = document.createElement('div'); row.className = 'form-row';
+      const lb = document.createElement('label'); lb.className = 'f-label'; lb.textContent = label; row.appendChild(lb);
+      return row;
+    };
+    const nameRow = makeRow('目录名称');
+    const nameInp = document.createElement('input'); nameInp.type = 'text'; nameInp.value = cat.name;
+    nameRow.appendChild(nameInp);
+    body.appendChild(nameRow);
+    const tagsRow = makeRow('资源组');
+    tagsRow.style.alignItems = 'flex-start';
+    const list = catTypeTagField(cat.typeTags, inherited);
+    tagsRow.appendChild(list);
+    body.appendChild(tagsRow);
+    const { close } = openModal({
+      title: '编辑分类目录',
+      body,
+      foot: footButtons([
+        { text: '取消', cls: '', onClick: () => close() },
+        { text: '确定', cls: 'primary', onClick: () => {
+          const name = nameInp.value.trim();
+          if (!name) { toast('目录名称不能为空', 'error'); return; }
+          // 强制保留继承自父分类的资源组(安全兜底)
+          const merged = Array.from(new Set([...inherited, ...catTagsFromList(list)]));
+          updateCategory(id, { name, typeTags: merged });
+          close();
+          renderCatTree();
+          document.dispatchEvent(new CustomEvent('library:changed'));
+          toast('已更新分类目录');
+        } },
+      ]),
+    });
+  };
+
+  const deleteCatDialog = (id) => {
+    const cat = categoryById(id);
+    if (!cat) return;
+    const subs = getCategoryChildren(id);
+    const subDesc = getCategoryDescendants(id);
+    const nItems = state.items.filter((i) => i.categoryId === id || subDesc.includes(i.categoryId)).length;
+    const hasSubs = subs.length > 0;
+    const body = document.createElement('div');
+    body.className = 'modal-body';
+    body.innerHTML = `<div class="hint" style="margin-bottom:10px">将删除分类目录「<b>${esc(cat.name)}</b>」(${nItems} 个资源${hasSubs ? `,${subs.length} 个子目录` : ''}),请选择处理方式:</div>`;
+    const animRow = document.createElement('div'); animRow.className = 'form-row';
+    const optDel = document.createElement('label'); optDel.className = 'fav-pick-item';
+    const rbDel = document.createElement('input'); rbDel.type = 'radio'; rbDel.name = 'delcat-anim'; rbDel.value = 'delete'; rbDel.checked = true;
+    optDel.appendChild(rbDel); optDel.appendChild(document.createTextNode('删除目录下的所有资源(仅从列表移除,不删磁盘文件)和子目录'));
+    const optMove = document.createElement('label'); optMove.className = 'fav-pick-item';
+    const rbMove = document.createElement('input'); rbMove.type = 'radio'; rbMove.name = 'delcat-anim'; rbMove.value = 'move';
+    optMove.appendChild(rbMove); optMove.appendChild(document.createTextNode('将目录下的资源移动到「未分类」'));
+    animRow.appendChild(optDel); animRow.appendChild(optMove); body.appendChild(animRow);
+    const subBox = document.createElement('div');
+    if (hasSubs) {
+      const subTip = document.createElement('div'); subTip.className = 'hint'; subTip.style.margin = '8px 0 4px';
+      subTip.textContent = '子目录处理:'; subBox.appendChild(subTip);
+      const optUp = document.createElement('label'); optUp.className = 'fav-pick-item';
+      const rbUp = document.createElement('input'); rbUp.type = 'radio'; rbUp.name = 'delcat-sub'; rbUp.value = 'parent'; rbUp.checked = true;
+      optUp.appendChild(rbUp); optUp.appendChild(document.createTextNode(cat.parentId ? '提升为上一级目录的子目录' : '提升为顶级目录'));
+      const optTo = document.createElement('label'); optTo.className = 'fav-pick-item';
+      const rbTo = document.createElement('input'); rbTo.type = 'radio'; rbTo.name = 'delcat-sub'; rbTo.value = 'top';
+      optTo.appendChild(rbTo); optTo.appendChild(document.createTextNode('提升为顶级目录'));
+      subBox.appendChild(optUp); subBox.appendChild(optTo);
+    }
+    body.appendChild(subBox);
+    const { close } = openModal({
+      title: `删除分类「${cat.name}」?`,
+      body,
+      foot: footButtons([
+        { text: '取消', cls: '', onClick: () => close() },
+        { text: '删除', cls: 'danger', onClick: () => {
+          const deleteItems = body.querySelector('input[name="delcat-anim"]:checked').value === 'delete';
+          const subAction = hasSubs ? body.querySelector('input[name="delcat-sub"]:checked').value : 'parent';
+          removeCategoryAdvanced(id, { deleteItems, subAction });
+          close();
+          renderCatTree();
+          document.dispatchEvent(new CustomEvent('library:changed'));
+          toast('已删除分类目录');
+        } },
+      ]),
+    });
+  };
+
+  const moveCatDialog = (cat) => {
+    const body = document.createElement('div');
+    body.className = 'modal-body';
+    const list = document.createElement('div');
+    list.className = 'fav-pick-list';
+    body.appendChild(list);
+    const exclude = new Set([cat.id, ...getCategoryDescendants(cat.id)]);
+    let checked = false;
+    const pick = (value, label) => {
+      const lb = document.createElement('label'); lb.className = 'fav-pick-item';
+      const rb = document.createElement('input'); rb.type = 'radio'; rb.name = 'movecat'; rb.value = value;
+      if (!checked) { rb.checked = true; checked = true; }
+      const sp = document.createElement('span'); sp.textContent = label;
+      lb.appendChild(rb); lb.appendChild(sp); list.appendChild(lb);
+    };
+    pick('', '移至顶级');
+    for (const c of state.categories) {
+      if (exclude.has(c.id)) continue;
+      pick(c.id, categoryPath(c.id));
+    }
+    const { close } = openModal({
+      title: '移动分类目录',
+      body,
+      foot: footButtons([
+        { text: '取消', cls: '', onClick: () => close() },
+        { text: '确定', cls: 'primary', onClick: () => {
+          const selected = list.querySelector('input:checked');
+          if (!selected) return;
+          updateCategory(cat.id, { parentId: selected.value });
+          close();
+          renderCatTree();
+          document.dispatchEvent(new CustomEvent('library:changed'));
+          toast('已移动分类目录');
+        } },
+      ]),
+    });
+  };
+
+  // 标签页切换
+  container.querySelectorAll('.mm-tab').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      container.querySelectorAll('.mm-tab').forEach((t) => t.classList.toggle('active', t === tab));
+      const which = tab.dataset.mmTab;
+      container.querySelector('#mm-pane-menu').style.display = which === 'menu' ? '' : 'none';
+      container.querySelector('#mm-pane-cat').style.display = which === 'cat' ? '' : 'none';
+      if (which === 'cat') renderCatTree();
+    });
+  });
+
+  container.querySelector('#cat-add-top').addEventListener('click', () => newCatDialog(''));
+  container.querySelector('#cat-expand-all').addEventListener('click', () => {
+    state.categories.forEach((c) => { if (getCategoryChildren(c.id).length > 0) catExpanded.add(c.id); });
+    renderCatTree();
+  });
+  container.querySelector('#cat-collapse-all').addEventListener('click', () => {
+    catExpanded.clear();
+    renderCatTree();
   });
 
   renderMmTree();

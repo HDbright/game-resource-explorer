@@ -3,6 +3,7 @@
 import {
   getIconGroups, getIconItems, addIconGroup, renameIconGroup, removeIconGroup,
   addIconItem, removeIconItem, moveIconItem, reorderIconItem, isImageIcon, DEFAULT_ICON_LIBRARY, EMOJI_NAMES,
+  addCustomPage, PAGE_TEMPLATES,
 } from './state.js';
 
 const modalRoot = () => document.getElementById('modal-root');
@@ -111,11 +112,9 @@ export function showContextMenu(x, y, items) {
 export function toast(message, type = 'ok') {  const el = document.createElement('div');
   el.style.cssText =
     'position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:200;' +
-    'background:var(--bg4);color:var(--text);border:1px solid var(--border);' +
+    'background:var(--bg4);color:var(--text);' +
     'border-radius:8px;padding:8px 18px;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,.4);' +
     'transition:opacity .3s;max-width:70vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-  if (type === 'error') el.style.borderColor = 'var(--danger)';
-  if (type === 'ok') el.style.borderColor = 'var(--ok)';
   el.textContent = message;
   document.body.appendChild(el);
   setTimeout(() => { el.style.opacity = '0'; }, 2600);
@@ -135,6 +134,14 @@ export function promptDialog({ title, fields, onOk, onCancel }) {
     label.textContent = f.label;
     row.appendChild(label);
     let input;
+    if (f.type === 'static') {
+      const info = document.createElement('div');
+      info.className = 'form-info';
+      info.textContent = f.value || '';
+      row.appendChild(info);
+      body.appendChild(row);
+      continue;
+    }
     if (f.type === 'select') {
       input = document.createElement('select');
       for (const o of f.options) {
@@ -148,17 +155,22 @@ export function promptDialog({ title, fields, onOk, onCancel }) {
       input = document.createElement('textarea');
       input.value = f.value;
     } else if (f.type === 'checkboxes') {
-      // 勾选组:options [{value,label}],value 为已勾选数组;结果通过 getValue() 收集
+      // 勾选组:options [{value,label,disabled?}],value 为已勾选数组;disabled 项呈灰色不可修改(仍计入结果);结果通过 getValue() 收集
       input = document.createElement('div');
       input.className = 'check-group';
       for (const o of f.options || []) {
         const lb = document.createElement('label');
-        lb.className = 'check-item';
+        lb.className = 'check-item' + (o.disabled ? ' disabled' : '');
         const cb = document.createElement('input');
         cb.type = 'checkbox';
         cb.value = o.value;
         cb.checked = Array.isArray(f.value) && f.value.includes(o.value);
-        cb.addEventListener('change', () => lb.classList.toggle('checked', cb.checked));
+        if (o.disabled) {
+          cb.disabled = true; // 灰色不可修改(继承自父目录)
+          if (cb.checked) lb.classList.add('checked');
+        } else {
+          cb.addEventListener('change', () => lb.classList.toggle('checked', cb.checked));
+        }
         lb.appendChild(cb);
         lb.appendChild(document.createTextNode(o.label));
         input.appendChild(lb);
@@ -171,6 +183,11 @@ export function promptDialog({ title, fields, onOk, onCancel }) {
       }
       input.getValue = () =>
         [...input.querySelectorAll('input[type="checkbox"]:checked')].map((cb) => cb.value);
+    } else if (f.type === 'checkbox') {
+      input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = !!f.value;
+      input.getValue = () => input.checked;
     } else {
       input = document.createElement('input');
       input.type = 'text';
@@ -196,7 +213,8 @@ export function promptDialog({ title, fields, onOk, onCancel }) {
           const values = {};
           for (const f of fields) {
             const el = inputs[f.key];
-            values[f.key] = el && typeof el.getValue === 'function' ? el.getValue() : el.value.trim();
+            if (!el) { values[f.key] = undefined; continue; }
+            values[f.key] = typeof el.getValue === 'function' ? el.getValue() : (el.value != null ? el.value.trim() : '');
           }
           close();
           onOk && onOk(values);
@@ -241,6 +259,21 @@ export function iconNode(icon, cls = '') {
     ic.textContent = icon || '';
   }
   return ic;
+}
+
+/** 在图标输入框后挂一个实时图形预览(避免 dataURL 长文本显示在文本框里) */
+export function attachIconPreview(input, row) {
+  const prev = document.createElement('span');
+  prev.className = 'icon-input-preview';
+  row.appendChild(prev);
+  const update = () => {
+    prev.innerHTML = '';
+    const v = (input.value || '').trim();
+    if (!v) return;
+    prev.appendChild(iconNode(v));
+  };
+  input.addEventListener('input', update);
+  update();
 }
 
 /** 打开图标选择面板:anchor 为触发按钮,input 为回填的输入框;点同一按钮可切换开/关 */
@@ -363,7 +396,7 @@ function bindIconTip(el, getText) {
 const iconNameOf = (e) => EMOJI_NAMES[String(e || '').replace(/\uFE0F/g, '')] || '';
 
 /** 弹出 emoji 添加面板:可直接输入/粘贴库里没有的任意 emoji(支持多个),也可在候选网格多选,批量回调数组 */
-function pickEmojiModal(onPick) {
+export function pickEmojiModal(onPick) {
   const body = document.createElement('div');
   body.className = 'modal-body';
   const tip = document.createElement('div');
@@ -597,3 +630,96 @@ export function openIconLibraryDialog() {
   render();
 }
 
+
+// ============ 新建自定义页面对话框(终端节点「目标页面」基于模板建立) ============
+/** 新建页面:模板(内嵌网页/文本笔记)+ 标题 + 图标(默认取节点名称/图标);创建后 onDone(page) 回调 */
+export function newPageDialog({ defaultTitle = '', defaultIcon = '' } = {}, onDone) {
+  const body = document.createElement('div');
+  body.className = 'modal-body';
+  const makeRow = (label) => {
+    const row = document.createElement('div');
+    row.className = 'form-row';
+    const lb = document.createElement('label');
+    lb.className = 'f-label';
+    lb.textContent = label;
+    row.appendChild(lb);
+    return row;
+  };
+  const tmplRow = makeRow('模板');
+  const tmplSel = document.createElement('select');
+  for (const t of PAGE_TEMPLATES) {
+    const op = document.createElement('option');
+    op.value = t.id;
+    op.textContent = `${t.name} - ${t.desc}`;
+    tmplSel.appendChild(op);
+  }
+  tmplSel.value = 'web';
+  tmplRow.appendChild(tmplSel);
+  body.appendChild(tmplRow);
+
+  const titleRow = makeRow('页面标题');
+  const titleInp = document.createElement('input');
+  titleInp.type = 'text';
+  titleInp.value = defaultTitle;
+  titleInp.placeholder = '默认取节点名称';
+  titleRow.appendChild(titleInp);
+  body.appendChild(titleRow);
+
+  const iconRow = makeRow('图标(emoji)');
+  const iconInp = document.createElement('input');
+  iconInp.type = 'text';
+  iconInp.value = defaultIcon;
+  iconRow.appendChild(iconInp);
+  const pickBtn = document.createElement('button');
+  pickBtn.type = 'button';
+  pickBtn.className = 'btn sm emoji-pick-btn';
+  pickBtn.textContent = '😀';
+  pickBtn.title = '从图标库选择';
+  pickBtn.addEventListener('click', (e) => { e.stopPropagation(); openEmojiPicker(pickBtn, iconInp); });
+  iconRow.appendChild(pickBtn);
+  attachIconPreview(iconInp, iconRow);
+  body.appendChild(iconRow);
+
+  const urlRow = makeRow('网址');
+  const urlInp = document.createElement('input');
+  urlInp.type = 'text';
+  urlInp.placeholder = '网页地址或本地 HTML 文件路径(可空)';
+  urlRow.appendChild(urlInp);
+  body.appendChild(urlRow);
+
+  const contentRow = makeRow('内容');
+  const contentInp = document.createElement('textarea');
+  contentInp.placeholder = '笔记内容(可空,建立后可在页面里编辑)';
+  contentRow.appendChild(contentInp);
+  body.appendChild(contentRow);
+
+  const sync = () => {
+    const isWeb = tmplSel.value === 'web';
+    urlRow.style.display = isWeb ? '' : 'none';
+    contentRow.style.display = isWeb ? 'none' : '';
+  };
+  tmplSel.addEventListener('change', sync);
+  sync();
+
+  const { close } = openModal({
+    title: '新建自定义页面',
+    body,
+    foot: footButtons([
+      { text: '取消', cls: '', onClick: () => close() },
+      {
+        text: '创建', cls: 'primary', onClick: () => {
+          const pg = addCustomPage({
+            templateId: tmplSel.value,
+            title: titleInp.value.trim() || '未命名页面',
+            icon: iconInp.value.trim(),
+            url: urlInp.value.trim(),
+            content: contentInp.value,
+          });
+          close();
+          toast('页面已创建');
+          if (onDone) onDone(pg);
+        },
+      },
+    ]),
+  });
+}

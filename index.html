@@ -110,6 +110,9 @@
                 <div class="pv-canvas-wrap" id="pv-canvas-wrap">
                   <canvas id="pv-canvas"></canvas>
                   <div class="pv-error" id="pv-error" hidden></div>
+                  <!-- 前后资源切换浮层:悬停画面左侧/右侧时浮现(图标,非文字) -->
+                  <div class="pv-nav-zone left" title="上一个"><button class="pv-nav-btn" type="button" data-nav="prev" title="上一个"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 6 9 12 15 18"/></svg></button></div>
+                  <div class="pv-nav-zone right" title="下一个"><button class="pv-nav-btn" type="button" data-nav="next" title="下一个"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg></button></div>
                 </div>
                 <div class="preview-controls">
                   <div class="ctrl-row">
@@ -176,6 +179,9 @@
               <div class="img-canvas-wrap" id="img-canvas-wrap">
                 <img id="img-display" draggable="false" alt="" />
                 <div class="pv-error" id="img-error" hidden></div>
+                <!-- 前后资源切换浮层:悬停画面左侧/右侧时浮现(图标,非文字) -->
+                <div class="pv-nav-zone left" title="上一张"><button class="pv-nav-btn" type="button" data-nav="prev" title="上一张"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 6 9 12 15 18"/></svg></button></div>
+                <div class="pv-nav-zone right" title="下一张"><button class="pv-nav-btn" type="button" data-nav="next" title="下一张"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg></button></div>
               </div>
               <div class="preview-controls">
                 <div class="ctrl-row">
@@ -184,6 +190,11 @@
                   <span class="zoom-val" id="img-zoom-val">100%</span>
                   <button class="btn sm" id="img-fit">适配窗口</button>
                   <button class="btn sm" id="img-actual">100%</button>
+                  <span class="ctrl-sep"></span>
+                  <button class="icon-btn" id="img-rotate" title="顺时针旋转 90°">↻</button>
+                  <button class="icon-btn" id="img-flip-h" title="水平镜像(左右翻转)">⇋</button>
+                  <button class="icon-btn" id="img-flip-v" title="垂直镜像(上下翻转)">⇅</button>
+                  <button class="icon-btn" id="img-reset" title="重置视图(清除旋转/镜像,恢复适配窗口)">⟲</button>
                   <label class="ctrl-label" style="margin-left:14px">背景</label>
                   <input type="color" id="img-bg-color" value="#22242b" title="调色盘选背景色(立即生效)" />
                   <button class="btn sm bg-save-btn" id="img-bg-save" title="把调色盘当前颜色保存为自定义颜色">存</button>
@@ -304,6 +315,10 @@
         <div class="page page-atlas" id="page-atlas" hidden></div>
         <!-- 系统设置 -->
         <div class="page page-settings" id="page-settings" hidden></div>
+        <!-- 自定义页面(终端节点目标页面,基于模板建立) -->
+        <div class="page page-custom" id="page-custom" hidden></div>
+        <!-- emoji 图标库浏览与管理 -->
+        <div class="page page-emoji" id="page-emoji" hidden></div>
       </section>
     </div>
   </div>

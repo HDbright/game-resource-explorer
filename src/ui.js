@@ -10,7 +10,8 @@ import {
   addFavItem, removeFavItem, moveFavItem, favCategoryById,
   reorderFavCategory,
   favLocations, isFavored,
-  TYPE_LABEL, TYPE_GROUPS, typeGroup, formatSize,
+  TYPE_LABEL, TYPE_GROUPS, typeGroup, formatSize, typeLabel, isImageType, customTypes, customTypeById,
+  customTypeGroups, customTypeGroupById, groupTagOptions, isValidTypeTag,
   CAT_TYPE_TAG_LABELS, CAT_TYPE_TAGS, categoryTypeTags, categoryTypeTagNames, catVisibleInGroup,
   getCategoryPathList, getFolderData, sortItems,
   setResourceTab, setListViewMode, setListSort,
@@ -29,11 +30,14 @@ import {
   moveToolboxNodeBeside, moveToolboxNodeToParent,
   menuNodeById, getMenuChildren, getMenuRoots, isMenuNodeDescendant, getMenuNodeDescendants, menuNodePath,
   addMenuNode, updateMenuNode, removeMenuNode, reorderMenuNode, moveMenuNodeBeside, moveMenuNodeToParent,
+  ensureResourceRootsForCategories,
+  isUrlPath, nameFromPath, isLocalHtmlPath, toFileUrl,
+  customPages, customPageById, updateCustomPage,
 } from './state.js';
-import { openModal, footButtons, confirmDialog, promptDialog, toast, showContextMenu, openEmojiPicker, iconNode } from './dialogs.js';
+import { openModal, footButtons, confirmDialog, promptDialog, toast, showContextMenu, openEmojiPicker, iconNode, attachIconPreview, newPageDialog } from './dialogs.js';
 import { initBgColorBar, customBgColor, BG_DARK, BG_LIGHT } from './bgColor.js';
 import { runAddFlow, addPathsToCategory } from './addFlow.js';
-import { renderHomePage, renderFavHome } from './pages/homePage.js';
+import { renderHomePage, renderFavHome, renderFilterHome } from './pages/homePage.js';
 import { renderFolderPage, renderFavFolderPage } from './pages/folderPage.js';
 import { renderToolboxPage } from './pages/toolboxPage.js';
 import { renderSceneHome, renderSceneFolderPage, renderFguiPreviewPage, promptRegisterFgui, renderSceneSearchResults } from './pages/scenePage.js';
@@ -42,6 +46,7 @@ import { renderSettingsPage } from './pages/settingsPage.js';
 import { initDebugInspect, toggleDebugMode } from './debugInspect.js';
 import { renderWebGamePage } from './pages/webGamePage.js';
 import { renderApiPage } from './pages/apiPage.js';
+import { renderEmojiPage } from './pages/emojiPage.js';
 import { applyAppearance, setupSystemThemeListener } from './appearance.js';
 import { ImageViewerController } from './viewers/imageViewer.js';
 import { AudioPlayerController } from './viewers/audioViewer.js';
@@ -82,6 +87,11 @@ let webGameShown = false; // 网络资源抓取页是否显示
 let apiDocShown = false; // 开发工具箱 API 管理页是否显示
 let atlasShown = false; // 图片图集拆分浏览页是否显示
 let currentAtlasItemId = null; // 当前图集拆分浏览页对应的图片资源 id
+let currentCustomPageId = null; // 当前显示的自定义页面 id(终端节点目标页面)
+let currentTypeFilter = null; // 资源浏览页类型过滤(自定义资源类型 id;null=不过滤)
+let currentGroupFilterSet = null; // 目录「允许显示的类型组」视图(分组标签数组;null=未启用)
+let currentGroupFilterTitle = ''; // 目录视图标题(来源目录名)
+let emojiShown = false; // 右侧是否显示 emoji 图标库管理页
 
 // ---- 主区多标签页(资源/功能页标签,可切换/关闭) ----
 const mainTabs = []; // [{key, id, kind, params, label, icon}]
@@ -190,6 +200,11 @@ function applyTabState(t) {
     renderMainArea();
     return;
   }
+  if (t.kind === 'emoji') {
+    emojiShown = true;
+    renderMainArea();
+    return;
+  }
   if (t.kind === 'atlas') {
     atlasShown = true;
     currentAtlasItemId = t.params.itemId;
@@ -231,6 +246,8 @@ function syncTabFromState() {
     tab = ensureTab('webgame', { kind: 'webgame', params: {}, label: '网络资源抓取', icon: '🌐' });
   } else if (apiDocShown) {
     tab = ensureTab('api-doc', { kind: 'api-doc', params: {}, label: 'API 管理', icon: '📖' });
+  } else if (emojiShown) {
+    tab = ensureTab('emoji', { kind: 'emoji', params: {}, label: 'emoji 图标管理', icon: '😀' });
   } else if (currentTool || toolboxHomeShown) {
     tab = ensureTab(`toolbox-${currentTool || '__home__'}`, { kind: 'toolbox', params: { tool: currentTool }, label: currentTool ? toolLabel(currentTool) : '资源工具箱', icon: '🧰' });
   } else if (settingsShown) {
@@ -342,6 +359,7 @@ export function initUI(pv) {
   initDebugInspect();
   bindList();
   bindPreviewControls();
+  bindPreviewNavArrows();
   bindTabs();
   // 工具箱主页卡片 → 导航到对应子工具(用事件解耦,避免跨模块传递函数)
   document.addEventListener('toolbox:navigate', (e) => {
@@ -702,6 +720,14 @@ function menuNodeActive(node) {
   if (a === 'devtools') return apiDocShown;
   if (a === 'page:settings') return settingsShown;
   if (a === 'page:api') return apiDocShown;
+  if (a === 'page:emoji') return emojiShown;
+  if (a === 'page:webgame') return webGameShown;
+  if (a === 'page:scene') return sceneHomeShown || currentSceneCatId !== null;
+  if (a === 'page:toolbox') return !!currentTool || toolboxHomeShown || fguiEditorShown;
+  if (a === 'page:fav') return favHomeShown || currentFavCategoryId != null;
+  if (a.startsWith('page:custom:')) return currentCustomPageId === a.slice('page:custom:'.length);
+  if (a.startsWith('res:type:')) return currentTypeFilter === a.slice('res:type:'.length);
+  if (a.startsWith('res:group:')) return currentGroup() === a.slice('res:group:'.length);
   if (a.startsWith('tool:')) return currentTool === a.slice(5);
   return false;
 }
@@ -719,6 +745,15 @@ function defaultMenuIcon(node) {
   if (a === 'devtools') return '🛠';
   if (a === 'page:settings') return '⚙';
   if (a === 'page:api') return '📖';
+  if (a.startsWith('page:custom:')) return '📄';
+  if (a.startsWith('res:type:')) {
+    const ct = customTypeById(a.slice('res:type:'.length));
+    return (ct && ct.icon) ? ct.icon : '🗂';
+  }
+  if (a.startsWith('res:group:')) {
+    const g = customTypeGroupById(a.slice('res:group:'.length));
+    return (g && g.icon) ? g.icon : '🗂';
+  }
   if (node.nodeType === 'term') return '▶';
   return '📁';
 }
@@ -732,12 +767,27 @@ function renderMenuNode(parent, node, depth) {
   const isOpen = expandedCats.has(node.id);
   const active = menuNodeActive(node);
   const icon = node.icon || defaultMenuIcon(node);
+  const grp2 = menuNodeResourceGroup(node);
+  const count = grp2 ? countItemsInGroupRoot(grp2) : undefined;
 
   const n = makeTreeNode({
     icon, name: node.name, nodeId: node.id, active,
-    paddingLeft: 8 + depth * 14, hasChildren, isOpen,
+    paddingLeft: 8 + depth * 14, hasChildren, isOpen, count,
   });
   parent.appendChild(n);
+
+  // 资源类型根:右上角追加「＋」按钮,直接新建该类型的顶层资源分类
+  if (grp2) {
+    const ops = document.createElement('span');
+    ops.className = 'cat-ops';
+    const addBtn = document.createElement('button');
+    addBtn.className = 'icon-btn';
+    addBtn.textContent = '＋';
+    addBtn.title = '新建资源分类';
+    addBtn.addEventListener('click', (e) => { e.stopPropagation(); newTopCategoryDialog(grp2); });
+    ops.appendChild(addBtn);
+    n.appendChild(ops);
+  }
 
   // 悬停提示:优先 tooltip,否则 note
   const nmEl = n.querySelector('.cat-name');
@@ -787,6 +837,8 @@ function renderMenuChildren(wrap, node) {
     renderWebGameChildren(wrap);
   } else if (a === 'toolbox') {
     for (const c of getToolboxChildren('')) renderToolboxNode(wrap, c, 0);
+  } else if (a.startsWith('res:group:')) {
+    renderResTypeChildren(wrap, a.slice('res:group:'.length));
   } else if (a.startsWith('res:')) {
     renderResTypeChildren(wrap, a.slice(4));
   }
@@ -809,10 +861,24 @@ function dispatchMenuDir(node) {
   clearOverlays();
   if (a === 'res:anim' || a === 'res:image' || a === 'res:audio' || a === 'res:3d') {
     const g = a.slice(4);
+    currentTypeFilter = null; // 内置分组导航清除类型过滤
+    currentGroupFilterSet = null;
     setResourceTab(g);
     currentCategoryId = 'all';
     setSetting('lastCategoryId', 'all');
     lastFolderTab = g;
+    expandedCats.add(node.id);
+    renderTree();
+    renderMainArea();
+    syncTabs();
+  } else if (a.startsWith('res:group:')) {
+    const gid = a.slice('res:group:'.length);
+    currentTypeFilter = null; // 自定义分组导航清除类型过滤
+    currentGroupFilterSet = null;
+    setResourceTab(gid);
+    currentCategoryId = 'all';
+    setSetting('lastCategoryId', 'all');
+    lastFolderTab = gid;
     expandedCats.add(node.id);
     renderTree();
     renderMainArea();
@@ -831,6 +897,18 @@ function dispatchMenuDir(node) {
     renderMainArea();
   } else if (a === 'devtools') {
     enterApiDoc();
+  } else if (a) {
+    // 自定义目录配置了目标页面 → 打开页面(内置/自定义页面);子目录仍可用箭头展开
+    dispatchMenuTerm(node);
+  } else if (node.typeTags && node.typeTags.length) {
+    // 目录配置了「允许显示的类型组」→ 显示该目录视图:分类树只显示 命中勾选类型组 或 未勾选任何标签 的分类
+    currentTypeFilter = null;
+    currentGroupFilterSet = [...node.typeTags];
+    currentGroupFilterTitle = node.name || '资源';
+    clearOverlays();
+    expandedCats.add(node.id);
+    renderTree();
+    renderMainArea();
   } else {
     // 自定义目录:点名称切换展开
     toggleExpand(node.id);
@@ -838,25 +916,144 @@ function dispatchMenuDir(node) {
   }
 }
 
+/** 在主显示区以内嵌网页视图打开本地 HTML 文件(file://) */
+function openLocalWebPage(p) {
+  const url = toFileUrl(p);
+  enterWebGame();
+  const pageEl = document.getElementById('page-webgame');
+  if (pageEl && pageEl._webGameOpenUrl) {
+    pageEl._webGameOpenUrl(url);
+  } else {
+    toast('无法打开本地网页视图', 'error');
+  }
+}
+
+/** 打开自定义页面:web 模板 → 主显示区内嵌网页;note 模板 → 主显示区笔记页 */
+function openCustomPage(pg) {
+  if (pg.templateId === 'web') {
+    const url = (pg.url || '').trim();
+    if (isLocalHtmlPath(url)) { openLocalWebPage(url); return; }
+    enterWebGame();
+    const pageEl = document.getElementById('page-webgame');
+    if (url && pageEl && pageEl._webGameOpenUrl) pageEl._webGameOpenUrl(url);
+    return;
+  }
+  currentCustomPageId = pg.id;
+  clearOverlays();
+  showPage('custom');
+}
+
+/** 渲染自定义页面主区内容(note 模板:笔记编辑器) */
+function renderCustomPage() {
+  const el = document.getElementById('page-custom');
+  if (!el) return;
+  const pg = currentCustomPageId ? customPageById(currentCustomPageId) : null;
+  el.innerHTML = '';
+  if (!pg) {
+    const p = document.createElement('div');
+    p.className = 'hint';
+    p.textContent = '页面不存在或已删除';
+    el.appendChild(p);
+    return;
+  }
+  const wrap = document.createElement('div');
+  wrap.className = 'custom-page-wrap';
+  const head = document.createElement('div');
+  head.className = 'custom-page-head';
+  head.appendChild(iconNode(pg.icon || '📄', 'custom-page-icon'));
+  const t = document.createElement('h2');
+  t.className = 'custom-page-title';
+  t.textContent = pg.title;
+  head.appendChild(t);
+  wrap.appendChild(head);
+  if (pg.templateId === 'note') {
+    const ta = document.createElement('textarea');
+    ta.className = 'custom-page-note';
+    ta.value = pg.content || '';
+    ta.placeholder = '在这里输入笔记内容…';
+    wrap.appendChild(ta);
+    const foot = document.createElement('div');
+    foot.className = 'custom-page-foot';
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'btn primary sm';
+    saveBtn.textContent = '保存笔记';
+    saveBtn.addEventListener('click', () => {
+      updateCustomPage(pg.id, { content: ta.value });
+      toast('笔记已保存');
+    });
+    foot.appendChild(saveBtn);
+    wrap.appendChild(foot);
+  } else {
+    const hint = document.createElement('p');
+    hint.className = 'hint';
+    hint.innerHTML = `该页面为「内嵌网页」模板,已在主显示区浏览器中打开。<br/>网址: <code>${esc(pg.url || '')}</code>`;
+    wrap.appendChild(hint);
+  }
+  el.appendChild(wrap);
+}
+
 /** 终端节点点击:执行动作(内置页面/工具 或 外部程序) */
 function dispatchMenuTerm(node) {
   const a = node.action || '';
   if (node.actionType === 'exe') {
     if (!a) return toast('未配置程序路径', 'error');
+    // 本地网页 → 主显示区内嵌显示(复用网页抓取页浏览器);其它(程序/网址)按外部打开
+    if (isLocalHtmlPath(a)) {
+      openLocalWebPage(a);
+      return;
+    }
     window.api.openExternal(a)
       .then((r) => { if (r && r.error) toast('启动失败: ' + r.error, 'error'); })
       .catch((err) => toast('启动失败: ' + err.message, 'error'));
     return;
   }
   if (a === 'page:settings') return openSettings();
+  if (a === 'page:emoji') { clearOverlays(); emojiShown = true; renderTree(); renderMainArea(); return; }
   if (a === 'page:api') return enterApiDoc();
   if (a === 'page:webgame') return enterWebGame();
   if (a === 'page:scene') { clearOverlays(); sceneHomeShown = true; renderTree(); renderMainArea(); return; }
   if (a === 'page:toolbox') { clearOverlays(); toolboxHomeShown = true; renderTree(); renderMainArea(); return; }
   if (a === 'page:fav') { clearOverlays(); favHomeShown = true; currentFavCategoryId = null; renderTree(); renderMainArea(); return; }
+  if (a.startsWith('page:custom:')) {
+    const pg = customPageById(a.slice('page:custom:'.length));
+    if (!pg) return toast('页面不存在或已删除', 'error');
+    openCustomPage(pg);
+    return;
+  }
+  if (a.startsWith('res:type:')) {
+    // 资源浏览页(自定义资源类型):进入该类型所属分组的资源页,并仅显示该类型
+    const ct = customTypeById(a.slice('res:type:'.length));
+    if (!ct) return toast('资源类型不存在或已删除', 'error');
+    currentTypeFilter = ct.id;
+    currentGroupFilterSet = null;
+    clearOverlays();
+    const g = ct.group || 'image';
+    setResourceTab(g);
+    currentCategoryId = 'all';
+    setSetting('lastCategoryId', 'all');
+    lastFolderTab = g;
+    renderTree(); renderMainArea(); syncTabs();
+    return;
+  }
+  if (a.startsWith('res:group:')) {
+    // 资源浏览页(自定义资源分组):进入该分组的资源主页/分类页
+    const gid = a.slice('res:group:'.length);
+    if (!customTypeGroupById(gid)) return toast('资源分组不存在或已删除', 'error');
+    currentTypeFilter = null;
+    currentGroupFilterSet = null;
+    clearOverlays();
+    setResourceTab(gid);
+    currentCategoryId = 'all';
+    setSetting('lastCategoryId', 'all');
+    lastFolderTab = gid;
+    renderTree(); renderMainArea(); syncTabs();
+    return;
+  }
   if (a.startsWith('res:')) {
     const g = a.slice(4);
     clearOverlays();
+    currentTypeFilter = null; // 内置分组导航清除类型过滤
+    currentGroupFilterSet = null;
     setResourceTab(g);
     currentCategoryId = 'all';
     lastFolderTab = g;
@@ -936,10 +1133,29 @@ function attachMenuDrag(n, node) {
   });
 }
 
+/** 取菜单节点的资源分组(动画=anim/图片=image/音频=audio/3D=3d/自定义分组=groupId);非资源根返回 null */
+function menuNodeResourceGroup(node) {
+  const a = node.action || '';
+  if (a === 'res:anim') return 'anim';
+  if (a === 'res:image') return 'image';
+  if (a === 'res:audio') return 'audio';
+  if (a === 'res:3d') return '3d';
+  if (a.startsWith('res:group:')) return a.slice('res:group:'.length);
+  return null;
+}
+
 /** 菜单节点右键菜单 */
 function openMenuNodeMenu(x, y, node) {
   const items = [];
   if (node.nodeType === 'dir') {
+    const grp = menuNodeResourceGroup(node);
+    if (grp) {
+      // 资源类型根:直接新建该类型的顶层资源分类
+      items.push({ label: '新建分类', onClick: () => newTopCategoryDialog(grp) });
+    } else {
+      // 普通目录(非资源根):可整体转换为资源分类目录
+      items.push({ label: '转换为资源分类', onClick: () => convertMenuNodeToCategoryDialog(node) });
+    }
     items.push({ label: '新建子目录', onClick: () => newMenuNodeDialog(node.id, 'dir') });
     items.push({ label: '新建终端', onClick: () => newMenuNodeDialog(node.id, 'term') });
   }
@@ -957,6 +1173,7 @@ const MENU_ACTION_OPTIONS = [
   { value: 'page:scene', label: '游戏场景管理主页' },
   { value: 'page:toolbox', label: '资源工具箱主页' },
   { value: 'page:fav', label: '收藏夹主页' },
+  { value: 'page:emoji', label: 'emoji 图标管理' },
   { value: 'res:anim', label: '动画资源' },
   { value: 'res:image', label: '图片资源' },
   { value: 'res:audio', label: '音频资源' },
@@ -972,8 +1189,151 @@ const MENU_ACTION_OPTIONS = [
 ];
 
 /** 新建菜单节点(目录或终端) */
+/** 外部程序路径输入自动填充:路径变化时,名称栏为空→自动填程序名(去扩展名/网址取主机名);图标栏为空→自动取文件图标(可再改) */
+function attachExeAutoFill(exeInp, nameInp, iconInp) {
+  let lastPath = '';
+  let deb = null;
+  const run = () => {
+    const p = exeInp.value;
+    if (p === lastPath) return;
+    lastPath = p;
+    const t = p.trim();
+    if (!t) return;
+    if (!nameInp.value.trim()) {
+      const n = nameFromPath(t);
+      if (n) nameInp.value = n;
+    }
+    if (!iconInp.value.trim() && !isUrlPath(t)) {
+      window.api.fileIcon(t).then((r) => { if (r && r.ok && !iconInp.value.trim()) iconInp.value = r.dataUrl; });
+    }
+  };
+  exeInp.addEventListener('input', () => {
+    clearTimeout(deb);
+    deb = setTimeout(run, 400);
+  });
+}
+
+/** 目标页面下拉:内置动作 + 自定义页面 + 「＋ 新建页面…」(基于模板建立,标题/图标默认取节点名称/图标) */
+/** 目标页面下拉:内置动作 + 自定义页面 + 「＋ 新建页面…」(基于模板建立,标题/图标默认取节点名称/图标);opts.allowEmpty=true 时首项为「(无)」且默认选中 */
+function fillTargetSelect(actSel, currentAction, ctx, opts = {}) {
+  actSel.innerHTML = '';
+  if (opts.allowEmpty) {
+    const none = document.createElement('option');
+    none.value = '';
+    none.textContent = opts.emptyLabel || '(无 - 仅展开/折叠)';
+    actSel.appendChild(none);
+  }
+  for (const o of MENU_ACTION_OPTIONS) {
+    const op = document.createElement('option');
+    op.value = o.value;
+    op.textContent = o.label;
+    actSel.appendChild(op);
+  }
+  const cts = customTypes();
+  if (cts.length) {
+    const sep = document.createElement('option');
+    sep.disabled = true;
+    sep.textContent = '──────── 资源浏览(自定义类型) ────────';
+    actSel.appendChild(sep);
+    for (const ct of cts) {
+      const op = document.createElement('option');
+      op.value = 'res:type:' + ct.id;
+      op.textContent = '资源浏览页 · ' + ct.name;
+      actSel.appendChild(op);
+    }
+  }
+  const cgs = customTypeGroups();
+  if (cgs.length) {
+    const sep = document.createElement('option');
+    sep.disabled = true;
+    sep.textContent = '──────── 资源浏览(自定义分组) ────────';
+    actSel.appendChild(sep);
+    for (const g of cgs) {
+      const op = document.createElement('option');
+      op.value = 'res:group:' + g.id;
+      op.textContent = '资源浏览页 · ' + g.name;
+      actSel.appendChild(op);
+    }
+  }
+  const pages = customPages();
+  if (pages.length) {
+    const sep = document.createElement('option');
+    sep.disabled = true;
+    sep.textContent = '──────── 自定义页面 ────────';
+    actSel.appendChild(sep);
+    for (const p of pages) {
+      const op = document.createElement('option');
+      op.value = 'page:custom:' + p.id;
+      op.textContent = p.title;
+      actSel.appendChild(op);
+    }
+  }
+  const np = document.createElement('option');
+  np.value = '__new_page__';
+  np.textContent = '＋ 新建页面…';
+  actSel.appendChild(np);
+  // 当前 action 不在可选项里(如内置页面尚未登记)时,补一个临时项,避免保存时被静默重置为第一项
+  const hasCurrent = currentAction && [...actSel.options].some((o) => o.value === currentAction);
+  if (currentAction && !hasCurrent) {
+    const op = document.createElement('option');
+    op.value = currentAction;
+    op.textContent = currentAction;
+    actSel.appendChild(op);
+  }
+  actSel.value = currentAction
+    ? currentAction
+    : (opts.allowEmpty ? '' : MENU_ACTION_OPTIONS[0].value);
+  actSel.onchange = () => {
+    if (actSel.value !== '__new_page__') return;
+    newPageDialog({
+      defaultTitle: (ctx && ctx.nameInp && ctx.nameInp.value.trim()) || '',
+      defaultIcon: (ctx && ctx.iconInp && ctx.iconInp.value.trim()) || '',
+    }, (pg) => {
+      actSel.value = 'page:custom:' + pg.id;
+      fillTargetSelect(actSel, 'page:custom:' + pg.id, ctx, opts);
+    });
+  };
+}
+
+/**
+ * 名称行 + 内联「资源」勾选框。
+ * opts.isResource: 勾选状态;opts.locked: 是否灰显不可改(编辑场景恒为 true,资源父目录新建子目录时为 true)。
+ * 返回 { row, nameInp, resCb }。
+ */
+function buildNameResourceRow(nameValue, opts = {}) {
+  const isResource = !!opts.isResource;
+  const locked = !!opts.locked;
+  const row = document.createElement('div');
+  row.className = 'form-row';
+  const lb = document.createElement('label');
+  lb.className = 'f-label';
+  lb.textContent = '名称';
+  row.appendChild(lb);
+  const nameInp = document.createElement('input');
+  nameInp.type = 'text';
+  nameInp.className = 'name-input-short';
+  nameInp.value = nameValue;
+  row.appendChild(nameInp);
+  const resWrap = document.createElement('label');
+  resWrap.className = 'res-flag-wrap' + (locked ? ' locked' : '');
+  const resCb = document.createElement('input');
+  resCb.type = 'checkbox';
+  resCb.checked = isResource;
+  if (locked) resCb.disabled = true;
+  resWrap.appendChild(resCb);
+  const resTxt = document.createElement('span');
+  resTxt.textContent = '资源';
+  resWrap.appendChild(resTxt);
+  row.appendChild(resWrap);
+  return { row, nameInp, resCb };
+}
+
 function newMenuNodeDialog(parentId = '', nodeType = 'dir') {
   const isTerm = nodeType === 'term';
+  const parentNode = parentId ? menuNodeById(parentId) : null;
+  // 资源父目录下新建子目录:「资源」默认勾选且灰显不可改;其余(顶级/非资源父目录)可编辑,默认不勾选
+  const resLocked = !!(parentNode && parentNode.isResource);
+  const resDefault = resLocked;
   const body = document.createElement('div');
   body.className = 'modal-body';
   const makeRow = (label) => {
@@ -985,8 +1345,8 @@ function newMenuNodeDialog(parentId = '', nodeType = 'dir') {
     row.appendChild(lb);
     return row;
   };
-  const nameRow = makeRow('名称');
-  const nameInp = document.createElement('input'); nameInp.type = 'text'; nameInp.value = ''; nameRow.appendChild(nameInp);
+  const { row: nameRow, nameInp, resCb } = buildNameResourceRow('', { isResource: resDefault, locked: resLocked });
+  body.appendChild(nameRow);
   const iconRow = makeRow('图标(emoji)');
   const iconInp = document.createElement('input'); iconInp.type = 'text'; iconInp.value = ''; iconRow.appendChild(iconInp);
   const iconPick = document.createElement('button');
@@ -996,10 +1356,18 @@ function newMenuNodeDialog(parentId = '', nodeType = 'dir') {
   iconPick.title = '从图标库选择';
   iconPick.addEventListener('click', (e) => { e.stopPropagation(); openEmojiPicker(iconPick, iconInp); });
   iconRow.appendChild(iconPick);
+  attachIconPreview(iconInp, iconRow);
   body.appendChild(nameRow);
   body.appendChild(iconRow);
 
-  let typeSel = null, actSel = null, exeRow = null, exeInp = null;
+  let typeSel = null, actSel = null, exeRow = null, exeInp = null, typeTagsRow = null;
+  // 目录:「设置类型组」默认继承父目录已勾选的组,且灰显不可改
+  const inheritedTags = parentNode && Array.isArray(parentNode.typeTags) ? parentNode.typeTags : [];
+  // 目标页面(目录可空,默认仅展开/折叠;终端必选)
+  const actRow = makeRow('目标页面');
+  actSel = document.createElement('select');
+  fillTargetSelect(actSel, '', { nameInp, iconInp }, { allowEmpty: !isTerm, emptyLabel: '(无 - 仅展开/折叠)' });
+  actRow.appendChild(actSel);
   if (isTerm) {
     const typeRow = makeRow('动作类型');
     typeSel = document.createElement('select');
@@ -1009,21 +1377,14 @@ function newMenuNodeDialog(parentId = '', nodeType = 'dir') {
     typeSel.value = 'builtin';
     typeRow.appendChild(typeSel);
     body.appendChild(typeRow);
-
-    const actRow = makeRow('目标页面');
-    actSel = document.createElement('select');
-    for (const o of MENU_ACTION_OPTIONS) {
-      const op = document.createElement('option'); op.value = o.value; op.textContent = o.label; actSel.appendChild(op);
-    }
-    actSel.value = MENU_ACTION_OPTIONS[0].value;
-    actRow.appendChild(actSel);
-    body.appendChild(actRow);
+    body.appendChild(actRow); // 目标页面在动作类型之后,与选外部程序时「动作类型」位置一致
 
     exeRow = makeRow('程序路径');
     exeInp = document.createElement('input'); exeInp.type = 'text'; exeInp.value = '';
-    exeInp.placeholder = '例如 C:\\Tools\\app.exe';
+    exeInp.placeholder = '例如 C:\\Program Files\\App.exe 参数 或 https://example.com';
     exeRow.appendChild(exeInp);
     body.appendChild(exeRow);
+    attachExeAutoFill(exeInp, nameInp, iconInp);
 
     const sync = () => {
       const isExe = typeSel.value === 'exe';
@@ -1033,6 +1394,10 @@ function newMenuNodeDialog(parentId = '', nodeType = 'dir') {
     };
     typeSel.addEventListener('change', sync);
     sync();
+  } else {
+    body.appendChild(actRow);
+    typeTagsRow = buildTypeTagsRow([], inheritedTags);
+    body.appendChild(typeTagsRow);
   }
 
   const { close } = openModal({
@@ -1050,10 +1415,23 @@ function newMenuNodeDialog(parentId = '', nodeType = 'dir') {
             actionType = isExe ? 'exe' : 'builtin';
             action = isExe ? exeInp.value.trim() : actSel.value;
             if (!action) { toast(isExe ? '程序路径不能为空' : '请选择目标页面', 'error'); return; }
+          } else {
+            actionType = 'builtin';
+            action = actSel.value; // 目录目标页面可为空
           }
-          addMenuNode({ name, icon: iconInp.value.trim(), parentId, nodeType, actionType, action });
+          addMenuNode({
+            name,
+            icon: iconInp.value.trim(),
+            parentId,
+            nodeType,
+            actionType,
+            action,
+            isResource: resCb.checked,
+            typeTags: typeTagsRow ? [...typeTagsRow.querySelectorAll('input:checked')].map((c) => c.value) : [],
+          });
           expandedCats.add(parentId || '');
           renderTree();
+          close();
           toast('已创建');
         },
       },
@@ -1078,8 +1456,8 @@ function editMenuNodeDialog(id) {
     row.appendChild(lb);
     return row;
   };
-  const nameRow = makeRow('名称');
-  const nameInp = document.createElement('input'); nameInp.type = 'text'; nameInp.value = node.name; nameRow.appendChild(nameInp);
+  const { row: nameRow, nameInp, resCb } = buildNameResourceRow(node.name, { isResource: node.isResource, locked: true });
+  body.appendChild(nameRow);
   const iconRow = makeRow('图标(emoji)');
   const iconInp = document.createElement('input'); iconInp.type = 'text'; iconInp.value = node.icon || ''; iconRow.appendChild(iconInp);
   const iconPick = document.createElement('button');
@@ -1089,12 +1467,12 @@ function editMenuNodeDialog(id) {
   iconPick.title = '从图标库选择';
   iconPick.addEventListener('click', (e) => { e.stopPropagation(); openEmojiPicker(iconPick, iconInp); });
   iconRow.appendChild(iconPick);
+  attachIconPreview(iconInp, iconRow);
   const tipRow = makeRow('悬停提示');
   const tipInp = document.createElement('input'); tipInp.type = 'text'; tipInp.value = node.tooltip || ''; tipRow.appendChild(tipInp);
   const noteRow = makeRow('备注');
   const noteInp = document.createElement('textarea'); noteInp.value = node.note || ''; noteRow.appendChild(noteInp);
 
-  body.appendChild(nameRow);
   body.appendChild(iconRow);
   body.appendChild(tipRow);
   body.appendChild(noteRow);
@@ -1103,6 +1481,47 @@ function editMenuNodeDialog(id) {
   let actSel = null;
   let exeRow = null;
   let exeInp = null;
+  // 目标页面(目录可空,默认仅展开/折叠;终端必选)
+  const actRow = makeRow('目标页面');
+  actSel = document.createElement('select');
+  fillTargetSelect(actSel, node.action, { nameInp, iconInp }, { allowEmpty: !isTerm, emptyLabel: '(无 - 仅展开/折叠)' });
+  actRow.appendChild(actSel);
+  // 目录:「设置类型组」(继承父目录已勾选的组,灰显不可改;其余可勾选)
+  let typeTagsList = null;
+  if (!isTerm) {
+    body.appendChild(actRow);
+    const tagsRow = makeRow('设置类型组');
+    tagsRow.style.alignItems = 'flex-start';
+    typeTagsList = document.createElement('div');
+    typeTagsList.className = 'check-group';
+    const opts = groupTagOptions();
+    const cur = new Set(Array.isArray(node.typeTags) ? node.typeTags : []);
+    // 继承自父目录的类型组:默认勾选且灰显不可改
+    const parentNodeEdit = node.parentId ? menuNodeById(node.parentId) : null;
+    const inheritSet = new Set(parentNodeEdit && Array.isArray(parentNodeEdit.typeTags) ? parentNodeEdit.typeTags : []);
+    for (const o of opts) {
+      const locked = inheritSet.has(o.value);
+      const isChecked = cur.has(o.value) || locked;
+      const lb = document.createElement('label');
+      lb.className = 'check-item' + (isChecked ? ' checked' : '') + (locked ? ' disabled' : '');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = o.value;
+      cb.checked = isChecked;
+      if (locked) cb.disabled = true;
+      cb.addEventListener('change', () => lb.classList.toggle('checked', cb.checked));
+      lb.appendChild(cb);
+      lb.appendChild(document.createTextNode(o.label));
+      typeTagsList.appendChild(lb);
+    }
+    const hint = document.createElement('div');
+    hint.className = 'form-hint';
+    hint.textContent = '勾选该目录下允许显示的类型组(可多选)。点击该目录时,分类树中只显示「资源组命中了勾选类型组」或「未勾选任何资源组(全部)」的目录;不勾选 = 点击目录仅展开/折叠。';
+    if (inheritSet.size) hint.textContent += '（带灰色的组继承自父目录,默认勾选且不可修改,可额外勾选其它组）';
+    typeTagsList.appendChild(hint);
+    tagsRow.appendChild(typeTagsList);
+    body.appendChild(tagsRow);
+  }
   if (isTerm) {
     const typeRow = makeRow('动作类型');
     typeSel = document.createElement('select');
@@ -1112,24 +1531,14 @@ function editMenuNodeDialog(id) {
     typeSel.value = node.actionType === 'exe' ? 'exe' : 'builtin';
     typeRow.appendChild(typeSel);
     body.appendChild(typeRow);
-
-    const actRow = makeRow('目标页面');
-    actSel = document.createElement('select');
-    for (const o of MENU_ACTION_OPTIONS) {
-      const op = document.createElement('option'); op.value = o.value; op.textContent = o.label; actSel.appendChild(op);
-    }
-    if (!MENU_ACTION_OPTIONS.some((o) => o.value === node.action)) {
-      const op = document.createElement('option'); op.value = node.action; op.textContent = node.action; actSel.appendChild(op);
-    }
-    actSel.value = node.action || MENU_ACTION_OPTIONS[0].value;
-    actRow.appendChild(actSel);
-    body.appendChild(actRow);
+    body.appendChild(actRow); // 目标页面放在动作类型之后,与选外部程序时「动作类型」位置一致
 
     exeRow = makeRow('程序路径');
     exeInp = document.createElement('input'); exeInp.type = 'text'; exeInp.value = node.actionType === 'exe' ? (node.action || '') : '';
-    exeInp.placeholder = '例如 C:\\Tools\\app.exe';
+    exeInp.placeholder = '例如 C:\\Program Files\\App.exe 参数 或 https://example.com';
     exeRow.appendChild(exeInp);
     body.appendChild(exeRow);
+    attachExeAutoFill(exeInp, nameInp, iconInp);
 
     const sync = () => {
       const isExe = typeSel.value === 'exe';
@@ -1150,16 +1559,21 @@ function editMenuNodeDialog(id) {
         text: '确定', cls: 'primary', onClick: () => {
           const name = nameInp.value.trim();
           if (!name) { toast('名称不能为空', 'error'); return; }
-          const patch = {
-            name,
-            icon: iconInp.value.trim(),
-            tooltip: tipInp.value.trim(),
-            note: noteInp.value.trim(),
-          };
+            const patch = {
+              name,
+              icon: iconInp.value.trim(),
+              tooltip: tipInp.value.trim(),
+              note: noteInp.value.trim(),
+              isResource: resCb.checked,
+            };
           if (isTerm) {
             const isExe = typeSel.value === 'exe';
             patch.actionType = isExe ? 'exe' : 'builtin';
             patch.action = isExe ? exeInp.value.trim() : actSel.value;
+          } else {
+            patch.actionType = 'builtin';
+            patch.action = actSel.value; // 目录目标页面可为空
+            patch.typeTags = typeTagsList ? [...typeTagsList.querySelectorAll('input:checked')].map((c) => c.value) : [];
           }
           updateMenuNode(id, patch);
           close();
@@ -1544,6 +1958,7 @@ function editToolboxFolderDialog(id) {
   pickBtn.title = '选择图标';
   pickBtn.addEventListener('click', (e) => { e.stopPropagation(); openEmojiPicker(pickBtn, iconInp); });
   iconRow.appendChild(pickBtn);
+  attachIconPreview(iconInp, iconRow);
   body.appendChild(nameRow); body.appendChild(iconRow);
 
   const { close } = openModal({
@@ -2138,6 +2553,7 @@ function clearOverlays() {
   apiDocShown = false;
   atlasShown = false;
   currentAtlasItemId = null;
+  emojiShown = false;
 }
 
 // ---- 场景分类/场景条目 操作对话框 ----
@@ -2648,6 +3064,21 @@ function renderPseudoNode(parent, n, group = currentGroup(), expandKey = n.id) {
   }
 }
 
+/** 递归统计某分类(含子孙)下全部资源数(进入分类后显示其全部内容,故不按分组二次过滤) */
+function countItemsInCatTree(catId, group) {
+  const ids = new Set([catId, ...getCategoryDescendants(catId)]);
+  return state.items.filter((i) => ids.has(i.categoryId)).length;
+}
+
+/** 资源类型根节点下的资源总数(未分类 + 各可见分类的递归总数),用于左侧栏根节点数字 */
+function countItemsInGroupRoot(group) {
+  let n = itemsForGroupCat(group, '').length; // 未分类(按类型过滤)
+  for (const c of getCategoryChildren('')) {
+    if (catVisibleInGroup(c, group)) n += countItemsInCatTree(c.id, group);
+  }
+  return n;
+}
+
 /** 递归渲染分类节点(子分类 + 直属条目);group 指定所属资源类型分组(缺省为当前 tab) */
 function renderCatNode(parent, cat, depth, group = currentGroup()) {
   const items = itemsForGroupCat(group, cat.id);
@@ -2681,7 +3112,7 @@ function renderCatNode(parent, cat, depth, group = currentGroup()) {
 
   const count = document.createElement('span');
   count.className = 'cat-count';
-  count.textContent = items.length;
+  count.textContent = countItemsInCatTree(cat.id, group);
   node.appendChild(count);
 
   const ops = document.createElement('span');
@@ -2858,25 +3289,75 @@ function openCategoryMenu(x, y, cat) {
   ]);
 }
 
-/** 目录的资源类型标签勾选字段(新建/编辑目录对话框复用;不勾选 = 在所有资源类型中显示) */
-function typeTagField(value) {
+/** 目录的资源组勾选字段(新建/编辑目录对话框复用;不勾选 = 在所有资源组中显示)
+ * @param {string[]} value 已勾选的资源组(默认选中)
+ * @param {string[]} [inherited] 继承自父目录、呈灰色不可修改的资源组(与 value 默认一致) */
+function typeTagField(value, inherited) {
+  const inheritSet = new Set(Array.isArray(inherited) ? inherited : []);
+  const options = groupTagOptions().map((o) => ({
+    value: o.value,
+    label: o.label,
+    disabled: inheritSet.has(o.value), // 继承自父目录:默认勾选且不可修改
+  }));
+  const inheritNote = inheritSet.size
+    ? '（以下带灰色的组继承自父目录,默认勾选且不可修改,可额外勾选其它组）'
+    : '';
   return {
     key: 'typeTags',
-    label: '资源类型标签',
+    label: '资源组',
     type: 'checkboxes',
-    options: CAT_TYPE_TAGS.map((t) => ({ value: t, label: CAT_TYPE_TAG_LABELS[t] })),
+    options,
     value: Array.isArray(value) ? value : [],
-    hint: '不勾选 = 在所有资源类型中显示;勾选后仅在该类型(可多选)的资源树中显示',
+    inheritNote,
+    hint: '不勾选 = 在所有资源组中显示;勾选后仅在该资源组(可多选)的资源树中显示' + inheritNote,
   };
 }
 
-/** 新建子目录 */
+/** 资源组(设置类型组)勾选行:cur=已勾选值数组;inherited=继承自父目录的锁定勾选项(灰显不可改)。返回 .form-row 元素。 */
+function buildTypeTagsRow(cur, inherited) {
+  const curSet = new Set(Array.isArray(cur) ? cur : []);
+  const inheritSet = new Set(Array.isArray(inherited) ? inherited : []);
+  const row = document.createElement('div');
+  row.className = 'form-row';
+  const lb = document.createElement('label');
+  lb.className = 'f-label';
+  lb.textContent = '设置类型组';
+  row.appendChild(lb);
+  row.style.alignItems = 'flex-start';
+  const list = document.createElement('div');
+  list.className = 'check-group';
+  for (const o of groupTagOptions()) {
+    const item = document.createElement('label');
+    const locked = inheritSet.has(o.value);
+    const isChecked = curSet.has(o.value) || locked; // 继承自父目录的项默认勾选(且灰显不可改)
+    item.className = 'check-item' + (isChecked ? ' checked' : '') + (locked ? ' disabled' : '');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = o.value;
+    cb.checked = isChecked;
+    if (locked) cb.disabled = true;
+    cb.addEventListener('change', () => item.classList.toggle('checked', cb.checked));
+    item.appendChild(cb);
+    item.appendChild(document.createTextNode(o.label));
+    list.appendChild(item);
+  }
+  const hint = document.createElement('div');
+  hint.className = 'form-hint';
+  hint.textContent = '勾选该目录下允许显示的类型组(可多选)。点击该目录时,分类树中只显示「资源组命中了勾选类型组」或「未勾选任何资源组(全部)」的目录;不勾选 = 点击目录仅展开/折叠。';
+  if (inheritSet.size) hint.textContent += '（带灰色的组继承自父目录,默认勾选且不可修改,可额外勾选其它组）';
+  list.appendChild(hint);
+  row.appendChild(list);
+  return row;
+}
+
+/** 新建子目录:资源组默认继承父目录,且继承项呈灰色不可修改 */
 function newSubCategoryDialog(parent) {
+  const inherited = Array.isArray(parent.typeTags) ? parent.typeTags : [];
   promptDialog({
     title: '新建目录',
     fields: [
       { key: 'name', label: '子目录名称', type: 'text', value: '' },
-      typeTagField([]),
+      typeTagField(inherited, inherited),
     ],
     onOk: ({ name, typeTags }) => {
       if (!name) return toast('目录名称不能为空', 'error');
@@ -2885,6 +3366,95 @@ function newSubCategoryDialog(parent) {
       renderCategories();
       renderMainArea();
       toast(`已创建子目录「${name}」`);
+    },
+  });
+}
+
+/** 新建顶层资源分类:在左侧栏某资源类型根下直接创建 */
+function newTopCategoryDialog(group) {
+  const labelMap = { anim: '动画', image: '图片', audio: '音频', '3d': '3D' };
+  const grpLabel = labelMap[group] || group;
+  promptDialog({
+    title: '新建资源分类',
+    fields: [
+      { key: 'name', label: '分类名称', type: 'text', value: '' },
+      typeTagField([group], []), // 默认勾选当前资源类型,可额外勾选其它组
+    ],
+    onOk: ({ name, typeTags }) => {
+      name = (name || '').trim();
+      if (!name) return toast('分类名称不能为空', 'error');
+      const tags = typeTags && typeTags.length ? typeTags : [group];
+      addCategory({ name, typeTags: tags, parentId: '' });
+      // 展开对应的资源类型根,使新分类立即可见
+      const actionMap = { anim: 'res:anim', image: 'res:image', audio: 'res:audio', '3d': 'res:3d' };
+      const a = actionMap[group] || ('res:group:' + group);
+      const root = state.menuNodes.find((m) => (m.action || '') === a);
+      if (root) expandedCats.add(root.id);
+      renderTree();
+      renderCategories();
+      renderMainArea();
+      toast(`已在「${grpLabel}资源」下创建分类「${name}」`);
+    },
+  });
+}
+
+/**
+ * 将菜单目录节点(及其所有子目录)整体转换为资源分类目录。
+ * - 仅转换 dir 节点;终端节点会被忽略(无法成为分类)。
+ * - 转换出的分类树为顶层(显示在所选资源类型根下),子目录递归成为子分类。
+ */
+function convertMenuNodeToCategoryDialog(node) {
+  if (!node || node.nodeType !== 'dir' || menuNodeResourceGroup(node)) return;
+
+  // 统计将被转换的子目录数量(仅 dir 子孙)
+  let dirCount = 0;
+  (function walk(id) {
+    for (const c of getMenuChildren(id)) {
+      if (c.nodeType === 'dir') { dirCount++; walk(c.id); }
+    }
+  })(node.id);
+
+  // 推导默认资源分组:自身 typeTags → 父资源根 → 默认 image
+  const ownTags = Array.isArray(node.typeTags) ? node.typeTags : [];
+  let defGroup = ownTags.find((t) => isValidTypeTag(t)) || '';
+  if (!defGroup) {
+    const parent = node.parentId ? menuNodeById(node.parentId) : null;
+    defGroup = (parent && menuNodeResourceGroup(parent)) || 'image';
+  }
+  const opts = groupTagOptions();
+  if (!opts.some((o) => o.value === defGroup)) defGroup = opts[0] ? opts[0].value : 'image';
+
+  const info = `将把「<b>${esc(node.name)}</b>」${dirCount ? `及其 <b>${dirCount}</b> 个子目录` : ''}转换为资源分类目录(终端节点不会被转换)。新分类会显示在所选「资源类型」根目录下,可之后在分类树上继续管理。`;
+
+  promptDialog({
+    title: '转换为资源分类',
+    fields: [
+      { key: 'info', label: '说明', type: 'static', value: info },
+      { key: 'group', label: '资源类型', type: 'select', options: opts, value: defGroup },
+      { key: 'del', label: '删除原菜单目录', type: 'checkbox', value: false },
+    ],
+    onOk: ({ group, del }) => {
+      group = group || defGroup;
+      let made = 0;
+      (function walkMenu(mn, parentCatId) {
+        const cat = addCategory({ name: mn.name, typeTags: [group], parentId: parentCatId || '' });
+        made++;
+        for (const c of getMenuChildren(mn.id)) {
+          if (c.nodeType === 'dir') walkMenu(c, cat.id);
+        }
+      })(node, '');
+      if (del) removeMenuNode(node.id);
+      // 确保所选资源分组(尤其是自定义分组)在左侧栏存在资源根,否则新分类无处挂载、看不见
+      ensureResourceRootsForCategories();
+      // 展开对应的资源类型根,使新分类立即可见
+      const actionMap = { anim: 'res:anim', image: 'res:image', audio: 'res:audio', '3d': 'res:3d' };
+      const a = actionMap[group] || ('res:group:' + group);
+      const root = state.menuNodes.find((m) => (m.action || '') === a);
+      if (root) expandedCats.add(root.id);
+      renderTree();
+      renderCategories();
+      renderMainArea();
+      toast(`已转换 ${made} 个目录为资源分类${del ? '，并已删除原菜单目录' : ''}`);
     },
   });
 }
@@ -3781,15 +4351,20 @@ export function newCategoryDialog() {
 function editCategoryDialog(id) {
   const cat = categoryById(id);
   if (!cat) return;
+  // 继承自父分类的资源组:默认勾选且不可修改(避免子分类被改成其它资源组后"消失")
+  const parent = cat.parentId ? categoryById(cat.parentId) : null;
+  const inherited = parent && Array.isArray(parent.typeTags) ? parent.typeTags : [];
   promptDialog({
     title: '编辑目录',
     fields: [
       { key: 'name', label: '目录名称', type: 'text', value: cat.name },
-      typeTagField(cat.typeTags),
+      typeTagField(cat.typeTags, inherited),
     ],
     onOk: ({ name, typeTags }) => {
       if (!name) return toast('目录名称不能为空', 'error');
-      updateCategory(id, { name, typeTags });
+      // 安全兜底:强制包含继承自父分类的资源组(locked+checked 项本就计入,这里再确保一次)
+      const merged = Array.from(new Set([...(Array.isArray(inherited) ? inherited : []), ...(Array.isArray(typeTags) ? typeTags : [])]));
+      updateCategory(id, { name, typeTags: merged });
       renderCategories();
       renderItems();
       renderMainArea();
@@ -3929,6 +4504,7 @@ function showPage(pageId) {
   const pages = {
     home: document.getElementById('page-home'),
     folder: document.getElementById('page-folder'),
+    emoji: document.getElementById('page-emoji'),
     preview: document.getElementById('page-preview'),
     toolbox: document.getElementById('page-toolbox'),
     scene: document.getElementById('page-scene'),
@@ -3938,9 +4514,13 @@ function showPage(pageId) {
     webgame: document.getElementById('page-webgame'),
     api: document.getElementById('page-api'),
     atlas: document.getElementById('page-atlas'),
+    custom: document.getElementById('page-custom'),
   };
   for (const [k, el] of Object.entries(pages)) {
     if (el) el.hidden = k !== pageId;
+  }
+  if (pageId === 'custom') {
+    renderCustomPage();
   }
   if (pageId === 'preview') {
     // 页面 display:none 期间 wrap 尺寸为 0,ResizeObserver 不触发;进入后强制恢复
@@ -4020,6 +4600,22 @@ export function closeSettings() {
 export function renderMainArea() {
   syncTabFromState(); // 多标签:渲染前同步标签条(内容与标签一致)
   updateBackSpecial(); // 同步顶栏"返回"按钮的显隐
+  // 资源浏览页类型过滤:类型被删除 → 清除(分组导航点会显式清空)
+  if (currentTypeFilter && !customTypeById(currentTypeFilter)) currentTypeFilter = null;
+  // 目录「允许显示的类型组」视图:勾选类型组被删除 → 过滤无效项;全失效 → 退出视图
+  if (currentGroupFilterSet && currentGroupFilterSet.length) {
+    const valid = currentGroupFilterSet.filter((t) => isValidTypeTag(t));
+    if (!valid.length) currentGroupFilterSet = null;
+    else currentGroupFilterSet = valid;
+  }
+  // ---- emoji 图标库管理页 ----
+  if (emojiShown) {
+    showPage('emoji');
+    renderEmojiPage(document.getElementById('page-emoji'));
+    renderBreadcrumb();
+    return;
+  }
+
   // ---- 资源工具箱主页(汇总视图:列出所有子菜单入口) ----
   if (toolboxHomeShown) {
     showPage('toolbox');
@@ -4213,6 +4809,54 @@ export function renderMainArea() {
     return;
   }
 
+  // ---- 目录「允许显示的类型组」视图 ----
+  if (currentGroupFilterSet && currentGroupFilterSet.length) {
+    if (currentCategoryId && currentCategoryId !== 'all' && currentCategoryId !== '') {
+      // 目录视图内点击分类 → 该分类条目列表(按类型组集合过滤)
+      showPage('folder');
+      renderFolderPage(document.getElementById('page-folder'), {
+        catId: currentCategoryId,
+        group: currentGroupFilterSet[0],
+        groupFilter: new Set(currentGroupFilterSet),
+        viewMode: (state.settings && state.settings.listViewMode) || 'list',
+        sortBy: (state.settings && state.settings.listSortBy) || 'name',
+        sortDir: (state.settings && state.settings.listSortDir) || 'asc',
+        actions: {
+          onOpenCat: (catId) => {
+            currentCategoryId = catId;
+            setSetting('lastCategoryId', catId);
+            expandedCats.add(catId);
+            renderMainArea(); renderCategories();
+          },
+          onOpenItem: (itemId) => selectItem(itemId),
+          onItemMenu: (it, e) => openItemMenu(e.clientX, e.clientY, it),
+          onCatMenu: (cat, e) => openCategoryMenu(e.clientX, e.clientY, cat),
+          onViewMode: (mode) => { setListViewMode(mode); renderMainArea(); },
+          onSort: (by, dir) => { setListSort(by, dir); renderMainArea(); },
+          onRefresh: () => renderMainArea(),
+        },
+      });
+      renderBreadcrumb();
+      return;
+    }
+    // 目录视图主页:分类树只显示 命中勾选类型组 或 未勾选任何标签 的分类
+    showPage('home');
+    renderFilterHome(document.getElementById('page-home'), {
+      onOpenCat: (catId) => {
+        currentCategoryId = catId;
+        setSetting('lastCategoryId', catId);
+        expandedCats.add(catId);
+        renderMainArea(); renderCategories();
+      },
+      onOpenItem: (itemId) => selectItem(itemId),
+      onItemMenu: (it, e) => openItemMenu(e.clientX, e.clientY, it),
+      onCatMenu: (cat, e) => openCategoryMenu(e.clientX, e.clientY, cat),
+      onRefresh: () => renderMainArea(),
+    }, currentGroupFilterSet, currentGroupFilterTitle || '资源');
+    renderBreadcrumb();
+    return;
+  }
+
   const tab = (state.settings && state.settings.resourceTab) || 'home';
   if (tab === 'home' || tab === 'all') {
     // 全局主页(统计全部类型)
@@ -4222,6 +4866,8 @@ export function renderMainArea() {
       homeItems: state.items,
       onTab: (group) => {
         if (group === 'all') return;
+        currentTypeFilter = null; // 顶栏切换分组清除类型过滤
+        currentGroupFilterSet = null;
         setResourceTab(group);
         currentCategoryId = 'all';
         setSetting('lastCategoryId', 'all');
@@ -4262,9 +4908,11 @@ export function renderMainArea() {
     showPage('home');
     renderHomePage(document.getElementById('page-home'), {
       resourceTab: tab,
-      homeItems: state.items,
+      homeItems: currentTypeFilter ? state.items.filter((it) => it.type === currentTypeFilter) : state.items,
       onTab: (group) => {
         if (group === tab) return;
+        currentTypeFilter = null; // 顶栏切换分组清除类型过滤
+        currentGroupFilterSet = null;
         setResourceTab(group);
         currentCategoryId = 'all';
         setSetting('lastCategoryId', 'all');
@@ -4283,11 +4931,13 @@ export function renderMainArea() {
     });
   } else {
     // 具体分类 → 目录列表页(编辑管理 + 统计)
+    // 分类是具体容器:显示该分类下所有资源,不再按当前 tab 分组过滤(避免同分类下不同类型资源被隐藏)
     showPage('folder');
-    const group = tab;
+    const group = 'all';
     renderFolderPage(document.getElementById('page-folder'), {
       catId: currentCategoryId,
       group,
+      typeFilter: currentTypeFilter,
       viewMode: (state.settings && state.settings.listViewMode) || 'list',
       sortBy: (state.settings && state.settings.listSortBy) || 'name',
       sortDir: (state.settings && state.settings.listSortDir) || 'asc',
@@ -4465,6 +5115,7 @@ function bindBrandHome() {
       apiDocShown = false;
       atlasShown = false;
       currentAtlasItemId = null;
+      emojiShown = false;
       renderMainArea();
       renderCategories();
       syncTabs();
@@ -4567,6 +5218,13 @@ function renderBreadcrumb() {
       + '<span class="crumb" data-tool-root>资源工具箱</span>'
       + '<span class="crumb-sep">/</span>'
       + `<span class="crumb current">${labels[currentTool] || currentTool}</span>`;
+    return;
+  }
+  // emoji 图标库
+  if (emojiShown) {
+    nav.innerHTML = '<span class="crumb" data-crumb="home">主页</span>'
+      + '<span class="crumb-sep">/</span>'
+      + '<span class="crumb current">emoji 图标库</span>';
     return;
   }
   // 工具箱主页(汇总视图)
@@ -4701,6 +5359,72 @@ function bindPreviewPageNav() {
   }
 }
 
+/** 当前预览上下文的前后切换资源 id 列表(目录当前分类 / 收藏夹),按当前排序 */
+function previewNavIds() {
+  if (favHomeShown || currentFavCategoryId != null) {
+    const loc = favLocations();
+    const arr = Array.isArray(loc.items) ? loc.items : [];
+    return arr.map((i) => i.id);
+  }
+  const catId = currentCategoryId == null ? 'all' : currentCategoryId;
+  // 按「当前预览资源的类型分组」过滤,而非顶部 tab 的 currentGroup():
+  // 从自定义资源分组(如「图标资源」)导航进入时 resourceTab 是分组 id,currentGroup() 会把它当过滤组,
+  // 而图片的 typeGroup 归一为 'image',导致列表被滤成空/一个 → 前后切换提示"仅一个资源"。
+  const cur = preview.currentItemId ? itemById(preview.currentItemId) : null;
+  const grp = cur ? typeGroup(cur.type) : currentGroup();
+  const data = getFolderData(catId, grp);
+  const sorted = sortItems(
+    data.direct || [],
+    (state.settings && state.settings.listSortBy) || 'name',
+    (state.settings && state.settings.listSortDir) || 'asc'
+  );
+  return sorted.map((i) => i.id);
+}
+
+// 前后切换的"已在末尾/开头"标记:到边界首次点击只提示,再次点击才回绕到另一端
+let pvNavEndNext = false;
+let pvNavEndPrev = false;
+
+/** 动画/图片预览页左右两侧「上一个 / 下一个」切换按钮(悬停画面边缘浮现) */
+function bindPreviewNavArrows() {
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.pv-nav-btn');
+    if (!btn) return;
+    const dir = btn.dataset.nav; // 'prev' | 'next'
+    const curId = preview.currentItemId;
+    if (!curId) return;
+    const ids = previewNavIds();
+    if (ids.length < 2) { toast('当前目录仅一个资源', 'error'); return; }
+    const idx = ids.indexOf(curId);
+    const jump = (id) => {
+      pvNavEndNext = pvNavEndPrev = false;
+      // 复用当前预览标签,避免切换时堆叠新标签;图片强制原图预览(不跳图集拆分页)
+      selectItem(id, { replaceCurrent: true, forceRaw: true });
+    };
+    if (idx < 0) {
+      // 当前资源不在该列表(如从最近打开进入) → 从头/尾开始
+      jump(dir === 'prev' ? ids[0] : ids[ids.length - 1]);
+      return;
+    }
+    if (dir === 'next') {
+      if (idx === ids.length - 1) {
+        if (!pvNavEndNext) { pvNavEndNext = true; pvNavEndPrev = false; toast('已经是最后一张了', 'error'); return; }
+        jump(ids[0]); // 再次点击 → 重新从第一张开始
+        return;
+      }
+      jump(ids[idx + 1]);
+      return;
+    }
+    // prev
+    if (idx === 0) {
+      if (!pvNavEndPrev) { pvNavEndPrev = true; pvNavEndNext = false; toast('已经是第一张了', 'error'); return; }
+      jump(ids[ids.length - 1]);
+      return;
+    }
+    jump(ids[idx - 1]);
+  });
+}
+
 // ---------------- 预览分发(按资源类型) ----------------
 
 function showPreviewPage(item) {
@@ -4712,12 +5436,12 @@ function showPreviewPage(item) {
   const imgView = document.getElementById('pv-image-view');
   const audioView = document.getElementById('pv-audio-view');
   const fguiView = document.getElementById('pv-fgui-view');
-  if (imgView) imgView.hidden = !(item.type === 'image');
+  if (imgView) imgView.hidden = !(isImageType(item.type));
   if (audioView) audioView.hidden = !(item.type === 'audio');
   if (fguiView) fguiView.hidden = !(item.type === 'fgui');
   // 顶部信息
   document.getElementById('pv-name').textContent = item.displayName;
-  document.getElementById('pv-type').textContent = TYPE_LABEL[item.type] || item.type;
+  document.getElementById('pv-type').textContent = typeLabel(item.type);
   document.getElementById('pv-type').className = 'type-badge ' + item.type;
   const pathEl = document.getElementById('pv-path');
   setCopyablePath(pathEl, item.filePath);
@@ -4742,31 +5466,39 @@ function openAtlasViewer(item) {
 }
 
 export async function selectItem(id, opts = {}) {
-  const { forceRaw = false } = opts;
+  const { forceRaw = false, replaceCurrent = false } = opts;
   const item = itemById(id);
   if (!item) return;
   // 清除图集拆分浏览态(切回普通预览/目录)
   atlasShown = false;
   currentAtlasItemId = null;
-  // 图片带同名 .atlas → 默认进入图集拆分浏览(双击/打开行为);forceRaw 时查看原图
-  if (item.type === 'image' && !forceRaw) {
-    const hasAtlas = await findAtlasForImage(item);
-    if (hasAtlas) { openAtlasViewer(item); return; }
-  }
+  // 图片(.png/.jpg 等)打开统一进入图片预览页(默认「适配窗口」缩放),不再因带同名 .atlas 自动跳转图集拆分页,
+  // 保证所有图片默认缩放模式一致;带图集的图片在预览页显示「🗂 图集」徽标,点「图集拆分」按钮才进入拆分浏览。
+  // (forceRaw 仍保留兼容:从图集拆分页「查看原图」回图片预览)
   // 打开资源 = 新建/激活预览标签
   // 设置「打开同类型资源时新开标签页」: 开 → 每个资源独立标签(默认); 关 → 同类型复用当前预览标签(替换内容,不再堆叠)
   const newTab = !!(state.settings && state.settings.openSameTypeNewTab);
-  const tabKey = newTab ? `preview-${item.id}` : `preview-type-${typeGroup(item.type)}`;
-  const tab = ensureTab(tabKey, {
-    kind: 'preview', params: { itemId: item.id },
-    label: item.displayName || '', icon: previewTypeIcon(item.type),
-  });
-  // 同类型复用标签时,更新名称/参数(ensureTab 仅创建时写入 def)
-  if (!newTab && tab) {
-    tab.label = item.displayName || '';
-    tab.icon = previewTypeIcon(item.type);
-    tab.params = { itemId: item.id };
-    renderTabStrip();
+  // 前后切换(replaceCurrent):直接复用当前预览标签,不因「同类型新开标签」设置而堆叠标签
+  let tab = null;
+  if (replaceCurrent && activeTabId) {
+    const cur = mainTabs.find((x) => x.id === activeTabId);
+    if (cur && cur.kind === 'preview') tab = cur;
+  }
+  if (!tab) {
+    const tabKey = newTab ? `preview-${item.id}` : `preview-type-${typeGroup(item.type)}`;
+    tab = ensureTab(tabKey, {
+      kind: 'preview', params: { itemId: item.id },
+      label: item.displayName || '', icon: previewTypeIcon(item.type),
+    });
+  }
+  // 复用标签(同类型复用 或 前后切换)时,更新名称/参数/图标
+  if (replaceCurrent || !newTab) {
+    if (tab) {
+      tab.label = item.displayName || '';
+      tab.icon = previewTypeIcon(item.type);
+      tab.params = { itemId: item.id };
+      renderTabStrip();
+    }
   }
   // 记录最近打开(首页展示与再次打开)
   recordRecentOpen({ name: item.displayName || '', path: item.filePath, type: item.type, tab: typeGroup(item.type), itemId: item.id });
@@ -4783,7 +5515,7 @@ export async function selectItem(id, opts = {}) {
   try {
     if (typeGroup(item.type) === 'anim') {
       await showAnimationPreview(item);
-    } else if (item.type === 'image') {
+    } else if (isImageType(item.type)) {
       await showImageViewer(item);
     } else if (item.type === 'audio') {
       await showAudioPlayer(item);
@@ -4819,7 +5551,7 @@ async function showModelPlaceholder(item) {
     const size = item.size != null ? formatSize(item.size) : '—';
     err.innerHTML = `<div style="text-align:left;line-height:2">
       <div style="font-size:40px;text-align:center;margin-bottom:10px">🧊</div>
-      <b>3D 模型文件</b>(${TYPE_LABEL[item.type] || item.type})<br/>
+      <b>3D 模型文件</b>(${typeLabel(item.type)})<br/>
       名称:${esc(item.displayName)}<br/>
       大小:${size}<br/>
       路径:${esc(item.filePath)}<br/>
@@ -4859,6 +5591,15 @@ async function showImageViewer(item) {
   if (bgInput) bgInput.value = state.settings.bgColor || '#22242b';
   if (imageViewer) imageViewer.setBgColor(state.settings.bgColor || '#22242b');
   const url = `${location.origin}/a/${item.id}/${encodeURIComponent(basename(item.filePath))}`;
+  // 图片右键菜单:与图片列表页条目一致(预览/拆分浏览/打开目录/编辑/重命名/移动到/收藏/删除/属性 等)
+  const imgEl = document.getElementById('img-display');
+  if (imgEl) {
+    imgEl.oncontextmenu = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openItemMenu(e.clientX, e.clientY, item);
+    };
+  }
   try {
     await imageViewer.load(url);
   } catch (err) {

@@ -1,11 +1,7 @@
 // ============ 添加资源流程(单个 / 批量) ============
 
 import { openModal, footButtons, toast, promptDialog } from './dialogs.js';
-import { state, addItem, addCategory, TYPE_LABEL } from './state.js';
-
-function typeLabel(type) {
-  return TYPE_LABEL[type] || type;
-}
+import { state, addItem, addCategory, typeLabel, ensureCategoryTypeTag } from './state.js';
 
 /** 路径规范化(Windows 大小写不敏感 + 统一分隔符) */
 function normPath(p) {
@@ -212,11 +208,9 @@ export async function runAddFlow(batch, defaultCategoryId) {
   }
 
   function updateSummary() {
-    const dupCount = flow.entries.filter(
-      (e) => flow.checked.has(e.file) && isDuplicateInCategory(e.file, catSelect.value)
-    ).length;
-    const addable = flow.checked.size - dupCount;
-    summary.textContent = `已勾选 ${flow.checked.size} 个资源(可添加 ${addable} 个,重复跳过 ${dupCount} 个)`;
+    const dupCount = flow.entries.filter((e) => isDuplicateInCategory(e.file, catSelect.value)).length;
+    const addable = [...flow.checked].filter((f) => !isDuplicateInCategory(f, catSelect.value)).length;
+    summary.textContent = `共 ${flow.entries.length} 个资源(已勾选 ${flow.checked.size} 个,可添加 ${addable} 个,已存在 ${dupCount} 个)`;
   }
 
   /** 按当前选中分类重新计算勾选并重渲染(未选分类时不预勾选) */
@@ -288,6 +282,8 @@ export async function runAddFlow(batch, defaultCategoryId) {
                 }
               }
             }
+            // 同步修正目标分类标签:即使已存在也要确保标签包含该资源分组,否则重复项可能不可见
+            ensureCategoryTypeTag(targetCatId, e.type);
             // 再次校验:目标分类下已存在 → 跳过,不重复添加
             if (isDuplicateInCategory(e.file, targetCatId)) {
               skipped++;
@@ -463,6 +459,7 @@ export async function addPathsToCategory(paths, categoryId) {
         }
       }
     }
+    ensureCategoryTypeTag(targetCatId, e.type);
     if (isDuplicateInCategory(e.file, targetCatId)) { skipped++; continue; }
     addItem({
       categoryId: targetCatId,

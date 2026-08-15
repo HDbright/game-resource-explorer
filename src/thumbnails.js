@@ -47,15 +47,16 @@ export class ThumbnailService {
     return this._initPromise;
   }
 
-  /** 资源类型对应的缩略图 URL:动画 → dataURL;图片 → 静态服务 URL;音频 → null */
+  /** 资源类型对应的缩略图 URL:动画 → dataURL;图片(含自定义 image 分组类型)→ 静态服务 URL;音频 → null */
   thumbnailUrl(item) {
     if (!item) return null;
-    if (item.type === 'image') {
+    if (item.type === 'audio') return null;
+    const g = typeGroup(item.type);
+    if (g === 'anim') return this.getAnimThumb(item);
+    if (g === 'image') {
       return `${location.origin}/a/${item.id}/${encodeURIComponent(basename(item.filePath))}`;
     }
-    if (item.type === 'audio') return null;
-    if (typeGroup(item.type) !== 'anim') return null;
-    return this.getAnimThumb(item);
+    return null;
   }
 
   /**

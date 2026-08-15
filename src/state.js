@@ -60,108 +60,986 @@ export const DEFAULT_SETTINGS = {
   // 系统设置页卡片:顺序 + 自定义标题/图标
   settingCardOrder: [], // 卡片 id 数组(按用户拖拽顺序)
   settingCardMeta: {}, // { [cardId]: { title, icon } }
+  // 自定义页面(终端节点「目标页面」可基于模板建立并管理)
+  customPages: [], // [{ id, templateId, title, icon, url, content, note, createdAt, updatedAt }]
+  // 自定义资源类型(如「图标资源」.png/.ico;扩展名优先于内置匹配,归属某资源分组)
+  customTypes: [], // [{ id, name, group, exts: ['.png'], icon }]
+  // 自定义资源分组(如 图标/数据/文件;分组自带扩展名,扫描时归 type=<分组id>,并作为分类标签/目录可选项)
+  customTypeGroups: [], // [{ id, name, icon, exts }]
 };
 
 /** 默认图标库(首次启动无自定义数据时 seed;分组/图标可增删改序) */
 export const DEFAULT_ICON_LIBRARY = [
-  { group: '常用', items: '😀 😁 😂 🤣 😊 😍 🥰 😎 🤔 😴 🥳 😅 😇 🙃 😉 😋 🤭 🥲 😢 😭 😤 😡 🤯 🥵 🤠 🤡 👻 💀 🤖 🎃 👋 ✋ 👌 ✌ 🤞 👍 👎 👏 🙏 💪 🤝 ✊ 👊 🔥 ⭐ ⚡ 💯 ✅ ❌ ❤️ 🧡 💛 💚 💙 💜 🖤 🤍 ✨ 🎉 🎊 🎁 🎈'.split(' ') },
-  { group: '目录与文件', items: '📁 📂 🗂 📚 📖 📕 📗 📘 📙 📔 📒 📃 📄 📑 📋 📝 ✏️ 📌 📍 🗒 🗓 📅 📇 🗃 🗄 📦 📤 📥 📨 📩 📪 📫 📬 📭 📮 📎 🖇 🔖 🏷'.split(' ') },
-  { group: '应用与工具', items: '🧰 🛠 🔧 ⚙ 🔩 ⚒ 🪛 🔨 🪚 🧲 ⚓ 🛡 🔦 💡 🔋 🔌 🔥 💎 🔍 🔎 👁 🖥 💻 ⌨ 🖱 🖨 📷 📸 📹 🎥 🖼 🎨 🖌 🖍 🎛 🎚 🎙 📻 📡 ☎ 📟 🔭 🧪 🧬 🧫 💊 💉 🩺 🦠 🧱 🪨 🪵 🧊 ⚗ 🔬 🗺 🧭 🚀 🛸 ✈ 🚁 🚂 🚗 🚌 ⛵ 🚢 🪂 🏗 🛰 🌐 🕸 🧩'.split(' ') },
-  { group: '媒体与音乐', items: '🎬 🎞 🎦 📺 📽 🎥 🎙 🎚 🎛 🎧 🎵 🎶 🎼 🎹 🥁 🎷 🎺 🎸 🪕 🎻 🎤 🎭 🎪 🎫 🎟 📼'.split(' ') },
-  { group: '游戏与生活', items: '🎮 🕹 🎯 🎲 🧩 ♟ 🎳 🎰 ⚽ 🏀 🏈 ⚾ 🎾 🏐 🎱 🏓 🏸 🥊 🥋 ⛳ 🎣 🎿 ⛸ 🥇 🥈 🥉 🏆 🏅 🎗 🎖 💰 💳 💵 🧧 🛍 🛒 🎀 🪄 🎆 🎇 🧸 🪀 🪁 🎃 🎄 🎋 🎐 🏮 🕯'.split(' ') },
+  { group: "笑脸与情感", items: ["😀", "😃", "😄", "😁", "😆", "😅", "🤣", "😂", "🙂", "🙃", "😉", "😊", "😇", "🥰", "😍", "🤩", "😘", "😗", "😚", "😙", "🥲", "😋", "😛", "😜", "🤪", "😝", "🤑", "🤗", "🤭", "🤫", "🤔", "🤐", "🤨", "😐", "😑", "😶", "😏", "😒", "🙄", "😬", "🤥", "😌", "😔", "😪", "🤤", "😴", "😷", "🤒", "🤕", "🤢", "🤮", "🤧", "🥵", "🥶", "🥴", "😵", "🤯", "🤠", "🥳", "🥸", "😎", "🤓", "🧐", "😕", "😟", "🙁", "☹️", "😮", "😯", "😲", "😳", "😨", "😰", "😥", "😢", "😭", "😱", "😠", "😡", "🤬", "🤡", "👹", "👺", "👻", "💀", "☠️", "🎃", "😺", "😸", "😻", "🙈", "🙉", "🙊", "❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍", "💔", "❤️‍🔥", "❤️‍🩹", "💕", "💞", "💓", "💗", "💖", "💘", "💝", "💋", "💌", "💐"] },
+  { group: "人物与身体", items: ["👋", "🤚", "✋", "🖐️", "🖖", "👌", "🤌", "🤏", "✌️", "🤞", "🤟", "🤘", "👈", "👉", "👆", "👇", "☝️", "👍", "👎", "✊", "👊", "🤛", "🤜", "👏", "👐", "🤲", "🙏", "💅", "💪", "🦾", "👮", "🕵️", "💂", "👷", "🧑‍🌾", "👨‍🍳", "👩‍🔬", "🧑‍💻", "👨‍🎤", "👩‍🎨", "🧑‍✈️", "👨‍🚀", "👩‍⚕️", "🧑‍🏫", "👨‍⚖️", "🤴", "👸", "🤵", "👰", "🥷", "🧙", "🧝", "🧛", "🧟", "🧞", "🏃", "🚶", "🧎", "🧍", "🙆", "🙅", "💁", "🙋", "🤷", "🤦", "🤸", "⛹️", "🏋️", "🤼", "🏌️", "🎿", "🏂", "🏊", "🏄", "🚣", "🚴", "🛹", "🪂", "💃", "🕺", "🕴️", "👨‍👩‍👧", "👨‍👩‍👧‍👦", "👩‍👩‍👧", "👨‍👨‍👦", "👫", "👭", "👬", "💏", "💑", "👀", "👁️", "👃", "👄", "👅", "🦷", "🦴", "👂", "🦻", "🦶", "🦵", "🦿", "🫀", "🫁", "🧠", "🩸"] },
+  { group: "动物与自然", items: ["🐶", "🐕", "🐩", "🐺", "🦊", "🐱", "🐈", "🦁", "🐯", "🐅", "🐆", "🐴", "🐎", "🦄", "🦓", "🦌", "🐮", "🐂", "🐃", "🐷", "🐖", "🐗", "🐑", "🐐", "🐪", "🐫", "🦙", "🦒", "🐘", "🦣", "🦏", "🦛", "🐭", "🐁", "🐀", "🐹", "🐰", "🐇", "🦔", "🦨", "🦡", "🐨", "🐼", "🦥", "🦦", "🦝", "🐻", "🐻‍❄️", "🐔", "🐓", "🐣", "🐤", "🦆", "🦢", "🦅", "🦉", "🦩", "🦚", "🦜", "🐦", "🐧", "🕊️", "🐸", "🐊", "🐢", "🦎", "🐍", "🐉", "🐲", "🦕", "🦖", "🐳", "🐋", "🐬", "🦭", "🐟", "🐠", "🐡", "🦈", "🐙", "🦀", "🦞", "🦐", "🦑", "🐚", "🪸", "🐌", "🦋", "🐛", "🐜", "🐝", "🐞", "🕷️", "🕸️", "🦂", "🦟", "🪰", "🪱", "🦠", "💮", "🌸", "🌹", "🥀", "🌺", "🌻", "🌼", "🌷", "🌱", "🌿", "☘️", "🍀", "🍁", "🍂", "🍃", "🌵", "🌴", "🌲", "🌳", "🌰", "🪨", "🪵", "☀️", "🌤️", "⛅", "🌥️", "☁️", "🌦️", "🌧️", "⛈️", "🌩️", "🌨️", "❄️", "☃️", "⛄", "🌬️", "💨", "🌪️", "🌫️", "🌈", "🌊", "💧", "💦", "⚡", "🔥", "💫", "✨", "⭐", "🌟", "🌙", "🌝", "🌞", "🌍", "🌎", "🌏", "🌐"] },
+  { group: "食物与饮料", items: ["🍎", "🍏", "🍐", "🍊", "🍋", "🍌", "🍉", "🍇", "🍓", "🍑", "🍒", "🥭", "🍍", "🥥", "🥝", "🍅", "🫐", "🥬", "🥦", "🥒", "🥕", "🌽", "🫑", "🌶️", "🧄", "🧅", "🥔", "🍠", "🥗", "🫘", "🫛", "🍞", "🥐", "🥖", "🥨", "🥯", "🧀", "🥚", "🍳", "🥓", "🥩", "🍗", "🍖", "🌭", "🍔", "🍟", "🍕", "🥪", "🥙", "🌮", "🌯", "🍝", "🍜", "🍲", "🍛", "🍚", "🍙", "🍘", "🍡", "🥟", "🥠", "🥡", "🍦", "🍧", "🍨", "🍩", "🍪", "🎂", "🍰", "🧁", "🥧", "🍫", "🍬", "🍭", "🍮", "🍯", "🥤", "🧋", "🍵", "☕", "🫖", "🍺", "🍻", "🥂", "🍷", "🍸", "🍹", "🥃", "🧃", "🥛", "🍽️", "🍴", "🥄", "🥢", "🍶", "🏺"] },
+  { group: "旅行与地点", items: ["🗺️", "🗾", "🏔️", "⛰️", "🗻", "🏕️", "🏖️", "🏜️", "🏝️", "🌋", "🏠", "🏡", "🏘️", "🏚️", "🏗️", "🏢", "🏬", "🏦", "🏥", "🏫", "⛪", "🕌", "🛕", "🕍", "⛩️", "🏛️", "🏰", "🗼", "🗽", "💒", "🚗", "🚕", "🚙", "🚐", "🚚", "🚛", "🚌", "🚎", "🚋", "🚞", "🚂", "🚄", "🚆", "🚇", "🚈", "🚲", "🛵", "🏍️", "🦽", "🛴", "🚢", "⛴️", "🚤", "🛶", "🚀", "✈️", "🛩️", "🚁", "🎈", "🪁", "🕐", "🕑", "🕒", "🕓", "🕔", "🕕", "🕖", "🕗", "🕘", "🕙", "🕚", "🕛", "🕜", "🕝", "🕞", "🕟", "🕠", "🕡", "🕢", "🕣", "🕤", "🕥", "🕦", "🕧", "⏰", "🕰️", "⏱️", "⏲️", "⌛", "⏳", "📅", "📆", "🗓️", "⛵", "🛰", "🛸"] },
+  { group: "活动", items: ["⚽", "🏀", "🏈", "⚾", "🎾", "🏐", "🏉", "🥏", "🎱", "🏓", "🏸", "🏒", "🏑", "🏏", "🪃", "🥅", "⛳", "🎣", "🤿", "🥊", "🥋", "🎽", "🎮", "🕹️", "🎰", "🎲", "♟️", "🧩", "🪀", "🎵", "🎶", "🎼", "🎤", "🎧", "🎷", "🎸", "🎹", "🥁", "🎺", "🎻", "🪗", "🎨", "🖼️", "🎭", "🎬", "🎉", "🎊", "🎁", "🎀", "🏆", "🥇", "🥈", "🥉", "🏅", "🎖️", "🏵️", "🎗️", "🎞", "📽", "🪕", "🎪", "🎫", "🎟", "🎯", "🎳", "⛸", "🧧", "🛍", "🛒", "🪄", "🎆", "🎇", "🧸", "🎄", "🎋", "🏮"] },
+  { group: "物品", items: ["👕", "👖", "👔", "👗", "👘", "🥻", "🧥", "🧣", "🧤", "🧦", "👟", "👠", "👡", "🥿", "👢", "🎩", "🧢", "👒", "🎓", "👑", "💍", "💎", "📿", "👜", "👝", "🎒", "👓", "🕶️", "🥽", "📱", "📲", "☎️", "📞", "📟", "💻", "🖥️", "🖨️", "⌨️", "🖱️", "🖲️", "💽", "💾", "💿", "📀", "📼", "📷", "📸", "📹", "🎥", "📺", "📻", "🎙️", "🔊", "🔉", "🔈", "🔇", "🔋", "🔌", "💡", "🔦", "🪔", "🕯️", "📄", "📃", "📑", "📊", "📈", "📉", "📋", "📌", "📎", "🖇️", "✂️", "🗃️", "🗄️", "🗑️", "✏️", "✒️", "🖊️", "🖋️", "🖌️", "🖍️", "📝", "📓", "📔", "📒", "📕", "📖", "📗", "📘", "📙", "📚", "🔖", "💰", "💴", "💵", "💶", "💷", "💸", "💳", "🧾", "💹", "✉️", "📧", "📨", "📩", "📤", "📥", "📦", "📫", "📬", "🔧", "🔨", "⚒️", "🛠️", "⛏️", "🔩", "🪓", "🧰", "🪑", "🚪", "🛋️", "🛏️", "🧺", "🧻", "🧼", "🧽", "🪣", "🧹", "💊", "💉", "🩹", "🩺", "⚕️", "🧬", "🔬", "⚗️", "🧪", "🧫", "📁", "📂", "🗂", "📍", "🗒", "📇", "📪", "📭", "📮", "🏷", "⚙", "🪛", "🪚", "🧲", "⚓", "🛡", "🔍", "🔎", "🎛", "🎚", "📡", "🔭", "🧱", "🧊", "🧭"] },
+  { group: "符号", items: ["🚦", "🚥", "🛑", "🚧", "⚠️", "🚸", "🛗", "➡️", "⬅️", "⬆️", "⬇️", "↗️", "↘️", "↙️", "↖️", "↕️", "↔️", "🔄", "🔃", "🔙", "🔚", "🔛", "🔜", "🔝", "✝️", "☦️", "☪️", "🕉️", "✡️", "☸️", "♈", "♉", "♊", "♋", "♌", "♍", "♎", "♏", "♐", "♑", "♒", "♓", "🔴", "🟠", "🟡", "🟢", "🔵", "🟣", "⚫", "⚪", "🟤", "🔺", "🔻", "🔸", "🔹", "🔶", "🔷", "◾", "◽", "⬛", "⬜", "▪️", "▫️", "♾️", "✖️", "➕", "➖", "➗", "〰️", "❗", "❓", "❕", "❔", "💯", "✅", "❌", "⭕", "✳️", "✴️", "❇️", "💢", "💬", "💭", "🗨️", "🗯️", "💤", "💈", "🎏", "🎐", "🧿", "♻️", "🔱", "⚜️", "📛", "🔞", "0️⃣", "1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟", "#️⃣", "*️⃣", "ℹ️", "🆗", "🆕", "🆙", "🆒", "🆓", "🆖", "🎦", "📶"] },
+  { group: "旗帜", items: ["🇨🇳", "🇺🇸", "🇯🇵", "🇰🇷", "🇬🇧", "🇫🇷", "🇩🇪", "🇮🇹", "🇪🇸", "🇷🇺", "🇧🇷", "🇮🇳", "🇨🇦", "🇦🇺", "🏳️", "🏴", "🏁", "🚩", "🏳️‍🌈", "🏴‍☠️", "🎌"] },
+  { group: "组件", items: ["🏻", "🏼", "🏽", "🏾", "🏿", "🦰", "🦱", "🦲", "🦳"] },
 ];
 
 /**
  * 默认 emoji 的中英文名称(key 为去掉 U+FE0F 变体选择符后的基础字符,seed 时按此归一化匹配)
  */
 export const EMOJI_NAMES = {
-  // 常用
-  '😀': '露齿笑 / Grinning Face', '😁': '龇牙笑 / Beaming Face with Smiling Eyes', '😂': '笑哭 / Face with Tears of Joy',
-  '🤣': '笑到打滚 / Rolling on the Floor Laughing', '😊': '微笑 / Smiling Face with Smiling Eyes', '😍': '爱心眼 / Smiling Face with Heart-Eyes',
-  '🥰': '爱慕 / Smiling Face with Hearts', '😎': '戴墨镜 / Smiling Face with Sunglasses', '🤔': '思考 / Thinking Face',
-  '😴': '睡觉 / Sleeping Face', '🥳': '庆祝 / Partying Face', '😅': '尴尬汗笑 / Grinning Face with Sweat',
-  '😇': '天使 / Smiling Face with Halo', '🙃': '倒脸 / Upside-Down Face', '😉': '眨眼 / Winking Face',
-  '😋': '美味 / Face Savoring Food', '🤭': '捂嘴 / Face with Hand over Mouth', '🥲': '含泪微笑 / Smiling Face with Tear',
-  '😢': '哭泣 / Crying Face', '😭': '嚎啕大哭 / Loudly Crying Face', '😤': '冒气 / Face with Steam from Nose',
-  '😡': '生气 / Pouting Face', '🤯': '爆炸头 / Exploding Head', '🥵': '热 / Hot Face',
-  '🤠': '牛仔 / Cowboy Hat Face', '🤡': '小丑 / Clown Face', '👻': '幽灵 / Ghost',
-  '💀': '骷髅 / Skull', '🤖': '机器人 / Robot', '🎃': '南瓜灯 / Jack-o-Lantern',
-  '👋': '挥手 / Waving Hand', '✋': '手掌 / Raised Hand', '👌': 'OK 手势 / OK Hand',
-  '✌': '胜利 / Victory Hand', '🤞': '交叉手指 / Crossed Fingers', '👍': '赞 / Thumbs Up',
-  '👎': '踩 / Thumbs Down', '👏': '鼓掌 / Clapping Hands', '🙏': '双手合十 / Folded Hands',
-  '💪': '肌肉 / Flexed Biceps', '🤝': '握手 / Handshake', '✊': '拳头 / Raised Fist',
-  '👊': '出拳 / Oncoming Fist', '🔥': '火 / Fire', '⭐': '星星 / Star',
-  '⚡': '闪电 / High Voltage', '💯': '一百分 / Hundred Points', '✅': '对勾 / Check Mark Button',
-  '❌': '叉号 / Cross Mark', '❤': '红心 / Red Heart', '🧡': '橙心 / Orange Heart',
-  '💛': '黄心 / Yellow Heart', '💚': '绿心 / Green Heart', '💙': '蓝心 / Blue Heart',
-  '💜': '紫心 / Purple Heart', '🖤': '黑心 / Black Heart', '🤍': '白心 / White Heart',
-  '✨': '闪耀 / Sparkles', '🎉': '彩带 / Party Popper', '🎊': '庆祝球 / Confetti Ball',
-  '🎁': '礼物 / Wrapped Gift', '🎈': '气球 / Balloon',
-  // 目录与文件
-  '📁': '文件夹 / File Folder', '📂': '打开文件夹 / Open File Folder', '🗂': '卡片索引 / Card Index Dividers',
-  '📚': '书 / Books', '📖': '打开的书 / Open Book', '📕': '红皮书 / Closed Book',
-  '📗': '绿皮书 / Green Book', '📘': '蓝皮书 / Blue Book', '📙': '橙皮书 / Orange Book',
-  '📔': '笔记本 / Notebook with Decorative Cover', '📒': '账本 / Ledger', '📃': '卷曲文档 / Page with Curl',
-  '📄': '文档 / Page Facing Up', '📑': '书签标签 / Bookmark Tabs', '📋': '剪贴板 / Clipboard',
-  '📝': '备忘录 / Memo', '✏': '铅笔 / Pencil', '📌': '图钉 / Pushpin',
-  '📍': '定位图钉 / Round Pushpin', '🗒': '便签本 / Spiral Notepad', '🗓': '螺旋日历 / Spiral Calendar',
-  '📅': '日历 / Calendar', '📇': '名片索引 / Card Index', '🗃': '卡片盒 / Card File Box',
-  '🗄': '文件柜 / File Cabinet', '📦': '包裹 / Package', '📤': '发件箱 / Outbox Tray',
-  '📥': '收件箱 / Inbox Tray', '📨': '收信 / Incoming Envelope', '📩': '送信 / Envelope with Arrow',
-  '📪': '关闭邮箱 / Closed Mailbox with Lowered Flag', '📫': '开启邮箱 / Closed Mailbox with Raised Flag', '📬': '新邮件 / Open Mailbox with Raised Flag',
-  '📭': '空邮箱 / Open Mailbox with Lowered Flag', '📮': '邮筒 / Postbox', '📎': '回形针 / Paperclip',
-  '🖇': '双回形针 / Linked Paperclips', '🔖': '书签 / Bookmark', '🏷': '标签 / Label',
-  // 应用与工具
-  '🧰': '工具箱 / Toolbox', '🛠': '锤子扳手 / Hammer and Wrench', '🔧': '扳手 / Wrench',
-  '⚙': '齿轮 / Gear', '🔩': '螺母螺栓 / Nut and Bolt', '⚒': '锤镐 / Hammer and Pick',
-  '🪛': '螺丝刀 / Screwdriver', '🔨': '锤子 / Hammer', '🪚': '手锯 / Saw',
-  '🧲': '磁铁 / Magnet', '⚓': '锚 / Anchor', '🛡': '盾牌 / Shield',
-  '🔦': '手电筒 / Flashlight', '💡': '灯泡 / Light Bulb', '🔋': '电池 / Battery',
-  '🔌': '插头 / Electric Plug', '💎': '宝石 / Gem Stone', '🔍': '放大镜 / Magnifying Glass Tilted Left',
-  '🔎': '放大镜 / Magnifying Glass Tilted Right', '👁': '眼睛 / Eye', '🖥': '台式电脑 / Desktop Computer',
-  '💻': '笔记本电脑 / Laptop Computer', '⌨': '键盘 / Keyboard', '🖱': '鼠标 / Computer Mouse',
-  '🖨': '打印机 / Printer', '📷': '相机 / Camera', '📸': '闪光相机 / Camera with Flash',
-  '📹': '摄像机 / Video Camera', '🎥': '电影摄像机 / Movie Camera', '🖼': '相框 / Framed Picture',
-  '🎨': '调色板 / Artist Palette', '🖌': '画笔 / Paintbrush', '🖍': '蜡笔 / Crayon',
-  '🎛': '控制台 / Control Knobs', '🎚': '音量滑块 / Level Slider', '🎙': '录音麦克风 / Studio Microphone',
-  '📻': '收音机 / Radio', '📡': '天线 / Satellite Antenna', '☎': '电话 / Telephone',
-  '📟': '寻呼机 / Pager', '🔭': '望远镜 / Telescope', '🧪': '试管 / Test Tube',
-  '🧬': 'DNA / DNA', '🧫': '培养皿 / Petri Dish', '💊': '药丸 / Pill',
-  '💉': '注射器 / Syringe', '🩺': '听诊器 / Stethoscope', '🦠': '微生物 / Microbe',
-  '🧱': '砖块 / Brick', '🪨': '岩石 / Rock', '🪵': '木头 / Wood',
-  '🧊': '冰块 / Ice', '⚗': '蒸馏器 / Alembic', '🔬': '显微镜 / Microscope',
-  '🗺': '世界地图 / World Map', '🧭': '指南针 / Compass', '🚀': '火箭 / Rocket',
-  '🛸': '飞碟 / Flying Saucer', '✈': '飞机 / Airplane', '🚁': '直升机 / Helicopter',
-  '🚂': '火车头 / Locomotive', '🚗': '汽车 / Automobile', '🚌': '巴士 / Bus',
-  '⛵': '帆船 / Sailboat', '🚢': '轮船 / Ship', '🪂': '降落伞 / Parachute',
-  '🏗': '建筑吊车 / Building Construction', '🛰': '卫星 / Satellite', '🌐': '地球 / Globe with Meridians',
-  '🕸': '蜘蛛网 / Spider Web', '🧩': '拼图 / Puzzle Piece',
-  // 媒体与音乐
-  '🎬': '场记板 / Clapper Board', '🎞': '胶片 / Film Frames', '🎦': '影院 / Cinema',
-  '📺': '电视 / Television', '📽': '放映机 / Film Projector', '🎧': '耳机 / Headphone',
-  '🎵': '音符 / Musical Note', '🎶': '音符 / Musical Notes', '🎼': '乐谱 / Musical Score',
-  '🎹': '钢琴 / Musical Keyboard', '🥁': '鼓 / Drum', '🎷': '萨克斯 / Saxophone',
-  '🎺': '小号 / Trumpet', '🎸': '吉他 / Guitar', '🪕': '班卓琴 / Banjo',
-  '🎻': '小提琴 / Violin', '🎤': '麦克风 / Microphone', '🎭': '戏剧面具 / Performing Arts',
-  '🎪': '马戏团 / Circus Tent', '🎫': '门票 / Admission Tickets', '🎟': '票根 / Admission Tickets',
-  '📼': '录像带 / Videocassette',
-  // 游戏与生活
-  '🎮': '游戏手柄 / Video Game', '🕹': '街机摇杆 / Joystick', '🎯': '靶心 / Direct Hit',
-  '🎲': '骰子 / Game Die', '♟': '棋子 / Chess Pawn', '🎳': '保龄球 / Bowling',
-  '🎰': '老虎机 / Slot Machine', '⚽': '足球 / Soccer Ball', '🏀': '篮球 / Basketball',
-  '🏈': '橄榄球 / American Football', '⚾': '棒球 / Baseball', '🎾': '网球 / Tennis',
-  '🏐': '排球 / Volleyball', '🎱': '台球 / Pool 8 Ball', '🏓': '乒乓球 / Ping Pong',
-  '🏸': '羽毛球 / Badminton', '🥊': '拳击手套 / Boxing Glove', '🥋': '武术服 / Martial Arts Uniform',
-  '⛳': '高尔夫 / Flag in Hole', '🎣': '钓鱼 / Fishing Pole', '🎿': '滑雪 / Skis',
-  '⛸': '溜冰鞋 / Ice Skate', '🥇': '金牌 / 1st Place Medal', '🥈': '银牌 / 2nd Place Medal',
-  '🥉': '铜牌 / 3rd Place Medal', '🏆': '奖杯 / Trophy', '🏅': '奖牌 / Sports Medal',
-  '🎗': '纪念带 / Reminder Ribbon', '🎖': '军功章 / Military Medal', '💰': '钱袋 / Money Bag',
-  '💳': '信用卡 / Credit Card', '💵': '美钞 / Dollar Banknote', '🧧': '红包 / Red Envelope',
-  '🛍': '购物袋 / Shopping Bags', '🛒': '购物车 / Shopping Cart', '🎀': '蝴蝶结 / Ribbon',
-  '🪄': '魔法棒 / Magic Wand', '🎆': '烟花 / Fireworks', '🎇': '烟花棒 / Sparkler',
-  '🧸': '泰迪熊 / Teddy Bear', '🪀': '悠悠球 / Yo-Yo', '🪁': '风筝 / Kite',
-  '🎄': '圣诞树 / Christmas Tree', '🎋': '竹子 / Tanabata Tree', '🎐': '风铃 / Wind Chime',
-  '🏮': '灯笼 / Red Paper Lantern', '🕯': '蜡烛 / Candle',
+  "😀": "咧嘴笑脸 / Grinning Face",
+  "😃": "大眼咧嘴笑脸 / Grinning Face with Big Eyes",
+  "😄": "笑眼咧嘴笑脸 / Grinning Face with Smiling Eyes",
+  "😁": "喜笑颜开脸 / Beaming Face with Smiling Eyes",
+  "😆": "眯眼笑 / Grinning Squinting Face",
+  "😅": "苦笑冒汗 / Grinning Face with Sweat",
+  "🤣": "笑到打滚 / Rolling on the Floor Laughing",
+  "😂": "笑哭 / Face with Tears of Joy",
+  "🙂": "微笑脸 / Slightly Smiling Face",
+  "🙃": "倒脸 / Upside-Down Face",
+  "😉": "眨眼脸 / Winking Face",
+  "😊": "笑眼微笑 / Smiling Face with Smiling Eyes",
+  "😇": "天使微笑 / Smiling Face with Halo",
+  "🥰": "爱心微笑 / Smiling Face with Hearts",
+  "😍": "爱心眼 / Smiling Face with Heart-Eyes",
+  "🤩": "星星眼 / Star-Struck",
+  "😘": "飞吻 / Face Blowing a Kiss",
+  "😗": "亲亲脸 / Kissing Face",
+  "😚": "闭眼亲亲 / Kissing Face with Closed Eyes",
+  "😙": "笑眼亲亲 / Kissing Face with Smiling Eyes",
+  "🥲": "含泪微笑 / Smiling Face with Tear",
+  "😋": "馋嘴脸 / Face Savoring Food",
+  "😛": "吐舌脸 / Face with Tongue",
+  "😜": "眨眼吐舌 / Winking Face with Tongue",
+  "🤪": "滑稽脸 / Zany Face",
+  "😝": "眯眼吐舌 / Squinting Face with Tongue",
+  "🤑": "发财脸 / Money-Mouth Face",
+  "🤗": "拥抱脸 / Hugging Face",
+  "🤭": "捂嘴笑 / Face with Hand Over Mouth",
+  "🤫": "嘘声脸 / Shushing Face",
+  "🤔": "思考脸 / Thinking Face",
+  "🤐": "拉链嘴 / Zipper-Mouth Face",
+  "🤨": "挑眉脸 / Face with Raised Eyebrow",
+  "😐": "面无表情 / Neutral Face",
+  "😑": "无语脸 / Expressionless Face",
+  "😶": "无嘴脸 / Face Without Mouth",
+  "😏": "得意笑 / Smirking Face",
+  "😒": "不爽脸 / Unamused Face",
+  "🙄": "翻白眼 / Face with Rolling Eyes",
+  "😬": "龇牙脸 / Grimacing Face",
+  "🤥": "说谎脸 / Lying Face",
+  "😌": "松口气 / Relieved Face",
+  "😔": "沉思脸 / Pensive Face",
+  "😪": "困脸 / Sleepy Face",
+  "🤤": "流口水 / Drooling Face",
+  "😴": "睡觉脸 / Sleeping Face",
+  "😷": "口罩脸 / Face with Medical Mask",
+  "🤒": "发烧脸 / Face with Thermometer",
+  "🤕": "受伤脸 / Face with Head-Bandage",
+  "🤢": "恶心脸 / Nauseated Face",
+  "🤮": "呕吐脸 / Face Vomiting",
+  "🤧": "打喷嚏 / Sneezing Face",
+  "🥵": "热脸 / Hot Face",
+  "🥶": "冷脸 / Cold Face",
+  "🥴": "醉脸 / Woozy Face",
+  "😵": "晕脸 / Knocked-Out Face",
+  "🤯": "爆炸头 / Exploding Head",
+  "🤠": "牛仔帽脸 / Cowboy Hat Face",
+  "🥳": "派对脸 / Partying Face",
+  "🥸": "伪装脸 / Disguised Face",
+  "😎": "墨镜脸 / Smiling Face with Sunglasses",
+  "🤓": "书呆子脸 / Nerd Face",
+  "🧐": "单片眼镜 / Face with Monocle",
+  "😕": "困惑脸 / Confused Face",
+  "😟": "担忧脸 / Worried Face",
+  "🙁": "微皱眉 / Slightly Frowning Face",
+  "☹️": "皱眉脸 / Frowning Face",
+  "😮": "张嘴惊讶 / Face with Open Mouth",
+  "😯": "缄默惊讶 / Hushed Face",
+  "😲": "震惊脸 / Astonished Face",
+  "😳": "脸红脸 / Flushed Face",
+  "😨": "害怕脸 / Fearful Face",
+  "😰": "冷汗焦虑 / Anxious Face with Sweat",
+  "😥": "失望释然 / Sad but Relieved Face",
+  "😢": "哭泣脸 / Crying Face",
+  "😭": "嚎啕大哭 / Loudly Crying Face",
+  "😱": "尖叫恐惧 / Face Screaming in Fear",
+  "😠": "生气脸 / Angry Face",
+  "😡": "暴怒脸 / Pouting Face",
+  "🤬": "咒骂脸 / Face with Symbols on Mouth",
+  "🤡": "小丑脸 / Clown Face",
+  "👹": "食人魔 / Ogre",
+  "👺": "天狗 / Goblin",
+  "👻": "幽灵 / Ghost",
+  "💀": "骷髅 / Skull",
+  "☠️": "骷髅交叉骨 / Skull and Crossbones",
+  "🎃": "南瓜灯 / Jack-O-Lantern",
+  "😺": "笑猫脸 / Grinning Cat",
+  "😸": "笑眼猫 / Grinning Cat with Smiling Eyes",
+  "😻": "爱心眼猫 / Smiling Cat with Heart-Eyes",
+  "🙈": "非礼勿视 / See-No-Evil Monkey",
+  "🙉": "非礼勿听 / Hear-No-Evil Monkey",
+  "🙊": "非礼勿言 / Speak-No-Evil Monkey",
+  "❤️": "红心 / Red Heart",
+  "🧡": "橙心 / Orange Heart",
+  "💛": "黄心 / Yellow Heart",
+  "💚": "绿心 / Green Heart",
+  "💙": "蓝心 / Blue Heart",
+  "💜": "紫心 / Purple Heart",
+  "🖤": "黑心 / Black Heart",
+  "🤍": "白心 / White Heart",
+  "💔": "心碎 / Broken Heart",
+  "❤️‍🔥": "烈火之心 / Heart on Fire",
+  "❤️‍🩹": "修复之心 / Mending Heart",
+  "💕": "两颗心 / Two Hearts",
+  "💞": "旋转爱心 / Revolving Hearts",
+  "💓": "跳动的心 / Beating Heart",
+  "💗": "成长的心 / Growing Heart",
+  "💖": "闪亮爱心 / Sparkling Heart",
+  "💘": "丘比特之心 / Heart with Arrow",
+  "💝": "礼物爱心 / Heart with Ribbon",
+  "💋": "唇印 / Kiss Mark",
+  "💌": "情书 / Love Letter",
+  "💐": "花束 / Bouquet",
+  "👋": "挥手 / Waving Hand",
+  "🤚": "抬手 / Raised Back of Hand",
+  "✋": "手掌 / Raised Hand",
+  "🖐️": "五指张开 / Hand with Fingers Splayed",
+  "🖖": "瓦肯举手礼 / Vulcan Salute",
+  "👌": "OK手势 / OK Hand",
+  "🤌": "捏手指 / Pinched Fingers",
+  "🤏": "捏一捏 / Pinching Hand",
+  "✌️": "胜利手势 / Victory Hand",
+  "🤞": "交叉手指 / Crossed Fingers",
+  "🤟": "我爱你手势 / Love-You Gesture",
+  "🤘": "摇滚手势 / Sign of the Horns",
+  "👈": "左指 / Backhand Index Pointing Left",
+  "👉": "右指 / Backhand Index Pointing Right",
+  "👆": "上指 / Backhand Index Pointing Up",
+  "👇": "下指 / Backhand Index Pointing Down",
+  "☝️": "食指向上 / Index Pointing Up",
+  "👍": "点赞 / Thumbs Up",
+  "👎": "踩 / Thumbs Down",
+  "✊": "拳头 / Raised Fist",
+  "👊": "出拳 / Oncoming Fist",
+  "🤛": "左拳 / Left-Facing Fist",
+  "🤜": "右拳 / Right-Facing Fist",
+  "👏": "鼓掌 / Clapping Hands",
+  "👐": "张开双手 / Open Hands",
+  "🤲": "掌心向上 / Palms Up Together",
+  "🙏": "双手合十 / Folded Hands",
+  "💅": "涂指甲 / Nail Polish",
+  "💪": "肌肉 / Flexed Biceps",
+  "🦾": "机械臂 / Mechanical Arm",
+  "👮": "警察 / Police Officer",
+  "🕵️": "侦探 / Detective",
+  "💂": "卫兵 / Guard",
+  "👷": "建筑工人 / Construction Worker",
+  "🧑‍🌾": "农民 / Farmer",
+  "👨‍🍳": "厨师 / Cook",
+  "👩‍🔬": "科学家 / Scientist",
+  "🧑‍💻": "程序员 / Technologist",
+  "👨‍🎤": "歌手 / Singer",
+  "👩‍🎨": "艺术家 / Artist",
+  "🧑‍✈️": "飞行员 / Pilot",
+  "👨‍🚀": "宇航员 / Astronaut",
+  "👩‍⚕️": "医生 / Health Worker",
+  "🧑‍🏫": "教师 / Teacher",
+  "👨‍⚖️": "法官 / Judge",
+  "🤴": "王子 / Prince",
+  "👸": "公主 / Princess",
+  "🤵": "穿礼服的人 / Person in Tuxedo",
+  "👰": "披头纱的人 / Person with Veil",
+  "🥷": "忍者 / Ninja",
+  "🧙": "法师 / Mage",
+  "🧝": "精灵 / Elf",
+  "🧛": "吸血鬼 / Vampire",
+  "🧟": "僵尸 / Zombie",
+  "🧞": "精灵 / Genie",
+  "🏃": "跑步者 / Person Running",
+  "🚶": "行人 / Person Walking",
+  "🧎": "跪姿 / Person Kneeling",
+  "🧍": "站立者 / Person Standing",
+  "🙆": "举手OK / Person Gesturing OK",
+  "🙅": "拒绝手势 / Person Gesturing No",
+  "💁": "咨询台 / Person Tipping Hand",
+  "🙋": "举手 / Person Raising Hand",
+  "🤷": "耸肩 / Person Shrugging",
+  "🤦": "捂脸 / Person Facepalming",
+  "🤸": "侧手翻 / Person Cartwheeling",
+  "⛹️": "打篮球 / Person Bouncing Ball",
+  "🏋️": "举重 / Person Lifting Weights",
+  "🤼": "摔跤 / Wrestlers",
+  "🏌️": "打高尔夫 / Person Golfing",
+  "🎿": "滑雪 / Skier",
+  "🏂": "单板滑雪 / Snowboarder",
+  "🏊": "游泳 / Swimmer",
+  "🏄": "冲浪 / Person Surfing",
+  "🚣": "划船 / Person Rowing Boat",
+  "🚴": "骑自行车 / Person Biking",
+  "🛹": "滑板 / Skateboarder",
+  "🪂": "跳伞 / Parachute",
+  "💃": "跳舞女人 / Woman Dancing",
+  "🕺": "跳舞男人 / Man Dancing",
+  "🕴️": "悬浮西装 / Man in Suit Levitating",
+  "👨‍👩‍👧": "一家三口 / Family: Man, Woman, Girl",
+  "👨‍👩‍👧‍👦": "一家四口 / Family: Man, Woman, Girl, Boy",
+  "👩‍👩‍👧": "女同家庭 / Family: Woman, Woman, Girl",
+  "👨‍👨‍👦": "男同家庭 / Family: Man, Man, Boy",
+  "👫": "男女牵手 / Woman and Man Holding Hands",
+  "👭": "女女牵手 / Two Women Holding Hands",
+  "👬": "男男牵手 / Two Men Holding Hands",
+  "💏": "亲吻 / Kiss",
+  "💑": "情侣 / Couple with Heart",
+  "👀": "双眼 / Eyes",
+  "👁️": "单眼 / Eye",
+  "👃": "鼻子 / Nose",
+  "👄": "嘴 / Mouth",
+  "👅": "舌头 / Tongue",
+  "🦷": "牙齿 / Tooth",
+  "🦴": "骨头 / Bone",
+  "👂": "耳朵 / Ear",
+  "🦻": "助听器 / Ear with Hearing Aid",
+  "🦶": "脚 / Foot",
+  "🦵": "腿 / Leg",
+  "🦿": "机械腿 / Mechanical Leg",
+  "🫀": "心脏 / Anatomical Heart",
+  "🫁": "肺 / Lungs",
+  "🧠": "大脑 / Brain",
+  "🩸": "血滴 / Drop of Blood",
+  "🐶": "狗脸 / Dog Face",
+  "🐕": "狗 / Dog",
+  "🐩": "贵宾犬 / Poodle",
+  "🐺": "狼 / Wolf",
+  "🦊": "狐狸 / Fox",
+  "🐱": "猫脸 / Cat Face",
+  "🐈": "猫 / Cat",
+  "🦁": "狮子 / Lion",
+  "🐯": "老虎脸 / Tiger Face",
+  "🐅": "老虎 / Tiger",
+  "🐆": "豹子 / Leopard",
+  "🐴": "马头 / Horse Face",
+  "🐎": "马 / Horse",
+  "🦄": "独角兽 / Unicorn",
+  "🦓": "斑马 / Zebra",
+  "🦌": "鹿 / Deer",
+  "🐮": "牛脸 / Cow Face",
+  "🐂": "公牛 / Ox",
+  "🐃": "水牛 / Water Buffalo",
+  "🐷": "猪脸 / Pig Face",
+  "🐖": "猪 / Pig",
+  "🐗": "野猪 / Boar",
+  "🐑": "绵羊 / Ewe",
+  "🐐": "山羊 / Goat",
+  "🐪": "单峰驼 / Camel",
+  "🐫": "双峰驼 / Two-Hump Camel",
+  "🦙": "羊驼 / Llama",
+  "🦒": "长颈鹿 / Giraffe",
+  "🐘": "大象 / Elephant",
+  "🦣": "猛犸象 / Mammoth",
+  "🦏": "犀牛 / Rhinoceros",
+  "🦛": "河马 / Hippopotamus",
+  "🐭": "老鼠脸 / Mouse Face",
+  "🐁": "老鼠 / Mouse",
+  "🐀": "大鼠 / Rat",
+  "🐹": "仓鼠 / Hamster",
+  "🐰": "兔子脸 / Rabbit Face",
+  "🐇": "兔子 / Rabbit",
+  "🦔": "刺猬 / Hedgehog",
+  "🦨": "臭鼬 / Skunk",
+  "🦡": "獾 / Badger",
+  "🐨": "考拉 / Koala",
+  "🐼": "熊猫 / Panda",
+  "🦥": "树懒 / Sloth",
+  "🦦": "水獭 / Otter",
+  "🦝": "浣熊 / Raccoon",
+  "🐻": "熊 / Bear",
+  "🐻‍❄️": "北极熊 / Polar Bear",
+  "🐔": "鸡 / Chicken",
+  "🐓": "公鸡 / Rooster",
+  "🐣": "破壳小鸡 / Hatching Chick",
+  "🐤": "小鸡 / Baby Chick",
+  "🦆": "鸭子 / Duck",
+  "🦢": "天鹅 / Swan",
+  "🦅": "鹰 / Eagle",
+  "🦉": "猫头鹰 / Owl",
+  "🦩": "火烈鸟 / Flamingo",
+  "🦚": "孔雀 / Peacock",
+  "🦜": "鹦鹉 / Parrot",
+  "🐦": "鸟 / Bird",
+  "🐧": "企鹅 / Penguin",
+  "🕊️": "鸽子 / Dove",
+  "🐸": "青蛙 / Frog",
+  "🐊": "鳄鱼 / Crocodile",
+  "🐢": "乌龟 / Turtle",
+  "🦎": "蜥蜴 / Lizard",
+  "🐍": "蛇 / Snake",
+  "🐉": "龙 / Dragon",
+  "🐲": "龙头 / Dragon Face",
+  "🦕": "长颈龙 / Sauropod",
+  "🦖": "霸王龙 / T-Rex",
+  "🐳": "喷水鲸 / Spouting Whale",
+  "🐋": "鲸鱼 / Whale",
+  "🐬": "海豚 / Dolphin",
+  "🦭": "海豹 / Seal",
+  "🐟": "鱼 / Fish",
+  "🐠": "热带鱼 / Tropical Fish",
+  "🐡": "河豚 / Blowfish",
+  "🦈": "鲨鱼 / Shark",
+  "🐙": "章鱼 / Octopus",
+  "🦀": "螃蟹 / Crab",
+  "🦞": "龙虾 / Lobster",
+  "🦐": "虾 / Shrimp",
+  "🦑": "鱿鱼 / Squid",
+  "🐚": "贝壳 / Spiral Shell",
+  "🪸": "珊瑚 / Coral",
+  "🐌": "蜗牛 / Snail",
+  "🦋": "蝴蝶 / Butterfly",
+  "🐛": "毛毛虫 / Caterpillar",
+  "🐜": "蚂蚁 / Ant",
+  "🐝": "蜜蜂 / Honeybee",
+  "🐞": "瓢虫 / Lady Beetle",
+  "🕷️": "蜘蛛 / Spider",
+  "🕸️": "蜘蛛网 / Spider Web",
+  "🦂": "蝎子 / Scorpion",
+  "🦟": "蚊子 / Mosquito",
+  "🪰": "苍蝇 / Fly",
+  "🪱": "蠕虫 / Worm",
+  "🦠": "微生物 / Microbe",
+  "💮": "白花 / White Flower",
+  "🌸": "樱花 / Cherry Blossom",
+  "🌹": "玫瑰 / Rose",
+  "🥀": "枯萎的花 / Wilted Flower",
+  "🌺": "扶桑花 / Hibiscus",
+  "🌻": "向日葵 / Sunflower",
+  "🌼": "雏菊 / Blossom",
+  "🌷": "郁金香 / Tulip",
+  "🌱": "幼苗 / Seedling",
+  "🌿": "香草 / Herb",
+  "☘️": "三叶草 / Shamrock",
+  "🍀": "四叶草 / Four Leaf Clover",
+  "🍁": "枫叶 / Maple Leaf",
+  "🍂": "落叶 / Fallen Leaf",
+  "🍃": "飘叶 / Leaf Fluttering in Wind",
+  "🌵": "仙人掌 / Cactus",
+  "🌴": "棕榈树 / Palm Tree",
+  "🌲": "松树 / Evergreen Tree",
+  "🌳": "落叶树 / Deciduous Tree",
+  "🌰": "栗子 / Chestnut",
+  "🪨": "岩石 / Rock",
+  "🪵": "木头 / Wood",
+  "☀️": "太阳 / Sun",
+  "🌤️": "晴转多云 / Sun Behind Small Cloud",
+  "⛅": "多云转晴 / Sun Behind Cloud",
+  "🌥️": "多云 / Sun Behind Large Cloud",
+  "☁️": "云 / Cloud",
+  "🌦️": "晴转雨 / Sun Behind Rain Cloud",
+  "🌧️": "下雨 / Cloud with Rain",
+  "⛈️": "雷暴 / Cloud with Lightning and Rain",
+  "🌩️": "打雷 / Cloud with Lightning",
+  "🌨️": "下雪 / Cloud with Snow",
+  "❄️": "雪花 / Snowflake",
+  "☃️": "雪人 / Snowman",
+  "⛄": "无帽雪人 / Snowman Without Snow",
+  "🌬️": "大风 / Wind Face",
+  "💨": "尾气 / Dashing Away",
+  "🌪️": "龙卷风 / Tornado",
+  "🌫️": "雾 / Fog",
+  "🌈": "彩虹 / Rainbow",
+  "🌊": "浪花 / Water Wave",
+  "💧": "水滴 / Droplet",
+  "💦": "汗滴 / Sweat Droplets",
+  "⚡": "闪电 / High Voltage",
+  "🔥": "火焰 / Fire",
+  "💫": "眩晕 / Dizzy",
+  "✨": "闪烁 / Sparkles",
+  "⭐": "星星 / Star",
+  "🌟": "闪亮星星 / Glowing Star",
+  "🌙": "弯月 / Crescent Moon",
+  "🌝": "笑满月 / Full Moon Face",
+  "🌞": "笑太阳 / Sun with Face",
+  "🌍": "地球欧洲非洲 / Globe Showing Europe-Africa",
+  "🌎": "地球美洲 / Globe Showing Americas",
+  "🌏": "地球亚洲澳洲 / Globe Showing Asia-Australia",
+  "🌐": "经纬地球 / Globe with Meridians",
+  "🍎": "红苹果 / Red Apple",
+  "🍏": "青苹果 / Green Apple",
+  "🍐": "梨 / Pear",
+  "🍊": "橘子 / Tangerine",
+  "🍋": "柠檬 / Lemon",
+  "🍌": "香蕉 / Banana",
+  "🍉": "西瓜 / Watermelon",
+  "🍇": "葡萄 / Grapes",
+  "🍓": "草莓 / Strawberry",
+  "🍑": "桃子 / Peach",
+  "🍒": "樱桃 / Cherries",
+  "🥭": "芒果 / Mango",
+  "🍍": "菠萝 / Pineapple",
+  "🥥": "椰子 / Coconut",
+  "🥝": "猕猴桃 / Kiwi Fruit",
+  "🍅": "番茄 / Tomato",
+  "🫐": "蓝莓 / Blueberries",
+  "🥬": "绿叶菜 / Leafy Green",
+  "🥦": "西兰花 / Broccoli",
+  "🥒": "黄瓜 / Cucumber",
+  "🥕": "胡萝卜 / Carrot",
+  "🌽": "玉米 / Ear of Corn",
+  "🫑": "甜椒 / Bell Pepper",
+  "🌶️": "辣椒 / Hot Pepper",
+  "🧄": "大蒜 / Garlic",
+  "🧅": "洋葱 / Onion",
+  "🥔": "土豆 / Potato",
+  "🍠": "红薯 / Roasted Sweet Potato",
+  "🥗": "沙拉 / Green Salad",
+  "🫘": "豆子 / Beans",
+  "🫛": "豌豆 / Pea Pod",
+  "🍞": "面包 / Bread",
+  "🥐": "可颂 / Croissant",
+  "🥖": "法棍 / Baguette Bread",
+  "🥨": "椒盐卷饼 / Pretzel",
+  "🥯": "贝果 / Bagel",
+  "🧀": "奶酪 / Cheese Wedge",
+  "🥚": "鸡蛋 / Egg",
+  "🍳": "煎蛋 / Cooking",
+  "🥓": "培根 / Bacon",
+  "🥩": "牛排 / Cut of Meat",
+  "🍗": "鸡腿 / Poultry Leg",
+  "🍖": "排骨 / Meat on Bone",
+  "🌭": "热狗 / Hot Dog",
+  "🍔": "汉堡 / Hamburger",
+  "🍟": "薯条 / French Fries",
+  "🍕": "披萨 / Pizza",
+  "🥪": "三明治 / Sandwich",
+  "🥙": "皮塔饼 / Stuffed Flatbread",
+  "🌮": "墨西哥卷 / Taco",
+  "🌯": "墨西哥卷饼 / Burrito",
+  "🍝": "意面 / Spaghetti",
+  "🍜": "拉面 / Steaming Bowl",
+  "🍲": "炖菜 / Pot of Food",
+  "🍛": "咖喱饭 / Curry Rice",
+  "🍚": "米饭 / Cooked Rice",
+  "🍙": "饭团 / Rice Ball",
+  "🍘": "米饼 / Rice Cracker",
+  "🍡": "团子 / Dango",
+  "🥟": "饺子 / Dumpling",
+  "🥠": "幸运饼干 / Fortune Cookie",
+  "🥡": "外卖盒 / Takeout Box",
+  "🍦": "甜筒 / Soft Ice Cream",
+  "🍧": "刨冰 / Shaved Ice",
+  "🍨": "冰淇淋 / Ice Cream",
+  "🍩": "甜甜圈 / Doughnut",
+  "🍪": "曲奇 / Cookie",
+  "🎂": "生日蛋糕 / Birthday Cake",
+  "🍰": "蛋糕片 / Shortcake",
+  "🧁": "纸杯蛋糕 / Cupcake",
+  "🥧": "派 / Pie",
+  "🍫": "巧克力 / Chocolate Bar",
+  "🍬": "糖果 / Candy",
+  "🍭": "棒棒糖 / Lollipop",
+  "🍮": "布丁 / Custard",
+  "🍯": "蜂蜜 / Honey Pot",
+  "🥤": "带吸管杯 / Cup with Straw",
+  "🧋": "珍珠奶茶 / Bubble Tea",
+  "🍵": "热茶 / Teacup Without Handle",
+  "☕": "咖啡 / Hot Beverage",
+  "🫖": "茶壶 / Teapot",
+  "🍺": "啤酒 / Beer Mug",
+  "🍻": "碰杯 / Clinking Beer Mugs",
+  "🥂": "香槟碰杯 / Clinking Glasses",
+  "🍷": "红酒 / Wine Glass",
+  "🍸": "鸡尾酒 / Cocktail Glass",
+  "🍹": "热带饮料 / Tropical Drink",
+  "🥃": "威士忌 / Tumbler Glass",
+  "🧃": "果汁盒 / Beverage Box",
+  "🥛": "牛奶 / Glass of Milk",
+  "🍽️": "餐具 / Fork and Knife with Plate",
+  "🍴": "刀叉 / Fork and Knife",
+  "🥄": "勺子 / Spoon",
+  "🥢": "筷子 / Chopsticks",
+  "🍶": "清酒 / Sake",
+  "🏺": "陶罐 / Amphora",
+  "🗺️": "世界地图 / World Map",
+  "🗾": "日本地图 / Map of Japan",
+  "🏔️": "雪山 / Snow-Capped Mountain",
+  "⛰️": "山 / Mountain",
+  "🗻": "富士山 / Mount Fuji",
+  "🏕️": "露营 / Camping",
+  "🏖️": "海滩 / Beach with Umbrella",
+  "🏜️": "沙漠 / Desert",
+  "🏝️": "小岛 / Desert Island",
+  "🌋": "火山 / Volcano",
+  "🏠": "房子 / House",
+  "🏡": "带花园的房子 / House with Garden",
+  "🏘️": "住宅区 / Houses",
+  "🏚️": "废墟 / Derelict House",
+  "🏗️": "施工 / Building Construction",
+  "🏢": "办公楼 / Office Building",
+  "🏬": "百货商店 / Department Store",
+  "🏦": "银行 / Bank",
+  "🏥": "医院 / Hospital",
+  "🏫": "学校 / School",
+  "⛪": "教堂 / Church",
+  "🕌": "清真寺 / Mosque",
+  "🛕": "印度教寺庙 / Hindu Temple",
+  "🕍": "犹太教堂 / Synagogue",
+  "⛩️": "神社 / Shinto Shrine",
+  "🏛️": "古典建筑 / Classical Building",
+  "🏰": "城堡 / Castle",
+  "🗼": "东京塔 / Tokyo Tower",
+  "🗽": "自由女神像 / Statue of Liberty",
+  "💒": "婚礼教堂 / Wedding",
+  "🚗": "汽车 / Car",
+  "🚕": "出租车 / Taxi",
+  "🚙": "越野车 / Sport Utility Vehicle",
+  "🚐": "房车 / Camper",
+  "🚚": "卡车 / Delivery Truck",
+  "🚛": "半挂车 / Articulated Lorry",
+  "🚌": "公交车 / Bus",
+  "🚎": "电车 / Trolleybus",
+  "🚋": "有轨电车 / Tram",
+  "🚞": "登山火车 / Mountain Railway",
+  "🚂": "蒸汽火车 / Locomotive",
+  "🚄": "高铁 / High-Speed Train",
+  "🚆": "火车 / Train",
+  "🚇": "地铁 / Metro",
+  "🚈": "轻轨 / Light Rail",
+  "🚲": "自行车 / Bicycle",
+  "🛵": "踏板车 / Motor Scooter",
+  "🏍️": "摩托车 / Motorcycle",
+  "🦽": "轮椅 / Manual Wheelchair",
+  "🛴": "滑板车 / Kick Scooter",
+  "🚢": "轮船 / Ship",
+  "⛴️": "渡轮 / Ferry",
+  "🚤": "快艇 / Speedboat",
+  "🛶": "独木舟 / Canoe",
+  "🚀": "火箭 / Rocket",
+  "✈️": "飞机 / Airplane",
+  "🛩️": "小飞机 / Small Airplane",
+  "🚁": "直升机 / Helicopter",
+  "🎈": "气球 / Balloon",
+  "🪁": "风筝 / Kite",
+  "🕐": "一点钟 / One O’Clock",
+  "🕑": "两点钟 / Two O’Clock",
+  "🕒": "三点钟 / Three O’Clock",
+  "🕓": "四点钟 / Four O’Clock",
+  "🕔": "五点钟 / Five O’Clock",
+  "🕕": "六点钟 / Six O’Clock",
+  "🕖": "七点钟 / Seven O’Clock",
+  "🕗": "八点钟 / Eight O’Clock",
+  "🕘": "九点钟 / Nine O’Clock",
+  "🕙": "十点钟 / Ten O’Clock",
+  "🕚": "十一点钟 / Eleven O’Clock",
+  "🕛": "十二点钟 / Twelve O’Clock",
+  "🕜": "一点半 / One-Thirty",
+  "🕝": "两点半 / Two-Thirty",
+  "🕞": "三点半 / Three-Thirty",
+  "🕟": "四点半 / Four-Thirty",
+  "🕠": "五点半 / Five-Thirty",
+  "🕡": "六点半 / Six-Thirty",
+  "🕢": "七点半 / Seven-Thirty",
+  "🕣": "八点半 / Eight-Thirty",
+  "🕤": "九点半 / Nine-Thirty",
+  "🕥": "十点半 / Ten-Thirty",
+  "🕦": "十一点半 / Eleven-Thirty",
+  "🕧": "十二点半 / Twelve-Thirty",
+  "⏰": "闹钟 / Alarm Clock",
+  "🕰️": "座钟 / Mantelpiece Clock",
+  "⏱️": "秒表 / Stopwatch",
+  "⏲️": "计时器 / Timer Clock",
+  "⌛": "沙漏 / Hourglass Done",
+  "⏳": "流动沙漏 / Hourglass Not Done",
+  "📅": "日历 / Calendar",
+  "📆": "日程本 / Tear-Off Calendar",
+  "🗓️": "线圈日历 / Spiral Calendar",
+  "⛵": "帆船 / Sailboat",
+  "🛰": "卫星 / Satellite",
+  "🛸": "飞碟 / Flying Saucer",
+  "⚽": "足球 / Soccer Ball",
+  "🏀": "篮球 / Basketball",
+  "🏈": "美式橄榄球 / American Football",
+  "⚾": "棒球 / Baseball",
+  "🎾": "网球 / Tennis",
+  "🏐": "排球 / Volleyball",
+  "🏉": "橄榄球 / Rugby Football",
+  "🥏": "飞盘 / Flying Disc",
+  "🎱": "台球 / Pool 8 Ball",
+  "🏓": "乒乓球 / Ping Pong",
+  "🏸": "羽毛球 / Badminton",
+  "🏒": "冰球 / Ice Hockey",
+  "🏑": "曲棍球 / Field Hockey",
+  "🏏": "板球 / Cricket Game",
+  "🪃": "回旋镖 / Boomerang",
+  "🥅": "球门 / Goal Net",
+  "⛳": "高尔夫 / Flag in Hole",
+  "🎣": "钓鱼竿 / Fishing Pole",
+  "🤿": "潜水面罩 / Diving Mask",
+  "🥊": "拳击手套 / Boxing Glove",
+  "🥋": "柔道服 / Martial Arts Uniform",
+  "🎽": "运动衫 / Running Shirt",
+  "🎮": "游戏手柄 / Video Game",
+  "🕹️": "摇杆 / Joystick",
+  "🎰": "老虎机 / Slot Machine",
+  "🎲": "骰子 / Game Die",
+  "♟️": "国际象棋兵 / Chess Pawn",
+  "🧩": "拼图 / Puzzle Piece",
+  "🪀": "悠悠球 / Yo-Yo",
+  "🎵": "音符 / Musical Note",
+  "🎶": "多音符 / Multiple Musical Notes",
+  "🎼": "乐谱 / Musical Score",
+  "🎤": "麦克风 / Microphone",
+  "🎧": "耳机 / Headphone",
+  "🎷": "萨克斯 / Saxophone",
+  "🎸": "吉他 / Guitar",
+  "🎹": "钢琴 / Musical Keyboard",
+  "🥁": "鼓 / Drum",
+  "🎺": "小号 / Trumpet",
+  "🎻": "小提琴 / Violin",
+  "🪗": "手风琴 / Accordion",
+  "🎨": "调色盘 / Artist Palette",
+  "🖼️": "画框 / Framed Picture",
+  "🎭": "戏剧面具 / Performing Arts",
+  "🎬": "场记板 / Clapper Board",
+  "🎉": "庆祝 / Party Popper",
+  "🎊": "彩带 / Confetti Ball",
+  "🎁": "礼物 / Gift",
+  "🎀": "蝴蝶结 / Ribbon",
+  "🏆": "奖杯 / Trophy",
+  "🥇": "金牌 / 1st Place Medal",
+  "🥈": "银牌 / 2nd Place Medal",
+  "🥉": "铜牌 / 3rd Place Medal",
+  "🏅": "奖牌 / Sports Medal",
+  "🎖️": "军功章 / Military Medal",
+  "🏵️": "花饰 / Rosette",
+  "🎗️": "丝带 / Reminder Ribbon",
+  "🎞": "胶片 / Film Frames",
+  "📽": "放映机 / Film Projector",
+  "🪕": "班卓琴 / Banjo",
+  "🎪": "马戏团 / Circus Tent",
+  "🎫": "门票 / Admission Tickets",
+  "🎟": "票根 / Admission Tickets",
+  "🎯": "靶心 / Direct Hit",
+  "🎳": "保龄球 / Bowling",
+  "⛸": "溜冰鞋 / Ice Skate",
+  "🧧": "红包 / Red Envelope",
+  "🛍": "购物袋 / Shopping Bags",
+  "🛒": "购物车 / Shopping Cart",
+  "🪄": "魔法棒 / Magic Wand",
+  "🎆": "烟花 / Fireworks",
+  "🎇": "烟花棒 / Sparkler",
+  "🧸": "泰迪熊 / Teddy Bear",
+  "🎄": "圣诞树 / Christmas Tree",
+  "🎋": "竹子 / Tanabata Tree",
+  "🏮": "灯笼 / Red Paper Lantern",
+  "👕": "T恤 / T-Shirt",
+  "👖": "牛仔裤 / Jeans",
+  "👔": "领带 / Necktie",
+  "👗": "连衣裙 / Dress",
+  "👘": "和服 / Kimono",
+  "🥻": "纱丽 / Sari",
+  "🧥": "外套 / Coat",
+  "🧣": "围巾 / Scarf",
+  "🧤": "手套 / Gloves",
+  "🧦": "袜子 / Socks",
+  "👟": "运动鞋 / Running Shoe",
+  "👠": "高跟鞋 / High-Heeled Shoe",
+  "👡": "凉鞋 / Woman’s Sandal",
+  "🥿": "拖鞋 / Flat Shoe",
+  "👢": "靴子 / Woman’s Boot",
+  "🎩": "礼帽 / Top Hat",
+  "🧢": "棒球帽 / Billed Cap",
+  "👒": "女帽 / Woman’s Hat",
+  "🎓": "学士帽 / Graduation Cap",
+  "👑": "皇冠 / Crown",
+  "💍": "戒指 / Ring",
+  "💎": "钻石 / Gem Stone",
+  "📿": "念珠 / Prayer Beads",
+  "👜": "手提包 / Handbag",
+  "👝": "零钱包 / Clutch Bag",
+  "🎒": "背包 / Backpack",
+  "👓": "眼镜 / Glasses",
+  "🕶️": "墨镜 / Sunglasses",
+  "🥽": "护目镜 / Goggles",
+  "📱": "手机 / Mobile Phone",
+  "📲": "来电 / Mobile Phone with Arrow",
+  "☎️": "座机 / Telephone",
+  "📞": "电话听筒 / Telephone Receiver",
+  "📟": "寻呼机 / Pager",
+  "💻": "笔记本电脑 / Laptop",
+  "🖥️": "台式电脑 / Desktop Computer",
+  "🖨️": "打印机 / Printer",
+  "⌨️": "键盘 / Keyboard",
+  "🖱️": "鼠标 / Computer Mouse",
+  "🖲️": "轨迹球 / Trackball",
+  "💽": "光盘 / Computer Disk",
+  "💾": "软盘 / Floppy Disk",
+  "💿": "CD / Optical Disk",
+  "📀": "DVD / DVD",
+  "📼": "录像带 / Videocassette",
+  "📷": "相机 / Camera",
+  "📸": "拍照 / Camera with Flash",
+  "📹": "摄像机 / Video Camera",
+  "🎥": "电影摄影机 / Movie Camera",
+  "📺": "电视 / Television",
+  "📻": "收音机 / Radio",
+  "🎙️": "录音麦 / Studio Microphone",
+  "🔊": "喇叭 / Speaker High Volume",
+  "🔉": "中音量 / Speaker Medium Volume",
+  "🔈": "低音量 / Speaker Low Volume",
+  "🔇": "静音 / Muted Speaker",
+  "🔋": "电池 / Battery",
+  "🔌": "插头 / Electric Plug",
+  "💡": "灯泡 / Light Bulb",
+  "🔦": "手电筒 / Flashlight",
+  "🪔": "油灯 / Diya Lamp",
+  "🕯️": "蜡烛 / Candle",
+  "📄": "文件 / Page Facing Up",
+  "📃": "带纹文件 / Page with Curl",
+  "📑": "标签页 / Tabs",
+  "📊": "柱状图 / Bar Chart",
+  "📈": "上升趋势图 / Chart Increasing",
+  "📉": "下降趋势图 / Chart Decreasing",
+  "📋": "剪贴板 / Clipboard",
+  "📌": "图钉 / Pushpin",
+  "📎": "回形针 / Paperclip",
+  "🖇️": "装订夹 / Linked Paperclips",
+  "✂️": "剪刀 / Scissors",
+  "🗃️": "卡片盒 / Card File Box",
+  "🗄️": "文件柜 / File Cabinet",
+  "🗑️": "垃圾桶 / Wastebasket",
+  "✏️": "铅笔 / Pencil",
+  "✒️": "钢笔 / Fountain Pen",
+  "🖊️": "圆珠笔 / Pen",
+  "🖋️": "蘸水笔 / Fountain Pen (alt)",
+  "🖌️": "画笔 / Paintbrush",
+  "🖍️": "蜡笔 / Crayon",
+  "📝": "备忘录 / Memo",
+  "📓": "笔记本 / Notebook",
+  "📔": "带装饰笔记本 / Notebook with Decorative Cover",
+  "📒": "账本 / Ledger",
+  "📕": "红皮书 / Closed Book",
+  "📖": "打开的书 / Open Book",
+  "📗": "绿皮书 / Green Book",
+  "📘": "蓝皮书 / Blue Book",
+  "📙": "橙皮书 / Orange Book",
+  "📚": "书堆 / Books",
+  "🔖": "书签 / Bookmark",
+  "💰": "钱袋 / Money Bag",
+  "💴": "日元 / Yen Banknote",
+  "💵": "美元 / Dollar Banknote",
+  "💶": "欧元 / Euro Banknote",
+  "💷": "英镑 / Pound Banknote",
+  "💸": "长翅膀的钱 / Money with Wings",
+  "💳": "信用卡 / Credit Card",
+  "🧾": "收据 / Receipt",
+  "💹": "货币升值 / Currency Exchange",
+  "✉️": "信封 / Envelope",
+  "📧": "电子邮件 / E-Mail",
+  "📨": "来信 / Incoming Envelope",
+  "📩": "收信 / Envelope with Arrow",
+  "📤": "发件箱 / Outbox Tray",
+  "📥": "收件箱 / Inbox Tray",
+  "📦": "包裹 / Package",
+  "📫": "关闭邮箱 / Closed Mailbox with Raised Flag",
+  "📬": "打开邮箱 / Open Mailbox with Raised Flag",
+  "🔧": "扳手 / Wrench",
+  "🔨": "锤子 / Hammer",
+  "⚒️": "铁锤 / Hammer and Pick",
+  "🛠️": "工具套装 / Hammer and Wrench",
+  "⛏️": "镐 / Pick",
+  "🔩": "螺母螺栓 / Nut and Bolt",
+  "🪓": "斧头 / Axe",
+  "🧰": "工具箱 / Toolbox",
+  "🪑": "椅子 / Chair",
+  "🚪": "门 / Door",
+  "🛋️": "沙发 / Couch and Lamp",
+  "🛏️": "床 / Bed",
+  "🧺": "篮子 / Basket",
+  "🧻": "卷纸 / Roll of Paper",
+  "🧼": "肥皂 / Soap",
+  "🧽": "海绵 / Sponge",
+  "🪣": "水桶 / Bucket",
+  "🧹": "扫帚 / Broom",
+  "💊": "药丸 / Pill",
+  "💉": "针管 / Syringe",
+  "🩹": "创可贴 / Adhesive Bandage",
+  "🩺": "听诊器 / Stethoscope",
+  "⚕️": "医学符号 / Medical Symbol",
+  "🧬": "DNA / DNA",
+  "🔬": "显微镜 / Microscope",
+  "⚗️": "蒸馏器 / Alembic",
+  "🧪": "试管 / Test Tube",
+  "🧫": "培养皿 / Petri Dish",
+  "📁": "文件夹 / File Folder",
+  "📂": "打开文件夹 / Open File Folder",
+  "🗂": "卡片索引 / Card Index Dividers",
+  "📍": "定位图钉 / Round Pushpin",
+  "🗒": "便签本 / Spiral Notepad",
+  "📇": "名片索引 / Card Index",
+  "📪": "关闭邮箱 / Closed Mailbox with Lowered Flag",
+  "📭": "空邮箱 / Open Mailbox with Lowered Flag",
+  "📮": "邮筒 / Postbox",
+  "🏷": "标签 / Label",
+  "⚙": "齿轮 / Gear",
+  "🪛": "螺丝刀 / Screwdriver",
+  "🪚": "手锯 / Saw",
+  "🧲": "磁铁 / Magnet",
+  "⚓": "锚 / Anchor",
+  "🛡": "盾牌 / Shield",
+  "🔍": "放大镜左 / Magnifying Glass Tilted Left",
+  "🔎": "放大镜右 / Magnifying Glass Tilted Right",
+  "🎛": "控制台 / Control Knobs",
+  "🎚": "音量滑块 / Level Slider",
+  "📡": "天线 / Satellite Antenna",
+  "🔭": "望远镜 / Telescope",
+  "🧱": "砖块 / Brick",
+  "🧊": "冰块 / Ice",
+  "🧭": "指南针 / Compass",
+  "🚦": "红绿灯 / Vertical Traffic Light",
+  "🚥": "横向红绿灯 / Horizontal Traffic Light",
+  "🛑": "停止标志 / Stop Sign",
+  "🚧": "施工标志 / Construction",
+  "⚠️": "警告 / Warning",
+  "🚸": "儿童过街 / Children Crossing",
+  "🛗": "电梯 / Elevator",
+  "➡️": "右箭头 / Right Arrow",
+  "⬅️": "左箭头 / Left Arrow",
+  "⬆️": "上箭头 / Up Arrow",
+  "⬇️": "下箭头 / Down Arrow",
+  "↗️": "右上箭头 / Up-Right Arrow",
+  "↘️": "右下箭头 / Down-Right Arrow",
+  "↙️": "左下箭头 / Down-Left Arrow",
+  "↖️": "左上箭头 / Up-Left Arrow",
+  "↕️": "上下箭头 / Up-Down Arrow",
+  "↔️": "左右箭头 / Left-Right Arrow",
+  "🔄": "顺时针箭头 / Clockwise Vertical Arrows",
+  "🔃": "逆时针箭头 / Clockwise Arrows Button",
+  "🔙": "返回 / Back Arrow",
+  "🔚": "结束 / End Arrow",
+  "🔛": "开启 / On! Arrow",
+  "🔜": "即将到来 / Soon Arrow",
+  "🔝": "顶部 / Top Arrow",
+  "✝️": "十字架 / Latin Cross",
+  "☦️": "东正教十字 / Orthodox Cross",
+  "☪️": "星月 / Star and Crescent",
+  "🕉️": "欧姆 / Om",
+  "✡️": "大卫之星 / Star of David",
+  "☸️": "法轮 / Wheel of Dharma",
+  "♈": "白羊座 / Aries",
+  "♉": "金牛座 / Taurus",
+  "♊": "双子座 / Gemini",
+  "♋": "巨蟹座 / Cancer",
+  "♌": "狮子座 / Leo",
+  "♍": "处女座 / Virgo",
+  "♎": "天秤座 / Libra",
+  "♏": "天蝎座 / Scorpio",
+  "♐": "射手座 / Sagittarius",
+  "♑": "摩羯座 / Capricorn",
+  "♒": "水瓶座 / Aquarius",
+  "♓": "双鱼座 / Pisces",
+  "🔴": "红圆 / Red Circle",
+  "🟠": "橙圆 / Orange Circle",
+  "🟡": "黄圆 / Yellow Circle",
+  "🟢": "绿圆 / Green Circle",
+  "🔵": "蓝圆 / Blue Circle",
+  "🟣": "紫圆 / Purple Circle",
+  "⚫": "黑圆 / Black Circle",
+  "⚪": "白圆 / White Circle",
+  "🟤": "棕圆 / Brown Circle",
+  "🔺": "红三角上 / Red Triangle Pointed Up",
+  "🔻": "红三角下 / Red Triangle Pointed Down",
+  "🔸": "橙菱形 / Small Orange Diamond",
+  "🔹": "蓝菱形 / Small Blue Diamond",
+  "🔶": "大橙菱形 / Large Orange Diamond",
+  "🔷": "大蓝菱形 / Large Blue Diamond",
+  "◾": "黑方块 / Black Medium-Small Square",
+  "◽": "白方块 / White Medium-Small Square",
+  "⬛": "大黑方块 / Black Large Square",
+  "⬜": "大白方块 / White Large Square",
+  "▪️": "黑小方块 / Black Small Square",
+  "▫️": "白小方块 / White Small Square",
+  "♾️": "无限 / Infinity",
+  "✖️": "乘号 / Multiply",
+  "➕": "加号 / Plus",
+  "➖": "减号 / Minus",
+  "➗": "除号 / Divide",
+  "〰️": "波浪线 / Wavy Dash",
+  "❗": "感叹号 / Exclamation Mark",
+  "❓": "问号 / Question Mark",
+  "❕": "白感叹号 / White Exclamation Mark",
+  "❔": "白问号 / White Question Mark",
+  "💯": "一百分 / Hundred Points",
+  "✅": "勾选 / Check Mark Button",
+  "❌": "叉号 / Cross Mark",
+  "⭕": "空心圆 / Hollow Red Circle",
+  "✳️": "星号 / Eight-Spoked Asterisk",
+  "✴️": "八角星 / Eight-Pointed Star",
+  "❇️": "闪烁 / Sparkle",
+  "💢": "愤怒符号 / Anger Symbol",
+  "💬": "对话气泡 / Speech Balloon",
+  "💭": "思考气泡 / Thought Balloon",
+  "🗨️": "左对话泡 / Left Speech Bubble",
+  "🗯️": "愤怒对话泡 / Right Anger Bubble",
+  "💤": "呼噜 / Zzz",
+  "💈": "理发店转灯 / Barber Pole",
+  "🎏": "鲤鱼旗 / Carp Streamer",
+  "🎐": "风铃 / Wind Chime",
+  "🧿": "邪眼 / Nazar Amulet",
+  "♻️": "回收 / Recycling Symbol",
+  "🔱": "三叉戟 / Trident Emblem",
+  "⚜️": "鸢尾花 / Fleur-de-Lis",
+  "📛": "名牌 / Name Badge",
+  "🔞": "成人限制 / No One Under Eighteen",
+  "0️⃣": "数字0 / Keycap Digit Zero",
+  "1️⃣": "数字1 / Keycap Digit One",
+  "2️⃣": "数字2 / Keycap Digit Two",
+  "3️⃣": "数字3 / Keycap Digit Three",
+  "4️⃣": "数字4 / Keycap Digit Four",
+  "5️⃣": "数字5 / Keycap Digit Five",
+  "6️⃣": "数字6 / Keycap Digit Six",
+  "7️⃣": "数字7 / Keycap Digit Seven",
+  "8️⃣": "数字8 / Keycap Digit Eight",
+  "9️⃣": "数字9 / Keycap Digit Nine",
+  "🔟": "数字10 / Keycap 10",
+  "#️⃣": "井号键 / Keycap Number Sign",
+  "*️⃣": "星号键 / Keycap Asterisk",
+  "ℹ️": "信息 / Information",
+  "🆗": "OK / OK Button",
+  "🆕": "新 / NEW Button",
+  "🆙": "升级 / UP! Button",
+  "🆒": "酷 / COOL Button",
+  "🆓": "免费 / FREE Button",
+  "🆖": "无 / NG Button",
+  "🎦": "影院 / Cinema",
+  "📶": "信号 / Antenna Bars",
+  "🇨🇳": "中国国旗 / Flag: China",
+  "🇺🇸": "美国国旗 / Flag: United States",
+  "🇯🇵": "日本国旗 / Flag: Japan",
+  "🇰🇷": "韩国国旗 / Flag: South Korea",
+  "🇬🇧": "英国国旗 / Flag: United Kingdom",
+  "🇫🇷": "法国国旗 / Flag: France",
+  "🇩🇪": "德国国旗 / Flag: Germany",
+  "🇮🇹": "意大利国旗 / Flag: Italy",
+  "🇪🇸": "西班牙国旗 / Flag: Spain",
+  "🇷🇺": "俄罗斯国旗 / Flag: Russia",
+  "🇧🇷": "巴西国旗 / Flag: Brazil",
+  "🇮🇳": "印度国旗 / Flag: India",
+  "🇨🇦": "加拿大国旗 / Flag: Canada",
+  "🇦🇺": "澳大利亚国旗 / Flag: Australia",
+  "🏳️": "白旗 / White Flag",
+  "🏴": "黑旗 / Black Flag",
+  "🏁": "方格旗 / Chequered Flag",
+  "🚩": "三角旗 / Triangular Flag",
+  "🏳️‍🌈": "彩虹旗 / Rainbow Flag",
+  "🏴‍☠️": "海盗旗 / Pirate Flag",
+  "🎌": "交叉旗 / Crossed Flags",
+  "🏻": "浅肤色 / Light Skin Tone",
+  "🏼": "中浅肤色 / Medium-Light Skin Tone",
+  "🏽": "中等肤色 / Medium Skin Tone",
+  "🏾": "中深肤色 / Medium-Dark Skin Tone",
+  "🏿": "深肤色 / Dark Skin Tone",
+  "🦰": "红发 / Red Hair",
+  "🦱": "卷发 / Curly Hair",
+  "🦲": "白发 / White Hair",
+  "🦳": "秃顶 / Bald",
 };
 
 export const state = {
@@ -208,13 +1086,252 @@ export const TYPE_LABEL = {
   fgui: 'FGUI',
 };
 
-/** 资源类型 → 分组('anim' | 'image' | 'audio' | '3d' | 'fgui') */
+/** 内置类型 → 识别扩展名(设置页展示用) */
+export const TYPE_EXTENSIONS = {
+  spine: ['.json', '.skel', '.sk', '.bin'],
+  dragonbones: ['.json'],
+  image: ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tga', '.ico'],
+  audio: ['.mp3', '.wav', '.ogg', '.flac', '.wma', '.m4a'],
+  model: ['.glb', '.gltf', '.obj', '.fbx', '.dae', '.stl', '.blend', '.3ds', '.pmx', '.pmd', '.vrm'],
+};
+
+// ---------------- 自定义资源类型 ----------------
+
+export function customTypes() {
+  return Array.isArray(state.settings.customTypes) ? state.settings.customTypes : [];
+}
+export function customTypeById(id) {
+  return customTypes().find((t) => t.id === id) || null;
+}
+/** 新增自定义资源类型;exts 形如 ['.png','.ico'] */
+export function addCustomType({ name = '', group = 'image', exts = [], icon = '' }) {
+  const cleanExts = [...new Set((Array.isArray(exts) ? exts : [])
+    .map((e) => String(e).trim().toLowerCase())
+    .filter((e) => e.startsWith('.') && e.length > 1))];
+  if (!cleanExts.length) return null;
+  const t = {
+    id: uid('ct'),
+    name: String(name || '').trim() || '未命名类型',
+    group: ['anim', 'image', 'audio', '3d'].includes(group) ? group : 'image',
+    exts: cleanExts,
+    icon: icon || '',
+  };
+  customTypes().push(t);
+  setSetting('customTypes', customTypes());
+  return t;
+}
+export function updateCustomType(id, patch) {
+  const t = customTypeById(id);
+  if (!t) return null;
+  if (Array.isArray(patch.exts)) {
+    patch.exts = [...new Set(patch.exts.map((e) => String(e).trim().toLowerCase()).filter((e) => e.startsWith('.') && e.length > 1))];
+    if (!patch.exts.length) return null;
+  }
+  if (patch.group && !['anim', 'image', 'audio', '3d'].includes(patch.group)) patch.group = 'image';
+  Object.assign(t, patch);
+  setSetting('customTypes', customTypes());
+  return t;
+}
+export function removeCustomType(id) {
+  const arr = customTypes();
+  const i = arr.findIndex((x) => x.id === id);
+  if (i < 0) return;
+  arr.splice(i, 1);
+  setSetting('customTypes', arr);
+}
+
+// ---------------- 自定义资源分组 ----------------
+
+export function customTypeGroups() {
+  return Array.isArray(state.settings.customTypeGroups) ? state.settings.customTypeGroups : [];
+}
+export function customTypeGroupById(id) {
+  return customTypeGroups().find((g) => g.id === id) || null;
+}
+/** 新增自定义资源分组;exts 形如 ['.db','.txt'](扫描时按扩展名归 type=<分组id>) */
+export function addCustomTypeGroup({ name = '', icon = '', exts = [] }) {
+  const cleanExts = [...new Set((Array.isArray(exts) ? exts : [])
+    .map((e) => String(e).trim().toLowerCase())
+    .filter((e) => e.startsWith('.') && e.length > 1))];
+  if (!cleanExts.length) return null;
+  const g = {
+    id: uid('cg'),
+    name: String(name || '').trim() || '未命名分组',
+    icon: icon || '',
+    exts: cleanExts,
+  };
+  customTypeGroups().push(g);
+  setSetting('customTypeGroups', customTypeGroups());
+  return g;
+}
+export function updateCustomTypeGroup(id, patch) {
+  const g = customTypeGroupById(id);
+  if (!g) return null;
+  if (Array.isArray(patch.exts)) {
+    patch.exts = [...new Set(patch.exts.map((e) => String(e).trim().toLowerCase()).filter((e) => e.startsWith('.') && e.length > 1))];
+    if (!patch.exts.length) return null;
+  }
+  Object.assign(g, patch);
+  setSetting('customTypeGroups', customTypeGroups());
+  return g;
+}
+export function removeCustomTypeGroup(id) {
+  const arr = customTypeGroups();
+  const i = arr.findIndex((x) => x.id === id);
+  if (i < 0) return;
+  arr.splice(i, 1);
+  setSetting('customTypeGroups', arr);
+}
+/**
+ * 自修复:凡是被「分类目录」引用到的自定义资源分组,都确保左侧栏存在对应的资源根菜单节点
+ * (action = 'res:group:<分组id>')。否则该分类在左侧菜单栏无挂载点 → 看不见,
+ * 但系统设置「分类目录」里能看到。转换菜单目录为分类、或分类引用了某自定义分组时都可能触发。
+ */
+export function ensureResourceRootsForCategories() {
+  const groups = customTypeGroups();
+  if (!groups.length) return;
+  const used = new Set();
+  for (const c of state.categories || []) {
+    for (const t of (Array.isArray(c.typeTags) ? c.typeTags : [])) used.add(t);
+  }
+  const idx3d = state.menuNodes.findIndex((m) => m.id === '__m_res_3d__');
+  const baseSort = (idx3d >= 0 && typeof state.menuNodes[idx3d].sort === 'number')
+    ? state.menuNodes[idx3d].sort : state.menuNodes.length - 1;
+  let gi = 0;
+  let changed = false;
+  for (const g of groups) {
+    if (!used.has(g.id)) continue;
+    const action = 'res:group:' + g.id;
+    if (state.menuNodes.some((m) => (m.action || '') === action)) continue;
+    state.menuNodes.push({
+      id: uid('mn'),
+      name: g.name || '未命名分组',
+      icon: (g.icon && String(g.icon).trim()) ? g.icon : '🗂',
+      parentId: '',
+      nodeType: 'dir',
+      actionType: 'builtin',
+      action,
+      tooltip: g.name || '',
+      note: '',
+      typeTags: [],
+      isResource: true,
+      sort: baseSort + 0.5 + gi * 0.01,
+      createdAt: now(),
+      updatedAt: now(),
+    });
+    gi++;
+    changed = true;
+  }
+  if (changed) {
+    // 把新建的资源根(及既有 res:group 根)统一挪到「3D资源」之后,使资源根成组
+    if (idx3d >= 0) {
+      const gNodes = state.menuNodes.filter((m) => (m.action || '').startsWith('res:group:'));
+      for (const n of gNodes) state.menuNodes.splice(state.menuNodes.indexOf(n), 1);
+      const at = state.menuNodes.findIndex((m) => m.id === '__m_res_3d__') + 1;
+      state.menuNodes.splice(at, 0, ...gNodes);
+    }
+    saveState();
+  }
+}
+
+/**
+ * 自修复:在「图标资源」分组根下确保存在「emoji 图标」管理入口菜单节点(action = 'page:emoji')。
+ * 这样用户可在左侧栏「图标资源」分类内直接打开 emoji 图标库浏览与管理页。幂等(已存在则跳过)。
+ */
+export function ensureEmojiMenuNode() {
+  // 找到「图标」自定义资源分组对应的资源根菜单节点(名称含「图标」即视为图标资源根)
+  const grp = customTypeGroups().find((g) => (g.name || '').includes('图标'));
+  if (!grp) return;
+  const rootAction = 'res:group:' + grp.id;
+  const root = state.menuNodes.find((m) => (m.action || '') === rootAction);
+  if (!root) return;
+  // 按名称(忽略空格差异)匹配「图标」根下的 emoji 图标节点,兼容其 action 曾被误改为其它页面的情况
+  const norm = (s) => (s || '').replace(/\s+/g, '');
+  const kids = state.menuNodes.filter(
+    (m) => (m.parentId || '') === root.id && norm(m.name) === 'emoji图标'
+  );
+  if (kids.length) {
+    // 取第一个为主节点,修正其 action/actionType;其余同名(重复)节点删除,避免重复入口
+    const main = kids[0];
+    main.action = 'page:emoji';
+    main.actionType = 'builtin';
+    if (kids.length > 1) {
+      const dupIds = new Set(kids.slice(1).map((k) => k.id));
+      state.menuNodes = state.menuNodes.filter((m) => !dupIds.has(m.id));
+    }
+    saveState();
+    return;
+  }
+  state.menuNodes.push({
+    id: uid('mn'),
+    name: 'emoji 图标',
+    icon: '😀',
+    parentId: root.id,
+    nodeType: 'term',
+    actionType: 'builtin',
+    action: 'page:emoji',
+    tooltip: 'emoji 图标库浏览与管理',
+    note: '',
+    typeTags: [],
+    isResource: false,
+    sort: 0,
+    createdAt: now(),
+    updatedAt: now(),
+  });
+  saveState();
+}
+
+/** 资源类型 → 分组('anim' | 'image' | 'audio' | '3d' | 自定义分组 id | 'fgui');自定义类型按配置归属,自定义分组 id → 自身 */
 export function typeGroup(type) {
+  const ct = customTypeById(type);
+  if (ct) return ct.group || 'image';
+  if (customTypeGroupById(type)) return type; // 自定义分组 id 本身作为 type(分组默认条目)
   if (type === 'image') return 'image';
   if (type === 'audio') return 'audio';
   if (type === 'model') return '3d';
   if (type === 'fgui') return 'fgui';
   return 'anim';
+}
+
+/** 是否图片类资源(含自定义 image 分组类型;用于缩略图/预览) */
+export function isImageType(type) {
+  return typeGroup(type) === 'image';
+}
+
+/** 类型显示名(自定义类型/自定义分组优先) */
+export function typeLabel(type) {
+  const ct = customTypeById(type);
+  if (ct) return ct.name;
+  const g = customTypeGroupById(type);
+  if (g) return g.name;
+  return TYPE_LABEL[type] || type;
+}
+
+/** 扩展名 → 类型:自定义类型 > 自定义分组 > 内置 */
+export function extToType(ext) {
+  const e = String(ext || '').toLowerCase();
+  for (const ct of customTypes()) {
+    if (ct.exts && ct.exts.includes(e)) return ct.id;
+  }
+  for (const g of customTypeGroups()) {
+    if (g.exts && g.exts.includes(e)) return g.id;
+  }
+  if (TYPE_EXTENSIONS.image.includes(e)) return 'image';
+  if (TYPE_EXTENSIONS.audio.includes(e)) return 'audio';
+  if (TYPE_EXTENSIONS.model.includes(e)) return 'model';
+  return null;
+}
+
+/** 目录/分类可标记的分组标签选项(内置 + 自定义分组);数据与设置页资源类型管理一致 */
+export function groupTagOptions() {
+  const out = [];
+  for (const [v, l] of Object.entries(CAT_TYPE_TAG_LABELS)) out.push({ value: v, label: l });
+  for (const g of customTypeGroups()) out.push({ value: g.id, label: g.name });
+  return out;
+}
+/** 是否为有效分组标签(内置或自定义分组) */
+export function isValidTypeTag(t) {
+  return !!(CAT_TYPE_TAG_LABELS[t] || customTypeGroupById(t));
 }
 
 // ---------------- 分类的资源类型标签 ----------------
@@ -233,16 +1350,16 @@ export const CAT_TYPE_TAG_LABELS = {
 /** 全部标签 key(供勾选组按固定顺序渲染) */
 export const CAT_TYPE_TAGS = Object.keys(CAT_TYPE_TAG_LABELS);
 
-/** 分类的资源类型标签数组(过滤非法值,兼容旧数据 undefined/字符串) */
+/** 分类的资源类型标签数组(过滤非法值,兼容旧数据 undefined/字符串;内置 + 自定义分组) */
 export function categoryTypeTags(cat) {
   if (!cat) return [];
   const raw = Array.isArray(cat.typeTags) ? cat.typeTags : [];
-  return raw.filter((t) => CAT_TYPE_TAG_LABELS[t]);
+  return raw.filter((t) => isValidTypeTag(t));
 }
 
 /** 分类资源类型标签的中文名数组(如 ['音频']) */
 export function categoryTypeTagNames(cat) {
-  return categoryTypeTags(cat).map((t) => CAT_TYPE_TAG_LABELS[t]);
+  return categoryTypeTags(cat).map((t) => CAT_TYPE_TAG_LABELS[t] || ((customTypeGroupById(t) || {}).name) || t);
 }
 
 /**
@@ -258,6 +1375,14 @@ export function catVisibleInGroup(cat, group) {
   if (!tags.length) return true;
   if (!group || group === 'all') return true;
   return tags.includes(group);
+}
+
+/** 分类是否在"允许显示的类型组"集合中的任一类型组下可见:分类未勾选标签(全部)或标签命中任一类型组 */
+export function catVisibleInAnyGroup(cat, tagSet) {
+  const tags = categoryTypeTags(cat);
+  if (!tags.length) return true; // 未勾选任何标签 = 所有类型组显示
+  if (!tagSet || tagSet.size === 0) return true;
+  return tags.some((t) => tagSet.has(t));
 }
 
 let saveTimer = null;
@@ -298,6 +1423,7 @@ export async function loadState() {
   seedToolboxFolders();
   // 侧栏菜单树(兼容旧库缺字段)
   state.menuNodes = Array.isArray(data.menuNodes) ? data.menuNodes : [];
+  let resMigrated = false;
   for (const mn of state.menuNodes) {
     if (mn.parentId == null) mn.parentId = '';
     if (mn.icon == null) mn.icon = '';
@@ -306,8 +1432,22 @@ export async function loadState() {
     if (mn.nodeType == null) mn.nodeType = 'dir';
     if (mn.actionType == null) mn.actionType = '';
     if (mn.action == null) mn.action = '';
+    if (!Array.isArray(mn.typeTags)) mn.typeTags = [];
+    // 资源属性:命名资源目录(动画资源/图片资源/图标库资源/音频资源/3D资源/项目管理)及其子孙恒为「是」;
+    // 其余目录沿用已存储值(旧库缺字段时按祖先链推导并默认否)。命名目录子孙即使库中存 0 也强制 true。
+    const derivedRes = computeIsResource(mn, state.menuNodes);
+    const storedRes = (typeof mn.isResource === 'boolean') ? mn.isResource : derivedRes;
+    const nextRes = derivedRes ? true : storedRes;
+    if (mn.isResource !== nextRes) { mn.isResource = nextRes; resMigrated = true; }
   }
+  if (resMigrated) saveState();
   seedMenuNodes();
+  // 自修复:被分类目录引用的自定义资源分组,确保左侧栏有对应资源根(否则分类在侧栏不可见)
+  ensureResourceRootsForCategories();
+  // 自修复:在「图标资源」分组根下挂载「emoji 图标」管理入口
+  ensureEmojiMenuNode();
+  // 合并默认 emoji 图标库(补齐新增 emoji / 分类,去重不重复)
+  mergeDefaultIconLibrary();
   // 兼容字段:旧库无 tags 时补 []
   for (const it of state.items) {
     if (!Array.isArray(it.tags)) it.tags = [];
@@ -369,7 +1509,7 @@ export function addCategory({ name, remark = '', parentId = '', typeTags = [] })
     name,
     remark,
     parentId: parentId || '',
-    typeTags: Array.isArray(typeTags) ? typeTags.filter((t) => CAT_TYPE_TAG_LABELS[t]) : [],
+    typeTags: Array.isArray(typeTags) ? typeTags.filter((t) => isValidTypeTag(t)) : [],
     sort: state.categories.length,
     createdAt: now(),
   };
@@ -535,7 +1675,23 @@ export function removeUncategorizedItems() {
 
 // ---------------- 动画条目 ----------------
 
+/**
+ * 确保分类的 typeTags 包含指定资源类型所属的分组。
+ * 仅当分类已勾选过标签(非「全部类型」)时才扩展;未勾选标签的分类保持「全部类型」不变。
+ */
+export function ensureCategoryTypeTag(catId, type) {
+  const cat = catId ? categoryById(catId) : null;
+  if (!cat) return;
+  const tags = categoryTypeTags(cat);
+  if (!tags.length) return; // 未勾选任何标签 = 全类型,无需扩展
+  const g = typeGroup(type);
+  if (!g || tags.includes(g)) return;
+  cat.typeTags = [...tags, g];
+  saveState();
+}
+
 export function addItem({ categoryId, type, filePath, atlasPath = null, displayName, remark = '', size = null, mtime = null, tags = [] }) {
+  ensureCategoryTypeTag(categoryId, type);
   const item = {
     id: uid('i'),
     categoryId: categoryId || '',
@@ -803,8 +1959,8 @@ export function itemsByGroup(group) {
 export function itemsInCategoryAndGroup(catId, group) {
   const inCat = itemsInCategory(catId);
   if (!group || group === 'all') return inCat;
-  const types = TYPE_GROUPS[group] || [];
-  return inCat.filter((i) => types.includes(i.type));
+  // 按分组匹配(内置组 + 自定义分组/自定义类型):typeGroup 归一到分组 id
+  return inCat.filter((i) => typeGroup(i.type) === group);
 }
 
 /** 格式化文件大小 */
@@ -882,8 +2038,7 @@ export function getHomeData() {
  * @returns {{ total, totalSize, byType, categories: [{cat,count,totalSize,subs}], recent }}
  */
 export function getTypeHomeData(group) {
-  const types = TYPE_GROUPS[group] || [];
-  const items = state.items.filter((i) => types.includes(i.type));
+  const items = state.items.filter((i) => typeGroup(i.type) === group);
   const byType = { anim: 0, image: 0, audio: 0, '3d': 0, totalSize: 0 };
   let totalSize = 0;
   for (const it of items) {
@@ -1514,16 +2669,33 @@ export function moveToolboxNodeToParent(id, parentId = '') {
 /** 侧栏菜单树的默认结构(首次启动或旧库无数据时注入) */
 const MENU_DEFAULT = [
   { id: '__m_fav__', name: '收藏夹', icon: '🔖', nodeType: 'dir', actionType: 'builtin', action: 'fav', tooltip: '收藏夹主页与收藏分类', note: '' },
-  { id: '__m_res_anim__', name: '动画资源', icon: '🎬', nodeType: 'dir', actionType: 'builtin', action: 'res:anim', tooltip: 'Spine / DragonBones 骨骼动画', note: '' },
-  { id: '__m_res_image__', name: '图片资源', icon: '🖼', nodeType: 'dir', actionType: 'builtin', action: 'res:image', tooltip: '图片资源', note: '' },
-  { id: '__m_res_audio__', name: '音频资源', icon: '♪', nodeType: 'dir', actionType: 'builtin', action: 'res:audio', tooltip: '音频资源', note: '' },
-  { id: '__m_res_3d__', name: '3D资源', icon: '🧊', nodeType: 'dir', actionType: 'builtin', action: 'res:3d', tooltip: '3D 模型资源', note: '' },
+  { id: '__m_res_anim__', name: '动画资源', icon: '🎬', nodeType: 'dir', actionType: 'builtin', action: 'res:anim', tooltip: 'Spine / DragonBones 骨骼动画', note: '', isResource: true },
+  { id: '__m_res_image__', name: '图片资源', icon: '🖼', nodeType: 'dir', actionType: 'builtin', action: 'res:image', tooltip: '图片资源', note: '', isResource: true },
+  { id: '__m_res_audio__', name: '音频资源', icon: '♪', nodeType: 'dir', actionType: 'builtin', action: 'res:audio', tooltip: '音频资源', note: '', isResource: true },
+  { id: '__m_res_3d__', name: '3D资源', icon: '🧊', nodeType: 'dir', actionType: 'builtin', action: 'res:3d', tooltip: '3D 模型资源', note: '', isResource: true },
   { id: '__m_scene__', name: '游戏场景管理', icon: '🎬', nodeType: 'dir', actionType: 'builtin', action: 'scene', tooltip: '场景分类与 FGUI 包管理', note: '' },
   { id: '__m_webgame__', name: '网络资源抓取', icon: '🌐', nodeType: 'dir', actionType: 'builtin', action: 'webgame', tooltip: '内嵌浏览器逆向分析网络资源', note: '' },
   { id: '__m_toolbox__', name: '资源工具箱', icon: '🧰', nodeType: 'dir', actionType: 'builtin', action: 'toolbox', tooltip: '格式转换 / 图片编辑 / FGUI 等工具', note: '' },
   { id: '__m_devtools__', name: '开发工具箱', icon: '🛠', nodeType: 'dir', actionType: 'builtin', action: 'devtools', tooltip: '开发辅助工具', note: '' },
   { id: '__m_settings__', name: '系统设置', icon: '⚙', nodeType: 'term', actionType: 'builtin', action: 'page:settings', tooltip: '打开系统设置', note: '' },
 ];
+
+/** 资源目录名称:这些目录及其所有子孙目录的资源属性标识默认 = 是 */
+const RESOURCE_DIR_NAMES = ['动画资源', '图片资源', '图标库资源', '音频资源', '3D资源', '项目管理'];
+
+/**
+ * 由目录名称 + 祖先链推导某节点是否为资源目录。
+ * 自身或任一祖先名称命中 RESOURCE_DIR_NAMES 即视为资源目录(与已存储的 isResource 无关,用于旧库迁移)。
+ */
+function computeIsResource(node, allNodes) {
+  const byId = (id) => (allNodes || state.menuNodes).find((m) => m.id === id);
+  let cur = node;
+  while (cur) {
+    if (RESOURCE_DIR_NAMES.includes(cur.name)) return true;
+    cur = cur.parentId ? byId(cur.parentId) : null;
+  }
+  return false;
+}
 
 function seedMenuNodes() {
   if (state.menuNodes.length) return;
@@ -1590,7 +2762,7 @@ export function menuNodePath(id) {
 }
 
 /** 新增菜单节点(目录或终端);parentId '' = 顶级 */
-export function addMenuNode({ name, icon = '', parentId = '', nodeType = 'dir', actionType = '', action = '', tooltip = '', note = '' }) {
+export function addMenuNode({ name, icon = '', parentId = '', nodeType = 'dir', actionType = '', action = '', tooltip = '', note = '', typeTags = [], isResource = false }) {
   const node = {
     id: uid('mn'),
     name,
@@ -1601,6 +2773,8 @@ export function addMenuNode({ name, icon = '', parentId = '', nodeType = 'dir', 
     action: action || '',
     tooltip: tooltip || '',
     note: note || '',
+    typeTags: Array.isArray(typeTags) ? typeTags.filter((t) => isValidTypeTag(t)) : [],
+    isResource: !!isResource,
     sort: state.menuNodes.length,
     createdAt: now(),
     updatedAt: now(),
@@ -1686,6 +2860,40 @@ export function removeApiEndpoint(id) {
 /** icon 是否为图片(dataURL)图标 */
 export function isImageIcon(icon) {
   return typeof icon === 'string' && icon.startsWith('data:image');
+}
+
+/** 是否为 URL(网址):协议名 + :// 开头 */
+export function isUrlPath(p) {
+  return /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(String(p || '').trim());
+}
+
+/** 是否为本地网页:file:// 开头,或本地文件且扩展名为 html/htm/xhtml */
+export function isLocalHtmlPath(p) {
+  const s = String(p || '').trim();
+  if (!s) return false;
+  if (/^file:\/\//i.test(s)) return true;
+  if (isUrlPath(s)) return false; // 其它协议(http/https 等)不是本地
+  return /\.(html?|xhtml)$/i.test(s);
+}
+
+/** 把本地文件路径转 file:// URL(已有协议则原样返回) */
+export function toFileUrl(p) {
+  const s = String(p || '').trim();
+  if (!s) return '';
+  if (isUrlPath(s)) return s;
+  return 'file:///' + s.replace(/\\/g, '/').replace(/^\/+/, '');
+}
+
+/** 从程序路径/网址提取自动名称:本地文件取文件名(去扩展名);网址取主机名(去 www.) */
+export function nameFromPath(p) {
+  const s = String(p || '').trim();
+  if (!s) return '';
+  if (isUrlPath(s)) {
+    try { return (new URL(s).hostname || '').replace(/^www\./, ''); }
+    catch (_) { return ''; }
+  }
+  const base = s.split(/[\\/]/).pop() || '';
+  return base.replace(/\.[^.]+$/, '');
 }
 
 export function getIconGroups() {
@@ -1789,4 +2997,121 @@ export function reorderIconItem(fromId, toId, place = 'before') {
   items.forEach((x, i) => { x.sort = i; });
   commitIconLib();
   return true;
+}
+/** 更新图标(名称/图标);icon 为 emoji 或 data:image dataURL */
+export function updateIconItem(id, patch) {
+  const items = getIconItems();
+  const it = items.find((x) => x.id === id);
+  if (!it) return null;
+  if (patch.name !== undefined) it.name = String(patch.name || '').trim();
+  if (patch.icon !== undefined && patch.icon) it.icon = patch.icon;
+  if (patch.groupId !== undefined) it.groupId = patch.groupId || '';
+  commitIconLib();
+  return it;
+}
+
+/** emoji 图标字符归一化(去变体选择符 U+FE0F),用于去重匹配 */
+function iconEmojiKey(e) {
+  return String(e || '').replace(/️/g, '');
+}
+
+/**
+ * 把默认 emoji 图标库(DEFAULT_ICON_LIBRARY)合并进用户当前图标库:
+ * - 各默认分类按名称查找,不存在则新建;
+ * - 每个 emoji 在「当前分类」与「全局」范围内按归一化字符去重,缺失才补入;
+ * - 顺带清理当前图标库内已存在的重复 emoji(保留排序最前者)。
+ * 在 loadState 中调用一次,保证老用户也能补齐新增的 emoji 且不产生重复。
+ */
+export function mergeDefaultIconLibrary() {
+  const groups = getIconGroups();
+  const items = getIconItems();
+  let changed = false;
+
+  // 全局去重:删除同一 emoji(归一化)的重复条目,保留排序最前的一个
+  const seen = new Map();
+  for (const it of items) {
+    if (isImageIcon(it.icon)) continue;
+    const k = iconEmojiKey(it.icon);
+    if (seen.has(k)) it.__dup = true;
+    else seen.set(k, it.id);
+  }
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (items[i].__dup) { items.splice(i, 1); changed = true; }
+  }
+
+  for (const d of DEFAULT_ICON_LIBRARY) {
+    let g = groups.find((x) => x.name === d.group);
+    if (!g) {
+      g = { id: uid('ig'), name: d.group, sort: groups.length };
+      groups.push(g);
+      changed = true;
+    }
+    const inGroup = items.filter((it) => it.groupId === g.id);
+    const keys = new Set(inGroup.map((it) => iconEmojiKey(it.icon)));
+    let sort = inGroup.length ? Math.max(...inGroup.map((x) => x.sort || 0)) + 1 : 0;
+    for (const e of d.items) {
+      const k = iconEmojiKey(e);
+      if (keys.has(k) || seen.has(k)) continue; // 本组或全局已存在 → 跳过,不重复
+      items.push({ id: uid('ii'), groupId: g.id, name: EMOJI_NAMES[k] || '', icon: e, sort: sort++ });
+      keys.add(k);
+      seen.set(k, true); // seen 是 Map(存 首次出现条目 id),补新条目时同步登记,防后续分组重复添加
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    items.forEach((x, i) => { x.sort = i; });
+    commitIconLib();
+    saveState();
+  }
+}
+
+// ================= 自定义页面(终端节点目标页面) =================
+
+/** 页面模板:基于模板建立自定义页面 */
+export const PAGE_TEMPLATES = [
+  { id: 'web', name: '内嵌网页', desc: '点击在主显示区打开网页或本地 HTML(需填写网址)' },
+  { id: 'note', name: '文本笔记', desc: '点击在主显示区显示可编辑的文本笔记' },
+];
+
+export function customPages() {
+  return Array.isArray(state.settings.customPages) ? state.settings.customPages : [];
+}
+
+export function customPageById(id) {
+  return customPages().find((x) => x.id === id) || null;
+}
+
+export function addCustomPage({ templateId = 'note', title = '', icon = '', url = '', content = '', note = '' }) {
+  const p = {
+    id: uid('pg'),
+    templateId: PAGE_TEMPLATES.some((t) => t.id === templateId) ? templateId : 'note',
+    title: String(title || '').trim() || '未命名页面',
+    icon: icon || '',
+    url: String(url || '').trim(),
+    content: String(content || ''),
+    note: String(note || ''),
+    createdAt: now(),
+    updatedAt: now(),
+  };
+  const arr = customPages();
+  arr.push(p);
+  setSetting('customPages', arr);
+  return p;
+}
+
+export function updateCustomPage(id, patch) {
+  const p = customPageById(id);
+  if (!p) return null;
+  Object.assign(p, patch, { updatedAt: now() });
+  setSetting('customPages', customPages());
+  return p;
+}
+
+export function removeCustomPage(id) {
+  const arr = customPages();
+  const i = arr.findIndex((x) => x.id === id);
+  if (i < 0) return;
+  arr.splice(i, 1);
+  setSetting('customPages', arr);
 }

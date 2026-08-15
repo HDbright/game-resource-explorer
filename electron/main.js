@@ -600,7 +600,10 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle('dir:scan', (_e, dir, recursive) => {
     try {
-      return scanDir(dir, !!recursive);
+      const s = (db && db.settings) || {};
+      const customTypes = Array.isArray(s.customTypes) ? s.customTypes : [];
+      const customGroups = Array.isArray(s.customTypeGroups) ? s.customTypeGroups : [];
+      return scanDir(dir, !!recursive, customTypes, customGroups);
     } catch (err) {
       return { ok: false, error: err.message };
     }
@@ -798,20 +801,60 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle('shell:showItem', (_e, p) => shell.showItemInFolder(p));
   ipcMain.handle('shell:openPath', (_e, p) => shell.openPath(p));
-  // 启动外部程序(侧栏菜单终端节点 action=exe 时调用)。支持路径 + 参数(空格分隔)。
+  // 启动外部程序/打开网页(侧栏菜单终端节点 action=exe 时调用)。
+  // - URL(如 https://...) → 系统默认浏览器打开
+  // - 本地程序 → 支持「"路径含空格" 参数」或「直接粘贴含空格/中文的路径」,spawn 不经过 shell,路径安全
   ipcMain.handle('app:openExternal', (_e, cmd) => {
     if (!cmd || typeof cmd !== 'string') return { error: '未提供程序路径' };
-    const [exe, ...args] = cmd.trim().split(/\s+/);
+    const raw = cmd.trim();
+    if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(raw)) {
+      shell.openExternal(raw);
+      return { ok: true, kind: 'url' };
+    }
+    const m = /^"([^"]+)"(?:\s+(.*))?$/.exec(raw);
+    let exe, args = [];
+    if (m) {
+      exe = m[1];
+      if (m[2]) args = m[2].trim().split(/\s+/);
+    } else {
+      exe = raw; // 整体作为可执行文件路径(含空格/中文)
+    }
     return new Promise((resolve) => {
       try {
         const child = spawn(exe, args, { detached: true, stdio: 'ignore', windowsHide: false });
         child.on('error', (err) => resolve({ error: err.message }));
-        child.once('spawn', () => resolve({ ok: true }));
+        child.once('spawn', () => resolve({ ok: true, kind: 'exe' }));
         child.unref();
       } catch (err) {
         resolve({ error: err.message });
       }
     });
+  });
+  // 提取文件/程序图标(app.getFileIcon,Windows 支持 exe/ico 等资源图标)
+  ipcMain.handle('icon:fromFile', async (_e, p) => {
+    // 解析:引号包裹 → 取引号内;整串不存在(可能带参数/空格)→ 回退取第一个空格前的路径
+    let target = String(p || '').trim();
+    const q = /^"([^"]+)"/.exec(target);
+    if (q) target = q[1];
+    if (target && !fs.existsSync(target)) {
+      const sp = target.indexOf(' ');
+      if (sp > 0) {
+        const head = target.slice(0, sp);
+        if (fs.existsSync(head)) target = head;
+        else return { ok: false };
+      } else {
+        return { ok: false };
+      }
+    }
+    if (!target || !fs.existsSync(target)) return { ok: false };
+    try {
+      const img = await app.getFileIcon(target, { size: 'large' });
+      if (!img || img.isEmpty()) return { ok: false };
+      const buf = img.toPNG();
+      return { ok: true, dataUrl: `data:image/png;base64,${buf.toString('base64')}` };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
   });
   ipcMain.handle('app:info', () => ({
     version: app.getVersion(),

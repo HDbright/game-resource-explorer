@@ -1,4 +1,4 @@
-import { state, getFolderData, sortItems, formatSize, formatDate, TYPE_LABEL, typeGroup, categoryById, getCategoryPathList, itemTags, categoryLabel, favCategoryById, itemById, catVisibleInGroup, categoryTypeTagNames, getCategoryChildren, TYPE_GROUPS } from '../state.js';
+import { state, getFolderData, sortItems, formatSize, formatDate, typeGroup, typeLabel, isImageType, categoryById, getCategoryPathList, itemTags, categoryLabel, favCategoryById, itemById, catVisibleInGroup, catVisibleInAnyGroup, categoryTypeTagNames, getCategoryChildren, getCategoryDescendants, TYPE_GROUPS } from '../state.js';
 import { thumbnailService } from '../thumbnails.js';
 import { loadSearchHistory, saveSearchHistory, addSearchHistory, removeSearchHistory } from '../searchHistory.js';
 import { findAtlasCompanion } from '../atlasView.js';
@@ -75,8 +75,54 @@ function bindAtlasBadges(container, items) {
   }
 }
 
-const VIEW_LABEL = { detail: '详情', list: '列表', icon: '图标' };
 const VIEW_LABEL_TXT = { anim: '动画', image: '图片', audio: '音频' };
+
+/** 查看下拉菜单选项(与 Windows 资源管理器「查看」菜单对齐) */
+const VIEW_MODES = [
+  { value: 'extra-icon', label: '超大图标', icon: '□', group: 'view' },
+  { value: 'large-icon', label: '大图标', icon: '□', group: 'view' },
+  { value: 'icon', label: '中图标', icon: '□', group: 'view' },
+  { value: 'small-icon', label: '小图标', icon: '□', group: 'view' },
+  { value: 'list', label: '列表', icon: '☰', group: 'view' },
+  { value: 'detail', label: '详细信息', icon: '☰', group: 'view' },
+  { value: 'tile', label: '平铺', icon: '▦', group: 'view' },
+  { value: 'content', label: '内容', icon: '▤', group: 'view' },
+  // 窗格选项:作为同一套 viewMode 的另一种入口(与上方 view 项可能重叠,保持视觉分组)
+  { value: 'detail', label: '详细信息窗格', icon: '▣', group: 'pane' },
+  { value: 'icon', label: '预览窗格', icon: '▣', group: 'pane' },
+];
+const ICON_MODES = new Set(['extra-icon', 'large-icon', 'icon', 'small-icon']);
+function isIconMode(viewMode) { return ICON_MODES.has(viewMode); }
+function viewModeLabel(mode) { return VIEW_MODES.find((m) => m.value === mode && m.group === 'view')?.label || (isIconMode(mode) ? '中图标' : '列表'); }
+function viewModeIcon(mode) { return VIEW_MODES.find((m) => m.value === mode && m.group === 'view')?.icon || '☰'; }
+/** 渲染「查看」下拉按钮(含视图+窗格分组) */
+function renderViewDropdown(currentMode) {
+  const label = viewModeLabel(currentMode);
+  const icon = viewModeIcon(currentMode);
+  const items = VIEW_MODES.map((m) => {
+    const active = m.value === currentMode;
+    return `<div class="view-menu-item${active ? ' active' : ''}" data-view="${m.value}" data-group="${m.group}">
+      <span class="view-menu-bullet">${active ? '●' : ''}</span>
+      <span class="view-menu-icon">${m.icon}</span>
+      <span class="view-menu-label">${escapeHtml(m.label)}</span>
+    </div>`;
+  });
+  const viewItems = items.filter((_, i) => VIEW_MODES[i].group === 'view').join('');
+  const paneItems = items.filter((_, i) => VIEW_MODES[i].group === 'pane').join('');
+  return `
+    <div class="view-dropdown" id="view-dropdown">
+      <button class="view-dropdown-btn" type="button" title="查看"><span class="view-dropdown-icon">${icon}</span><span>查看</span><span class="view-dropdown-arrow">▾</span></button>
+      <div class="view-dropdown-menu">
+        ${viewItems}
+        <div class="view-menu-sep"></div>
+        ${paneItems}
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * 目录列表页:统计区 + 视图切换 + 排序 + 编辑模式 + 子目录 + 资源列表(详情/列表/图标)。
 
 /**
  * 目录列表页:统计区 + 视图切换 + 排序 + 编辑模式 + 子目录 + 资源列表(详情/列表/图标)。
@@ -105,6 +151,8 @@ export function renderFolderPage(container, opts) {
 
   // 搜索模式数据源:home → 全部类型;类型 → 该类型;目录 → 该目录含子分类递归
   let pool = data.direct;
+  if (opts.groupFilter) pool = pool.filter((i) => opts.groupFilter.has(typeGroup(i.type))); // 目录「允许显示的类型组」过滤
+  if (opts.typeFilter) pool = pool.filter((i) => i.type === opts.typeFilter); // 资源浏览页类型过滤(自定义类型)
   if (searchMode) {
     const types = group === 'home' ? null : (TYPE_GROUPS[group] || null);
     pool = collectSearchPool(catId === 'all' ? null : catId, types);
@@ -120,7 +168,7 @@ export function renderFolderPage(container, opts) {
       String(i.displayName || '').toLowerCase().includes(q) ||
       String(i.remark || '').toLowerCase().includes(q) ||
       String(i.filePath || '').toLowerCase().includes(q) ||
-      String(TYPE_LABEL[i.type] || '').toLowerCase().includes(q) ||
+      String(typeLabel(i.type)).toLowerCase().includes(q) ||
       String(categoryLabel(i)).toLowerCase().includes(q) ||
       itemTags(i).some((t) => t.toLowerCase().includes(q))
     );
@@ -139,6 +187,9 @@ export function renderFolderPage(container, opts) {
   if (group === 'all' || group === 'audio') byTypeText.push(`音频 ${data.stats.byType.audio}`);
   if (group === 'all' || group === '3d') byTypeText.push(`3D ${data.stats.byType['3d'] || 0}`);
 
+  // 当前目录下可见的子分类(用于空态判断)
+  const visibleSubcats = data.subcats.filter((sc) => (opts.groupFilter ? catVisibleInAnyGroup(sc, opts.groupFilter) : catVisibleInGroup(sc, group)));
+
   // 记录滚动位置,渲染后恢复(编辑模式下点击条目重渲染时滚动条保持原位)
   const prevBody = container.querySelector('.folder-body');
   const savedScroll = prevBody ? prevBody.scrollTop : 0;
@@ -155,11 +206,7 @@ export function renderFolderPage(container, opts) {
     </div>
 
     <div class="folder-toolbar">
-      <div class="view-mode-seg" id="view-mode-seg">
-        <button class="view-btn ${viewMode === 'detail' ? 'active' : ''}" data-view="detail" title="详情">📋 详情</button>
-        <button class="view-btn ${viewMode === 'list' ? 'active' : ''}" data-view="list" title="列表">☰ 列表</button>
-        <button class="view-btn ${viewMode === 'icon' ? 'active' : ''}" data-view="icon" title="图标(缩略图)">🖼 图标</button>
-      </div>
+      ${renderViewDropdown(viewMode)}
       <div class="sort-box">
         <label class="ctrl-label">排序</label>
         <select id="sort-by">
@@ -197,12 +244,11 @@ export function renderFolderPage(container, opts) {
     </div>
 
     <div class="folder-body" id="folder-body">
-      ${data.subcats.length ? `
+      ${visibleSubcats.length ? `
         <div class="subcat-row" id="subcat-row">
-          ${data.subcats
-            .filter((sc) => catVisibleInGroup(sc, group))
+          ${visibleSubcats
             .map((sc) => {
-              const cnt = sc.items ? 0 : countItemsInCat(sc.id, group);
+              const cnt = countItemsInCat(sc.id, group);
               const tagNames = categoryTypeTagNames(sc);
               const tip = tagNames.length ? `资源类型: ${tagNames.join(' / ')}` : '';
               return `
@@ -216,7 +262,7 @@ export function renderFolderPage(container, opts) {
         </div>
       ` : ''}
 
-      ${sorted.length === 0 ? `
+      ${sorted.length === 0 && !visibleSubcats.length ? `
         <div class="folder-empty">
           <div>${filterActive ? '没有匹配的资源(试试调整标签过滤或搜索词)' : `该目录下暂无${group === 'all' ? '' : VIEW_LABEL_TXT[group] || ''}资源`}</div>
           ${filterActive ? '<button class="btn sm" id="clear-filter">清除过滤</button>' : '<button class="btn primary" id="empty-add">+ 添加资源</button>'}
@@ -227,11 +273,22 @@ export function renderFolderPage(container, opts) {
 
   // 事件绑定
   container.onclick = (e) => {
+    // 查看下拉:按钮切换展开/收起
+    const ddBtn = e.target.closest('.view-dropdown-btn');
+    if (ddBtn) {
+      ddBtn.parentElement.classList.toggle('open');
+      return;
+    }
     // 视图切换
     const vb = e.target.closest('[data-view]');
     if (vb) {
       actions.onViewMode && actions.onViewMode(vb.dataset.view);
       return;
+    }
+    // 点击其它区域关闭查看下拉(当前在 folder 容器内)
+    if (!e.target.closest('.view-dropdown')) {
+      const dd = container.querySelector('.view-dropdown.open');
+      if (dd) dd.classList.remove('open');
     }
     // 子目录
     const sub = e.target.closest('[data-cat]');
@@ -425,12 +482,12 @@ export function renderFolderPage(container, opts) {
   };
 
   // 图标视图缩略图(动画异步生成 dataURL;图片直连 URL)
-  if (viewMode === 'icon') {
+  if (isIconMode(viewMode)) {
     for (const it of sorted) {
       const imgEl = container.querySelector(`.res-thumb[data-item="${it.id}"]`);
       if (!imgEl) continue;
       if (it.type === 'audio' || it.type === 'model') continue; // 音频/3D 用默认图标
-      if (it.type === 'image') {
+      if (isImageType(it.type)) {
         const url = thumbnailService.thumbnailUrl(it);
         if (url) { imgEl.src = url; imgEl.onerror = () => { imgEl.style.display = 'none'; }; }
       } else {
@@ -453,8 +510,9 @@ export function renderFolderPage(container, opts) {
   }
 
   function countItemsInCat(catId, group) {
-    // 通过 getFolderData 的 subcats 统计:需要子分类直接资源数
-    return getFolderData(catId, group).stats.total;
+    // 递归统计该分类(含所有子孙)下符合当前分组的资源数
+    const ids = new Set([catId, ...getCategoryDescendants(catId)]);
+    return state.items.filter((i) => ids.has(i.categoryId) && (!group || group === 'all' || typeGroup(i.type) === group)).length;
   }
 }
 
@@ -470,7 +528,7 @@ function tagChipsHtml(arr, max = 3) {
 /** 资源悬停提示(多行):名称/类型/目录/标签/备注/文件 */
 function itemTooltip(it) {
   const tags = itemTags(it);
-  const typeName = it.type === 'spine' ? 'Spine' : it.type === 'dragonbones' ? 'DragonBones' : TYPE_LABEL[it.type] || it.type;
+  const typeName = typeLabel(it.type);
   const lines = [
     `名称: ${it.displayName || ''}`,
     `类型: ${typeName}`,
@@ -482,7 +540,46 @@ function itemTooltip(it) {
   return lines.join('\n');
 }
 
-/** 渲染资源列表主体(详情/列表/图标);编辑模式下显示选中态 */
+function iconSizeClass(viewMode) {
+  switch (viewMode) {
+    case 'extra-icon': return 'size-extra';
+    case 'large-icon': return 'size-large';
+    case 'small-icon': return 'size-small';
+    default: return 'size-medium';
+  }
+}
+function tileCardHtml(it, { editMode = false, selectedIds = new Set(), opsHtml = '' } = {}) {
+  const isSel = editMode && selectedIds.has(it.id) ? ' selected' : '';
+  const tags = itemTags(it);
+  const meta = editMode
+    ? `<span class="edit-check">${selectedIds.has(it.id) ? '☑ 已选' : '☐ 选中'}</span>`
+    : `<span class="type-badge ${it.type}">${typeLabel(it.type)}</span>
+       <span class="res-tile-size">${formatSize(it.size)}</span>
+       <span class="res-tile-date">${formatDate(it.mtime || it.updatedAt)}</span>`;
+  return `
+    <div class="res-tile-card${isSel}" data-item="${it.id}" title="${escapeHtml(itemTooltip(it))}">
+      <div class="res-tile-thumb-box">${thumbFallbackHtml(it, 'large')}</div>
+      <div class="res-tile-body">
+        <div class="res-tile-name" title="${escapeHtml(itemFileName(it))}">${nameExtHtml(it)}</div>
+        <div class="res-tile-meta">${meta}</div>
+        ${tags.length ? `<div class="res-tile-tags">${tagChipsHtml(tags, 3)}</div>` : ''}
+      </div>
+      ${opsHtml}
+    </div>
+  `;
+}
+function thumbFallbackHtml(it, sizeHint) {
+  if (it.type === 'audio') {
+    const fs = sizeHint === 'extra' ? 56 : sizeHint === 'large' ? 48 : sizeHint === 'small' ? 28 : 40;
+    return `<div class="res-thumb audio-fallback" data-item="${it.id}" style="font-size:${fs}px;color:#b28df0">♪</div>`;
+  }
+  if (it.type === 'model') {
+    const fs = sizeHint === 'extra' ? 52 : sizeHint === 'large' ? 44 : sizeHint === 'small' ? 26 : 36;
+    return `<div class="res-thumb audio-fallback" data-item="${it.id}" style="font-size:${fs}px;color:#4cc9f0">🧊</div>`;
+  }
+  return `<img class="res-thumb" data-item="${it.id}" alt="" />`;
+}
+/** 渲染资源列表主体(详情/列表/内容/平铺/多尺寸图标);编辑模式下显示选中态 */
 function renderResources(items, viewMode, editMode = false, selectedIds = new Set()) {
   const isSel = (id) => (editMode && selectedIds.has(id) ? ' selected' : '');
 
@@ -503,8 +600,8 @@ function renderResources(items, viewMode, editMode = false, selectedIds = new Se
           ${items.map((it) => `
             <tr data-item="${it.id}" class="${isSel(it.id).trim()}" title="${escapeHtml(itemTooltip(it))}">
               ${editMode ? `<td><span class="edit-check">${selectedIds.has(it.id) ? '☑' : '☐'}</span></td>` : ''}
-              <td><div class="cell-name"><span class="type-badge ${it.type}">${TYPE_LABEL[it.type] || it.type}</span><span class="cn-main">${escapeHtml(itemFileName(it))}</span></div></td>
-              <td>${escapeHtml(it.type === 'spine' ? 'Spine' : it.type === 'dragonbones' ? 'DragonBones' : TYPE_LABEL[it.type])}</td>
+              <td><div class="cell-name"><span class="type-badge ${it.type}">${typeLabel(it.type)}</span><span class="cn-main">${escapeHtml(itemFileName(it))}</span></div></td>
+              <td>${escapeHtml(typeLabel(it.type))}</td>
               <td class="cell-size">${formatSize(it.size)}</td>
               <td class="cell-date">${formatDate(it.mtime || it.updatedAt)}</td>
               <td class="cell-tags">${tagChipsHtml(itemTags(it))}</td>
@@ -522,12 +619,12 @@ function renderResources(items, viewMode, editMode = false, selectedIds = new Se
     `;
   }
 
-  if (viewMode === 'list') {
+  if (viewMode === 'list' || viewMode === 'content') {
     return `
-      <div class="res-view-list">
+      <div class="res-view-list${viewMode === 'content' ? ' res-view-content' : ''}">
         ${items.map((it) => `
           <div class="res-row${isSel(it.id)}" data-item="${it.id}" title="${escapeHtml(itemTooltip(it))}">
-            ${editMode ? `<span class="edit-check">${selectedIds.has(it.id) ? '☑' : '☐'}</span>` : `<span class="type-badge ${it.type}">${TYPE_LABEL[it.type] || it.type}</span>`}
+            ${editMode ? `<span class="edit-check">${selectedIds.has(it.id) ? '☑' : '☐'}</span>` : `<span class="type-badge ${it.type}">${typeLabel(it.type)}</span>`}
             <span class="r-name">${escapeHtml(itemFileName(it))}</span>
             <span class="r-tags">${tagChipsHtml(itemTags(it), 2)}</span>
             <span class="r-size">${formatSize(it.size)}</span>
@@ -544,19 +641,32 @@ function renderResources(items, viewMode, editMode = false, selectedIds = new Se
     `;
   }
 
-  // 图标视图
+  if (viewMode === 'tile') {
+    return `
+      <div class="res-tile-grid">
+        ${items.map((it) => {
+          const ops = editMode ? '' : `
+            <div class="res-tile-ops">
+              <button class="icon-btn" data-op="preview" data-item="${it.id}" title="预览/播放">▶</button>
+              <button class="icon-btn" data-op="fav" data-item="${it.id}" title="收藏">★</button>
+              <button class="icon-btn" data-op="edit" data-item="${it.id}" title="编辑">✎</button>
+            </div>`;
+          return tileCardHtml(it, { editMode, selectedIds, opsHtml: ops });
+        }).join('')}
+      </div>
+    `;
+  }
+
+  // 图标视图(含多尺寸)
+  const sizeHint = viewMode === 'extra-icon' ? 'extra' : viewMode === 'large-icon' ? 'large' : viewMode === 'small-icon' ? 'small' : 'medium';
   return `
-    <div class="res-grid">
+    <div class="res-grid ${iconSizeClass(viewMode)}">
       ${items.map((it) => {
         const tags = itemTags(it);
         return `
         <div class="res-card${isSel(it.id)}" data-item="${it.id}" title="${escapeHtml(itemTooltip(it))}">
           <div class="res-thumb-box">
-            ${it.type === 'audio'
-              ? `<div class="res-thumb audio-fallback" data-item="${it.id}" style="font-size:40px;color:#b28df0">♪</div>`
-              : it.type === 'model'
-                ? `<div class="res-thumb audio-fallback" data-item="${it.id}" style="font-size:36px;color:#4cc9f0">🧊</div>`
-                : `<img class="res-thumb" data-item="${it.id}" alt="" />`}
+            ${thumbFallbackHtml(it, sizeHint)}
           </div>
           <div class="rc-name" title="${escapeHtml(itemFileName(it))}">${nameExtHtml(it)}</div>
           ${tags.length ? `
@@ -566,7 +676,7 @@ function renderResources(items, viewMode, editMode = false, selectedIds = new Se
           </div>` : ''}
           <div class="rc-meta">
             ${editMode ? `<span class="edit-check">${selectedIds.has(it.id) ? '☑ 已选' : '☐ 选中'}</span>`
-              : `<span class="type-badge ${it.type}">${TYPE_LABEL[it.type] || it.type}</span>
+              : `<span class="type-badge ${it.type}">${typeLabel(it.type)}</span>
                  <span class="rc-size">${formatSize(it.size)}</span>`}
           </div>
         </div>
@@ -614,11 +724,7 @@ export function renderFavFolderPage(container, opts) {
     </div>
 
     <div class="folder-toolbar">
-      <div class="view-mode-seg" id="view-mode-seg">
-        <button class="view-btn ${viewMode === 'detail' ? 'active' : ''}" data-view="detail" title="详情">📋 详情</button>
-        <button class="view-btn ${viewMode === 'list' ? 'active' : ''}" data-view="list" title="列表">☰ 列表</button>
-        <button class="view-btn ${viewMode === 'icon' ? 'active' : ''}" data-view="icon" title="图标(缩略图)">🖼 图标</button>
-      </div>
+      ${renderViewDropdown(viewMode)}
       <div class="sort-box">
         <label class="ctrl-label">排序</label>
         <select id="sort-by">
@@ -643,8 +749,14 @@ export function renderFavFolderPage(container, opts) {
   `;
 
   container.onclick = (e) => {
+    const ddBtn = e.target.closest('.view-dropdown-btn');
+    if (ddBtn) { ddBtn.parentElement.classList.toggle('open'); return; }
     const vb = e.target.closest('[data-view]');
     if (vb) { actions.onViewMode && actions.onViewMode(vb.dataset.view); return; }
+    if (!e.target.closest('.view-dropdown')) {
+      const dd = container.querySelector('.view-dropdown.open');
+      if (dd) dd.classList.remove('open');
+    }
     if (e.target.id === 'sort-dir') { actions.onSort && actions.onSort(sortBy, sortDir === 'asc' ? 'desc' : 'asc'); return; }
     const op = e.target.closest('[data-op]');
     if (op) {
@@ -668,12 +780,12 @@ export function renderFavFolderPage(container, opts) {
   if (sortSel) sortSel.addEventListener('change', () => actions.onSort && actions.onSort(sortSel.value, sortDir));
 
   // 图标视图缩略图
-  if (viewMode === 'icon') {
+  if (isIconMode(viewMode)) {
     for (const it of sorted) {
       const imgEl = container.querySelector(`.res-thumb[data-item="${it.id}"]`);
       if (!imgEl) continue;
       if (it.type === 'audio' || it.type === 'model') continue;
-      if (it.type === 'image') {
+      if (isImageType(it.type)) {
         const url = thumbnailService.thumbnailUrl(it);
         if (url) { imgEl.src = url; imgEl.onerror = () => { imgEl.style.display = 'none'; }; }
       } else {
@@ -692,7 +804,7 @@ export function renderFavFolderPage(container, opts) {
   if (newBody && savedScroll) newBody.scrollTop = savedScroll;
 }
 
-/** 收藏夹目录列表资源主体(详情/列表/图标);操作 = 移动收藏分类 / 取消收藏 */
+/** 收藏夹目录列表资源主体(详情/列表/内容/平铺/多尺寸图标);操作 = 移动收藏分类 / 取消收藏 */
 function renderFavResources(items, viewMode) {
   const rowOps = (it) => `
     <button class="icon-btn" data-op="move" data-fav="${it._favId}" data-item="${it.id}" title="移动到其他收藏分类">⇄</button>
@@ -713,8 +825,8 @@ function renderFavResources(items, viewMode) {
         <tbody>
           ${items.map((it) => `
             <tr data-item="${it.id}" title="${escapeHtml(itemTooltip(it))}">
-              <td><div class="cell-name"><span class="type-badge ${it.type}">${TYPE_LABEL[it.type] || it.type}</span><span class="cn-main">${escapeHtml(itemFileName(it))}</span></div></td>
-              <td>${escapeHtml(it.type === 'spine' ? 'Spine' : it.type === 'dragonbones' ? 'DragonBones' : TYPE_LABEL[it.type])}</td>
+              <td><div class="cell-name"><span class="type-badge ${it.type}">${typeLabel(it.type)}</span><span class="cn-main">${escapeHtml(itemFileName(it))}</span></div></td>
+              <td>${escapeHtml(typeLabel(it.type))}</td>
               <td class="cell-size">${formatSize(it.size)}</td>
               <td class="cell-date">${formatDate(it.mtime || it.updatedAt)}</td>
               <td class="cell-tags">${tagChipsHtml(itemTags(it))}</td>
@@ -726,12 +838,12 @@ function renderFavResources(items, viewMode) {
       </table>
     `;
   }
-  if (viewMode === 'list') {
+  if (viewMode === 'list' || viewMode === 'content') {
     return `
-      <div class="res-view-list">
+      <div class="res-view-list${viewMode === 'content' ? ' res-view-content' : ''}">
         ${items.map((it) => `
           <div class="res-row" data-item="${it.id}" title="${escapeHtml(itemTooltip(it))}">
-            <span class="type-badge ${it.type}">${TYPE_LABEL[it.type] || it.type}</span>
+            <span class="type-badge ${it.type}">${typeLabel(it.type)}</span>
             <span class="r-name">${escapeHtml(itemFileName(it))}</span>
             <span class="r-tags">${tagChipsHtml(itemTags(it), 2)}</span>
             <span class="r-size">${formatSize(it.size)}</span>
@@ -742,18 +854,39 @@ function renderFavResources(items, viewMode) {
       </div>
     `;
   }
+  if (viewMode === 'tile') {
+    return `
+      <div class="res-tile-grid">
+        ${items.map((it) => {
+          const tags = itemTags(it);
+          return `
+          <div class="res-tile-card" data-item="${it.id}" title="${escapeHtml(itemTooltip(it))}">
+            <div class="res-tile-thumb-box">${thumbFallbackHtml(it, 'large')}</div>
+            <div class="res-tile-body">
+              <div class="res-tile-name" title="${escapeHtml(itemFileName(it))}">${nameExtHtml(it)}</div>
+              <div class="res-tile-meta">
+                <span class="type-badge ${it.type}">${typeLabel(it.type)}</span>
+                <span class="res-tile-size">${formatSize(it.size)}</span>
+                <span class="res-tile-date">${formatDate(it.mtime || it.updatedAt)}</span>
+              </div>
+              ${tags.length ? `<div class="res-tile-tags">${tagChipsHtml(tags, 3)}</div>` : ''}
+            </div>
+            <div class="res-tile-ops">${rowOps(it)}</div>
+          </div>
+        `;
+      }).join('')}
+      </div>
+    `;
+  }
+  const sizeHint = viewMode === 'extra-icon' ? 'extra' : viewMode === 'large-icon' ? 'large' : viewMode === 'small-icon' ? 'small' : 'medium';
   return `
-    <div class="res-grid">
+    <div class="res-grid ${iconSizeClass(viewMode)}">
       ${items.map((it) => {
         const tags = itemTags(it);
         return `
         <div class="res-card" data-item="${it.id}" title="${escapeHtml(itemTooltip(it))}">
           <div class="res-thumb-box">
-            ${it.type === 'audio'
-              ? `<div class="res-thumb audio-fallback" data-item="${it.id}" style="font-size:40px;color:#b28df0">♪</div>`
-              : it.type === 'model'
-                ? `<div class="res-thumb audio-fallback" data-item="${it.id}" style="font-size:36px;color:#4cc9f0">🧊</div>`
-                : `<img class="res-thumb" data-item="${it.id}" alt="" />`}
+            ${thumbFallbackHtml(it, sizeHint)}
           </div>
           <div class="rc-name" title="${escapeHtml(itemFileName(it))}">${nameExtHtml(it)}</div>
           ${tags.length ? `
@@ -762,7 +895,7 @@ function renderFavResources(items, viewMode) {
             ${tags.length > 1 ? `<span class="tag-chip tag-chip-more">+${tags.length - 1}</span>` : ''}
           </div>` : ''}
           <div class="rc-meta">
-            <span class="type-badge ${it.type}">${TYPE_LABEL[it.type] || it.type}</span>
+            <span class="type-badge ${it.type}">${typeLabel(it.type)}</span>
             <span class="rc-size">${formatSize(it.size)}</span>
           </div>
         </div>

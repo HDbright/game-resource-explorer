@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld('api', {
   // ---- 资源工具箱:通用文件 I/O ----
   pickFiles: (opts) => ipcRenderer.invoke('fs:pickFiles', opts),
   importIcon: () => ipcRenderer.invoke('icon:import'),
+  fileIcon: (p) => ipcRenderer.invoke('icon:fromFile', p),
   collectFiles: (args) => ipcRenderer.invoke('tool:collectFiles', args),
   readBase64: (p) => ipcRenderer.invoke('fs:readBase64', p),
   writeFileBase64: (p, dataUrl) => ipcRenderer.invoke('fs:writeFileBase64', p, dataUrl),

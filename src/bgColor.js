@@ -11,7 +11,7 @@ export function isDarkColor(hex) {
 }
 
 export const BG_DARK = '#22242b';
-export const BG_LIGHT = '#eef0f5';
+export const BG_LIGHT = '#c9ccd3'; // 浅灰(动画/图片/FGUI 预览页「浅」按钮的颜色)
 export const CUSTOM_BG_KEY = 'customBgColor';
 
 /** 当前自定义背景色 */
@@ -30,14 +30,16 @@ export function customBgColor() {
  *   - onApply(hex): 应用背景色(调用方负责设置渲染器 + 持久化模块自己的设置键)
  */
 export function initBgColorBar({ input, darkBtn, lightBtn, customBtn, saveBtn, onApply, dark = BG_DARK, light = BG_LIGHT }) {
-  const paint = (btn, hex) => {
+  const paint = (btn, hex, border = 'transparent') => {
     if (!btn) return;
     btn.style.background = hex;
     btn.style.color = isDarkColor(hex) ? '#fff' : '#111';
-    btn.style.borderColor = 'transparent';
+    btn.style.borderColor = border;
   };
   const syncButtons = () => {
-    paint(darkBtn, dark);
+    // 「深」按钮保留与「存」按钮一致的浅色边框线(同 .btn 默认 var(--border)),
+    // 在深色背景上能看清按钮轮廓,「浅」「自定义」按钮透明边框即可
+    paint(darkBtn, dark, 'var(--border)');
     paint(lightBtn, light);
     paint(customBtn, customBgColor());
   };

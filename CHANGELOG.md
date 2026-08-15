@@ -3,9 +3,266 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.0.1`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.0.24`）。
 
 ---
+
+## 2026-08-15
+
+### [新增] 发布 v2.0.24：图片预览页右键图片弹出与列表页一致的图片菜单
+
+- **需求**：图片预览页右键图片时，弹出与图片列表页（目录列表）条目相同的右键菜单。
+- **实现**：`src/ui.js` 的 `showImageViewer` 在加载图片时为 `#img-display` 绑定 `contextmenu`，复用列表页同一个 `openItemMenu(x, y, item)`（编辑/预览、打开目录、编辑、重命名、移动到...、收藏、删除、属性；带图集的图片还有拆分浏览/查看原图/拆分图集）。右键时 `preventDefault + stopPropagation`，避免浏览器默认菜单与事件冒泡。
+- 文件：`src/ui.js`。
+
+---
+
+## 2026-08-15
+
+### [新增] 发布 v2.0.23：图片预览底部工具栏增加旋转/镜像/重置工具 + 修复主页资源文件行点击无响应
+
+- **新增（图片预览变换工具）**：
+  - 图片预览底部工具栏新增「↻ 顺时针旋转 90°」「⇋ 水平镜像」「⇅ 垂直镜像」「⟲ 重置视图」四个按钮。
+  - `src/viewers/imageViewer.js`：`ImageViewerController` 增加 `rotation`(0/90/180/270) / `flipX` / `flipY` 状态与 `rotate()` / `flipH()` / `flipV()` / `reset()` 方法；`_apply()` 变换改为 `translate(…) rotate(…) scale(sx, sy)`（镜像用负号缩放实现）；`fit()` 适配窗口时按旋转后宽高互换计算（90/270 时用自然高宽互换）；旋转后重置平移并重新适配。
+  - `index.html` / `src/style.css`：按钮与工具栏分隔线样式。
+- **修复（主页资源文件行点击无响应）**：类型主页目录树里的资源文件行 `.type-cat-item` 缺 `data-act="item"`，主页事件委托只认 `[data-act]`，导致点击文件行没有任何反应。已补上 `data-act="item"`，点文件行可直接打开资源预览（与目录名行「打开分类」、箭头「展开/折叠」区分开）。
+- **验证**：用临时探针在用户真实库上确认——动画主页目录树默认展开后资源文件直接可见；带 `.atlas` 的 `new.png` 点击文件行进入图片预览（适配窗口 scale(1)，不跳图集拆分页）。临时探针代码已清理。
+- 文件：`src/viewers/imageViewer.js`、`index.html`、`src/style.css`、`src/pages/homePage.js`。
+
+---
+
+## 2026-08-15
+
+### [修复] 发布 v2.0.22：.jpg 与 .png 图片预览默认缩放模式不一致
+
+- **现象**：图片资源预览时，.jpg 图片默认缩放模式（适配窗口）与 .png 图片不一致。
+- **根因**：打开图片时若存在同名 `.atlas`（图集），`.png` 会被自动跳转到「图集拆分浏览页」（按 100% 原尺寸显示单图网格）；而 `.jpg` 几乎不带图集，走普通图片预览（默认「适配窗口」缩放）。用户的真实库里 `new.png`、`hedao.png`、`chuansongmen.png` 等一批 `.png` 均带 `.atlas`，导致 .png/.jpg 打开后的默认展示不一致。
+- **修复**：`src/ui.js` 的 `selectItem` 移除「带图集图片自动跳转拆分页」逻辑——所有图片统一进入图片预览页（默认适配窗口缩放），.png 与 .jpg 表现一致；带图集的图片仍显示「🗂 图集」徽标，「图集拆分」按钮点击后才进入拆分浏览页。
+- 文件：`src/ui.js`。
+
+---
+
+## 2026-08-15
+
+### [修复] 发布 v2.0.21：动画主页目录树默认展开 + 背景按钮浅色化 + 切换按钮悬浮亮三档
+
+- **问题 1（动画主页看不到资源文件）**：动画主页的目录树默认折叠，资源文件深藏其中，用户感知为「无法显示资源文件」。用 CDP / executeJavaScript 临时探针在用户真实库（1567 项）上验证：进入「异兽灵境」目录页实际渲染 142 行 `<tr data-item>`，列表渲染正常；但动画主页目录树折叠状态下不显示文件。修复：`src/pages/homePage.js` 的 `renderTypeCatNode` 在用户尚未手动展开/折叠过（`typeCatExpanded.size === 0`）时，默认展开顶层分类，资源文件立即可见；用户点 ▶ 可自行折叠。临时探针代码已清理。
+- **问题 2（背景按钮样式）**：
+  - 「浅」按钮背景色和点击后预览背景色改为浅灰色（`BG_LIGHT = '#c9ccd3'`）。
+  - 「深」按钮加上与「存」按钮一致的浅色边框线（`paint` 新增 border 参数，`darkBtn` 传 `var(--border)`），在深色背景上能看清按钮轮廓。「浅」「自定义」按钮仍透明边框。
+- **问题 3（前后切换按钮悬浮色）**：`.pv-nav-btn:hover` 背景由 `var(--bg4)`（亮一档）改为 `color-mix(in srgb, var(--bg3) 40%, #fff)`（亮三档，主题感知，dark/light 都自然）。
+- 文件：`src/pages/homePage.js`、`src/bgColor.js`、`src/style.css`。
+
+---
+
+## 2026-08-15
+
+### [修复] 发布 v2.0.20：预览前后切换若干问题(仅一个资源误报 / 边界提示 / 按钮样式与提示语 / toast 边框)
+
+- **「下一张」误报「当前目录仅一个资源」**：从自定义资源分组（如「图标资源」）导航进入目录打开图片时，`resourceTab` 是分组 id，原 `previewNavIds()` 用 `currentGroup()` 当过滤组，与图片的 `typeGroup('image')` 不匹配，列表被滤成空。修复：改为按「当前预览资源的类型分组」过滤（`typeGroup(preview.currentItemId.type)`），目录里多张图片即可正常前后切换。
+- **浏览到末尾/开头提示**：到最后一**张**点「下一张」→ 提示「已经是最后一张了」；再次点击 → 回到第一张继续浏览。第一张点「上一张」同理提示「已经是第一张了」，再次点击回绕到最后一张。
+- **按钮悬浮样式**：悬浮时背景色由原来的主色高亮改为仅比原按钮背景亮一档（`var(--bg4)`），不再刺眼。
+- **提示语**：图片预览页按钮提示语改为「上一张 / 下一张」（动画预览保持「上一个 / 下一个」）。
+- **toast 去边框**：`src/dialogs.js` 的轻量提示条去掉 `border` 边框线（含 ok/error 的边框着色逻辑一并移除）。
+- 文件：`src/ui.js`、`src/style.css`、`index.html`、`src/dialogs.js`。
+
+---
+
+## 2026-08-15
+
+### [新增] 发布 v2.0.19：动画/图片预览页悬停画面左右边缘浮现「上一个 / 下一个」切换按钮
+
+- **需求**：动画预览和图片预览页面，鼠标移到画面左侧/右侧区域时，左右两侧浮现「上一个 | 下一个」切换按钮（图标，非文字），方便直接切换查看前后资源。
+- **实现**：
+  1. `index.html`：在 `#pv-canvas-wrap`（动画）与 `#img-canvas-wrap`（图片）内各加一对悬浮切换按钮（SVG 左右箭头图标，非文字），置于左右 22% 悬停热区内。
+  2. `src/style.css`：新增 `.pv-nav-zone` / `.pv-nav-btn` 样式——按钮默认透明，悬停对应侧区域才浮现（带淡入过渡），悬停高亮为主色调，圆形图标按钮。
+  3. `src/ui.js`：
+     - 新增 `previewNavIds()`：计算当前预览上下文的前后切换顺序（目录页=当前目录当前分组直接资源按当前排序；收藏夹=收藏条目列表）。
+     - 新增 `bindPreviewNavArrows()`：点击「上一个/下一个」时在当前列表中循环定位前后资源并切换。
+     - `selectItem` 新增 `replaceCurrent` 选项：前后切换时**复用当前预览标签**（不因「同类型新开标签」设置而堆叠新标签）；图片切换强制 `forceRaw` 原图预览，不跳图集拆分页。
+- 说明：切换顺序与目录列表页当前排序一致；无前后资源（仅 1 个）时提示。文件：`index.html`、`src/style.css`、`src/ui.js`。
+
+---
+
+## 2026-08-15
+
+### [修复] 发布 v2.0.18：修复侧栏菜单节点高亮不跟随(点击 emoji 图标后高亮仍停留在上一节点)
+
+- **现象**：左侧菜单栏从其它已打开的节点点击「emoji 图标」时，当前菜单节点的背景高亮没有切换到「emoji 图标」节点，仍停留在上一个节点上。
+- **根因**：侧栏高亮判定 `menuNodeActive()`（`src/ui.js`）未处理 `page:emoji` 动作。点击后 `emojiShown=true`、页面正常打开，但该节点 `active` 恒为 false，高亮不跟随。
+- **修复**：`menuNodeActive()` 增加 `page:emoji` → `emojiShown` 分支。
+- **同类排查**：终端节点动作 `page:webgame` / `page:scene` / `page:toolbox` / `page:fav`（「编辑终端」下拉中可选，`dispatchMenuTerm` 已支持）在 `menuNodeActive` 中也缺失，一并补上（映射到与内置目录节点相同的状态标志），避免用户把终端节点目标设为这些页面后同样出现高亮不跟随。
+- 文件：`src/ui.js`。
+
+---
+
+## 2026-08-15
+
+### [修复] 发布 v2.0.17：emoji 图标管理菜单改为标签页打开 + 页面滚动卡顿优化
+
+- **问题1：点击「emoji 图标」菜单未新开标签页**。
+  - 现象：通过左侧菜单栏点击「emoji 图标」，主显示区标签条高亮的却是「资源首页」，而非「emoji 图标管理」标签。
+  - 根因：多标签同步 `syncTabFromState()` 未包含 `emojiShown` 分支，点击后 `ensureTab` 落入资源首页标签；`applyTabState` 也没有 `kind:'emoji'` 分支。
+  - 修复：`src/ui.js` 的 `syncTabFromState` 增加 `emojiShown` → `ensureTab('emoji', { kind:'emoji', label:'emoji 图标管理', icon:'😀' })` 分支；`applyTabState` 增加 `kind:'emoji'` 分支（设 `emojiShown=true` 后渲染）；品牌「回到全部资源首页」点击同步清除 `emojiShown`。现在点击菜单会在主区新开/激活「emoji 图标管理」标签页，可像其它功能页一样切换、关闭。
+- **问题2：emoji 图标库页面滚动/拖滚动条卡顿**。
+  - 根因：一次性往网格里追加 950+ 张卡片（逐卡 append 触发大量重排），滚动时浏览器每帧都要处理全部卡片的布局与绘制。
+  - 修复：
+    1. `src/pages/emojiPage.js`：卡片改用 `DocumentFragment` 一次性挂载，减少重排次数。
+    2. `src/style.css`：`.emoji-card` 加 `content-visibility: auto`（浏览器跳过屏幕外卡片的布局/绘制）+ `contain-intrinsic-size: auto 84px`（占位尺寸，防止滚动条跳动），滚动明显更流畅。
+- 文件：`src/ui.js`、`src/pages/emojiPage.js`、`src/style.css`。
+
+---
+
+## 2026-08-15
+
+### [修复] 发布 v2.0.16：emoji 图标库管理页内容超出窗口无滚动条
+
+- **现象**：打开「emoji 图标库」管理页后，图标网格内容超过窗口显示区域，页面不出现滚动条，看不到下方内容。
+- **根因**：通用页面规则 `.content-panel .page { overflow: hidden; }`（特异性 0,2,0）覆盖了 `.page-emoji { overflow: auto; }`（特异性 0,1,0），滚动被隐藏。与之前 `.page-settings` 踩过的坑完全相同。
+- **修复**：`src/style.css` 将 `.page-emoji` 改为更高特异性的 `.content-panel .page.page-emoji { overflow-y: auto; overflow-x: hidden; }`，并补充滚动条样式（同 page-settings），内容超出时正常出现纵向滚动条。
+- 文件：`src/style.css`。
+
+---
+
+## 2026-08-15
+
+### [修复] 发布 v2.0.15：修复启动时卡在启动画面(npm run dev 启动崩溃)
+
+- **现象**：`npm run dev` 启动后一直卡在「游戏资源管理器」启动画面，主窗口始终停留在加载骨架屏，无法进入主界面。
+- **根因**：`loadState()` 中 `mergeDefaultIconLibrary()`（emoji 图标库合并去重）对 `seen`（`Map`，用于记录全局已出现条目）误调用了 `seen.add(k)`。老库存在缺失的默认 emoji 需要补齐时，首次执行即抛 `TypeError: a.add is not a function`，`loadState()` 中断 → `main()` 异常 → 启动骨架屏永不移除。
+- **修复**：`src/state.js` 的 `mergeDefaultIconLibrary` 将 `seen.add(k)` 改为 `seen.set(k, true)`（与 `seen` 作为 `Map` 的语义一致），补齐新 emoji 时同步登记已出现键，避免后续分组重复添加。
+- 文件：`src/state.js`。
+
+---
+
+### [修复] 发布 v2.0.14：修复「emoji 图标」终端节点编辑后目标页面被重置为「系统设置」
+
+- **现象**：右键「emoji 图标」菜单节点 →「编辑终端」，弹窗的「目标页面」下拉默认选中「系统设置」且列表中没有「emoji 图标管理」选项；点确定后左侧「emoji 图标」节点的目标页面变成「系统设置页面」。
+- **根因**：`page:emoji` 未被登记进 `MENU_ACTION_OPTIONS`（内置动作选项），`fillTargetSelect` 在校验当前 `action` 不在可选项时静默回退到第一项 `page:settings`。此外 `ensureEmojiMenuNode` 仅按 `action === 'page:emoji'` 幂等判断，节点被改坏后会再新建重复节点。
+- **修复**：
+  1. `src/ui.js` / `src/pages/settingsPage.js` 的 `MENU_ACTION_OPTIONS` 均加入 `{ value: 'page:emoji', label: 'emoji 图标管理' }`，「目标页面」下拉正确列出该选项并默认选中。
+  2. 两处 `fillTargetSelect` 增加兜底：当前 `action` 不在可选项时追加临时项保留其值，不再静默重置（防止未来新增内置页面再次踩坑）。
+  3. `src/state.js` 的 `ensureEmojiMenuNode` 改为按名称(忽略空白)匹配「图标」根下的 emoji 节点，命中即修复其 `action/actionType`，并删除同名重复节点，避免越改越多。
+- 文件：`src/ui.js`、`src/pages/settingsPage.js`、`src/state.js`。
+
+---
+
+### [修复] 发布 v2.0.13：进入具体分类目录显示该目录下全部资源
+
+- **现象**：`.ico` 图标被识别为自定义类型「图标资源」(`ct_msstyr9k_et8ph7`)，该类型 `group` 设为 `image`，因此资源 `typeGroup` 实际是 `image`。当用户从「图标资源」根(自定义分组)点进「应用图标」分类时，目录页按当前导航分组(`cg图标`)二次过滤，把这批资源过滤掉，显示 0；而从「图片资源」根进入则能看到。
+- **修复**：`src/ui.js` 进入**具体分类**目录时，不再按当前顶部资源 tab / 导航分组二次过滤，改为显示该分类下**所有资源**(与点击分类即定位到容器窗口的直觉一致)。`group` 仅用于统计区类型计数与子分类可见性判断，不再过滤资源列表。
+- 文件：`src/ui.js`(`renderMainArea` 的具体分类分支)。
+
+---
+
+### [修复] 发布 v2.0.12：添加资源时自动扩展分类 typeTags,修复「已存在但目录不显示」
+
+- **根因**：`.ico` 文件被识别为自定义分组「图标资源」类型后，目标分类「应用图标」的 `typeTags` 只有 `image`，导致入库的资源因分组不匹配被过滤隐藏；再次添加时又被重复检测为「已存在,跳过」。
+- **修复**：
+  - `src/state.js` 新增 `ensureCategoryTypeTag(catId, type)`：当分类已勾选标签且未包含资源所属分组时，自动扩展该分类的 `typeTags`。
+  - `addItem` 入库前自动调用，保证新资源可见。
+  - `src/addFlow.js` 在添加/拖拽流程中，对重复项也调用 `ensureCategoryTypeTag`，修复已存在但隐藏的历史数据。
+  - 添加资源对话框的统计文案改为「共 N 个资源(已勾选 X 个,可添加 Y 个,已存在 Z 个)」，已存在数量统计更准确。
+- 文件：`src/state.js`、`src/addFlow.js`。
+
+---
+
+## 2026-08-15
+
+### [修复] 发布 v2.0.11：.ico 图标文件无法扫描入库
+
+- **根因**：图片类型识别扩展名列表（`electron/scanner.js` 的 `IMAGE_EXTS` 与 `src/state.js` 的 `TYPE_EXTENSIONS.image`）均未包含 `.ico`，导致扫描目录添加资源时 `.ico` 文件被静默忽略——既不入库也无报错，于是资源列表与统计均为空。
+- **修复**：两处列表均加入 `.ico`；文件服务端 `electron/server.js` 早已支持 `.ico`（用 `nativeImage` 转 PNG 返回），缩略图与预览可正常显示。
+- 受影响场景：「图标资源 / 应用图标」等图片分类目录添加 `.ico` 图标后列表与统计为空。
+- 注意：本次修复前已添加的空目录需重新执行一次「添加资源」才能把 `.ico` 文件入库。
+
+---
+
+## 2026-08-15
+
+### [修复] 发布 v2.0.10：查看图标联动 / 侧栏统计 / 主页统计 / 资源列表空态
+
+- **查看按钮图标联动**：选择不同查看模式后，顶部「查看」下拉按钮左侧图标同步显示为当前模式对应图标（超大/大/中/小图标、列表、详细信息、平铺、内容等）。
+- **侧栏分类数量统计**：
+  - 根级资源分类节点（动画/图片/音频/3D/自定义分组资源）现在显示该分组总资源数。
+  - 一级及以下分类节点数字改为递归统计（包含所有子孙分类中的资源），避免父分类因有子分类但自身无直接资源而显示 0。
+- **主页统计修复**：类型主页（动画/图片/音频/3D）此前用 `types.includes(typeGroup(item.type))` 过滤，把分组 id 与具体 type 混淆，导致统计为 0；改为 `typeGroup(i.type) === group`，统计与分类树均恢复正常。
+- **资源浏览列表空态**：目录只有子分类、没有直接资源时，不再错误显示「该目录下暂无资源」空态；子分类存在时优先展示子分类卡片。
+- 文件：`src/pages/folderPage.js`、`src/pages/homePage.js`、`src/state.js`、`src/ui.js`。
+
+---
+
+## 2026-08-15
+
+### [新增] 发布 v2.0.9：资源列表改用 Windows 资源管理器风格「查看」下拉菜单
+
+- 资源列表(目录/收藏夹)的视图切换从三个按钮改为「☰ 查看」下拉菜单，菜单项包括：超大图标 / 大图标 / 中图标 / 小图标 / 列表 / 详细信息 / 平铺 / 内容 / 详细信息窗格 / 预览窗格。
+- 新增超大/大/中/小四种图标尺寸；平铺视图使用横向卡片布局；内容与列表共用布局并可通过 CSS 后续扩展。
+- 文件：`src/pages/folderPage.js`、`src/style.css`。
+
+---
+
+## 2026-08-15
+
+### [修复] 发布 v2.0.8：资源类型管理的资源分组/资源类型导入 .ico 显示代码
+
+- 根因：资源类型管理的自定义资源分组列表与资源类型列表用 `ic.textContent = xxx.icon` 把图标当文本插入；导入图片 dataURL 显示成代码。
+- 修复：两处改为 `iconNode(icon || '🗂', 'cat-icon')`（图片渲染 `<img>`）；两个编辑对话框图标字段标签改为「图标(emoji 或导入图片)」。`.cat-icon img` 尺寸样式已存在。
+- 文件：`src/pages/settingsPage.js`。
+
+---
+
+## 2026-08-15
+
+### [修复] 发布 v2.0.7：设置页「编辑卡片标题与图标」导入 .ico 后显示代码而非图标
+
+- 根因：设置页卡片标题行 `cardHeadHtml()` 及「编辑卡片标题与图标」对话框确定后都用 `esc(icon)` 把图标当文本插入；导入的 .ico 图标值是 `data:image/...` dataURL，于是渲染成一段代码文本。
+- 修复：新增 `cardIconHtml(icon)`，图片型图标渲染为 `<img>`，emoji 仍走文本；图片加 16×16 尺寸与居中；对话框图标字段标签改为「图标(emoji 或导入图片)」。
+- 文件：`src/pages/settingsPage.js`、`src/style.css`。
+
+---
+
+## 2026-08-14
+
+### [修复] 发布 v2.0.6：转换为资源分类后左侧栏看不见(自定义分组无资源根)
+
+- **问题**：把菜单目录(如「图标资源」)转换为资源分类、且分类归属到**自定义资源分组**时，该分类在系统设置「分类目录」里能看到，但左侧菜单栏看不到。
+- **根因**：自定义资源分组从未在左侧栏生成对应的「资源根」菜单节点(无 `res:group:<id>` 节点)，分类无处挂载；且 `renderMenuChildren` 对 `res:group:` 前缀用了 `slice(4)` 取到的是 `group:<id>`(错误分组)，点击根节点也会误触发。
+- **修复**（`src/state.js` + `src/ui.js`）：
+  - 新增 `ensureResourceRootsForCategories()`：启动时(loadState)自修复——凡被分类目录引用到的自定义资源分组，自动在左侧栏「3D资源」之后生成对应资源根(`res:group:<id>`，图标 🗂，命名取分组名)，使其下分类立即可见。
+  - `renderMenuChildren` 修正 `res:group:` 前缀的分组提取(`slice('res:group:'.length)`)。
+  - `dispatchMenuDir` 新增 `res:group:` 分支：点击自定义分组资源根正确进入该分组资源页。
+  - 「转换为资源分类」完成后立即调用自修复，新分类无需重启即显示。
+- **验证**：`node --check` 通过；`scripts/check-imports.js` 导入自检通过。
+
+### [修复] 发布 v2.0.5：编辑目录时"资源"勾选框未勾选(灰色)
+
+- 现象:动画资源/图片资源/图标库资源/音频资源/3D资源/项目管理 这些命名资源目录及其子孙,在「编辑目录节点」窗口里"资源"勾选框显示为灰色未勾选,应为「勾选 + 灰色不可改」。
+- 根因:`electron/db.js` 的 `readDb` 把 `is_resource` 整数(旧库 ALTER 后默认 0)转为布尔 `false`;而 `src/state.js` 的 `loadState` 迁移判断是 `if (typeof mn.isResource !== 'boolean')`,因此时已被转成布尔 `false` 而跳过迁移,导致命名资源目录的 `isResource` 被错存/读回为 `false`。
+- 修复:`loadState` 改为「命名资源目录(及其子孙)恒为 true,其余沿用存储值」——`computeIsResource` 命中即强制 `true`,从而覆盖旧库被错存成 0 的命名目录;变更后重新 `saveState()` 落盘自愈。
+- 校验:`node --check` 通过;`npm run build` 738 模块通过;打包 `游戏资源管理器-v2.0.5-便携版.zip`。
+
+### [新增] 发布 v2.0.4：目录"是否资源"属性标识
+
+- 数据模型：`menuNodes` 节点新增 `isResource` 布尔属性（目录是否为资源目录）。
+- 默认值：首次启动注入的默认资源目录（动画资源 / 图片资源 / 音频资源 / 3D资源）及其子孙 `isResource = true`；旧库按「自身或任一祖先名称命中资源目录名单」迁移置位并落盘；其余目录默认 `false`。资源目录名单：`动画资源 / 图片资源 / 图标库资源 / 音频资源 / 3D资源 / 项目管理`（用户自建的「图标库资源」「项目管理」等也按名称命中）。
+- 持久化：`electron/db.js` 的 `menu_nodes` 表加 `is_resource` 列（建表 + 旧库 ALTER 迁移 + `readDb` 解析 + `writeDb` 写入）。
+- UI：编辑目录节点窗口「名称」行右侧内联灰色「资源」勾选框，反映该目录当前 `isResource`（不可改）；新建顶级目录窗口新增可编辑「资源」选项（默认否）；在资源目录（isResource=是）下新建子目录时，「资源」勾选框默认勾选且灰色不可改，并写入继承值。
+- 涉及文件：`src/state.js`、`electron/db.js`、`src/ui.js`、`src/pages/settingsPage.js`、`src/style.css`。
+
+## 2026-08-14
+
+### [修复] 发布 v2.0.3：修复菜单目录节点"设置类型组"重启后丢失
+
+- 根因：`electron/db.js` 的 `menu_nodes` 表缺少 `type_tags` 列，`readDb`/`writeDb` 均未读写该字段，导致 `typeTags` 从未被持久化，重启后读回为空（全部未勾选）。
+- 修复：① 建表语句新增 `type_tags TEXT` 列；② 旧库 ALTER 迁移补列；③ `readDb` 的 `menu_nodes` SELECT 加入 `type_tags` 并解析为数组；④ `writeDb` 的 INSERT 写入 `type_tags`(JSON 数组字符串)；⑤ `state.loadState` 兼容循环为 menuNodes 补 `typeTags:[]` 默认。
+
+### [修复] 发布 v2.0.2：目录"设置类型组/资源组"相关修复与一致性
+- 【编辑目录节点】"设置类型组"区域排版优化：改用横向 chip 标签样式（`.check-group`/`.check-item`），说明文字作为 `.form-hint` 置于下方，左侧标签与选项顶部对齐。
+- 【编辑终端节点】"动作类型"与"目标页面"字段顺序调整：终端分支改为先放"动作类型"再放"目标页面"，使选「内置页面/工具」与选「外部程序」时"动作类型"行位置一致（不再跳动）。
+- 【新建子目录·资源组继承】资源树与左侧自定义菜单树的"新建目录"弹窗：资源组（设置类型组）默认继承父目录已勾选的组，继承项呈灰色、禁用、不可修改；其余组仍可在子目录额外勾选。
+- 【修复】左侧自定义菜单树（图标库管理等）的"新建目录"弹窗此前缺失"设置类型组"选项；`addMenuNode` 现支持 `typeTags` 字段并写入。系统设置「菜单管理」的"新建目录"弹窗同样补齐该选项。
+- 版本 2.0.2，已 build + 打包。
 
 ## 2026-08-14
 
