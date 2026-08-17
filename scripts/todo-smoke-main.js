@@ -20,6 +20,7 @@ const SMOKE_TITLE = '冒烟测试任务';
 const SMOKE_EVENT_TITLE = '测试生日';
 const SMOKE_BDAY_SOLAR = '测试公历生日';
 const SMOKE_BDAY_LUNAR = '测试农历生日';
+const SMOKE_BDAY_LUNAR_CONV = '测试农历生日转换';
 const IMPORT_JSON = path.join(os.tmpdir(), 'todo-import-test.json');
 const nowTs = () => Date.now();
 
@@ -37,7 +38,7 @@ function setup() {
   const d = dbm.readDb();
   d.todoProjects = (d.todoProjects || []).filter((p) => !String(p.id || '').startsWith('p_smoke_') && p.name !== '导入项目');
   d.todoTasks = (d.todoTasks || []).filter((t) => !String(t.id || '').startsWith('t_smoke_') && t.title !== SMOKE_TITLE && !String(t.title || '').startsWith('导入任务'));
-  d.todoEvents = (d.todoEvents || []).filter((e) => e.title !== SMOKE_EVENT_TITLE && e.title !== SMOKE_BDAY_SOLAR && e.title !== SMOKE_BDAY_LUNAR);
+  d.todoEvents = (d.todoEvents || []).filter((e) => e.title !== SMOKE_EVENT_TITLE && e.title !== SMOKE_BDAY_SOLAR && e.title !== SMOKE_BDAY_LUNAR && e.title !== SMOKE_BDAY_LUNAR_CONV);
   // 注入生日事件:公历生日=今天(今日提醒);农历生日=七月初七(2026 七夕 8/19 → 3 日内提醒)
   const td = new Date();
   const todayStr = `${td.getFullYear()}-${String(td.getMonth() + 1).padStart(2, '0')}-${String(td.getDate()).padStart(2, '0')}`;
@@ -72,7 +73,7 @@ function cleanup() {
   const d = dbm.readDb();
   d.todoProjects = (d.todoProjects || []).filter((p) => !String(p.id || '').startsWith('p_smoke_') && p.name !== '导入项目');
   d.todoTasks = (d.todoTasks || []).filter((t) => !String(t.id || '').startsWith('t_smoke_') && t.title !== SMOKE_TITLE && !String(t.title || '').startsWith('导入任务'));
-  d.todoEvents = (d.todoEvents || []).filter((e) => e.title !== SMOKE_EVENT_TITLE && e.title !== SMOKE_BDAY_SOLAR && e.title !== SMOKE_BDAY_LUNAR);
+  d.todoEvents = (d.todoEvents || []).filter((e) => e.title !== SMOKE_EVENT_TITLE && e.title !== SMOKE_BDAY_SOLAR && e.title !== SMOKE_BDAY_LUNAR && e.title !== SMOKE_BDAY_LUNAR_CONV);
   dbm.writeDb(d);
   try { fs.rmSync(IMPORT_JSON, { force: true }); } catch (e) { /* ignore */ }
 }
@@ -331,6 +332,47 @@ app.whenReady().then(async () => {
       check('事件 chip 出现', o.chipFound === true, JSON.stringify(o.eventChips));
       check('点击事件打开编辑', o.editOpen === true && o.editTitle === '测试生日', o.editTitle);
       check('事件弹窗关闭', o.closed === true);
+
+      // 5.7) 农历生日:右键今天格子新建生日+农历 → 存库日期应为「今天公历对应的农历月日」,chip 落在今天格子(今年提醒日期=今天)
+      o = await js('eventLunar', `(async () => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const out = {};
+        document.querySelector('[data-view="calendar"]').click(); await sleep(300);
+        // 导航回当月(5.5 曾翻到下月),直到今天格子可见
+        for (let i = 0; i < 3 && !document.querySelector('.todo-cal-cell.today'); i++) {
+          const p = document.querySelector('[data-cal="prev"]');
+          if (p) { p.click(); await sleep(200); }
+        }
+        const todayCell = document.querySelector('.todo-cal-cell.today');
+        if (!todayCell) return { err: 'no today cell' };
+        out.todayLunarText = (todayCell.querySelector('.todo-cal-lunar') || {}).textContent || '';
+        const t = new Date();
+        out.todaySolar = t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0');
+        todayCell.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 420, clientY: 320 }));
+        await sleep(200);
+        const addItem = [...document.querySelectorAll('.ctx-item')].find((b) => (b.textContent || '').includes('新建事件'));
+        if (!addItem) return { err: 'no add menu' };
+        addItem.click(); await sleep(300);
+        const dateInp = document.querySelector('[data-ev-date]');
+        out.preDate = dateInp ? dateInp.value : '';
+        document.querySelector('[data-ev-type="birthday"]').click(); await sleep(120);
+        document.querySelector('[data-ev-cal="lunar"]').click(); await sleep(120);
+        const titleInp = document.querySelector('[data-ev-title]');
+        titleInp.value = '${SMOKE_BDAY_LUNAR_CONV}';
+        titleInp.dispatchEvent(new Event('input', { bubbles: true }));
+        document.querySelector('[data-ev-save]').click(); await sleep(400);
+        // 保存后弹窗关闭并重渲染:农历生日今年提醒日期=今天,chip 应落在今天格子
+        out.chipToday = !![...document.querySelectorAll('.todo-cal-cell.today .todo-cal-event')].find((c) => (c.textContent || '').includes('${SMOKE_BDAY_LUNAR_CONV}'));
+        out.modalClosed = !document.querySelector('[data-ev-title]');
+        return out;
+      })()`);
+      const dL = dbm.readDb();
+      const evL = dL.todoEvents.find((e) => e.title === SMOKE_BDAY_LUNAR_CONV);
+      check('农历生日:今天格子可见且有农历文本', !o.err && (o.todayLunarText || '').length > 0, o.err || o.todayLunarText);
+      check('农历生日:弹窗初始日期=今天公历', o.preDate === o.todaySolar, o.preDate + ' vs ' + o.todaySolar);
+      check('农历生日:存库日期为农历月日(≠公历今天月日)', !!evL && evL.calendar === 'lunar' && /^\d{4}-\d{2}-\d{2}$/.test(evL.date || '') && evL.date.slice(5) !== o.todaySolar.slice(5), JSON.stringify(evL));
+      check('农历生日:chip 落在今天格子(今年提醒=今天)', o.chipToday === true);
+      check('农历生日:弹窗保存后关闭', o.modalClosed === true);
 
       // 6) 详情面板
       o = await js('detail', `(async () => {

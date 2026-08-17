@@ -874,10 +874,31 @@ function renderEventModal() {
   const close = () => { eventModal = null; render(); };
   box.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', close));
   box.querySelector('[data-ev-save]').addEventListener('click', () => {
-    const date = box.querySelector('[data-ev-date]').value;
+    let date = box.querySelector('[data-ev-date]').value;
     const title = draft.title.trim();
     if (!title) { toast(T('evTitleRequired'), 'warn'); return; }
     if (!date) { toast(T('evTitleRequired'), 'warn'); return; }
+    // 生日按历法换算存储:
+    // - 农历生日:date 存「农历月日」(YYYY 仅占位),eventRemindDate 每年按该农历月日换算公历提醒日期。
+    //   新建时日历方格传入的是公历日期(如点击 8-17,当天农历七月初五),需换算为农历月日(07-05)再存,
+    //   这样每年农历七月初五就是这条生日的准确日期。
+    // - 公历生日:date 直接存公历月日。
+    if (draft.type === 'birthday') {
+      const wasLunar = !!(existing && existing.type === 'birthday' && existing.calendar === 'lunar');
+      if (draft.calendar === 'lunar' && !wasLunar) {
+        const [yy, mm, dd] = date.split('-').map(Number);
+        if (yy && mm && dd) {
+          const li = getLunarInfo(yy, mm, dd);
+          date = `${yy}-${String(li.lunarMonth).padStart(2, '0')}-${String(li.lunarDay).padStart(2, '0')}`;
+        }
+      } else if (draft.calendar !== 'lunar' && wasLunar) {
+        const yy = parseInt(date.slice(0, 4), 10), mm = parseInt(date.slice(5, 7), 10), dd = parseInt(date.slice(8, 10), 10);
+        if (yy && mm && dd) {
+          const r = lunarMonthDayToSolar(yy, mm, dd, false);
+          if (r) date = `${r.y}-${String(r.m).padStart(2, '0')}-${String(r.d).padStart(2, '0')}`;
+        }
+      }
+    }
     if (isNew) {
       upsertEvent({ id: uid('e'), date, type: draft.type, title, note: draft.note.trim(), calendar: draft.type === 'birthday' ? draft.calendar : 'solar', createdAt: now(), updatedAt: now() });
     } else {
