@@ -37,6 +37,7 @@ const LANGS = {
     week0: '周一', week1: '周二', week2: '周三', week3: '周四', week4: '周五', week5: '周六', week6: '周日',
     more: '+{0} 更多', prevMonth: '上个月', nextMonth: '下个月',
     viewYear: '点击查看全年', clickToMonth: '点击返回当月', viewMonth: '查看 {0} 日程', yearStat: '事件 {0} · 任务 {1}',
+    bdayCount: '{0} 人生日', morePeople: '等 {0} 人',
     dayEvList: '事件列表 ({0})', dayEvEmpty: '当天没有事件',
     // 日历事件
     evBirthday: '生日', evAnniversary: '纪念日', evTodo: '待办事件', evImportant: '重要事件',
@@ -112,6 +113,7 @@ const LANGS = {
     week0: 'Mon', week1: 'Tue', week2: 'Wed', week3: 'Thu', week4: 'Fri', week5: 'Sat', week6: 'Sun',
     more: '+{0} more', prevMonth: 'Previous month', nextMonth: 'Next month',
     viewYear: 'View whole year', clickToMonth: 'Back to current month', viewMonth: 'View {0}', yearStat: '{0} events · {1} tasks',
+    bdayCount: '{0} birthdays', morePeople: 'and {0} more',
     dayEvList: 'Events ({0})', dayEvEmpty: 'No events on this day',
     evBirthday: 'Birthday', evAnniversary: 'Anniversary', evTodo: 'Todo Event', evImportant: 'Important Event',
     newEvent: 'New Event', editEvent: 'Edit Event', deleteEvent: 'Delete Event', addEventMenu: 'New event…',
@@ -826,11 +828,16 @@ function renderYearCalendar() {
   const curY = now.getFullYear(), curM = now.getMonth();
   // 按月统计:事件按今年提醒日期归月(生日换算今年);任务按截止日期归月
   const evCount = new Array(12).fill(0), taskCount = new Array(12).fill(0);
+  // 当月过生日的人数 + 姓名列表(前 5 名展示)
+  const bdayByMonth = new Array(12).fill(null).map(() => []);
   for (const ev of state.todoEvents || []) {
     const k = ev.type === 'birthday' ? eventRemindDate(ev) : (ev.date || null);
     if (!k) continue;
     const yy = parseInt(k.slice(0, 4), 10), mm = parseInt(k.slice(5, 7), 10);
-    if (yy === y && mm >= 1 && mm <= 12) evCount[mm - 1]++;
+    if (yy === y && mm >= 1 && mm <= 12) {
+      evCount[mm - 1]++;
+      if (ev.type === 'birthday') bdayByMonth[mm - 1].push(ev.title);
+    }
   }
   for (const t of liveTasks()) {
     if (!t.deadline) continue;
@@ -864,6 +871,27 @@ function renderYearCalendar() {
     name.className = 'todo-cal-year-month';
     name.textContent = lang === 'zh' ? `${m + 1}月` : MONTHS_EN[m];
     cell.appendChild(name);
+    // 当月生日:人数 + 前 5 名人名
+    const bdays = bdayByMonth[m];
+    if (bdays.length) {
+      const bdayRow = document.createElement('div');
+      bdayRow.className = 'todo-cal-year-bday';
+      bdayRow.textContent = `🎂 ${T('bdayCount', bdays.length)}`;
+      cell.appendChild(bdayRow);
+      bdays.slice(0, 5).forEach((nm) => {
+        const nEl = document.createElement('div');
+        nEl.className = 'todo-cal-year-name';
+        nEl.textContent = nm;
+        nEl.title = nm;
+        cell.appendChild(nEl);
+      });
+      if (bdays.length > 5) {
+        const moreEl = document.createElement('div');
+        moreEl.className = 'todo-cal-year-more';
+        moreEl.textContent = T('morePeople', bdays.length - 5);
+        cell.appendChild(moreEl);
+      }
+    }
     const stat = document.createElement('div');
     stat.className = 'todo-cal-year-stat';
     stat.textContent = T('yearStat', evCount[m], taskCount[m]);
