@@ -2937,6 +2937,8 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .todo-cal-cell { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 5px; overflow: hidden; min-height: 58px; display: flex; flex-direction: column; }
 .todo-cal-cell.today { background: var(--bg4); border-color: var(--accent); }
 .todo-cal-cell.out { opacity: .35; }
+.todo-cal-cell.clickable { cursor: pointer; }
+.todo-cal-cell.clickable:hover { border-color: var(--accent); }
 .todo-cal-top { display: flex; align-items: baseline; gap: 5px; margin-bottom: 3px; flex-shrink: 0; cursor: pointer; border-radius: 4px; padding: 2px 4px; margin-left: -4px; margin-right: -4px; transition: background .12s, color .12s; }
 .todo-cal-top:hover { background: var(--accent)30; }
 .todo-cal-top:hover .todo-cal-day,

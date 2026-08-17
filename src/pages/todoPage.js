@@ -751,13 +751,6 @@ function renderCalendar() {
       topRow.appendChild(festEl);
     }
     cell.appendChild(topRow);
-    // 点击第一行日期文字 → 打开当日事件列表弹窗
-    topRow.addEventListener('click', (e) => {
-      e.stopPropagation();
-      dayEventsModal = { date: dayKey };
-      dayEvTab = 'list';
-      render();
-    });
     // 日历事件 chips(类型图标+标题;点击查看/编辑,右键菜单)—— 自第 2 行起
     const dayEvents = eventMap.get(dayKey) || [];
     dayEvents.slice(0, 3).forEach((ev) => {
@@ -815,6 +808,22 @@ function renderCalendar() {
         { label: T('addEventMenu'), onClick: () => { eventModal = { date: dayKey }; render(); } },
       ]);
     });
+    // 点击第一行日期文字 → 打开当日事件弹窗(有事件默认「事件列表」,无事件默认「新建事件」)
+    topRow.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dayEventsModal = { date: dayKey };
+      dayEvTab = dayEvents.length ? 'list' : 'new';
+      render();
+    });
+    // 事件为空:点击整格(空白区域)也打开当日事件弹窗,并切到「新建事件」标签
+    if (!dayEvents.length) {
+      cell.classList.add('clickable');
+      cell.addEventListener('click', () => {
+        dayEventsModal = { date: dayKey };
+        dayEvTab = 'new';
+        render();
+      });
+    }
     grid.appendChild(cell);
   }
   wrap.appendChild(grid);

@@ -511,6 +511,30 @@ app.whenReady().then(async () => {
       check('当日弹窗:关闭', o.closed === true);
       check('当日弹窗:新事件落库', !!evDay && evDay.type === 'todo' && evDay.date === o.expDate, JSON.stringify(evDay));
 
+      // 5.8b) 空事件格子:点击整格 → 打开当日事件弹窗并默认切到「新建事件」标签
+      o = await js('emptycell', `(async () => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        document.querySelector('[data-view="calendar"]').click(); await sleep(300);
+        const out = {};
+        const emptyCell = [...document.querySelectorAll('.todo-cal-cell')].find((c) => !c.classList.contains('out') && !c.querySelector('.todo-cal-event'));
+        out.emptyFound = !!emptyCell;
+        out.clickableCls = !!emptyCell && emptyCell.classList.contains('clickable');
+        if (!emptyCell) return out;
+        emptyCell.click(); await sleep(300);
+        out.modalOpen = !!document.querySelector('.todo-modal-title');
+        out.modalTitle = (document.querySelector('.todo-modal-title') || {}).textContent || '';
+        out.newTabOn = !![...document.querySelectorAll('[data-evtab]')].find((b) => b.classList.contains('on') && (b.textContent || '').includes('新建事件'));
+        out.newForm = !!document.querySelector('[data-ev-title]');
+        const closeBtn = document.querySelector('.todo-modal-head [data-close]');
+        if (closeBtn) { closeBtn.click(); await sleep(250); }
+        out.closed = !document.querySelector('.todo-modal-title');
+        document.querySelector('[data-view="list"]').click(); await sleep(250);
+        return out;
+      })()`);
+      check('空事件格子:可点击整格打开弹窗', o.emptyFound === true && o.clickableCls === true && o.modalOpen === true, o.err || o.modalTitle);
+      check('空事件格子:默认切到新建事件标签', o.newTabOn === true && o.newForm === true, 'newTab=' + o.newTabOn + ' form=' + o.newForm);
+      check('空事件格子:关闭', o.closed === true);
+
       // 6) 详情面板
       o = await js('detail', `(async () => {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
