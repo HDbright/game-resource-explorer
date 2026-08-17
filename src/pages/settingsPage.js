@@ -1,9 +1,10 @@
 // ============ 系统设置页面 ============
 // 当前包含「截图」相关设置:默认保存路径 / 默认格式(PNG·WebP) / WebP 质量。
 
-import { state, setSetting, saveState, getMenuRoots, getMenuChildren, menuNodeById, menuNodePath, getMenuNodeDescendants, addMenuNode, updateMenuNode, removeMenuNode, moveMenuNodeBeside, moveMenuNodeToParent, getToolboxChildren, getCategoryChildren, catVisibleInGroup, getSceneCategoryChildren, getWebBookmarkCategoryChildren, webBookmarksInCategory, typeGroup, addToolboxFolder, updateToolboxFolder, removeToolboxFolder, toolboxFolderById, addCategory, updateCategory, removeCategoryAdvanced, categoryById, getCategoryDescendants, categoryPath, addSceneCategory, updateSceneCategory, removeSceneCategory, sceneCategoryById, addWebBookmarkCategory, updateWebBookmarkCategory, removeWebBookmarkCategory, webBookmarkCategoryById, removeWebBookmark, addFavCategory, updateFavCategory, removeFavCategory, removeFavItem, favCategoryById, isUrlPath, nameFromPath, customPages, customPageById, addCustomPage, updateCustomPage, removeCustomPage, PAGE_TEMPLATES, customTypes, customTypeById, addCustomType, updateCustomType, removeCustomType, customTypeGroups, customTypeGroupById, addCustomTypeGroup, updateCustomTypeGroup, removeCustomTypeGroup, typeLabel, TYPE_EXTENSIONS, groupTagOptions, groupTagOptionSections, extOwners, CAT_TYPE_TAG_LABELS, isCategoryLocked, isMenuNodeLocked } from '../state.js';
+import { state, setSetting, saveState, getMenuRoots, getMenuChildren, menuNodeById, menuNodePath, getMenuNodeDescendants, addMenuNode, updateMenuNode, removeMenuNode, moveMenuNodeBeside, moveMenuNodeToParent, getToolboxChildren, getCategoryChildren, catVisibleInGroup, getSceneCategoryChildren, getWebBookmarkCategoryChildren, webBookmarksInCategory, typeGroup, addToolboxFolder, updateToolboxFolder, removeToolboxFolder, toolboxFolderById, addCategory, updateCategory, removeCategoryAdvanced, categoryById, getCategoryDescendants, categoryPath, addSceneCategory, updateSceneCategory, removeSceneCategory, sceneCategoryById, addWebBookmarkCategory, updateWebBookmarkCategory, removeWebBookmarkCategory, webBookmarkCategoryById, removeWebBookmark, addFavCategory, updateFavCategory, removeFavCategory, removeFavItem, favCategoryById, isUrlPath, nameFromPath, customPages, customPageById, addCustomPage, updateCustomPage, removeCustomPage, PAGE_TEMPLATES, customTypes, customTypeById, addCustomType, updateCustomType, removeCustomType, customTypeGroups, customTypeGroupById, addCustomTypeGroup, updateCustomTypeGroup, removeCustomTypeGroup, typeLabel, TYPE_EXTENSIONS, groupTagOptions, groupTagOptionSections, extOwners, CAT_TYPE_TAG_LABELS, isCategoryLocked, isMenuNodeLocked, resourceGroupIcon, resourceTypeIcon, setResourceGroupIcon, setResourceTypeIcon, builtinTypeName, builtinTypeExts, setBuiltinTypeOverride } from '../state.js';
 import { applyAppearance } from '../appearance.js';
-import { toast, openModal, footButtons, confirmDialog, promptDialog, showContextMenu, openEmojiPicker, iconNode, attachIconPreview, newPageDialog } from '../dialogs.js';
+import { toast, openModal, footButtons, confirmDialog, promptDialog, showContextMenu, openEmojiPicker, iconNode, attachIconPreview, newPageDialog, finalizeIcon } from '../dialogs.js';
+import { toolboxToolActions } from './toolboxPage.js';
 
 function basename(p) {
   return String(p || '').split(/[\\/]/).pop() || '';
@@ -476,7 +477,7 @@ export function renderSettingsPage(container, opts = {}) {
             <div class="menu-mgr-tree" id="mm-tree"></div>
           </div>
           <div id="mm-pane-cat" style="display:none">
-            <p class="settings-hint">管理所有资源分类目录(含各资源类型下、以及跨资源类型显示的分类)。子分类会自动继承父分类的资源组,且继承的资源组不可修改,避免分类"消失"。<b>若某个分类找不到了,通常是因为它的资源组与父分类不一致,在此编辑它会自动补回父分类的资源组。</b>勾选了「视频/文章」组的分类会自动在左侧菜单创建「视频资源/文章资源」根目录进行挂载。</p>
+            <p class="settings-hint">管理所有资源分类目录(含各资源类型下、以及跨资源类型显示的分类)。子分类会自动继承父分类的资源组,且继承的资源组不可修改,避免分类"消失"。<b>若某个分类找不到了,通常是因为它的资源组与父分类不一致,在此编辑它会自动补回父分类的资源组。</b>勾选了「视频/文档」组的分类会自动在左侧菜单创建「视频资源/文档资源」根目录进行挂载。</p>
             <div class="settings-actions">
               <button class="btn sm" id="cat-add-top">＋ 新增顶级分类</button>
               <span class="spacer"></span>
@@ -503,6 +504,11 @@ export function renderSettingsPage(container, opts = {}) {
           <div class="settings-actions">
             <button class="btn sm" id="pg-add">＋ 新建页面</button>
           </div>
+          <div class="settings-sep"><span>系统页面结构</span></div>
+          <div class="form-row">
+            <label class="f-label">系统页面</label>
+            <div class="pg-list sys-pages" id="sys-pages"></div>
+          </div>
         </div>
       </section>
 
@@ -511,22 +517,23 @@ export function renderSettingsPage(container, opts = {}) {
         <div class="settings-card-body">
           <p class="settings-hint"><b>自定义分组</b>(如 图标/数据/文件/视频资源)= 独立资源组:文件按扩展名归入,侧栏自动创建对应资源根。<b>自定义类型</b>(如「视频」)= 一种类型,必须归属某个内置分组(动画/图片/音频/3D),文件显示在该分组下(如「视频」归「图片」组 → .mp4 会出现在图片资源下)。<br>⚠ <b>优先级:自定义类型 &gt; 自定义分组 &gt; 内置类型</b>。若同一扩展名同时被「自定义类型」和「自定义分组」声明,文件只会归类型,分组收不到该文件——建议同一扩展名只配置其中一套。创建分组/类型后,可在目录节点「编辑节点」窗口的「设置类型组」中勾选。</p>
           <div class="form-row">
-            <label class="f-label">资源分组(内置)</label>
+            <label class="f-label section-label">资源分组<span class="f-label-sub">(内置)</span></label>
             <div class="pg-templates" id="cg-builtin"></div>
           </div>
           <div class="form-row">
-            <label class="f-label">资源分组(自定义)</label>
+            <label class="f-label section-label">资源分组<span class="f-label-sub">(自定义)</span></label>
             <div class="pg-list" id="cg-list"></div>
           </div>
           <div class="settings-actions">
             <button class="btn sm" id="cg-add">＋ 新增分组</button>
           </div>
+          <div class="settings-sep"><span>类型配置</span></div>
           <div class="form-row">
-            <label class="f-label">内置类型</label>
+            <label class="f-label section-label">资源类型<span class="f-label-sub">(内置)</span></label>
             <div class="pg-templates" id="ct-builtin"></div>
           </div>
           <div class="form-row">
-            <label class="f-label">自定义类型</label>
+            <label class="f-label section-label">资源类型<span class="f-label-sub">(自定义)</span></label>
             <div class="pg-list" id="ct-list"></div>
           </div>
           <div class="settings-actions">
@@ -1036,6 +1043,100 @@ export function renderSettingsPage(container, opts = {}) {
   bindMenuManagement(container);
 
   // ---- 页面管理:模板页说明 + 自定义页面增删改 ----
+  // 系统页面结构目录(名称/功能/源码位置/内置入口;菜单节点引用动态计算)
+  const SYS_PAGES_TREE = [
+    {
+      group: '资源浏览区',
+      pages: [
+        { name: '全局首页', desc: '全部资源组统计卡片 + 目录快捷入口 + 最近打开/最近添加(含缩略图)', file: 'src/pages/homePage.js', builtinEntries: ['顶栏 tabs「🏠首页」'], actions: [] },
+        { name: '资源组主页(动画/图片/音频/3D/图标/视频/UI/数据/文档资源)', desc: '各资源组统计 + 分类目录树 + 最近添加', file: 'src/pages/homePage.js(renderTypeHome)', builtinEntries: ['侧栏资源根点击', '首页统计卡片'], actions: ['res:anim', 'res:image', 'res:audio', 'res:3d', 'res:article', 'res:video', 'res:group:*'] },
+        { name: '分类目录页', desc: '目录条目列表(缩略图/管理模式/标签过滤/统计)', file: 'src/pages/folderPage.js', builtinEntries: ['侧栏分类点击', '首页目录快捷'], actions: [] },
+        { name: '资源预览页', desc: 'Spine/龙骨/图片/音频/视频/FGUI/3D 资源预览', file: 'src/preview/*.js, src/viewers/*.js', builtinEntries: ['点击资源条目'], actions: [] },
+        { name: '收藏夹主页', desc: '收藏统计 + 收藏分类 + 最近收藏', file: 'src/pages/folderPage.js(renderFavResources)', builtinEntries: ['侧栏「收藏夹」'], actions: ['page:fav'] },
+      ],
+    },
+    {
+      group: '工具区',
+      pages: [
+        { name: '资源工具箱', desc: '工具目录树(可管理的工具入口)', file: 'src/pages/toolboxPage.js', builtinEntries: ['侧栏「资源工具箱」根'], actions: ['page:toolbox'] },
+        { name: '工具箱工具页(astc2png/skel2json/spinefix/sk2spine/spine 格式转换/图片集打包/图片编辑/FGUI 导出源/Todo-List/Markdown/得乐学苑)', desc: '各工具功能页(部分为独立 C++ EXE);菜单终端节点「目标页面」下拉由 toolboxToolActions() 动态生成,新增工具自动出现', file: 'src/pages/toolboxPage.js + electron/tools/*', builtinEntries: ['工具箱目录树节点'], actions: ['tool:astc2png', 'tool:skel2json', 'tool:spinefix', 'tool:sk2spine', 'tool:spineconvert', 'tool:atlas', 'tool:imageedit', 'tool:fgui', 'tool:todo', 'tool:markdown', 'tool:kidworkspace'] },
+      ],
+    },
+    {
+      group: '场景区',
+      pages: [
+        { name: '游戏场景管理', desc: '游戏场景/FGUI 包浏览', file: 'src/pages/scenePage.js + electron/tools/fgui/previewData.js', builtinEntries: ['侧栏「游戏场景管理」根'], actions: ['page:scene'] },
+        { name: 'FGUI 编辑器', desc: 'FGUI 包编辑(资源面板/画布/控制器/导出源工程)', file: 'src/pages/fguiEditorPage.js', builtinEntries: ['工具箱「FGUI编辑器」', '场景 FGUI 包打开'], actions: [] },
+      ],
+    },
+    {
+      group: '网络与数据区',
+      pages: [
+        { name: '网络资源抓取', desc: '多标签网页浏览 + 资源归类下载入库', file: 'src/pages/webGamePage.js + electron/tools/webGame.js', builtinEntries: ['侧栏「网络资源抓取」根'], actions: ['page:webgame'] },
+        { name: 'API 管理', desc: '接口文档/测试', file: 'src/pages/apiPage.js', builtinEntries: ['侧栏「API 管理」节点'], actions: ['page:api'] },
+        { name: 'emoji 图标管理', desc: 'emoji 图标库浏览与导出', file: 'src/pages/emojiPage.js', builtinEntries: ['侧栏「emoji 图标管理」节点'], actions: ['page:emoji'] },
+      ],
+    },
+    {
+      group: '系统区',
+      pages: [
+        { name: '系统设置', desc: '资源类型管理/菜单和分类管理/页面管理/外观等', file: 'src/pages/settingsPage.js', builtinEntries: ['顶栏「⚙ 设置」', '侧栏「系统设置」节点'], actions: ['page:settings'] },
+        { name: '自定义页面', desc: '网页模板/笔记模板,可作终端节点的「目标页面」', file: 'src/pages/settingsPage.js(customPages)', builtinEntries: ['终端节点「目标页面」→「＋ 新建页面…」'], actions: ['page:custom:*'] },
+      ],
+    },
+  ];
+  // 菜单节点中引用指定 action(支持前缀 * 通配)的路径列表
+  const menuNodeRefs = (pattern) => {
+    const refs = [];
+    for (const m of state.menuNodes) {
+      const a = m.action || '';
+      const hit = pattern.endsWith('*') ? a.startsWith(pattern.slice(0, -1)) : a === pattern;
+      if (hit) {
+        const p = menuNodePath(m.id);
+        if (p) refs.push(p);
+      }
+    }
+    return refs;
+  };
+  const sysPagesEl = container.querySelector('#sys-pages');
+  if (sysPagesEl) {
+    for (const group of SYS_PAGES_TREE) {
+      const gh = document.createElement('div');
+      gh.className = 'sys-page-group';
+      gh.textContent = '▸ ' + group.group;
+      sysPagesEl.appendChild(gh);
+      for (const p of group.pages) {
+        const row = document.createElement('div');
+        row.className = 'sys-page';
+        const head = document.createElement('div');
+        head.className = 'sys-page-head';
+        const nmEl = document.createElement('span');
+        nmEl.className = 'sys-page-name';
+        nmEl.textContent = p.name;
+        const fileEl = document.createElement('span');
+        fileEl.className = 'sys-page-file';
+        fileEl.textContent = p.file;
+        fileEl.title = '源码位置';
+        head.appendChild(nmEl);
+        head.appendChild(fileEl);
+        row.appendChild(head);
+        const descEl = document.createElement('div');
+        descEl.className = 'sys-page-desc';
+        descEl.textContent = p.desc;
+        row.appendChild(descEl);
+        const entries = [...p.builtinEntries];
+        for (const act of p.actions || []) entries.push(...menuNodeRefs(act));
+        const unique = [...new Set(entries)];
+        if (unique.length) {
+          const en = document.createElement('div');
+          en.className = 'sys-page-entries';
+          en.textContent = '入口: ' + unique.join(' · ');
+          row.appendChild(en);
+        }
+        sysPagesEl.appendChild(row);
+      }
+    }
+  }
   const pgTemplatesEl = container.querySelector('#pg-templates');
   if (pgTemplatesEl) {
     for (const t of PAGE_TEMPLATES) {
@@ -1152,21 +1253,86 @@ export function renderSettingsPage(container, opts = {}) {
   if (pgAdd) pgAdd.addEventListener('click', () => newPageDialog({}, () => renderPgList()));
 
   // ---- 资源类型管理:内置类型只读 + 自定义类型增删改 ----
-  const GROUP_LABELS = { anim: '动画', image: '图片', audio: '音频', '3d': '3D' };
-  // 资源分组(内置只读)
+  const GROUP_LABELS = { anim: '动画资源', image: '图片资源', audio: '音频资源', '3d': '3D资源', article: '文档资源', icon: '图标资源', video: '视频资源', ui: 'UI资源', database: '数据资源' };
+  /** 内置分组/类型图标编辑对话框(emoji 或 dataURL 图片,实时预览) */
+  const editBuiltinIconDialog = (title, current, onSave) => {
+    const dlgBody = document.createElement('div');
+    dlgBody.className = 'modal-body';
+    const row = document.createElement('div');
+    row.className = 'form-row';
+    row.innerHTML = '<label class="f-label">图标</label>';
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.value = current || '';
+    inp.placeholder = 'emoji 或粘贴图片(dataURL)';
+    row.appendChild(inp);
+    const pickBtn = document.createElement('button');
+    pickBtn.type = 'button';
+    pickBtn.className = 'btn sm emoji-pick-btn';
+    pickBtn.textContent = '😀';
+    pickBtn.title = '从图标库选择';
+    pickBtn.addEventListener('click', (e) => { e.stopPropagation(); openEmojiPicker(pickBtn, inp); });
+    row.appendChild(pickBtn);
+    attachIconPreview(inp, row);
+    dlgBody.appendChild(row);
+    const { close } = openModal({
+      title,
+      body: dlgBody,
+      foot: footButtons([
+        { text: '取消', cls: '', onClick: () => close() },
+        {
+          text: '保存', cls: 'primary', onClick: () => {
+            onSave(inp.value.trim());
+            close();
+            toast('已保存');
+          },
+        },
+      ]),
+    });
+  };
+  // 资源分组(内置 anim/image/audio/3d):图标在名称前,右侧「✎ 编辑」改图标(与自定义分组排列一致)
   const cgBuiltinEl = container.querySelector('#cg-builtin');
   if (cgBuiltinEl) {
     for (const [v, l] of Object.entries(GROUP_LABELS)) {
       const row = document.createElement('div');
       row.className = 'pg-row';
+      const icEl = iconNode(resourceGroupIcon(v) || '📁', 'cat-icon');
+      const refreshIcon = () => {
+        icEl.innerHTML = '';
+        const ic = resourceGroupIcon(v) || '📁';
+        if (ic.startsWith('data:image')) {
+          const img = document.createElement('img'); img.src = ic; img.alt = '';
+          icEl.appendChild(img);
+        } else {
+          icEl.textContent = ic;
+        }
+      };
+      refreshIcon();
       const nm = document.createElement('span');
-      nm.className = 'pg-tpl-name';
+      nm.className = 'pg-name';
       nm.textContent = l;
       const ds = document.createElement('span');
       ds.className = 'pg-tpl-desc';
-      ds.textContent = '内置分组(动画/图片/音频/3D)';
+      ds.textContent = '内置分组 · 图标用于侧栏资源根';
+      const ops = document.createElement('span');
+      ops.className = 'pg-ops';
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.className = 'btn sm ghost';
+      editBtn.textContent = '✎ 编辑';
+      editBtn.title = '修改「' + l + '」分组图标(用于侧栏资源根)';
+      editBtn.addEventListener('click', () => {
+        editBuiltinIconDialog('修改「' + l + '」分组图标(侧栏资源根)', resourceGroupIcon(v), (ic) => {
+          setResourceGroupIcon(v, ic);
+          refreshIcon();
+          try { document.dispatchEvent(new CustomEvent('library:changed')); } catch (e) { /* ignore */ }
+        });
+      });
+      ops.appendChild(editBtn);
+      row.appendChild(icEl);
       row.appendChild(nm);
       row.appendChild(ds);
+      row.appendChild(ops);
       cgBuiltinEl.appendChild(row);
     }
   }
@@ -1293,20 +1459,115 @@ export function renderSettingsPage(container, opts = {}) {
 
   const ctBuiltinEl = container.querySelector('#ct-builtin');
   if (ctBuiltinEl) {
-    const builtins = [['spine', 'Spine'], ['dragonbones', 'DragonBones'], ['image', '图片'], ['audio', '音频'], ['model', '3D模型']];
-    for (const [id, name] of builtins) {
+    // 内置类型:名称/扩展名/图标均可配置(名称与扩展名用于识别与显示,图标用于条目徽标)
+    const builtins = [
+      'spine', 'dragonbones', 'image', 'audio', 'model', 'fgui',
+      'markdown', 'text', 'config', 'database', 'web',
+      'icon', 'video', 'project',
+    ];
+    // 编辑内置类型:名称 + 扩展名 + 图标(名称/扩展名存 builtinTypeOverrides,图标存 resourceTypeIcons)
+    const editBuiltinTypeDialog = (id) => {
+      const dlgBody = document.createElement('div');
+      dlgBody.className = 'modal-body';
+      const mkRow = (label) => {
+        const r = document.createElement('div'); r.className = 'form-row';
+        const lb = document.createElement('label'); lb.className = 'f-label'; lb.textContent = label; r.appendChild(lb);
+        return r;
+      };
+      const nameRow = mkRow('类型名称');
+      const nameInp = document.createElement('input');
+      nameInp.type = 'text';
+      nameInp.value = builtinTypeName(id);
+      nameRow.appendChild(nameInp);
+      const extsRow = mkRow('扩展名');
+      const extsInp = document.createElement('input');
+      extsInp.type = 'text';
+      extsInp.value = builtinTypeExts(id).join(' ');
+      extsInp.placeholder = '以空格分隔,如 .md .markdown';
+      extsRow.appendChild(extsInp);
+      const iconRow = mkRow('图标');
+      const iconInp = document.createElement('input');
+      iconInp.type = 'text';
+      iconInp.value = resourceTypeIcon(id) || '';
+      iconInp.placeholder = 'emoji 或粘贴图片(dataURL)';
+      iconRow.appendChild(iconInp);
+      const pickBtn = document.createElement('button');
+      pickBtn.type = 'button';
+      pickBtn.className = 'btn sm emoji-pick-btn';
+      pickBtn.textContent = '😀';
+      pickBtn.title = '从图标库选择';
+      pickBtn.addEventListener('click', (e) => { e.stopPropagation(); openEmojiPicker(pickBtn, iconInp); });
+      iconRow.appendChild(pickBtn);
+      attachIconPreview(iconInp, iconRow);
+      dlgBody.appendChild(nameRow);
+      dlgBody.appendChild(extsRow);
+      dlgBody.appendChild(iconRow);
+      const { close } = openModal({
+        title: '编辑内置资源类型「' + builtinTypeName(id) + '」',
+        body: dlgBody,
+        foot: footButtons([
+          { text: '取消', cls: '', onClick: () => close() },
+          {
+            text: '保存', cls: 'primary', onClick: () => {
+              const name = nameInp.value.trim();
+              const exts = String(extsInp.value || '').split(/[,，;\s]+/).map((e) => e.trim().toLowerCase()).filter((e) => e.startsWith('.'));
+              if (!name) return toast('类型名称不能为空', 'error');
+              setBuiltinTypeOverride(id, { name, exts });
+              setResourceTypeIcon(id, iconInp.value.trim());
+              close();
+              toast('已保存');
+              // 刷新内置类型区显示
+              const list = container.querySelector('#ct-builtin');
+              if (list) list.innerHTML = '';
+              if (list) {
+                const rows = builtins.map(buildBuiltinTypeRow);
+                for (const r of rows) list.appendChild(r);
+              }
+              try { document.dispatchEvent(new CustomEvent('library:changed')); } catch (e) { /* ignore */ }
+            },
+          },
+        ]),
+      });
+    };
+    const buildBuiltinTypeRow = (id) => {
       const row = document.createElement('div');
       row.className = 'pg-row';
+      const icEl = iconNode(resourceTypeIcon(id) || '🗂', 'cat-icon');
+      const refreshIcon = () => {
+        icEl.innerHTML = '';
+        const ic = resourceTypeIcon(id) || '🗂';
+        if (ic.startsWith('data:image')) {
+          const img = document.createElement('img'); img.src = ic; img.alt = '';
+          icEl.appendChild(img);
+        } else {
+          icEl.textContent = ic;
+        }
+      };
+      refreshIcon();
       const nm = document.createElement('span');
-      nm.className = 'pg-tpl-name';
-      nm.textContent = name;
+      nm.className = 'pg-name';
+      nm.textContent = builtinTypeName(id);
       const ds = document.createElement('span');
       ds.className = 'pg-tpl-desc';
-      ds.textContent = (TYPE_EXTENSIONS[id] || []).join(' ');
+      // 不同内置类型的描述:图标/视频 → 各自用途;其余 → 通用说明
+      const descNote = (id === 'icon') ? '图标用于条目徽标'
+        : (id === 'video') ? '用于视频卡片缩略图'
+        : '扩展名用于识别该类型';
+      ds.textContent = (builtinTypeExts(id).join(' ') || '(无扩展名)') + ' · ' + descNote;
+      const ops = document.createElement('span');
+      ops.className = 'pg-ops';
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button'; editBtn.className = 'btn sm ghost'; editBtn.textContent = '✎ 编辑';
+      editBtn.title = '修改名称 / 扩展名 / 图标';
+      editBtn.addEventListener('click', () => editBuiltinTypeDialog(id));
+      ops.appendChild(editBtn);
+      row.appendChild(icEl);
       row.appendChild(nm);
       row.appendChild(ds);
-      ctBuiltinEl.appendChild(row);
-    }
+      row.appendChild(ops);
+      return row;
+    };
+    for (const id of builtins) ctBuiltinEl.appendChild(buildBuiltinTypeRow(id));
   }
   const editCustomTypeDialog = (ct, after) => {
     const dlgBody = document.createElement('div');
@@ -1384,7 +1645,8 @@ export function renderSettingsPage(container, opts = {}) {
       nm.textContent = ct.name;
       const grp = document.createElement('span');
       grp.className = 'pg-tpl';
-      grp.textContent = GROUP_LABELS[ct.group] || ct.group;
+      const gName = GROUP_LABELS[ct.group] || (customTypeGroupById(ct.group) ? customTypeGroupById(ct.group).name : ct.group);
+      grp.textContent = gName;
       const ex = document.createElement('span');
       ex.className = 'pg-tpl-desc';
       ex.textContent = (ct.exts || []).join(' ');
@@ -1432,14 +1694,8 @@ const MENU_ACTION_OPTIONS = [
   { value: 'res:image', label: '图片资源' },
   { value: 'res:audio', label: '音频资源' },
   { value: 'res:3d', label: '3D资源' },
-  { value: 'tool:astc2png', label: 'astc 转 png' },
-  { value: 'tool:skel2json', label: 'skel 转 json' },
-  { value: 'tool:spinefix', label: 'spine 文件修复' },
-  { value: 'tool:sk2spine', label: 'Laya .sk 转 Spine' },
-  { value: 'tool:spineconvert', label: 'spine 格式转换' },
-  { value: 'tool:atlas', label: '图片集打包' },
-  { value: 'tool:imageedit', label: '图片编辑' },
-  { value: 'tool:fgui', label: 'FGUI 导出源' },
+  // 工具箱全部工具动态生成(新增工具自动出现在目标页面下拉)
+  ...toolboxToolActions(),
 ];
 
 function menuActionLabel(action) {
@@ -1628,7 +1884,8 @@ function bindMenuManagement(container) {
 
       const nm = document.createElement('span');
       nm.className = 'cat-name';
-      nm.textContent = node.name + (node.locked ? ' 🔒' : '');
+      nm.textContent = node.name + (node.hidden ? ' 👁‍🗨' : '') + (node.locked ? ' 🔒' : '');
+      if (node.hidden) nm.title = '该节点已隐藏:左侧菜单树不显示(可在此取消勾选)';
       row.appendChild(nm);
 
       const kind = document.createElement('span');
@@ -2033,7 +2290,7 @@ function bindMenuManagement(container) {
               // 资源型目录(勾选「资源」):action 由「资源类型」下拉决定;否则取目标页面(可为空)
               action = resCb.checked && resTypeSel ? resTypeSel.value : actSel.value;
             }
-            addMenuNode({ name, icon: iconInp.value.trim(), parentId, nodeType, actionType, action, isResource: resCb.checked, locked: lockCbMM.checked, typeTags: typeTagsRow ? [...typeTagsRow.querySelectorAll('input:checked')].map((c) => c.value) : [] });
+            addMenuNode({ name, icon: finalizeIcon(iconInp.value), parentId, nodeType, actionType, action, isResource: resCb.checked, locked: lockCbMM.checked, typeTags: typeTagsRow ? [...typeTagsRow.querySelectorAll('input:checked')].map((c) => c.value) : [] });
             close();
             if (parentId) mmExpanded.add(parentId); // 新建子节点后展开父目录,便于看到
             refresh();
@@ -2141,7 +2398,7 @@ function bindMenuManagement(container) {
       typeSel.addEventListener('change', sync); sync();
     }
 
-    // 锁定:禁止删除(右键删除项置灰)
+    // 锁定 + 隐藏:同一行(隐藏 = 左侧菜单树不显示该节点,此处仍可见可取消)
     const lockRowMM = makeRow('锁定');
     const lockCbMM = document.createElement('input');
     lockCbMM.type = 'checkbox';
@@ -2152,6 +2409,16 @@ function bindMenuManagement(container) {
     lockLbMM.textContent = ' 锁定(禁止删除)';
     lockRowMM.appendChild(lockCbMM);
     lockRowMM.appendChild(lockLbMM);
+    const hideCbMM = document.createElement('input');
+    hideCbMM.type = 'checkbox';
+    hideCbMM.checked = !!node.hidden;
+    const hideLbMM = document.createElement('span');
+    hideLbMM.style.fontSize = '13px';
+    hideLbMM.style.color = 'var(--text2)';
+    hideLbMM.style.marginLeft = '16px';
+    hideLbMM.textContent = ' 隐藏(侧栏不显示)';
+    lockRowMM.appendChild(hideCbMM);
+    lockRowMM.appendChild(hideLbMM);
     body.appendChild(lockRowMM);
 
     const { close } = openModal({
@@ -2163,7 +2430,7 @@ function bindMenuManagement(container) {
           text: '确定', cls: 'primary', onClick: () => {
             const name = nameInp.value.trim();
             if (!name) { toast('名称不能为空', 'error'); return; }
-            const patch = { name, icon: iconInp.value.trim(), tooltip: tipInp.value.trim(), note: noteInp.value.trim(), isResource: resCb.checked, locked: lockCbMM.checked };
+            const patch = { name, icon: finalizeIcon(iconInp.value), tooltip: tipInp.value.trim(), note: noteInp.value.trim(), isResource: resCb.checked, locked: lockCbMM.checked, hidden: hideCbMM.checked };
             if (isTerm) {
               const isExe = typeSel.value === 'exe';
               patch.actionType = isExe ? 'exe' : 'builtin';

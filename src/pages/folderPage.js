@@ -1,4 +1,4 @@
-import { state, getFolderData, sortItems, formatSize, formatDate, typeGroup, typeLabel, isImageType, isVideoItem, categoryById, getCategoryPathList, itemTags, categoryLabel, favCategoryById, itemById, catVisibleInGroup, catVisibleInAnyGroup, categoryTypeTagNames, getCategoryChildren, getCategoryDescendants, TYPE_GROUPS } from '../state.js';
+import { state, getFolderData, sortItems, formatSize, formatDate, typeGroup, typeLabel, isImageType, isVideoItem, typeBadgeIcon, typeColor, isImageIcon, itemEffectiveType, categoryById, getCategoryPathList, itemTags, categoryLabel, favCategoryById, itemById, catVisibleInGroup, catVisibleInAnyGroup, categoryTypeTagNames, getCategoryChildren, getCategoryDescendants, TYPE_GROUPS } from '../state.js';
 import { thumbnailService } from '../thumbnails.js';
 import { toast } from '../dialogs.js';
 import { loadSearchHistory, saveSearchHistory, addSearchHistory, removeSearchHistory } from '../searchHistory.js';
@@ -61,6 +61,18 @@ function nameExtHtml(it) {
   return `<span class="rc-base">${escapeHtml(fn)}</span>`;
 }
 
+/** 类型徽标 HTML:类型图标 + 类型名,按类型着色(不同资源类型不同颜色);effType 为分类上下文有效类型 */
+function typeBadgeHtml(it, effType = null) {
+  const t = effType || it.type;
+  const color = typeColor(t);
+  const icon = typeBadgeIcon({ ...it, type: t });
+  const label = typeLabel(t);
+  const iconHtml = icon
+    ? (isImageIcon(icon) ? `<img class="tb-ico-img" src="${icon}" alt="" />` : `<span class="tb-ico">${icon}</span>`)
+    : '';
+  return `<span class="type-badge" style="background:color-mix(in srgb, ${color} 16%, transparent);color:${color}">${iconHtml}${label}</span>`;
+}
+
 /** 异步把「图片」类型徽章细化为「图集」(同名 .atlas/.plist 配套) */
 function bindAtlasBadges(container, items) {
   for (const it of items) {
@@ -78,24 +90,44 @@ function bindAtlasBadges(container, items) {
 
 const VIEW_LABEL_TXT = { anim: '动画', image: '图片', audio: '音频' };
 
-/** 查看下拉菜单选项(与 Windows 资源管理器「查看」菜单对齐) */
+/** 查看下拉菜单选项(与 Windows 资源管理器「查看」菜单对齐);icon 为内联 SVG,stroke=currentColor 自动适配深浅主题 */
+const SVG_ATTRS = 'width="16" height="16" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"';
+const ICON_SUPERBIG = `<svg ${SVG_ATTRS}><rect x="3" y="4" width="26" height="20" rx="2.5"/><line x1="10" y1="28" x2="22" y2="28"/></svg>`;
+const ICON_LARGE    = `<svg ${SVG_ATTRS}><rect x="5" y="5" width="22" height="22" rx="2"/></svg>`;
+const ICON_MEDIUM   = `<svg ${SVG_ATTRS}><rect x="5" y="4" width="22" height="16" rx="1.5"/><line x1="9" y1="26" x2="23" y2="26"/></svg>`;
+const ICON_SMALL    = `<svg ${SVG_ATTRS}><rect x="4" y="4" width="10" height="10" rx="1"/><rect x="18" y="4" width="10" height="10" rx="1"/><rect x="4" y="18" width="10" height="10" rx="1"/><rect x="18" y="18" width="10" height="10" rx="1"/></svg>`;
+const ICON_LIST     = `<svg ${SVG_ATTRS}><line x1="5" y1="8" x2="27" y2="8"/><line x1="5" y1="16" x2="27" y2="16"/><line x1="5" y1="24" x2="27" y2="24"/></svg>`;
+const ICON_DETAIL   = `<svg ${SVG_ATTRS}><line x1="3" y1="6" x2="29" y2="6"/><line x1="3" y1="14" x2="29" y2="14"/><line x1="3" y1="22" x2="29" y2="22"/><line x1="3" y1="30" x2="29" y2="30"/><line x1="4" y1="6" x2="4" y2="30"/></svg>`;
+const ICON_TILE     = `<svg ${SVG_ATTRS}><rect x="3" y="3" width="8" height="8" rx="0.5"/><rect x="13" y="3" width="8" height="8" rx="0.5"/><rect x="3" y="13" width="8" height="8" rx="0.5"/><rect x="13" y="13" width="8" height="8" rx="0.5"/><line x1="3" y1="25" x2="29" y2="25"/><line x1="3" y1="29" x2="29" y2="29"/></svg>`;
+const ICON_CONTENT  = `<svg ${SVG_ATTRS}><rect x="3" y="3" width="8" height="8" rx="0.5"/><rect x="13" y="3" width="8" height="8" rx="0.5"/><line x1="3" y1="16" x2="29" y2="16"/><line x1="3" y1="22" x2="29" y2="22"/><line x1="3" y1="28" x2="29" y2="28"/></svg>`;
+const ICON_PANE_DET = `<svg ${SVG_ATTRS}><rect x="3" y="4" width="9" height="24" rx="1"/><rect x="14" y="4" width="15" height="24" rx="1"/></svg>`;
+const ICON_PANE_PVW = `<svg ${SVG_ATTRS}><rect x="3" y="4" width="6" height="24" rx="1"/><rect x="11" y="4" width="18" height="24" rx="1"/></svg>`;
 const VIEW_MODES = [
-  { value: 'extra-icon', label: '超大图标', icon: '□', group: 'view' },
-  { value: 'large-icon', label: '大图标', icon: '□', group: 'view' },
-  { value: 'icon', label: '中图标', icon: '□', group: 'view' },
-  { value: 'small-icon', label: '小图标', icon: '□', group: 'view' },
-  { value: 'list', label: '列表', icon: '☰', group: 'view' },
-  { value: 'detail', label: '详细信息', icon: '☰', group: 'view' },
-  { value: 'tile', label: '平铺', icon: '▦', group: 'view' },
-  { value: 'content', label: '内容', icon: '▤', group: 'view' },
+  { value: 'extra-icon', label: '超大图标', icon: ICON_SUPERBIG, group: 'view' },
+  { value: 'large-icon', label: '大图标',   icon: ICON_LARGE,    group: 'view' },
+  { value: 'icon',       label: '中图标',   icon: ICON_MEDIUM,   group: 'view' },
+  { value: 'small-icon', label: '小图标',   icon: ICON_SMALL,    group: 'view' },
+  { value: 'list',       label: '列表',     icon: ICON_LIST,     group: 'view' },
+  { value: 'detail',     label: '详细信息', icon: ICON_DETAIL,   group: 'view' },
+  { value: 'tile',       label: '平铺',     icon: ICON_TILE,     group: 'view' },
+  { value: 'content',    label: '内容',     icon: ICON_CONTENT,  group: 'view' },
+  { value: 'video-card', label: '视频卡片(海报)', icon: '🎞',  group: 'view' },
   // 窗格选项:作为同一套 viewMode 的另一种入口(与上方 view 项可能重叠,保持视觉分组)
-  { value: 'detail', label: '详细信息窗格', icon: '▣', group: 'pane' },
-  { value: 'icon', label: '预览窗格', icon: '▣', group: 'pane' },
+  { value: 'detail',     label: '详细信息窗格', icon: ICON_PANE_DET, group: 'pane' },
+  { value: 'icon',       label: '预览窗格',     icon: ICON_PANE_PVW, group: 'pane' },
 ];
 const ICON_MODES = new Set(['extra-icon', 'large-icon', 'icon', 'small-icon']);
 function isIconMode(viewMode) { return ICON_MODES.has(viewMode); }
 function viewModeLabel(mode) { return VIEW_MODES.find((m) => m.value === mode && m.group === 'view')?.label || (isIconMode(mode) ? '中图标' : '列表'); }
 function viewModeIcon(mode) { return VIEW_MODES.find((m) => m.value === mode && m.group === 'view')?.icon || '☰'; }
+/** 视图图标 HTML:'<' 开头 → 内联 SVG(写死,安全;走 vm-svg 类,currentColor 自适应主题);'/' 开头 → <img class="vm-img">(主进程服务 PNG,深色主题需反色) */
+function vmIconHtml(icon) {
+  if (!icon) return '';
+  const s = String(icon);
+  if (s.startsWith('<svg')) return s.replace('<svg ', '<svg class="vm-svg" ');
+  if (s.startsWith('/')) return `<img class="vm-img" src="${s}" alt="" loading="lazy" />`;
+  return s;
+}
 /** 渲染「查看」下拉按钮(含视图+窗格分组) */
 function renderViewDropdown(currentMode) {
   const label = viewModeLabel(currentMode);
@@ -104,7 +136,7 @@ function renderViewDropdown(currentMode) {
     const active = m.value === currentMode;
     return `<div class="view-menu-item${active ? ' active' : ''}" data-view="${m.value}" data-group="${m.group}">
       <span class="view-menu-bullet">${active ? '●' : ''}</span>
-      <span class="view-menu-icon">${m.icon}</span>
+      <span class="view-menu-icon">${vmIconHtml(m.icon)}</span>
       <span class="view-menu-label">${escapeHtml(m.label)}</span>
     </div>`;
   });
@@ -112,7 +144,7 @@ function renderViewDropdown(currentMode) {
   const paneItems = items.filter((_, i) => VIEW_MODES[i].group === 'pane').join('');
   return `
     <div class="view-dropdown" id="view-dropdown">
-      <button class="view-dropdown-btn" type="button" title="查看"><span class="view-dropdown-icon">${icon}</span><span>查看</span><span class="view-dropdown-arrow">▾</span></button>
+      <button class="view-dropdown-btn" type="button" title="查看"><span class="view-dropdown-icon">${vmIconHtml(icon)}</span><span>查看</span><span class="view-dropdown-arrow">▾</span></button>
       <div class="view-dropdown-menu">
         ${viewItems}
         <div class="view-menu-sep"></div>
@@ -141,7 +173,7 @@ function renderViewDropdown(currentMode) {
  *                onEditBatchDelete(ids), onEditBatchMove(ids) }
  */
 export function renderFolderPage(container, opts) {
-  const { catId, group, viewMode = 'list', sortBy = 'name', sortDir = 'asc', actions = {} } = opts;
+  const { catId, group, resourceTab = 'all', viewMode = 'list', sortBy = 'name', sortDir = 'asc', actions = {} } = opts;
   const editMode = !!opts.editMode;
   const selectedIds = new Set(opts.selectedIds || []);
   const tagFilter = opts.tagFilter || '';
@@ -269,7 +301,7 @@ export function renderFolderPage(container, opts) {
           <div>${filterActive ? '没有匹配的资源(试试调整标签过滤或搜索词)' : `该目录下暂无${group === 'all' ? '' : VIEW_LABEL_TXT[group] || ''}资源`}</div>
           ${filterActive ? '<button class="btn sm" id="clear-filter">清除过滤</button>' : '<button class="btn primary" id="empty-add">+ 添加资源</button>'}
         </div>
-      ` : renderResources(sorted, viewMode, editMode, selectedIds)}
+      ` : renderResources(sorted, viewMode, editMode, selectedIds, cat, group, resourceTab)}
     </div>
   `;
 
@@ -483,8 +515,8 @@ export function renderFolderPage(container, opts) {
     }
   };
 
-  // 图标视图缩略图(动画异步生成 dataURL;图片直连 URL)
-  if (isIconMode(viewMode)) {
+  // 图标视图缩略图(动画异步生成 dataURL;图片直连 URL;平铺视图同样绑定)
+  if (isIconMode(viewMode) || viewMode === 'tile') {
     for (const it of sorted) {
       const imgEl = container.querySelector(`.res-thumb[data-item="${it.id}"]`);
       if (!imgEl) continue;
@@ -507,6 +539,28 @@ export function renderFolderPage(container, opts) {
           if (url) { imgEl.src = url; imgEl.onerror = () => { imgEl.style.display = 'none'; }; }
           else imgEl.style.display = 'none';
         });
+      }
+    }
+  }
+  // 视频卡片视图:优先海报原图(高清,来自元信息 meta.poster),无海报/失败降级到视频首帧缩略图
+  const videoCardContainer = container.querySelector('.res-view-video-card');
+  if (videoCardContainer) {
+    for (const it of sorted) {
+      if (!isVideoItem(it)) continue;
+      const imgEl = videoCardContainer.querySelector(`.res-thumb[data-item="${it.id}"]`);
+      if (!imgEl) continue;
+      const poster = it.meta && it.meta.poster;
+      const setImg = (url) => {
+        if (url) { imgEl.src = url; imgEl.onerror = () => { imgEl.style.display = 'none'; }; }
+        else imgEl.style.display = 'none';
+      };
+      if (poster) {
+        thumbnailService.getPosterUrl(poster).then((url) => {
+          if (url) setImg(url);
+          else thumbnailService.getVideoThumb(it).then(setImg);
+        });
+      } else {
+        thumbnailService.getVideoThumb(it).then(setImg);
       }
     }
   }
@@ -570,12 +624,12 @@ function iconSizeClass(viewMode) {
     default: return 'size-medium';
   }
 }
-function tileCardHtml(it, { editMode = false, selectedIds = new Set(), opsHtml = '' } = {}) {
+function tileCardHtml(it, { editMode = false, selectedIds = new Set(), opsHtml = '', effType = null } = {}) {
   const isSel = editMode && selectedIds.has(it.id) ? ' selected' : '';
   const tags = itemTags(it);
   const meta = editMode
     ? `<span class="edit-check">${selectedIds.has(it.id) ? '☑ 已选' : '☐ 选中'}</span>`
-    : `<span class="type-badge ${it.type}">${typeLabel(it.type)}</span>
+    : `${typeBadgeHtml(it, effType)}
        <span class="res-tile-size">${formatSize(it.size)}</span>
        <span class="res-tile-date">${formatDate(it.mtime || it.updatedAt)}</span>`;
   return `
@@ -601,9 +655,39 @@ function thumbFallbackHtml(it, sizeHint) {
   }
   return `<img class="res-thumb" data-item="${it.id}" alt="" />`;
 }
+/** 视频卡片 HTML:海报图(2:3)+ 评分徽标(右下角)+ 标题 + 简介;
+ * 缩略图异步加载(folderPage 渲染后通过 .res-view-video-card 容器识别 → getVideoThumb) */
+function renderVideoCard(it, editMode = false, selectedIds = new Set()) {
+  const meta = (it.meta && typeof it.meta === 'object') ? it.meta : {};
+  const rating = (typeof meta.rating === 'number' && meta.rating >= 0 && meta.rating <= 10) ? meta.rating.toFixed(1) : '';
+  const intro = meta.intro || '';
+  const year = meta.year ? ` · ${meta.year}` : '';
+  const isSel = editMode && selectedIds.has(it.id) ? ' selected' : '';
+  return `
+    <div class="video-card${isSel}" data-item="${it.id}" title="${escapeHtml(itemTooltip(it))}">
+      <div class="video-card-poster">
+        <img class="res-thumb" data-item="${it.id}" alt="" />
+        ${rating ? `<div class="video-card-rating">${rating}</div>` : ''}
+        ${editMode ? `<span class="edit-check">${selectedIds.has(it.id) ? '☑' : '☐'}</span>` : ''}
+      </div>
+      <div class="video-card-title" title="${escapeHtml(it.displayName)}">${escapeHtml(it.displayName)}</div>
+      <div class="video-card-intro" title="${escapeHtml(intro)}">${escapeHtml(intro)}${year ? `<span class="video-card-year">${escapeHtml(year)}</span>` : ''}</div>
+    </div>
+  `;
+}
+
 /** 渲染资源列表主体(详情/列表/内容/平铺/多尺寸图标);编辑模式下显示选中态 */
-function renderResources(items, viewMode, editMode = false, selectedIds = new Set()) {
+function renderResources(items, viewMode, editMode = false, selectedIds = new Set(), cat = null, group = null, resourceTab = null) {
   const isSel = (id) => (editMode && selectedIds.has(id) ? ' selected' : '');
+  const effType = (it) => itemEffectiveType(it, cat, group, resourceTab);
+  // 当前分类下全是视频条目时,自动启用视频卡片视图(用户已在图标模式时尊重其偏好)
+  if (items.length > 0 && items.every((it) => isVideoItem(it)) && !isIconMode(viewMode)) {
+    viewMode = 'video-card';
+  }
+
+  if (viewMode === 'video-card') {
+    return `<div class="res-view-video-card">${items.map((it) => renderVideoCard(it, editMode, selectedIds)).join('')}</div>`;
+  }
 
   if (viewMode === 'detail') {
     return `
@@ -622,8 +706,8 @@ function renderResources(items, viewMode, editMode = false, selectedIds = new Se
           ${items.map((it) => `
             <tr data-item="${it.id}" class="${isSel(it.id).trim()}" title="${escapeHtml(itemTooltip(it))}">
               ${editMode ? `<td><span class="edit-check">${selectedIds.has(it.id) ? '☑' : '☐'}</span></td>` : ''}
-              <td><div class="cell-name"><span class="type-badge ${it.type}">${typeLabel(it.type)}</span><span class="cn-main">${escapeHtml(itemFileName(it))}</span></div></td>
-              <td>${escapeHtml(typeLabel(it.type))}</td>
+              <td><div class="cell-name">${typeBadgeHtml(it, effType(it))}<span class="cn-main">${escapeHtml(itemFileName(it))}</span></div></td>
+              <td style="color:${typeColor(itemEffectiveType(it, cat, group, resourceTab))}">${escapeHtml(typeLabel(itemEffectiveType(it, cat, group, resourceTab)))}</td>
               <td class="cell-size">${formatSize(it.size)}</td>
               <td class="cell-date">${formatDate(it.mtime || it.updatedAt)}</td>
               <td class="cell-tags">${tagChipsHtml(itemTags(it))}</td>
@@ -646,7 +730,7 @@ function renderResources(items, viewMode, editMode = false, selectedIds = new Se
       <div class="res-view-list${viewMode === 'content' ? ' res-view-content' : ''}">
         ${items.map((it) => `
           <div class="res-row${isSel(it.id)}" data-item="${it.id}" title="${escapeHtml(itemTooltip(it))}">
-            ${editMode ? `<span class="edit-check">${selectedIds.has(it.id) ? '☑' : '☐'}</span>` : `<span class="type-badge ${it.type}">${typeLabel(it.type)}</span>`}
+            ${editMode ? `<span class="edit-check">${selectedIds.has(it.id) ? '☑' : '☐'}</span>` : `${typeBadgeHtml(it, effType(it))}`}
             <span class="r-name">${escapeHtml(itemFileName(it))}</span>
             <span class="r-tags">${tagChipsHtml(itemTags(it), 2)}</span>
             <span class="r-size">${formatSize(it.size)}</span>
@@ -673,7 +757,7 @@ function renderResources(items, viewMode, editMode = false, selectedIds = new Se
               <button class="icon-btn" data-op="fav" data-item="${it.id}" title="收藏">★</button>
               <button class="icon-btn" data-op="edit" data-item="${it.id}" title="编辑">✎</button>
             </div>`;
-          return tileCardHtml(it, { editMode, selectedIds, opsHtml: ops });
+          return tileCardHtml(it, { editMode, selectedIds, opsHtml: ops, effType: effType(it) });
         }).join('')}
       </div>
     `;
@@ -698,7 +782,7 @@ function renderResources(items, viewMode, editMode = false, selectedIds = new Se
           </div>` : ''}
           <div class="rc-meta">
             ${editMode ? `<span class="edit-check">${selectedIds.has(it.id) ? '☑ 已选' : '☐ 选中'}</span>`
-              : `<span class="type-badge ${it.type}">${typeLabel(it.type)}</span>
+              : `${typeBadgeHtml(it, effType(it))}
                  <span class="rc-size">${formatSize(it.size)}</span>`}
           </div>
         </div>
@@ -802,7 +886,7 @@ export function renderFavFolderPage(container, opts) {
   if (sortSel) sortSel.addEventListener('change', () => actions.onSort && actions.onSort(sortSel.value, sortDir));
 
   // 图标视图缩略图
-  if (isIconMode(viewMode)) {
+  if (isIconMode(viewMode) || viewMode === 'tile') {
     for (const it of sorted) {
       const imgEl = container.querySelector(`.res-thumb[data-item="${it.id}"]`);
       if (!imgEl) continue;
@@ -857,8 +941,8 @@ function renderFavResources(items, viewMode) {
         <tbody>
           ${items.map((it) => `
             <tr data-item="${it.id}" title="${escapeHtml(itemTooltip(it))}">
-              <td><div class="cell-name"><span class="type-badge ${it.type}">${typeLabel(it.type)}</span><span class="cn-main">${escapeHtml(itemFileName(it))}</span></div></td>
-              <td>${escapeHtml(typeLabel(it.type))}</td>
+              <td><div class="cell-name">${typeBadgeHtml(it, effType(it))}<span class="cn-main">${escapeHtml(itemFileName(it))}</span></div></td>
+              <td style="color:${typeColor(itemEffectiveType(it, cat, group, resourceTab))}">${escapeHtml(typeLabel(itemEffectiveType(it, cat, group, resourceTab)))}</td>
               <td class="cell-size">${formatSize(it.size)}</td>
               <td class="cell-date">${formatDate(it.mtime || it.updatedAt)}</td>
               <td class="cell-tags">${tagChipsHtml(itemTags(it))}</td>
@@ -875,7 +959,7 @@ function renderFavResources(items, viewMode) {
       <div class="res-view-list${viewMode === 'content' ? ' res-view-content' : ''}">
         ${items.map((it) => `
           <div class="res-row" data-item="${it.id}" title="${escapeHtml(itemTooltip(it))}">
-            <span class="type-badge ${it.type}">${typeLabel(it.type)}</span>
+            ${typeBadgeHtml(it)}
             <span class="r-name">${escapeHtml(itemFileName(it))}</span>
             <span class="r-tags">${tagChipsHtml(itemTags(it), 2)}</span>
             <span class="r-size">${formatSize(it.size)}</span>
@@ -897,7 +981,7 @@ function renderFavResources(items, viewMode) {
             <div class="res-tile-body">
               <div class="res-tile-name" title="${escapeHtml(itemFileName(it))}">${nameExtHtml(it)}</div>
               <div class="res-tile-meta">
-                <span class="type-badge ${it.type}">${typeLabel(it.type)}</span>
+                ${typeBadgeHtml(it)}
                 <span class="res-tile-size">${formatSize(it.size)}</span>
                 <span class="res-tile-date">${formatDate(it.mtime || it.updatedAt)}</span>
               </div>
@@ -927,7 +1011,7 @@ function renderFavResources(items, viewMode) {
             ${tags.length > 1 ? `<span class="tag-chip tag-chip-more">+${tags.length - 1}</span>` : ''}
           </div>` : ''}
           <div class="rc-meta">
-            <span class="type-badge ${it.type}">${typeLabel(it.type)}</span>
+            ${typeBadgeHtml(it)}
             <span class="rc-size">${formatSize(it.size)}</span>
           </div>
         </div>

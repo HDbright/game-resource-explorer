@@ -99,35 +99,68 @@ app.whenReady().then(async () => {
   win.webContents.on('did-finish-load', async () => {
     await new Promise((r) => setTimeout(r, 1200));
     try {
+      const shot = async (name) => {
+        try {
+          const img = await win.capturePage();
+          fs.writeFileSync(path.join(__dirname, name), img.toPNG());
+        } catch (e) { console.error('SHOT-ERR', name, e.message); }
+      };
+      await shot('recent-home.png');
+      await win.webContents.executeJavaScript(`(async () => {
+        const el = document.getElementById('home-recent-opens');
+        if (el) el.scrollIntoView({ block: 'center' });
+        await new Promise((r) => setTimeout(r, 250));
+        return true;
+      })()`, true);
+      await shot('recent-home-bottom.png');
       const res = await win.webContents.executeJavaScript(`(async () => {
         const out = {};
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         // 1) 首页「最近打开」模块(默认 global home)
         const section = document.getElementById('home-recent-opens');
         out.recentSection = !!section;
-        out.recentItems = section ? section.querySelectorAll('.recent-item').length : 0;
+        out.recentItems = section ? section.querySelectorAll('.recent-card').length : 0;
         out.recentText = section ? section.textContent : '';
-        out.hasFguiItem = !!(section && [...section.querySelectorAll('.recent-item')].some((el) => (el.textContent || '').includes('RECENT包')));
+        out.hasFguiItem = !!(section && [...section.querySelectorAll('.recent-card')].some((el) => (el.textContent || '').includes('RECENT包')));
         out.hasTime = !!(section && /\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}/.test(section.textContent));
-        // 2) 点击 FGUI 最近打开项 → 再次打开预览
-        const fguiItem = section ? [...section.querySelectorAll('.recent-item')].find((el) => (el.textContent || '').includes('RECENT包')) : null;
-        out.fguiItemFound = !!fguiItem;
-        if (fguiItem) { fguiItem.click(); await sleep(1200); }
-        out.pkgText = (document.getElementById('fgpv-pkg') || {}).textContent || '';
-        out.previewOpened = !!document.getElementById('fgpv-canvas');
-        // 3) 类型主页最近打开: 切到「动画」tab → 只显示 spine 记录(无 FGUI/文件)
-        const animTab = document.querySelector('[data-tab="anim"]');
+        // 2) 类型主页最近打开: 切到「动画」tab → 只显示 spine 记录(无 FGUI/文件)
+        const animTab = document.querySelector('#resource-tabs .tab[data-tab="anim"]');
         out.animTabFound = !!animTab;
         if (animTab) { animTab.click(); await sleep(600); }
         const typeRecent = document.getElementById('home-recent-opens');
         out.typeRecentText = typeRecent ? typeRecent.textContent : '';
+        out.typeRecentCards = typeRecent ? typeRecent.querySelectorAll('.recent-card').length : -1;
         out.typeRecentOnlyAnim = !!(typeRecent && (typeRecent.textContent || '').includes('demo-anim') && !(typeRecent.textContent || '').includes('RECENT包') && !(typeRecent.textContent || '').includes('sample.txt'));
         return out;
       })()`, true);
-      console.log('FGUI-RECENT-SMOKE-RESULT ' + JSON.stringify(res, null, 2));
-      const ok = res.recentSection && res.recentItems >= 2 && res.hasFguiItem && res.hasTime &&
-                 res.fguiItemFound && res.previewOpened && res.pkgText.includes('ActEmperorArrival') &&
-                 res.animTabFound && res.typeRecentOnlyAnim;
+      await shot('recent-typehome.png');
+      await win.webContents.executeJavaScript(`(async () => {
+        const el = document.getElementById('home-recent-opens');
+        if (el) el.scrollIntoView({ block: 'center' });
+        await new Promise((r) => setTimeout(r, 250));
+        return true;
+      })()`, true);
+      await shot('recent-typehome-bottom.png');
+      const res2 = await win.webContents.executeJavaScript(`(async () => {
+        const out = {};
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        // 3) 回到全局主页,点击 FGUI 最近打开项 → 再次打开预览
+        const brand = document.querySelector('.brand');
+        if (brand) { brand.click(); await sleep(600); }
+        const homeSection = document.getElementById('home-recent-opens');
+        const fguiItem = homeSection ? [...homeSection.querySelectorAll('.recent-card')].find((el) => (el.textContent || '').includes('RECENT包')) : null;
+        out.fguiItemFound = !!fguiItem;
+        if (fguiItem) { fguiItem.click(); await sleep(1200); }
+        const fgePage = document.getElementById('page-fgui-editor');
+        out.fgeVisible = !!(fgePage && !fgePage.hidden);
+        return out;
+      })()`, true);
+      await shot('recent-fgui.png');
+      const out2 = Object.assign(res, res2);
+      console.log('FGUI-RECENT-SMOKE-RESULT ' + JSON.stringify(out2, null, 2));
+      const ok = out2.recentSection && out2.recentItems >= 2 && out2.hasFguiItem && out2.hasTime &&
+                 out2.animTabFound && out2.typeRecentOnlyAnim &&
+                 out2.fguiItemFound && out2.fgeVisible;
       console.log('FGUI-RECENT-SMOKE ' + (ok ? 'PASS' : 'FAIL'));
       cleanup();
       process.exit(ok ? 0 : 1);

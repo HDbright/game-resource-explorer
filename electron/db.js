@@ -53,6 +53,10 @@ function defaultDb() {
     toolboxFolders: [],
     // 侧栏菜单管理:整棵侧栏菜单树的节点(目录 + 终端,可改名/排序/移动/改图标)
     menuNodes: [],
+    // Todo-List 任务管理(移植自 taskwingo):项目 + 任务(含子任务) + 日历事件
+    todoProjects: [],
+    todoTasks: [],
+    todoEvents: [],
   };
 }
 
@@ -88,6 +92,7 @@ function open() {
       atlas_path TEXT,
       display_name TEXT NOT NULL,
       remark TEXT DEFAULT '',
+      meta TEXT DEFAULT NULL, -- JSON: 视频/一般元信息(海报图路径、评分、简介、导演、演员、年份等)
       created_at INTEGER DEFAULT 0,
       updated_at INTEGER DEFAULT 0
     );
@@ -214,6 +219,55 @@ function open() {
       created_at INTEGER DEFAULT 0,
       updated_at INTEGER DEFAULT 0
     );
+    -- Todo-List 任务管理(移植自 taskwingo):项目 / 任务 / 子任务
+    CREATE TABLE IF NOT EXISTS todo_projects(
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      color TEXT DEFAULT '#6366f1',
+      sort INTEGER DEFAULT 0,
+      created_at INTEGER DEFAULT 0,
+      updated_at INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS todo_tasks(
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      notes TEXT DEFAULT '',
+      notes_html TEXT DEFAULT '',
+      priority TEXT NOT NULL DEFAULT 'medium',
+      status TEXT NOT NULL DEFAULT 'todo',
+      deadline INTEGER,
+      reminder_at INTEGER,
+      sort INTEGER DEFAULT 0,
+      tags TEXT DEFAULT '[]',
+      project_id TEXT DEFAULT '',
+      recur_rule TEXT DEFAULT '',
+      archived INTEGER DEFAULT 0,
+      created_at INTEGER DEFAULT 0,
+      updated_at INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS todo_subtasks(
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      done INTEGER DEFAULT 0,
+      sort INTEGER DEFAULT 0,
+      created_at INTEGER DEFAULT 0
+    );
+    -- Todo-List 日历事件(生日/纪念日/待办事件/重要事件记录)
+    CREATE TABLE IF NOT EXISTS todo_events(
+      id TEXT PRIMARY KEY,
+      date TEXT NOT NULL,
+      type TEXT DEFAULT 'todo',
+      calendar TEXT DEFAULT 'solar',
+      title TEXT NOT NULL,
+      note TEXT DEFAULT '',
+      created_at INTEGER DEFAULT 0,
+      updated_at INTEGER DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_todo_events_date ON todo_events(date);
+    CREATE INDEX IF NOT EXISTS idx_todo_tasks_sort ON todo_tasks(sort);
+    CREATE INDEX IF NOT EXISTS idx_todo_tasks_archived ON todo_tasks(archived);
+    CREATE INDEX IF NOT EXISTS idx_todo_subtasks_task ON todo_subtasks(task_id);
   `);
   // 旧库迁移:categories 缺 parent_id 列时补上(子分类支持)
   try {
@@ -256,6 +310,15 @@ function open() {
   } catch (err) {
     console.error('[db] migrate menu_nodes type_tags/is_resource/locked error:', err);
   }
+  // 旧库迁移:todo_events 缺 calendar 列时补上(生日公历/农历)
+  try {
+    const evCols = db.prepare('PRAGMA table_info(todo_events)').all().map((r) => r.name);
+    if (!evCols.includes('calendar')) {
+      db.exec("ALTER TABLE todo_events ADD COLUMN calendar TEXT DEFAULT 'solar'");
+    }
+  } catch (err) {
+    console.error('[db] migrate todo_events calendar error:', err);
+  }
   // 旧库迁移:items 缺 size / mtime 列时补上(游戏资源管理器排序/统计用)
   try {
     const cols = db.prepare('PRAGMA table_info(items)').all().map((r) => r.name);
@@ -263,6 +326,8 @@ function open() {
     if (!cols.includes('mtime')) db.exec('ALTER TABLE items ADD COLUMN mtime INTEGER');
     // 旧库迁移:items 缺 tags 列时补上(资源标签,JSON 数组字符串)
     if (!cols.includes('tags')) db.exec("ALTER TABLE items ADD COLUMN tags TEXT DEFAULT '[]'");
+    // 旧库迁移:items 缺 meta 列时补上(视频/一般元信息:海报图路径、评分、简介等 JSON)
+    if (!cols.includes('meta')) db.exec('ALTER TABLE items ADD COLUMN meta TEXT DEFAULT NULL');
   } catch (err) {
     console.error('[db] migrate items size/mtime/tags error:', err);
   }
@@ -305,14 +370,21 @@ function readDb() {
     }
     d.items = conn.prepare(
       'SELECT id, category_id AS categoryId, type, file_path AS filePath, atlas_path AS atlasPath, ' +
-      'display_name AS displayName, remark, size, mtime, tags, created_at AS createdAt, updated_at AS updatedAt FROM items'
+      'display_name AS displayName, remark, size, mtime, tags, meta, created_at AS createdAt, updated_at AS updatedAt FROM items'
     ).all();
-    // tags 列是 JSON 数组字符串 → 解析为数组
+    // tags 列是 JSON 数组字符串 → 解析为数组;meta 列是 JSON 字符串 → 解析(海报图/评分/简介等)
     for (const it of d.items) {
       if (typeof it.tags === 'string') {
         try { it.tags = JSON.parse(it.tags || '[]'); } catch (err) { it.tags = []; }
       }
       if (!Array.isArray(it.tags)) it.tags = [];
+      if (it.meta != null) {
+        if (typeof it.meta === 'string') {
+          try { it.meta = JSON.parse(it.meta); } catch (err) { it.meta = null; }
+        }
+      } else {
+        it.meta = null;
+      }
     }
     d.favCategories = conn.prepare(
       'SELECT id, name, sort, created_at AS createdAt, updated_at AS updatedAt FROM fav_categories ORDER BY sort'
@@ -368,6 +440,34 @@ function readDb() {
       mn.isResource = !!mn.isResource;
       mn.locked = !!mn.locked;
     }
+    d.todoProjects = conn.prepare(
+      'SELECT id, name, color, sort, created_at AS createdAt, updated_at AS updatedAt FROM todo_projects ORDER BY sort'
+    ).all();
+    d.todoTasks = conn.prepare(
+      'SELECT id, title, notes, notes_html AS notesHtml, priority, status, deadline, reminder_at AS reminderAt, sort, ' +
+      'tags, project_id AS projectId, recur_rule AS recurRule, archived, created_at AS createdAt, updated_at AS updatedAt FROM todo_tasks ORDER BY sort'
+    ).all();
+    // tags 列是 JSON 数组字符串 → 解析为数组;附挂子任务
+    const subStmt = conn.prepare('SELECT id, task_id AS taskId, title, done, sort, created_at AS createdAt FROM todo_subtasks WHERE task_id = ? ORDER BY sort');
+    for (const t of (d.todoTasks || [])) {
+      if (typeof t.tags === 'string') {
+        try { t.tags = JSON.parse(t.tags || '[]'); } catch (err) { t.tags = []; }
+      }
+      if (!Array.isArray(t.tags)) t.tags = [];
+      if (!t.notes) t.notes = '';
+      if (!t.notesHtml) t.notesHtml = '';
+      if (!t.recurRule) t.recurRule = '';
+      t.archived = !!t.archived;
+      const subs = subStmt.all(t.id);
+      for (const s of subs) s.done = !!s.done;
+      t.subtasks = subs;
+    }
+    d.todoEvents = conn.prepare(
+      'SELECT id, date, type, calendar, title, note, created_at AS createdAt, updated_at AS updatedAt FROM todo_events ORDER BY date, created_at'
+    ).all();
+    for (const ev of (d.todoEvents || [])) {
+      if (!ev.note) ev.note = '';
+    }
     for (const ep of (d.apiEndpoints || [])) {
       if (typeof ep.params === 'string') {
         try { ep.params = JSON.parse(ep.params || '[]'); } catch (err) { ep.params = []; }
@@ -392,7 +492,7 @@ function writeDb(state) {
   const conn = open();
   conn.exec('BEGIN');
   try {
-    conn.exec('DELETE FROM settings; DELETE FROM categories; DELETE FROM items; DELETE FROM fav_categories; DELETE FROM fav_items; DELETE FROM scene_categories; DELETE FROM scenes; DELETE FROM web_bookmark_categories; DELETE FROM web_bookmarks; DELETE FROM api_categories; DELETE FROM api_projects; DELETE FROM api_endpoints; DELETE FROM toolbox_folders; DELETE FROM menu_nodes;');
+    conn.exec('DELETE FROM settings; DELETE FROM categories; DELETE FROM items; DELETE FROM fav_categories; DELETE FROM fav_items; DELETE FROM scene_categories; DELETE FROM scenes; DELETE FROM web_bookmark_categories; DELETE FROM web_bookmarks; DELETE FROM api_categories; DELETE FROM api_projects; DELETE FROM api_endpoints; DELETE FROM toolbox_folders; DELETE FROM menu_nodes; DELETE FROM todo_projects; DELETE FROM todo_tasks; DELETE FROM todo_subtasks; DELETE FROM todo_events;');
     const setSetting = conn.prepare('INSERT OR REPLACE INTO settings(key, value) VALUES (?, ?)');
     for (const [k, v] of Object.entries(state.settings || {})) {
       setSetting.run(k, JSON.stringify(v));
@@ -409,8 +509,8 @@ function writeDb(state) {
       );
     }
     const insItem = conn.prepare(
-      'INSERT INTO items(id, category_id, type, file_path, atlas_path, display_name, remark, size, mtime, tags, created_at, updated_at) ' +
-      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO items(id, category_id, type, file_path, atlas_path, display_name, remark, size, mtime, tags, meta, created_at, updated_at) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     for (const it of state.items || []) {
       insItem.run(
@@ -418,6 +518,7 @@ function writeDb(state) {
         it.atlasPath ?? null, it.displayName || '', it.remark || '',
         it.size ?? null, it.mtime ?? null,
         JSON.stringify(Array.isArray(it.tags) ? it.tags : []),
+        it.meta ? JSON.stringify(it.meta) : null,
         it.createdAt || 0, it.updatedAt || 0
       );
     }
@@ -509,6 +610,40 @@ function writeDb(state) {
         mn.sort || 0, mn.createdAt || 0, mn.updatedAt || 0
       );
     }
+    // ---- Todo-List 任务管理:项目 / 任务 / 子任务 ----
+    const insTodoProj = conn.prepare(
+      'INSERT INTO todo_projects(id, name, color, sort, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+    );
+    for (const p of state.todoProjects || []) {
+      insTodoProj.run(p.id, p.name || '', p.color || '#6366f1', p.sort || 0, p.createdAt || 0, p.updatedAt || 0);
+    }
+    const insTodoTask = conn.prepare(
+      'INSERT INTO todo_tasks(id, title, notes, notes_html, priority, status, deadline, reminder_at, sort, tags, project_id, recur_rule, archived, created_at, updated_at) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    const insTodoSub = conn.prepare(
+      'INSERT INTO todo_subtasks(id, task_id, title, done, sort, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+    );
+    for (const t of state.todoTasks || []) {
+      insTodoTask.run(
+        t.id, t.title || '', t.notes || '', t.notesHtml || '',
+        t.priority || 'medium', t.status || 'todo',
+        t.deadline ?? null, t.reminderAt ?? null,
+        t.sort || 0,
+        JSON.stringify(Array.isArray(t.tags) ? t.tags : []),
+        t.projectId || '', t.recurRule || '',
+        t.archived ? 1 : 0, t.createdAt || 0, t.updatedAt || 0
+      );
+      for (const s of (t.subtasks || [])) {
+        insTodoSub.run(s.id, t.id, s.title || '', s.done ? 1 : 0, s.sort || 0, s.createdAt || 0);
+      }
+    }
+    const insTodoEvent = conn.prepare(
+      'INSERT INTO todo_events(id, date, type, calendar, title, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    for (const ev of state.todoEvents || []) {
+      insTodoEvent.run(ev.id, ev.date || '', ev.type || 'todo', ev.calendar || 'solar', ev.title || '', ev.note || '', ev.createdAt || 0, ev.updatedAt || 0);
+    }
     conn.exec('COMMIT');
     return true;
   } catch (err) {
@@ -558,6 +693,8 @@ function dbStats() {
       size: fs.existsSync(dbFile()) ? fs.statSync(dbFile()).size : 0,
       categories: conn.prepare('SELECT COUNT(*) AS n FROM categories').get().n,
       items: conn.prepare('SELECT COUNT(*) AS n FROM items').get().n,
+      todoProjects: conn.prepare('SELECT COUNT(*) AS n FROM todo_projects').get().n,
+      todoTasks: conn.prepare('SELECT COUNT(*) AS n FROM todo_tasks').get().n,
       settings: conn.prepare('SELECT COUNT(*) AS n FROM settings').get().n,
     };
   } catch (err) {

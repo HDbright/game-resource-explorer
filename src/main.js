@@ -1078,7 +1078,7 @@ function installSmoke() {
           statCards: document.querySelectorAll('.stat-card').length,
           statTexts: [...document.querySelectorAll('.stat-card .sc-label')].map((el) => el.textContent),
           quickCats: document.querySelectorAll('.quick-cat').length,
-          recentItems: document.querySelectorAll('.recent-item').length,
+          recentItems: document.querySelectorAll('.recent-card').length,
         };
         return out;
       }

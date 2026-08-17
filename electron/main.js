@@ -603,7 +603,8 @@ app.whenReady().then(async () => {
       const s = (db && db.settings) || {};
       const customTypes = Array.isArray(s.customTypes) ? s.customTypes : [];
       const customGroups = Array.isArray(s.customTypeGroups) ? s.customTypeGroups : [];
-      return scanDir(dir, !!recursive, customTypes, customGroups);
+      const builtinOverrides = (s.builtinTypeOverrides && typeof s.builtinTypeOverrides === 'object') ? s.builtinTypeOverrides : null;
+      return scanDir(dir, !!recursive, customTypes, customGroups, builtinOverrides);
     } catch (err) {
       return { ok: false, error: err.message };
     }
@@ -972,6 +973,24 @@ app.whenReady().then(async () => {
     });
     return { canceled: r.canceled, filePaths: r.filePaths };
   });
+  // 保存对话框 + 写入文本文件(导出 CSV / JSON / HTML 报告等;对话框返回取消/路径,确认后写入)
+  ipcMain.handle('fs:saveText', async (_e, { defaultName = 'untitled.txt', content = '', filters = [] } = {}) => {
+    if (!win) return { canceled: true };
+    const r = await dialog.showSaveDialog(win, {
+      title: '保存文件',
+      defaultPath: defaultName,
+      filters: Array.isArray(filters) && filters.length
+        ? filters
+        : [{ name: '文本文件', extensions: ['txt'] }],
+    });
+    if (r.canceled || !r.filePath) return { canceled: true };
+    try {
+      fs.writeFileSync(r.filePath, String(content ?? ''), 'utf-8');
+      return { ok: true, path: r.filePath };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
   // 图标库:导入 PNG/ICO → PNG dataURL(供节点图标使用;nativeImage 支持 ICO,统一转 PNG)
   ipcMain.handle('icon:import', async (_e) => {
     if (!win) return { ok: false, error: 'no window' };
@@ -996,6 +1015,14 @@ app.whenReady().then(async () => {
       const buf = fs.readFileSync(p);
       const mime = mimeOfExt(path.extname(p).slice(1).toLowerCase());
       return { ok: true, dataUrl: `data:${mime};base64,${buf.toString('base64')}`, size: buf.length };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+  // 读取 UTF-8 文本文件(导入 JSON 等;避免 base64 中转导致中文乱码)
+  ipcMain.handle('fs:readText', (_e, p) => {
+    try {
+      return { ok: true, text: fs.readFileSync(p, 'utf-8') };
     } catch (err) {
       return { ok: false, error: err.message };
     }

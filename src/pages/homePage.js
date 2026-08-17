@@ -2,8 +2,10 @@ import {
   getHomeData, getTypeHomeData, getCategoryChildren, categoryById,
   TYPE_LABEL, formatSize, TYPE_GROUPS, itemTags, getFavHomeData, favCategoryById,
   categoryTypeTagNames, state, customTypeGroupById, typeGroup, typeLabel, catVisibleInAnyGroup,
+  isImageType, isVideoItem, resourceTypeIcon,
 } from '../state.js';
 import { toast } from '../dialogs.js';
+import { thumbnailService } from '../thumbnails.js';
 
 /** 类型主页中分类目录树的折叠状态(按 catId 记忆,跨类型共享无碍) */
 const typeCatExpanded = new Set();
@@ -54,7 +56,12 @@ function renderGlobalHome(container, actions) {
     { group: 'anim', label: '动画资源', num: data.byType.anim, cls: 'anim', size: data.byType.totalSize },
     { group: 'image', label: '图片资源', num: data.byType.image, cls: 'image', size: null },
     { group: 'audio', label: '音频资源', num: data.byType.audio, cls: 'audio', size: null },
-    { group: '3d', label: '3D 资源', num: data.byType['3d'] || 0, cls: 'd3', size: null },
+    { group: '3d', label: '3D资源', num: data.byType['3d'] || 0, cls: 'd3', size: null },
+    { group: 'icon', label: '图标资源', num: data.byType.icon || 0, cls: 'icon', size: null },
+    { group: 'video', label: '视频资源', num: data.byType.video || 0, cls: 'video', size: null },
+    { group: 'ui', label: 'UI资源', num: data.byType.fgui || 0, cls: 'ui', size: null },
+    { group: 'article', label: '文档资源', num: data.byType.article || 0, cls: 'article', size: null },
+    { group: 'database', label: '数据资源', num: data.byType.database || 0, cls: 'database', size: null },
     { group: 'total', label: '资源总数', num: data.total, cls: 'total', size: data.byType.totalSize },
   ];
   const mgmt = homeManage.active;
@@ -65,7 +72,7 @@ function renderGlobalHome(container, actions) {
       <div class="home-title">游戏资源管理</div>
       ${cats.length ? `<button class="btn sm ${mgmt ? 'active' : ''}" id="home-mgmt-btn" title="管理模式: 勾选目录后批量删除 / 移动">${mgmt ? '✓ 完成管理' : '🛠 管理'}</button>` : ''}
     </div>
-    <div class="home-subtitle">管理您的动画 / 图片 / 音频 / 3D 游戏资源 · 共 ${data.total} 项资源</div>
+    <div class="home-subtitle">管理您的动画 / 图片 / 音频 / 3D / 图标 / 视频 / UI / 文档 / 数据游戏资源 · 共 ${data.total} 项资源</div>
 
     <div class="home-cards">
       ${cards.map((c) => `
@@ -102,18 +109,21 @@ function renderGlobalHome(container, actions) {
 
     <div class="home-section">
       <div class="home-section-title">🕘 最近打开</div>
-      <div class="recent-list" id="home-recent-opens">
+      <div class="recent-grid" id="home-recent-opens">
         ${renderRecentOpens(recentOpens)}
       </div>
     </div>
 
     <div class="home-section">
       <div class="home-section-title">🕘 最近添加</div>
-      <div class="recent-list" id="home-recent-list">
+      <div class="recent-grid" id="home-recent-list">
         ${renderRecentList(data.recent)}
       </div>
     </div>
   `;
+
+  // 最近打开/最近添加缩略图异步加载(打开记录里可解析到条目的一并加载)
+  loadRecentThumbs(container, data.recent.concat(recentOpens.map((r) => (r.itemId ? state.items.find((i) => i.id === r.itemId) : null)).filter(Boolean)));
 
   // ---- 目录管理模式交互 ----
   const mgmtBtn = container.querySelector('#home-mgmt-btn');
@@ -165,17 +175,22 @@ function renderGlobalHome(container, actions) {
   }
 }
 
-/** 首页「最近打开」列表(含打开时间;点击再次打开) */
+/** 首页「最近打开」平铺卡片(含打开时间;点击再次打开;可解析到条目的显示缩略图) */
 function renderRecentOpens(list) {
   if (!list || !list.length) return '<div class="home-empty">暂无打开记录,打开过的资源会显示在这里</div>';
-  const TYPE_BADGE = { anim: '动画', image: '图片', audio: '音频', '3d': '3D', fgui: 'FGUI', scene: '场景', folder: '目录' };
-  return list.map((r) => `
-    <div class="recent-item" data-act="recent" data-path="${escapeHtml(r.path || '')}" title="${escapeHtml(r.name || '')} · ${escapeHtml(r.path || '')}">
-      <span class="type-badge">${TYPE_BADGE[r.type] || r.type || '文件'}</span>
-      <span class="ri-name">${escapeHtml(r.name || '')}</span>
-      <span class="ri-meta">${formatOpenTime(r.openedAt)}</span>
+  return list.map((r) => {
+    const it = r.itemId ? state.items.find((i) => i.id === r.itemId) : null;
+    const icon = resourceTypeIcon(it ? it.type : r.type) || '📄';
+    return `
+    <div class="recent-card" data-act="recent" data-path="${escapeHtml(r.path || '')}" title="${escapeHtml(r.name || '')} · ${escapeHtml(r.path || '')}">
+      <span class="rc-thumb" ${it ? `data-thumb="${it.id}"` : ''}>
+        <span class="rc-fallback">${icon}</span>
+      </span>
+      <span class="rc-name">${escapeHtml(r.name || '')}</span>
+      <span class="rc-meta">${formatOpenTime(r.openedAt)}</span>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
 function formatOpenTime(ts) {
@@ -191,6 +206,7 @@ const GROUP_TITLE = { anim: '动画主页', image: '图片主页', audio: '音�
 
 function renderTypeHome(container, actions, group) {
   const data = getTypeHomeData(group);
+  const roList = typeRecentOpens(group);
   const cg = customTypeGroupById(group); // 自定义分组
   const title = (GROUP_TITLE[group] || (cg ? cg.name + '主页' : '资源主页'));
   const typeDetail = cg ? [group] : (TYPE_GROUPS[group] || []);
@@ -232,18 +248,21 @@ function renderTypeHome(container, actions, group) {
 
     <div class="home-section">
       <div class="home-section-title">🕘 最近打开</div>
-      <div class="recent-list" id="home-recent-opens">
-        ${renderRecentOpens(typeRecentOpens(group))}
+      <div class="recent-grid" id="home-recent-opens">
+        ${renderRecentOpens(roList)}
       </div>
     </div>
 
     <div class="home-section">
       <div class="home-section-title">🕘 最近添加</div>
-      <div class="recent-list" id="home-recent-list">
+      <div class="recent-grid" id="home-recent-list">
         ${renderRecentList(data.recent)}
       </div>
     </div>
   `;
+
+  // 最近打开/最近添加缩略图异步加载
+  loadRecentThumbs(container, data.recent.concat(roList.map((r) => (r.itemId ? state.items.find((i) => i.id === r.itemId) : null)).filter(Boolean)));
 }
 
 /**
@@ -299,11 +318,13 @@ export function renderFilterHome(container, actions = {}, tags = [], title = '�
     </div>
     <div class="home-section">
       <div class="home-section-title">🕘 最近添加</div>
-      <div class="recent-list" id="home-recent-list">
+      <div class="recent-grid" id="home-recent-list">
         ${renderRecentList([...items].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).slice(0, 10))}
       </div>
     </div>
   `;
+  // 最近添加缩略图异步加载
+  loadRecentThumbs(container, items);
   bindHomeEvents(container, actions);
 }
 
@@ -374,12 +395,59 @@ function countCatNodes(nodes) {
 function renderRecentList(recent) {
   if (!recent.length) return '<div class="home-empty">暂无资源,点击顶栏「+ 添加资源」开始</div>';
   return recent.map((it) => `
-    <div class="recent-item" data-act="item" data-item="${it.id}" title="${escapeHtml(itemTooltip(it))}">
-      <span class="type-badge ${it.type}">${TYPE_LABEL[it.type] || it.type}</span>
-      <span class="ri-name">${escapeHtml(it.displayName || '')}</span>
-      <span class="ri-meta">${it.categoryId ? escapeHtml((categoryById(it.categoryId) || {}).name || '') : '未分类'}</span>
+    <div class="recent-card" data-act="item" data-item="${it.id}" title="${escapeHtml(itemTooltip(it))}">
+      <span class="rc-thumb" data-thumb="${it.id}">
+        <span class="rc-fallback">${resourceTypeIcon(it.type) || '📄'}</span>
+      </span>
+      <span class="rc-name">${escapeHtml(it.displayName || '')}</span>
+      <span class="rc-meta">${it.categoryId ? escapeHtml((categoryById(it.categoryId) || {}).name || '') : '未分类'}</span>
     </div>
   `).join('');
+}
+
+/** 该条目是否可生成缩略图(图片/图标/动画/UI/视频);音频、3D 等仅显示类型图标 */
+function recentCanThumb(it) {
+  if (!it) return false;
+  if (it.type === 'audio' || it.type === 'model') return false;
+  return isImageType(it.type) || it.type === 'fgui' || isVideoItem(it.type) || typeGroup(it.type) === 'anim';
+}
+
+/**
+ * 异步为「最近打开/最近添加」平铺卡片中的 .rc-thumb 占位加载条目缩略图(与列表页同一套 thumbnailService)。
+ * - 同一 itemId 可能同时出现在「最近打开」与「最近添加」,一次加载填充全部匹配占位(去重防重复生成);
+ * - 无缩略图能力的类型(音频/3D 等)或加载失败时保留类型图标 .rc-fallback。
+ */
+function loadRecentThumbs(container, items) {
+  const seen = new Set();
+  for (const it of items || []) {
+    if (!it || seen.has(it.id)) continue;
+    seen.add(it.id);
+    if (!recentCanThumb(it)) continue;
+    const boxes = [...container.querySelectorAll(`.rc-thumb[data-thumb="${it.id}"]`)];
+    if (!boxes.length) continue;
+    const apply = (u) => {
+      if (!u) return; // 加载失败/无缩略图 → 保留类型图标
+      for (const box of boxes) {
+        const fb = box.querySelector('.rc-fallback');
+        if (fb) fb.style.display = 'none';
+        const img = document.createElement('img');
+        img.className = 'rc-thumb-img';
+        img.alt = '';
+        img.onerror = () => { try { img.remove(); if (fb) fb.style.display = ''; } catch (e) { /* ignore */ } };
+        box.appendChild(img);
+        img.src = u;
+      }
+    };
+    if (isImageType(it.type)) {
+      apply(thumbnailService.thumbnailUrl(it));
+    } else if (it.type === 'fgui') {
+      thumbnailService.getFguiThumb(it).then(apply);
+    } else if (isVideoItem(it)) {
+      thumbnailService.getVideoThumb(it).then(apply);
+    } else {
+      thumbnailService.getAnimThumb(it).then(apply);
+    }
+  }
 }
 
 /** 主页事件委托(点击 + 右键) */

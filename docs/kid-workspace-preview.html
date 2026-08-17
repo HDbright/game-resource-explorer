@@ -1,0 +1,2122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>得乐学苑 · 预览</title>
+<style>
+html,body{margin:0;padding:0;background:#eef2ff}
+#kid-app{min-height:100vh}
+.kid-wb{--kblue:#4f7cff;--kgold:#f59e0b;--kdiamond:#22d3ee;--kred:#ef4444;--kgreen:#22c55e;
+  --kpurple:#8b5cf6;--kpink:#ec4899;--korange:#f97316;
+  --kbg:#f6f7fb;--kbg-top:#eef2ff;--kcard:#ffffff;--kcard2:#f7f8fc;--kcard3:#f1f3fa;
+  --kborder:#e3e6f0;--kborder2:#c9cfe0;--ktext:#23262f;--ktext2:#5b6172;--ktext3:#8a90a3;
+  --kaccent:#4f7cff;--kaccent2:#6a5cff;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,sans-serif;
+  background:linear-gradient(180deg,var(--kbg-top) 0%,var(--kbg) 220px);min-height:100%;color:var(--ktext);padding:14px 16px 40px;box-sizing:border-box}
+.kid-wb *{box-sizing:border-box;margin:0;padding:0}
+.kid-wb button{font-family:inherit;cursor:pointer;border:none;background:none;-webkit-tap-highlight-color:transparent}
+.kid-wb input,.kid-wb select,.kid-wb textarea{font-family:inherit;font-size:16px}
+.kid-wb input[type=text],.kid-wb input[type=number],.kid-wb input[type=password],.kid-wb select,.kid-wb textarea{
+  width:100%;padding:11px 12px;border:2px solid var(--kborder);border-radius:12px;background:var(--kcard);color:var(--ktext);outline:none}
+.kid-wb input:focus,.kid-wb select:focus,.kid-wb textarea:focus{border-color:var(--kaccent)}
+/* 主题模式:跟随项目(默认,映射应用外观变量) / 儿童亮色(默认值) / 深色 */
+.kid-wb.theme-project{--kbg:var(--bg);--kbg-top:var(--bg);--kcard:var(--bg2);--kcard2:var(--bg3);--kcard3:var(--bg4);
+  --kborder:var(--border);--kborder2:var(--border);--ktext:var(--text);--ktext2:var(--text2);--ktext3:var(--text2);
+  --kaccent:var(--accent);--kaccent2:var(--accent2);--kblue:var(--accent)}
+.kid-wb.theme-dark{--kbg:#1b1d23;--kbg-top:#1b1d23;--kcard:#22242b;--kcard2:#2a2d36;--kcard3:#333642;
+  --kborder:#343845;--kborder2:#3d424f;--ktext:#e6e8ee;--ktext2:#9aa1b2;--ktext3:#9aa1b2;
+  --kaccent:#4f8cff;--kaccent2:#6a5cff;--kblue:#4f8cff}
+.kid-topbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.kid-brand{display:flex;align-items:center;gap:10px;min-width:0}
+.kid-logo{width:44px;height:44px;border-radius:14px;background:linear-gradient(135deg,#4f7cff,#8b5cf6);display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 4px 12px rgba(79,124,255,.35)}
+.kid-title{font-size:19px;font-weight:800;letter-spacing:.5px;line-height:1.2;color:var(--ktext)}
+.kid-title small{display:block;font-size:11px;font-weight:600;color:var(--ktext3);letter-spacing:1px}
+.kid-date{font-size:12px;color:var(--ktext2);background:var(--kcard);border:1px solid var(--kborder);padding:5px 10px;border-radius:20px;font-weight:600}
+.kid-top-actions{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.kid-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;padding:0 16px;
+  border-radius:12px;font-size:15px;font-weight:700;color:var(--ktext);background:var(--kcard);border:2px solid var(--kborder);transition:transform .08s,box-shadow .15s;user-select:none}
+.kid-btn:active{transform:scale(.96)}
+.kid-btn.primary{background:linear-gradient(135deg,var(--kaccent),var(--kaccent2));color:#fff;border:none;box-shadow:0 4px 12px rgba(79,124,255,.35)}
+.kid-btn.gold{background:linear-gradient(135deg,#fbbf24,#f59e0b);color:#fff;border:none;box-shadow:0 4px 12px rgba(245,158,11,.35)}
+.kid-btn.green{background:linear-gradient(135deg,#4ade80,#22c55e);color:#fff;border:none;box-shadow:0 4px 12px rgba(34,197,94,.35)}
+.kid-btn.red{background:linear-gradient(135deg,#f87171,#ef4444);color:#fff;border:none;box-shadow:0 4px 12px rgba(239,68,68,.3)}
+.kid-btn.sm{min-height:34px;padding:0 12px;font-size:13px;border-radius:10px}
+.kid-btn:disabled{opacity:.5;cursor:not-allowed}
+.kid-today{margin-bottom:14px}
+.kid-today-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.kid-today-head .kid-today-title{font-size:16px;font-weight:800;color:var(--ktext)}
+.kid-today-head .kid-today-sub{font-size:12px;color:var(--ktext3)}
+.kid-today-list{display:flex;flex-direction:column;gap:6px}
+.kid-today-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:var(--kcard);
+  border:1.5px solid var(--kborder);box-shadow:0 2px 6px rgba(30,41,59,.05)}
+.kid-today-item.overdue{border-color:#f87171;background:var(--kcard)}
+.kid-today-item .k-ti-ico{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.kid-today-item .k-ti-main{flex:1;min-width:0}
+.kid-today-item .k-ti-title{font-size:14px;font-weight:700;color:var(--ktext);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kid-today-item .k-ti-sub{font-size:11px;color:var(--ktext3)}
+.kid-today-item.overdue .k-ti-title{color:#f87171}
+.kid-today-item .k-ti-tag{font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:#fee2e2;color:#dc2626;flex-shrink:0}
+.kid-today-empty{font-size:13px;color:var(--ktext3);background:var(--kcard);border:1.5px dashed var(--kborder2);border-radius:12px;padding:14px;text-align:center}
+.kid-today-banner{display:flex;align-items:center;gap:8px;margin-top:8px;padding:9px 12px;border-radius:10px;
+  background:#fffbeb;border:1px solid #fde68a;font-size:12px;color:#92400e}
+.kid-today-banner b{color:#b45309}
+.kid-tabs{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.kid-tab{flex:1;min-width:120px;min-height:48px;border-radius:14px;background:var(--kcard);border:2px solid var(--kborder);
+  font-size:15px;font-weight:800;color:var(--ktext2);display:flex;align-items:center;justify-content:center;gap:8px}
+.kid-tab.on{background:linear-gradient(135deg,var(--kaccent),var(--kaccent2));color:#fff;border-color:transparent;box-shadow:0 4px 14px rgba(79,124,255,.35)}
+.kid-tab.on .kid-tab-dot{background:var(--kcard)}
+.kid-sec-head{display:flex;align-items:center;gap:8px;margin:4px 0 10px}
+.kid-sec-head .kid-sec-title{font-size:16px;font-weight:800;color:var(--ktext)}
+.kid-sec-head .kid-sec-sub{font-size:12px;color:var(--ktext3);margin-left:auto}
+.kid-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.kid-task{background:var(--kcard);border-radius:16px;border:2px solid var(--kborder);padding:14px;display:flex;flex-direction:column;gap:10px;
+  box-shadow:0 2px 8px rgba(30,41,59,.06);transition:box-shadow .15s}
+.kid-task.carry{border-color:#f87171;box-shadow:0 2px 10px rgba(239,68,68,.15)}
+.kid-task.started{border-color:var(--kaccent)}
+.kid-task.done{background:var(--kcard);border-color:#4ade80}
+.kid-task.done .k-task-main{opacity:.75}
+.k-task-head{display:flex;align-items:center;gap:10px}
+.k-task-ico{width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.k-task-titles{flex:1;min-width:0}
+.k-task-name{font-size:15px;font-weight:800;color:var(--ktext)}
+.k-task-cat{font-size:11px;font-weight:700;color:var(--ktext3)}
+.k-task-badges{display:flex;gap:5px;flex-shrink:0}
+.k-badge{font-size:10px;font-weight:800;padding:3px 8px;border-radius:9px}
+.k-badge.overdue{background:#fee2e2;color:#dc2626}
+.k-badge.carry{background:#fef3c7;color:#b45309}
+.k-badge.doing{background:#dbeafe;color:#2563eb}
+.k-badge.done{background:#dcfce7;color:#15803d}
+.k-task-target{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ktext2);flex-wrap:wrap}
+.k-task-target .k-unit-chip{background:var(--kcard3);border-radius:8px;padding:3px 9px;font-weight:700}
+.k-task-actions{display:flex;gap:8px;flex-wrap:wrap}
+.k-task-actions .kid-btn{flex:1;min-width:110px}
+.k-task-reward{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.k-reward-chip{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:800;color:var(--ktext2);
+  background:var(--kcard2);border-radius:20px;padding:4px 10px}
+.k-task-stars{display:flex;gap:2px;align-items:center}
+.k-task-tips{font-size:12px;color:var(--ktext2);background:var(--kcard2);border-radius:10px;padding:8px 10px;line-height:1.5}
+.k-task-foot{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ktext3)}
+.k-addtask{min-height:52px;border:2px dashed var(--kborder2);border-radius:16px;background:var(--kcard);
+  display:flex;align-items:center;justify-content:center;gap:8px;font-size:14px;font-weight:700;color:var(--ktext2);width:100%}
+.k-addtask:hover{border-color:var(--kaccent);color:var(--kaccent)}
+.kid-plan-wrap{display:flex;flex-direction:column;gap:12px}
+.kid-plan-tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.kid-plan-days{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
+.kid-plan-day{background:var(--kcard);border:2px solid var(--kborder);border-radius:14px;padding:10px;min-height:150px;display:flex;flex-direction:column;gap:6px}
+.kid-plan-day.today{border-color:var(--kaccent);box-shadow:0 0 0 1px var(--kaccent) inset}
+.kid-plan-day.off{opacity:.5}
+.kid-plan-day-head{display:flex;align-items:center;justify-content:space-between;gap:4px}
+.kid-plan-day-name{font-size:13px;font-weight:800;color:var(--ktext)}
+.kid-plan-day-head .kid-btn{padding:0 8px;min-height:30px;font-size:12px}
+.kid-plan-item{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;background:var(--kcard2);border-radius:9px;padding:6px 8px}
+.kid-plan-item .k-pi-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.kid-plan-item .k-pi-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kid-plan-item .k-pi-x{color:var(--kborder2);font-size:13px;padding:0 2px;flex-shrink:0}
+.kid-plan-item .k-pi-x:hover{color:#ef4444}
+.kid-plan-empty{font-size:11px;color:var(--ktext3);text-align:center;padding:8px 0}
+.kid-wallet{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+.kid-wallet-card{background:var(--kcard);border-radius:14px;border:2px solid var(--kborder);padding:10px 12px;display:flex;align-items:center;gap:10px;box-shadow:0 2px 6px rgba(30,41,59,.05)}
+.kid-wallet-card .k-w-ico{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.kid-wallet-card .k-w-num{font-size:19px;font-weight:800;line-height:1.1;color:var(--ktext)}
+.kid-wallet-card .k-w-name{font-size:11px;color:var(--ktext3);font-weight:600}
+.kid-row2{display:grid;grid-template-columns:1.1fr 1fr;gap:12px;margin-bottom:12px}
+.kid-card{background:var(--kcard);border-radius:16px;border:2px solid var(--kborder);padding:14px;box-shadow:0 2px 8px rgba(30,41,59,.06)}
+.kid-card-title{font-size:15px;font-weight:800;margin-bottom:10px;display:flex;align-items:center;gap:8px;color:var(--ktext)}
+.kid-level-row{display:flex;align-items:center;gap:14px}
+.kid-hero-box{flex-shrink:0;width:120px;height:150px;border-radius:16px;background:var(--kcard2);
+  border:2px solid var(--kborder);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+.kid-level-info{flex:1;min-width:0}
+.kid-lv-title{font-size:17px;font-weight:800;display:flex;align-items:center;gap:8px;color:var(--ktext)}
+.kid-lv-tag{font-size:11px;font-weight:800;color:#fff;border-radius:9px;padding:3px 8px}
+.kid-lv-desc{font-size:12px;color:var(--ktext2);margin:6px 0 10px;line-height:1.5}
+.kid-ring-row{display:flex;align-items:center;gap:12px}
+.kid-ring-label{font-size:12px;color:var(--ktext3)}
+.kid-ring-val{font-size:13px;font-weight:800;color:var(--ktext)}
+.kid-ring-bar{flex:1;height:10px;border-radius:6px;background:var(--kcard3);overflow:hidden}
+.kid-ring-fill{height:100%;border-radius:6px;background:linear-gradient(90deg,var(--kaccent),#8b5cf6);transition:width .4s}
+.kid-avatars{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.kid-avatar-item{display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;padding:6px;border-radius:12px;border:2px solid transparent}
+.kid-avatar-item.on{border-color:var(--kaccent);background:var(--kcard2)}
+.kid-avatar-item.locked{opacity:.45}
+.kid-avatar-item .k-a-name{font-size:10px;color:var(--ktext3);font-weight:600}
+.kid-shop-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+.kid-shop-item{background:var(--kcard);border-radius:14px;border:2px solid var(--kborder);padding:12px;display:flex;flex-direction:column;gap:8px}
+.kid-shop-item .k-s-head{display:flex;align-items:center;gap:10px}
+.kid-shop-item .k-s-ico{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--kcard3)}
+.kid-shop-item .k-s-name{font-size:14px;font-weight:800;color:var(--ktext)}
+.kid-shop-item .k-s-note{font-size:12px;color:var(--ktext2);line-height:1.4}
+.kid-shop-item .k-s-foot{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.kid-shop-item .k-s-price{font-size:13px;font-weight:800;color:var(--ktext);display:flex;align-items:center;gap:4px}
+.kid-medal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
+.kid-medal{display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 8px;border-radius:14px;background:var(--kcard);
+  border:2px solid var(--kborder);text-align:center}
+.kid-medal.got{border-color:#fde68a;background:#fffbeb}
+.kid-medal .k-m-name{font-size:12px;font-weight:800;color:var(--ktext)}
+.kid-medal .k-m-desc{font-size:10px;color:var(--ktext3);line-height:1.4}
+.kid-medal.locked .k-m-name{color:var(--ktext3)}
+.kid-medal.locked{opacity:.65}
+.kid-hint-strip{font-size:12px;color:#7c6a12;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:8px 12px;margin-bottom:12px}
+.kid-overlay{position:fixed;inset:0;z-index:9990;background:rgba(20,24,40,.45);display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(2px)}
+.kid-modal{background:var(--kcard);border-radius:20px;max-width:420px;width:100%;max-height:88vh;overflow:auto;padding:18px;box-shadow:0 20px 60px rgba(20,24,40,.3);animation:kidPop .18s ease}
+@keyframes kidPop{from{transform:scale(.94);opacity:0}to{transform:scale(1);opacity:1}}
+.kid-modal-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:14px}
+.kid-modal-title{font-size:17px;font-weight:800;color:var(--ktext)}
+.kid-modal-x{width:38px;height:38px;border-radius:10px;background:var(--kcard3);font-size:16px;color:var(--ktext2);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.kid-modal-x:hover{background:var(--kcard2)}
+.kid-field{margin-bottom:12px}
+.kid-label{display:block;font-size:12px;font-weight:700;color:var(--ktext2);margin-bottom:6px}
+.kid-stars-pick{display:flex;justify-content:center;gap:14px;padding:8px 0 14px}
+.kid-star-btn{width:64px;height:64px;border-radius:16px;background:var(--kcard3);display:flex;align-items:center;justify-content:center;transition:transform .1s}
+.kid-star-btn.on{background:#fef3c7;transform:scale(1.08);box-shadow:0 0 0 2px #f59e0b}
+.kid-star-btn:hover{transform:scale(1.06)}
+.kid-modal-actions{display:flex;gap:10px;margin-top:14px}
+.kid-modal-actions .kid-btn{flex:1}
+.kid-drawer{position:fixed;top:0;right:0;bottom:0;z-index:9990;width:min(420px,94vw);background:var(--kcard);
+  box-shadow:-12px 0 40px rgba(20,24,40,.25);display:flex;flex-direction:column;animation:kidSlide .18s ease}
+@keyframes kidSlide{from{transform:translateX(40px);opacity:0}to{transform:none;opacity:1}}
+.kid-drawer-head{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--kborder)}
+.kid-drawer-body{flex:1;overflow:auto;padding:16px 18px;padding-bottom:calc(16px + env(safe-area-inset-bottom))}
+.kid-drawer-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0;border-bottom:1px solid var(--kborder)}
+.kid-drawer-row .k-dr-label{font-size:14px;font-weight:700;color:var(--ktext)}
+.kid-drawer-row .k-dr-sub{font-size:11px;color:var(--ktext3)}
+.kid-switch{width:50px;height:28px;border-radius:16px;background:var(--kborder2);position:relative;transition:background .15s;flex-shrink:0}
+.kid-switch::after{content:'';position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:var(--kcard);transition:left .15s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.kid-switch.on{background:var(--kaccent)}
+.kid-switch.on::after{left:25px}
+.kid-sec-gap{margin-top:16px}
+.kid-pwd-dots{display:flex;gap:10px;justify-content:center;padding:6px 0 12px}
+.kid-pwd-dot{width:18px;height:18px;border-radius:50%;border:2px solid var(--kborder2);background:var(--kcard2)}
+.kid-pwd-dot.fill{background:var(--kaccent);border-color:var(--kaccent)}
+.kid-pwd-pad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.kid-pwd-key{min-height:56px;border-radius:14px;background:var(--kcard3);font-size:20px;font-weight:800;color:var(--ktext);display:flex;align-items:center;justify-content:center}
+.kid-pwd-key:hover{background:var(--kcard2)}
+.kid-pwd-key.del{font-size:15px;color:#ef4444}
+.kid-confetti{position:absolute;pointer-events:none}
+.kid-toast-ok{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:9999;background:#22c55e;color:#fff;
+  padding:12px 22px;border-radius:30px;font-size:14px;font-weight:700;box-shadow:0 8px 24px rgba(34,197,94,.4);animation:kidPop .2s ease}
+.kid-hl{animation:kidHl 1s ease 2}
+@keyframes kidHl{0%,100%{box-shadow:0 0 0 0 rgba(79,124,255,0)}40%{box-shadow:0 0 0 6px rgba(79,124,255,.45)}}
+@media (max-width:768px){
+  .kid-wb{padding:10px 10px 30px}
+  .kid-title{font-size:17px}
+  .kid-grid{grid-template-columns:1fr}
+  .kid-plan-days{grid-template-columns:1fr}
+  .kid-wallet{grid-template-columns:repeat(2,1fr)}
+  .kid-row2{grid-template-columns:1fr}
+  .kid-tab{min-width:100px;min-height:46px;font-size:14px}
+  .kid-avatars{grid-template-columns:repeat(4,1fr)}
+  .kid-modal{max-height:90vh}
+}
+@media (max-width:420px){
+  .kid-avatars{grid-template-columns:repeat(4,1fr)}
+  .kid-wallet-card{padding:8px 10px}
+  .kid-wallet-card .k-w-num{font-size:16px}
+}
+
+/* ============ 主题模式支持(深色/浅色/跟随项目,追加覆盖,优先级高于基础样式) ============ */
+.kid-wb{--kbg:#f6f7fb;--kbg-top:#eef2ff;--kcard:#ffffff;--kcard2:#f7f8fc;--kcard3:#f1f3fa;
+  --kborder:#e3e6f0;--kborder2:#c9cfe0;--ktext:#23262f;--ktext2:#5b6172;--ktext3:#8a90a3;
+  --kaccent:#4f7cff;--kaccent2:#6a5cff;--kblue:#4f7cff;
+  background:linear-gradient(180deg,var(--kbg-top) 0%,var(--kbg) 220px);color:var(--ktext)}
+/* 跟随项目:映射应用外观变量(深色/浅色/自定义/系统主题自动同步) */
+.kid-wb.theme-project{--kbg:var(--bg);--kbg-top:var(--bg);--kcard:var(--bg2);--kcard2:var(--bg3);--kcard3:var(--bg4);
+  --kborder:var(--border);--kborder2:var(--border);--ktext:var(--text);--ktext2:var(--text2);--ktext3:var(--text2);
+  --kaccent:var(--accent);--kaccent2:var(--accent2);--kblue:var(--accent)}
+/* 固定深色 */
+.kid-wb.theme-dark{--kbg:#1b1d23;--kbg-top:#1b1d23;--kcard:#22242b;--kcard2:#2a2d36;--kcard3:#333642;
+  --kborder:#343845;--kborder2:#3d424f;--ktext:#e6e8ee;--ktext2:#9aa1b2;--ktext3:#9aa1b2;
+  --kaccent:#4f8cff;--kaccent2:#6a5cff;--kblue:#4f8cff}
+/* 卡片/面板/输入框:背景 + 边框 + 主文字 */
+.kid-wb .kid-card,.kid-wb .kid-task:not(.carry):not(.started):not(.done),.kid-wb .kid-wallet-card,
+.kid-wb .kid-shop-item,.kid-wb .kid-medal:not(.got),.kid-wb .kid-today-item:not(.overdue),
+.kid-wb .kid-today-empty,.kid-wb .kid-plan-day,.kid-wb .kid-tab:not(.on),.kid-wb .kid-date,
+.kid-wb .kid-addtask,.kid-wb .kid-modal,.kid-wb .kid-drawer,.kid-wb .kid-btn:not(.primary):not(.gold):not(.green):not(.red),
+.kid-wb input[type=text],.kid-wb input[type=number],.kid-wb input[type=password],.kid-wb select,.kid-wb textarea{background:var(--kcard)}
+.kid-wb .kid-task:not(.carry):not(.started):not(.done),.kid-wb .kid-wallet-card,.kid-wb .kid-shop-item,
+.kid-wb .kid-medal:not(.got),.kid-wb .kid-today-item:not(.overdue),.kid-wb .kid-today-empty,
+.kid-wb .kid-plan-day,.kid-wb .kid-tab:not(.on),.kid-wb .kid-date,.kid-wb .kid-card,
+.kid-wb .kid-addtask,.kid-wb .kid-modal,.kid-wb .kid-drawer,.kid-wb .kid-btn:not(.primary):not(.gold):not(.green):not(.red),
+.kid-wb input[type=text],.kid-wb input[type=number],.kid-wb input[type=password],.kid-wb select,.kid-wb textarea{border-color:var(--kborder)}
+/* 次级背景(内嵌 chip/工具条) */
+.kid-wb .kid-plan-item,.kid-wb .k-unit-chip,.kid-wb .k-reward-chip,.kid-wb .kid-avatar-item.on,
+.kid-wb .kid-hero-box,.kid-wb .k-s-ico,.kid-wb .kid-modal-x,.kid-wb .kid-pwd-key,.kid-wb .kid-star-btn,
+.kid-wb .kid-ring-bar,.kid-wb .kid-pwd-dot,.kid-wb .kid-switch{background:var(--kcard2)}
+/* 第三级背景 */
+.kid-wb .kid-modal-x,.kid-wb .kid-pwd-key,.kid-wb .kid-star-btn,.kid-wb .kid-ring-bar,.kid-wb .kid-pwd-dot{background:var(--kcard3)}
+/* 主文字 */
+.kid-wb .kid-title,.kid-wb .kid-today-title,.kid-wb .kid-sec-title,.kid-wb .kid-card-title,.kid-wb .kid-modal-title,
+.kid-wb .kid-lv-title,.kid-wb .kid-plan-day-name,.kid-wb .kid-task-name,.kid-wb .k-s-name,.kid-wb .k-dr-label,
+.kid-wb .k-m-name,.kid-wb .kid-wallet-card .k-w-num,.kid-wb .kid-pwd-key,.kid-wb .k-ti-title{color:var(--ktext)}
+.kid-wb .kid-today-item.overdue .k-ti-title{color:#f87171}
+/* 弱文字 */
+.kid-wb .kid-title small,.kid-wb .kid-date,.kid-wb .kid-today-sub,.kid-wb .kid-sec-sub,.kid-wb .k-task-cat,
+.kid-wb .k-task-foot,.kid-wb .kid-plan-empty,.kid-wb .kid-today-empty,.kid-wb .k-w-name,.kid-wb .k-a-name,
+.kid-wb .k-m-desc,.kid-wb .k-dr-sub,.kid-wb .kid-ring-label,.kid-wb .kid-lv-desc{color:var(--ktext3)}
+/* 次文字 */
+.kid-wb .kid-tab,.kid-wb .kid-label,.kid-wb .kid-btn,.kid-wb .kid-addtask,.kid-wb .kid-modal-x,
+.kid-wb .k-task-target,.kid-wb .k-task-tips,.kid-wb .k-s-note,.kid-wb .k-reward-chip,.kid-wb .k-s-price{color:var(--ktext2)}
+/* 虚线边框 */
+.kid-wb .kid-today-empty,.kid-wb .kid-addtask{border-color:var(--kborder2)}
+/* 强调色 */
+.kid-wb .kid-btn.primary,.kid-wb .kid-tab.on{background:linear-gradient(135deg,var(--kaccent),var(--kaccent2))}
+.kid-wb .kid-task.started,.kid-wb .kid-plan-day.today,.kid-wb .kid-avatar-item.on,.kid-wb .kid-addtask:hover{border-color:var(--kaccent)}
+.kid-wb .kid-switch.on,.kid-wb .kid-pwd-dot.fill{background:var(--kaccent);border-color:var(--kaccent)}
+.kid-wb .kid-ring-fill{background:linear-gradient(90deg,var(--kaccent),#8b5cf6)}
+.kid-wb .kid-addtask:hover{color:var(--kaccent)}
+.kid-wb input:focus,.kid-wb select:focus,.kid-wb textarea:focus{border-color:var(--kaccent)}
+
+/* ============ v2.1.9 UI 设计系统升级:设计 token + 糖果乐园/星际探险主题 + 组件精修 ============ */
+/* —— 设计 Token(圆角/阴影/进度环底色) —— */
+.kid-wb{
+  --kr-sm:10px;--kr:14px;--kr-lg:18px;--kr-xl:22px;--kr-pill:999px;
+  --ks-1:0 2px 8px rgba(20,30,60,.07);
+  --ks-2:0 10px 28px rgba(20,30,60,.13);
+  --ks-3:0 18px 48px rgba(20,30,60,.20);
+  --kring-bg:color-mix(in srgb,var(--kaccent) 22%,var(--kcard));
+  --kglow:0 6px 18px color-mix(in srgb,var(--kaccent) 38%,transparent);
+}
+/* —— 主题皮肤:糖果乐园(柔和粉彩马卡龙) —— */
+.kid-wb.theme-candy{
+  --kbg:#fff2f7;--kbg-top:#ffeaf3;--kcard:#fffdfe;--kcard2:#fff5fa;--kcard3:#ffe9f3;
+  --kborder:#f6d5e4;--kborder2:#f0bcd5;--ktext:#4a1d5f;--ktext2:#8a5a94;--ktext3:#b48ab8;
+  --kaccent:#f472b6;--kaccent2:#c084fc;--kblue:#f472b6;
+}
+/* —— 主题皮肤:星际探险(深蓝星空霓虹) —— */
+.kid-wb.theme-space{
+  --kbg:#0b1026;--kbg-top:#0d1230;--kcard:#1a2340;--kcard2:#212c52;--kcard3:#2a3763;
+  --kborder:#2b3a6b;--kborder2:#3a4c85;--ktext:#e2e8ff;--ktext2:#9fb0e8;--ktext3:#7d90c8;
+  --kaccent:#38bdf8;--kaccent2:#8b5cf6;--kblue:#38bdf8;
+  background:
+    radial-gradient(1.5px 1.5px at 12% 20%,rgba(255,255,255,.55) 50%,transparent 51%),
+    radial-gradient(1.5px 1.5px at 80% 10%,rgba(255,255,255,.45) 50%,transparent 51%),
+    radial-gradient(1px 1px at 30% 65%,rgba(255,255,255,.4) 50%,transparent 51%),
+    radial-gradient(1.5px 1.5px at 90% 55%,rgba(255,255,255,.5) 50%,transparent 51%),
+    radial-gradient(1px 1px at 55% 88%,rgba(255,255,255,.35) 50%,transparent 51%),
+    radial-gradient(2px 2px at 66% 32%,rgba(255,255,255,.3) 50%,transparent 51%),
+    linear-gradient(180deg,var(--kbg-top) 0%,var(--kbg) 260px);
+}
+/* —— 品牌区:Logo 光晕 + 等级徽章胶囊 —— */
+.kid-wb .kid-logo{border-radius:16px;box-shadow:0 6px 18px color-mix(in srgb,var(--kaccent) 45%,transparent)}
+.kid-wb .kid-title{font-size:20px}
+.kid-wb .kid-lv-pill{display:inline-flex;align-items:center;gap:4px;min-height:26px;padding:0 12px;border-radius:var(--kr-pill);
+  color:#fff;font-size:12px;font-weight:800;letter-spacing:.5px;box-shadow:0 4px 12px rgba(0,0,0,.18)}
+.kid-wb .kid-date{border-radius:var(--kr-pill)}
+/* —— 今日仪表盘:进度环 + 列表 —— */
+.kid-wb .kid-today-head{flex-wrap:wrap}
+.kid-wb .kid-progress{display:inline-flex;align-items:center;gap:6px}
+.kid-wb .kid-progress svg{filter:drop-shadow(0 2px 6px color-mix(in srgb,var(--kaccent) 40%,transparent))}
+.kid-wb .kid-progress circle:last-child{transition:stroke-dashoffset .6s cubic-bezier(.22,1,.36,1)}
+.kid-wb .kid-progress-txt{font-size:12px;font-weight:800;color:var(--kaccent);min-width:32px}
+.kid-wb .kid-today-item{border-radius:var(--kr-lg);transition:transform .18s cubic-bezier(.22,1,.36,1),box-shadow .18s}
+.kid-wb .kid-today-item:hover{transform:translateY(-1px);box-shadow:var(--ks-2)}
+.kid-wb .kid-today-item .k-ti-ico{border-radius:10px}
+.kid-wb .kid-today-item.overdue{background:linear-gradient(90deg,color-mix(in srgb,#f87171 12%,var(--kcard)),var(--kcard))}
+/* —— Tab 胶囊 + 激活光效 —— */
+.kid-wb .kid-tabs{gap:10px}
+.kid-wb .kid-tab{border-radius:var(--kr-lg);transition:transform .16s cubic-bezier(.22,1,.36,1),box-shadow .16s}
+.kid-wb .kid-tab:hover:not(.on){transform:translateY(-1px);box-shadow:var(--ks-1)}
+.kid-wb .kid-tab.on{box-shadow:var(--kglow)}
+.kid-wb .kid-tab .kid-tab-dot{font-size:16px}
+/* —— 任务卡:渐变顶条 + 悬停上浮 —— */
+.kid-wb .kid-task{position:relative;border-radius:var(--kr-lg);overflow:hidden;transition:transform .18s cubic-bezier(.22,1,.36,1),box-shadow .18s,border-color .18s}
+.kid-wb .kid-task:hover{transform:translateY(-2px);box-shadow:var(--ks-2)}
+.kid-wb .kid-task::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;
+  background:linear-gradient(90deg,var(--kaccent),var(--kaccent2));opacity:.9}
+.kid-wb .kid-task.done::before{background:linear-gradient(90deg,#4ade80,#22c55e)}
+.kid-wb .kid-task.carry::before{background:linear-gradient(90deg,#f87171,#ef4444)}
+.kid-wb .k-task-ico{border-radius:14px;box-shadow:0 4px 10px color-mix(in srgb,var(--kaccent) 22%,transparent)}
+.kid-wb .k-badge,.kid-wb .k-unit-chip,.kid-wb .k-reward-chip{border-radius:var(--kr-pill)}
+.kid-wb .kid-task .kid-btn{min-height:40px;border-radius:var(--kr)}
+/* —— 按钮质感 —— */
+.kid-wb .kid-btn{font-weight:700;transition:transform .12s cubic-bezier(.22,1,.36,1),box-shadow .18s,background .18s}
+.kid-wb .kid-btn:hover:not(:disabled){transform:translateY(-1px)}
+.kid-wb .kid-btn.primary,.kid-wb .kid-btn.gold,.kid-wb .kid-btn.green,.kid-wb .kid-btn.red{box-shadow:0 5px 14px color-mix(in srgb,currentColor 20%,transparent)}
+/* —— 钱包:圆形徽章 + 悬停 —— */
+.kid-wb .kid-wallet-card{border-radius:var(--kr-lg);transition:transform .18s cubic-bezier(.22,1,.36,1),box-shadow .18s}
+.kid-wb .kid-wallet-card:hover{transform:translateY(-2px);box-shadow:var(--ks-2)}
+.kid-wb .kid-wallet-card .k-w-ico{border-radius:50%;width:40px;height:40px}
+/* —— 数字人舞台:主题光晕 —— */
+.kid-wb .kid-hero-box{border-radius:var(--kr-lg);background:
+  radial-gradient(circle at 50% 28%,color-mix(in srgb,var(--kaccent) 34%,var(--kcard2)),var(--kcard2) 72%)}
+/* —— 计划/商城/奖章 —— */
+.kid-wb .kid-plan-day{border-radius:var(--kr-lg)}
+.kid-wb .kid-plan-item{border-radius:10px}
+.kid-wb .kid-shop-item{border-radius:var(--kr-lg)}
+.kid-wb .kid-medal{border-radius:var(--kr-lg);transition:transform .18s,box-shadow .18s}
+.kid-wb .kid-medal:hover{transform:translateY(-2px);box-shadow:var(--ks-2)}
+/* —— 弹窗/抽屉/密码键盘 —— */
+.kid-wb .kid-modal{border-radius:var(--kr-xl)}
+.kid-wb .kid-modal-x,.kid-wb .kid-pwd-key{border-radius:var(--kr)}
+/* —— 可访问性:焦点可见 + 减少动效 —— */
+.kid-wb :focus-visible{outline:2px solid var(--kaccent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){
+  .kid-wb *,.kid-wb *::before,.kid-wb *::after{animation-duration:.001s!important;transition-duration:.001s!important}
+}
+
+/* ============ v2.1.9 配色优化:按钮/图标对比度全面修正 ============ */
+/* 主因修复:主题覆盖段「次文字」规则曾把主按钮 color 覆盖成灰/深 → 彩色按钮统一高对比文字 */
+.kid-wb .kid-btn.primary,.kid-wb .kid-btn.green,.kid-wb .kid-btn.red{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.18)}
+.kid-wb .kid-btn.gold{color:#7c2d12;text-shadow:none}
+/* 主按钮底色加深,保证白字对比(≥3:1 大字标准,接近 AA) */
+.kid-wb .kid-btn.primary{background:linear-gradient(135deg,var(--kaccent),color-mix(in srgb,var(--kaccent2) 72%,#000))}
+.kid-wb .kid-btn.green{background:linear-gradient(135deg,#4ade80,#15803d)}
+.kid-wb .kid-btn.red{background:linear-gradient(135deg,#f87171,#dc2626)}
+.kid-wb .kid-btn.gold{background:linear-gradient(135deg,#fbbf24,#d97706)}
+/* 糖果乐园/星际探险:强调色偏亮,主按钮单独加深(白字对比≥3:1) */
+.kid-wb.theme-candy .kid-btn.primary{background:linear-gradient(135deg,#ec4899,#a21caf)}
+.kid-wb.theme-space .kid-btn.primary{background:linear-gradient(135deg,#0ea5e9,#7c3aed)}
+/* 默认按钮(非彩色):次级亮底 + 主文字,深浅主题下对比充足(原暗底灰字不可读) */
+.kid-wb .kid-btn:not(.primary):not(.gold):not(.green):not(.red){background:var(--kcard2);color:var(--ktext);border-color:var(--kborder)}
+.kid-wb .kid-btn:not(.primary):not(.gold):not(.green):not(.red):hover{border-color:var(--kaccent);color:var(--ktext)}
+/* 分类徽章(浅色分类底上的白线条图标)与锁定头像可读性 */
+.kid-wb .kid-avatar-item.locked{opacity:.62}
+.kid-wb .kid-lv-pill{text-shadow:0 1px 2px rgba(0,0,0,.5),0 0 4px rgba(0,0,0,.28)}
+/* 今日列表「去完成」与任务卡按钮同主按钮规则(默认按钮统一) */
+.kid-wb .kid-today-item .kid-btn.primary{color:#fff}
+/* Tab 激活态同问题:白字固定(次文字规则曾覆盖成灰) */
+.kid-wb .kid-tab.on{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.18)}
+
+/* ============ 跟随项目模式:变量兜底(应用内取应用主题变量;独立/预览环境回退系统深浅色) ============ */
+/* 关键修复:此前 var(--accent) 等无兜底,在无应用变量的环境(预览页/独立部署)下渐变全部失效 → 按钮透明底+白字 */
+.kid-wb.theme-project{
+  --kbg: var(--bg, #1b1d23); --kbg-top: var(--bg, #1b1d23);
+  --kcard: var(--bg2, #22242b); --kcard2: var(--bg3, #2a2d36); --kcard3: var(--bg4, #333642);
+  --kborder: var(--border, #343845); --kborder2: var(--border, #343845);
+  --ktext: var(--text, #e6e8ee); --ktext2: var(--text2, #9aa1b2); --ktext3: var(--text2, #9aa1b2);
+  --kaccent: var(--accent, #4f8cff); --kaccent2: var(--accent2, #6a5cff); --kblue: var(--accent, #4f8cff);
+}
+/* 系统浅色时(仅无应用变量的环境生效,应用内取应用变量值不受影响) */
+@media (prefers-color-scheme: light){
+  .kid-wb.theme-project{
+    --kbg: var(--bg, #f3f4f7); --kbg-top: var(--bg, #f3f4f7);
+    --kcard: var(--bg2, #ffffff); --kcard2: var(--bg3, #e8eaef); --kcard3: var(--bg4, #dce0e7);
+    --kborder: var(--border, #d2d6df); --kborder2: var(--border, #d2d6df);
+    --ktext: var(--text, #1f2329); --ktext2: var(--text2, #6b7280); --ktext3: var(--text2, #6b7280);
+    --kaccent: var(--accent, #2f6fe0); --kaccent2: var(--accent2, #1f5fd0); --kblue: var(--accent, #2f6fe0);
+  }
+}
+
+</style>
+</head>
+<body>
+<div id="kid-app"></div>
+<script>
+
+// ---- 最小化浏览器版 toast / confirmDialog(替代 dialogs.js) ----
+function toast(msg, type) {
+  const el = document.createElement('div');
+  el.className = 'kid-toast-ok';
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2200);
+}
+function confirmDialog(o) {
+  const ov = document.createElement('div');
+  ov.className = 'kid-overlay';
+  const box = document.createElement('div');
+  box.className = 'kid-modal';
+  box.style.maxWidth = '340px';
+  box.innerHTML = '<div class="kid-modal-title" style="margin-bottom:10px">' + (o.title || '') + '</div>' +
+    '<div style="font-size:14px;color:#5b6172;line-height:1.6">' + (o.message || '') + '</div>' +
+    '<div class="kid-modal-actions"><button class="kid-btn" data-cd="no">取消</button><button class="kid-btn ' + (o.danger ? 'red' : 'primary') + '" data-cd="yes">' + (o.okText || '确定') + '</button></div>';
+  box.querySelector('[data-cd="no"]').addEventListener('click', () => ov.remove());
+  box.querySelector('[data-cd="yes"]').addEventListener('click', () => { ov.remove(); if (o.onOk) o.onOk(); });
+  ov.appendChild(box);
+  document.body.appendChild(ov);
+  ov.addEventListener('click', (e) => { if (e.target === ov) ov.remove(); });
+}
+
+// ============================================================================
+// 得乐学苑(为 10 岁四年级男孩定制)
+// 模块:①今日闯关(身体锻炼/背诵/听写默写书法/数学口算 四类任务打卡+星级)
+//       ②学习计划(周一~周日每周计划制订,今日任务自动按计划生成)
+//       ③成长奖励(金币/钻石/皇冠/奖章 五级奖励;等级称号晋级;数字人形象随等级进化;头像)
+// 置顶「今天要处理」:逾期项标红 + 一键处理,昨天没完成的自动滚到今天。
+// 数据:localStorage(wb_kid_ 前缀,导出 JSON 备份 + 导入恢复),家长模式 4 位密码。
+// 规范:全内联(CSS 注入 <style>),SVG 图标/形象/图表手写,零外部依赖,PC/移动双适配。
+// ============================================================================
+
+
+// ---------------- 样式(内联注入,固定明亮配色,不受应用暗色主题影响) ----------------
+const CSS = `.kid-wb{--kblue:#4f7cff;--kgold:#f59e0b;--kdiamond:#22d3ee;--kred:#ef4444;--kgreen:#22c55e;
+  --kpurple:#8b5cf6;--kpink:#ec4899;--korange:#f97316;
+  --kbg:#f6f7fb;--kbg-top:#eef2ff;--kcard:#ffffff;--kcard2:#f7f8fc;--kcard3:#f1f3fa;
+  --kborder:#e3e6f0;--kborder2:#c9cfe0;--ktext:#23262f;--ktext2:#5b6172;--ktext3:#8a90a3;
+  --kaccent:#4f7cff;--kaccent2:#6a5cff;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,sans-serif;
+  background:linear-gradient(180deg,var(--kbg-top) 0%,var(--kbg) 220px);min-height:100%;color:var(--ktext);padding:14px 16px 40px;box-sizing:border-box}
+.kid-wb *{box-sizing:border-box;margin:0;padding:0}
+.kid-wb button{font-family:inherit;cursor:pointer;border:none;background:none;-webkit-tap-highlight-color:transparent}
+.kid-wb input,.kid-wb select,.kid-wb textarea{font-family:inherit;font-size:16px}
+.kid-wb input[type=text],.kid-wb input[type=number],.kid-wb input[type=password],.kid-wb select,.kid-wb textarea{
+  width:100%;padding:11px 12px;border:2px solid var(--kborder);border-radius:12px;background:var(--kcard);color:var(--ktext);outline:none}
+.kid-wb input:focus,.kid-wb select:focus,.kid-wb textarea:focus{border-color:var(--kaccent)}
+/* 主题模式:跟随项目(默认,映射应用外观变量) / 儿童亮色(默认值) / 深色 */
+.kid-wb.theme-project{--kbg:var(--bg);--kbg-top:var(--bg);--kcard:var(--bg2);--kcard2:var(--bg3);--kcard3:var(--bg4);
+  --kborder:var(--border);--kborder2:var(--border);--ktext:var(--text);--ktext2:var(--text2);--ktext3:var(--text2);
+  --kaccent:var(--accent);--kaccent2:var(--accent2);--kblue:var(--accent)}
+.kid-wb.theme-dark{--kbg:#1b1d23;--kbg-top:#1b1d23;--kcard:#22242b;--kcard2:#2a2d36;--kcard3:#333642;
+  --kborder:#343845;--kborder2:#3d424f;--ktext:#e6e8ee;--ktext2:#9aa1b2;--ktext3:#9aa1b2;
+  --kaccent:#4f8cff;--kaccent2:#6a5cff;--kblue:#4f8cff}
+.kid-topbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.kid-brand{display:flex;align-items:center;gap:10px;min-width:0}
+.kid-logo{width:44px;height:44px;border-radius:14px;background:linear-gradient(135deg,#4f7cff,#8b5cf6);display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 4px 12px rgba(79,124,255,.35)}
+.kid-title{font-size:19px;font-weight:800;letter-spacing:.5px;line-height:1.2;color:var(--ktext)}
+.kid-title small{display:block;font-size:11px;font-weight:600;color:var(--ktext3);letter-spacing:1px}
+.kid-date{font-size:12px;color:var(--ktext2);background:var(--kcard);border:1px solid var(--kborder);padding:5px 10px;border-radius:20px;font-weight:600}
+.kid-top-actions{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.kid-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;padding:0 16px;
+  border-radius:12px;font-size:15px;font-weight:700;color:var(--ktext);background:var(--kcard);border:2px solid var(--kborder);transition:transform .08s,box-shadow .15s;user-select:none}
+.kid-btn:active{transform:scale(.96)}
+.kid-btn.primary{background:linear-gradient(135deg,var(--kaccent),var(--kaccent2));color:#fff;border:none;box-shadow:0 4px 12px rgba(79,124,255,.35)}
+.kid-btn.gold{background:linear-gradient(135deg,#fbbf24,#f59e0b);color:#fff;border:none;box-shadow:0 4px 12px rgba(245,158,11,.35)}
+.kid-btn.green{background:linear-gradient(135deg,#4ade80,#22c55e);color:#fff;border:none;box-shadow:0 4px 12px rgba(34,197,94,.35)}
+.kid-btn.red{background:linear-gradient(135deg,#f87171,#ef4444);color:#fff;border:none;box-shadow:0 4px 12px rgba(239,68,68,.3)}
+.kid-btn.sm{min-height:34px;padding:0 12px;font-size:13px;border-radius:10px}
+.kid-btn:disabled{opacity:.5;cursor:not-allowed}
+.kid-today{margin-bottom:14px}
+.kid-today-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.kid-today-head .kid-today-title{font-size:16px;font-weight:800;color:var(--ktext)}
+.kid-today-head .kid-today-sub{font-size:12px;color:var(--ktext3)}
+.kid-today-list{display:flex;flex-direction:column;gap:6px}
+.kid-today-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:var(--kcard);
+  border:1.5px solid var(--kborder);box-shadow:0 2px 6px rgba(30,41,59,.05)}
+.kid-today-item.overdue{border-color:#f87171;background:var(--kcard)}
+.kid-today-item .k-ti-ico{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.kid-today-item .k-ti-main{flex:1;min-width:0}
+.kid-today-item .k-ti-title{font-size:14px;font-weight:700;color:var(--ktext);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kid-today-item .k-ti-sub{font-size:11px;color:var(--ktext3)}
+.kid-today-item.overdue .k-ti-title{color:#f87171}
+.kid-today-item .k-ti-tag{font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:#fee2e2;color:#dc2626;flex-shrink:0}
+.kid-today-empty{font-size:13px;color:var(--ktext3);background:var(--kcard);border:1.5px dashed var(--kborder2);border-radius:12px;padding:14px;text-align:center}
+.kid-today-banner{display:flex;align-items:center;gap:8px;margin-top:8px;padding:9px 12px;border-radius:10px;
+  background:#fffbeb;border:1px solid #fde68a;font-size:12px;color:#92400e}
+.kid-today-banner b{color:#b45309}
+.kid-tabs{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.kid-tab{flex:1;min-width:120px;min-height:48px;border-radius:14px;background:var(--kcard);border:2px solid var(--kborder);
+  font-size:15px;font-weight:800;color:var(--ktext2);display:flex;align-items:center;justify-content:center;gap:8px}
+.kid-tab.on{background:linear-gradient(135deg,var(--kaccent),var(--kaccent2));color:#fff;border-color:transparent;box-shadow:0 4px 14px rgba(79,124,255,.35)}
+.kid-tab.on .kid-tab-dot{background:var(--kcard)}
+.kid-sec-head{display:flex;align-items:center;gap:8px;margin:4px 0 10px}
+.kid-sec-head .kid-sec-title{font-size:16px;font-weight:800;color:var(--ktext)}
+.kid-sec-head .kid-sec-sub{font-size:12px;color:var(--ktext3);margin-left:auto}
+.kid-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.kid-task{background:var(--kcard);border-radius:16px;border:2px solid var(--kborder);padding:14px;display:flex;flex-direction:column;gap:10px;
+  box-shadow:0 2px 8px rgba(30,41,59,.06);transition:box-shadow .15s}
+.kid-task.carry{border-color:#f87171;box-shadow:0 2px 10px rgba(239,68,68,.15)}
+.kid-task.started{border-color:var(--kaccent)}
+.kid-task.done{background:var(--kcard);border-color:#4ade80}
+.kid-task.done .k-task-main{opacity:.75}
+.k-task-head{display:flex;align-items:center;gap:10px}
+.k-task-ico{width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.k-task-titles{flex:1;min-width:0}
+.k-task-name{font-size:15px;font-weight:800;color:var(--ktext)}
+.k-task-cat{font-size:11px;font-weight:700;color:var(--ktext3)}
+.k-task-badges{display:flex;gap:5px;flex-shrink:0}
+.k-badge{font-size:10px;font-weight:800;padding:3px 8px;border-radius:9px}
+.k-badge.overdue{background:#fee2e2;color:#dc2626}
+.k-badge.carry{background:#fef3c7;color:#b45309}
+.k-badge.doing{background:#dbeafe;color:#2563eb}
+.k-badge.done{background:#dcfce7;color:#15803d}
+.k-task-target{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ktext2);flex-wrap:wrap}
+.k-task-target .k-unit-chip{background:var(--kcard3);border-radius:8px;padding:3px 9px;font-weight:700}
+.k-task-actions{display:flex;gap:8px;flex-wrap:wrap}
+.k-task-actions .kid-btn{flex:1;min-width:110px}
+.k-task-reward{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.k-reward-chip{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:800;color:var(--ktext2);
+  background:var(--kcard2);border-radius:20px;padding:4px 10px}
+.k-task-stars{display:flex;gap:2px;align-items:center}
+.k-task-tips{font-size:12px;color:var(--ktext2);background:var(--kcard2);border-radius:10px;padding:8px 10px;line-height:1.5}
+.k-task-foot{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ktext3)}
+.k-addtask{min-height:52px;border:2px dashed var(--kborder2);border-radius:16px;background:var(--kcard);
+  display:flex;align-items:center;justify-content:center;gap:8px;font-size:14px;font-weight:700;color:var(--ktext2);width:100%}
+.k-addtask:hover{border-color:var(--kaccent);color:var(--kaccent)}
+.kid-plan-wrap{display:flex;flex-direction:column;gap:12px}
+.kid-plan-tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.kid-plan-days{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
+.kid-plan-day{background:var(--kcard);border:2px solid var(--kborder);border-radius:14px;padding:10px;min-height:150px;display:flex;flex-direction:column;gap:6px}
+.kid-plan-day.today{border-color:var(--kaccent);box-shadow:0 0 0 1px var(--kaccent) inset}
+.kid-plan-day.off{opacity:.5}
+.kid-plan-day-head{display:flex;align-items:center;justify-content:space-between;gap:4px}
+.kid-plan-day-name{font-size:13px;font-weight:800;color:var(--ktext)}
+.kid-plan-day-head .kid-btn{padding:0 8px;min-height:30px;font-size:12px}
+.kid-plan-item{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;background:var(--kcard2);border-radius:9px;padding:6px 8px}
+.kid-plan-item .k-pi-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.kid-plan-item .k-pi-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kid-plan-item .k-pi-x{color:var(--kborder2);font-size:13px;padding:0 2px;flex-shrink:0}
+.kid-plan-item .k-pi-x:hover{color:#ef4444}
+.kid-plan-empty{font-size:11px;color:var(--ktext3);text-align:center;padding:8px 0}
+.kid-wallet{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+.kid-wallet-card{background:var(--kcard);border-radius:14px;border:2px solid var(--kborder);padding:10px 12px;display:flex;align-items:center;gap:10px;box-shadow:0 2px 6px rgba(30,41,59,.05)}
+.kid-wallet-card .k-w-ico{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.kid-wallet-card .k-w-num{font-size:19px;font-weight:800;line-height:1.1;color:var(--ktext)}
+.kid-wallet-card .k-w-name{font-size:11px;color:var(--ktext3);font-weight:600}
+.kid-row2{display:grid;grid-template-columns:1.1fr 1fr;gap:12px;margin-bottom:12px}
+.kid-card{background:var(--kcard);border-radius:16px;border:2px solid var(--kborder);padding:14px;box-shadow:0 2px 8px rgba(30,41,59,.06)}
+.kid-card-title{font-size:15px;font-weight:800;margin-bottom:10px;display:flex;align-items:center;gap:8px;color:var(--ktext)}
+.kid-level-row{display:flex;align-items:center;gap:14px}
+.kid-hero-box{flex-shrink:0;width:120px;height:150px;border-radius:16px;background:var(--kcard2);
+  border:2px solid var(--kborder);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+.kid-level-info{flex:1;min-width:0}
+.kid-lv-title{font-size:17px;font-weight:800;display:flex;align-items:center;gap:8px;color:var(--ktext)}
+.kid-lv-tag{font-size:11px;font-weight:800;color:#fff;border-radius:9px;padding:3px 8px}
+.kid-lv-desc{font-size:12px;color:var(--ktext2);margin:6px 0 10px;line-height:1.5}
+.kid-ring-row{display:flex;align-items:center;gap:12px}
+.kid-ring-label{font-size:12px;color:var(--ktext3)}
+.kid-ring-val{font-size:13px;font-weight:800;color:var(--ktext)}
+.kid-ring-bar{flex:1;height:10px;border-radius:6px;background:var(--kcard3);overflow:hidden}
+.kid-ring-fill{height:100%;border-radius:6px;background:linear-gradient(90deg,var(--kaccent),#8b5cf6);transition:width .4s}
+.kid-avatars{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.kid-avatar-item{display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;padding:6px;border-radius:12px;border:2px solid transparent}
+.kid-avatar-item.on{border-color:var(--kaccent);background:var(--kcard2)}
+.kid-avatar-item.locked{opacity:.45}
+.kid-avatar-item .k-a-name{font-size:10px;color:var(--ktext3);font-weight:600}
+.kid-shop-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+.kid-shop-item{background:var(--kcard);border-radius:14px;border:2px solid var(--kborder);padding:12px;display:flex;flex-direction:column;gap:8px}
+.kid-shop-item .k-s-head{display:flex;align-items:center;gap:10px}
+.kid-shop-item .k-s-ico{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--kcard3)}
+.kid-shop-item .k-s-name{font-size:14px;font-weight:800;color:var(--ktext)}
+.kid-shop-item .k-s-note{font-size:12px;color:var(--ktext2);line-height:1.4}
+.kid-shop-item .k-s-foot{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.kid-shop-item .k-s-price{font-size:13px;font-weight:800;color:var(--ktext);display:flex;align-items:center;gap:4px}
+.kid-medal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
+.kid-medal{display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 8px;border-radius:14px;background:var(--kcard);
+  border:2px solid var(--kborder);text-align:center}
+.kid-medal.got{border-color:#fde68a;background:#fffbeb}
+.kid-medal .k-m-name{font-size:12px;font-weight:800;color:var(--ktext)}
+.kid-medal .k-m-desc{font-size:10px;color:var(--ktext3);line-height:1.4}
+.kid-medal.locked .k-m-name{color:var(--ktext3)}
+.kid-medal.locked{opacity:.65}
+.kid-hint-strip{font-size:12px;color:#7c6a12;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:8px 12px;margin-bottom:12px}
+.kid-overlay{position:fixed;inset:0;z-index:9990;background:rgba(20,24,40,.45);display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(2px)}
+.kid-modal{background:var(--kcard);border-radius:20px;max-width:420px;width:100%;max-height:88vh;overflow:auto;padding:18px;box-shadow:0 20px 60px rgba(20,24,40,.3);animation:kidPop .18s ease}
+@keyframes kidPop{from{transform:scale(.94);opacity:0}to{transform:scale(1);opacity:1}}
+.kid-modal-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:14px}
+.kid-modal-title{font-size:17px;font-weight:800;color:var(--ktext)}
+.kid-modal-x{width:38px;height:38px;border-radius:10px;background:var(--kcard3);font-size:16px;color:var(--ktext2);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.kid-modal-x:hover{background:var(--kcard2)}
+.kid-field{margin-bottom:12px}
+.kid-label{display:block;font-size:12px;font-weight:700;color:var(--ktext2);margin-bottom:6px}
+.kid-stars-pick{display:flex;justify-content:center;gap:14px;padding:8px 0 14px}
+.kid-star-btn{width:64px;height:64px;border-radius:16px;background:var(--kcard3);display:flex;align-items:center;justify-content:center;transition:transform .1s}
+.kid-star-btn.on{background:#fef3c7;transform:scale(1.08);box-shadow:0 0 0 2px #f59e0b}
+.kid-star-btn:hover{transform:scale(1.06)}
+.kid-modal-actions{display:flex;gap:10px;margin-top:14px}
+.kid-modal-actions .kid-btn{flex:1}
+.kid-drawer{position:fixed;top:0;right:0;bottom:0;z-index:9990;width:min(420px,94vw);background:var(--kcard);
+  box-shadow:-12px 0 40px rgba(20,24,40,.25);display:flex;flex-direction:column;animation:kidSlide .18s ease}
+@keyframes kidSlide{from{transform:translateX(40px);opacity:0}to{transform:none;opacity:1}}
+.kid-drawer-head{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--kborder)}
+.kid-drawer-body{flex:1;overflow:auto;padding:16px 18px;padding-bottom:calc(16px + env(safe-area-inset-bottom))}
+.kid-drawer-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0;border-bottom:1px solid var(--kborder)}
+.kid-drawer-row .k-dr-label{font-size:14px;font-weight:700;color:var(--ktext)}
+.kid-drawer-row .k-dr-sub{font-size:11px;color:var(--ktext3)}
+.kid-switch{width:50px;height:28px;border-radius:16px;background:var(--kborder2);position:relative;transition:background .15s;flex-shrink:0}
+.kid-switch::after{content:'';position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:var(--kcard);transition:left .15s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.kid-switch.on{background:var(--kaccent)}
+.kid-switch.on::after{left:25px}
+.kid-sec-gap{margin-top:16px}
+.kid-pwd-dots{display:flex;gap:10px;justify-content:center;padding:6px 0 12px}
+.kid-pwd-dot{width:18px;height:18px;border-radius:50%;border:2px solid var(--kborder2);background:var(--kcard2)}
+.kid-pwd-dot.fill{background:var(--kaccent);border-color:var(--kaccent)}
+.kid-pwd-pad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.kid-pwd-key{min-height:56px;border-radius:14px;background:var(--kcard3);font-size:20px;font-weight:800;color:var(--ktext);display:flex;align-items:center;justify-content:center}
+.kid-pwd-key:hover{background:var(--kcard2)}
+.kid-pwd-key.del{font-size:15px;color:#ef4444}
+.kid-confetti{position:absolute;pointer-events:none}
+.kid-toast-ok{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:9999;background:#22c55e;color:#fff;
+  padding:12px 22px;border-radius:30px;font-size:14px;font-weight:700;box-shadow:0 8px 24px rgba(34,197,94,.4);animation:kidPop .2s ease}
+.kid-hl{animation:kidHl 1s ease 2}
+@keyframes kidHl{0%,100%{box-shadow:0 0 0 0 rgba(79,124,255,0)}40%{box-shadow:0 0 0 6px rgba(79,124,255,.45)}}
+@media (max-width:768px){
+  .kid-wb{padding:10px 10px 30px}
+  .kid-title{font-size:17px}
+  .kid-grid{grid-template-columns:1fr}
+  .kid-plan-days{grid-template-columns:1fr}
+  .kid-wallet{grid-template-columns:repeat(2,1fr)}
+  .kid-row2{grid-template-columns:1fr}
+  .kid-tab{min-width:100px;min-height:46px;font-size:14px}
+  .kid-avatars{grid-template-columns:repeat(4,1fr)}
+  .kid-modal{max-height:90vh}
+}
+@media (max-width:420px){
+  .kid-avatars{grid-template-columns:repeat(4,1fr)}
+  .kid-wallet-card{padding:8px 10px}
+  .kid-wallet-card .k-w-num{font-size:16px}
+}
+
+/* ============ 主题模式支持(深色/浅色/跟随项目,追加覆盖,优先级高于基础样式) ============ */
+.kid-wb{--kbg:#f6f7fb;--kbg-top:#eef2ff;--kcard:#ffffff;--kcard2:#f7f8fc;--kcard3:#f1f3fa;
+  --kborder:#e3e6f0;--kborder2:#c9cfe0;--ktext:#23262f;--ktext2:#5b6172;--ktext3:#8a90a3;
+  --kaccent:#4f7cff;--kaccent2:#6a5cff;--kblue:#4f7cff;
+  background:linear-gradient(180deg,var(--kbg-top) 0%,var(--kbg) 220px);color:var(--ktext)}
+/* 跟随项目:映射应用外观变量(深色/浅色/自定义/系统主题自动同步) */
+.kid-wb.theme-project{--kbg:var(--bg);--kbg-top:var(--bg);--kcard:var(--bg2);--kcard2:var(--bg3);--kcard3:var(--bg4);
+  --kborder:var(--border);--kborder2:var(--border);--ktext:var(--text);--ktext2:var(--text2);--ktext3:var(--text2);
+  --kaccent:var(--accent);--kaccent2:var(--accent2);--kblue:var(--accent)}
+/* 固定深色 */
+.kid-wb.theme-dark{--kbg:#1b1d23;--kbg-top:#1b1d23;--kcard:#22242b;--kcard2:#2a2d36;--kcard3:#333642;
+  --kborder:#343845;--kborder2:#3d424f;--ktext:#e6e8ee;--ktext2:#9aa1b2;--ktext3:#9aa1b2;
+  --kaccent:#4f8cff;--kaccent2:#6a5cff;--kblue:#4f8cff}
+/* 卡片/面板/输入框:背景 + 边框 + 主文字 */
+.kid-wb .kid-card,.kid-wb .kid-task:not(.carry):not(.started):not(.done),.kid-wb .kid-wallet-card,
+.kid-wb .kid-shop-item,.kid-wb .kid-medal:not(.got),.kid-wb .kid-today-item:not(.overdue),
+.kid-wb .kid-today-empty,.kid-wb .kid-plan-day,.kid-wb .kid-tab:not(.on),.kid-wb .kid-date,
+.kid-wb .kid-addtask,.kid-wb .kid-modal,.kid-wb .kid-drawer,.kid-wb .kid-btn:not(.primary):not(.gold):not(.green):not(.red),
+.kid-wb input[type=text],.kid-wb input[type=number],.kid-wb input[type=password],.kid-wb select,.kid-wb textarea{background:var(--kcard)}
+.kid-wb .kid-task:not(.carry):not(.started):not(.done),.kid-wb .kid-wallet-card,.kid-wb .kid-shop-item,
+.kid-wb .kid-medal:not(.got),.kid-wb .kid-today-item:not(.overdue),.kid-wb .kid-today-empty,
+.kid-wb .kid-plan-day,.kid-wb .kid-tab:not(.on),.kid-wb .kid-date,.kid-wb .kid-card,
+.kid-wb .kid-addtask,.kid-wb .kid-modal,.kid-wb .kid-drawer,.kid-wb .kid-btn:not(.primary):not(.gold):not(.green):not(.red),
+.kid-wb input[type=text],.kid-wb input[type=number],.kid-wb input[type=password],.kid-wb select,.kid-wb textarea{border-color:var(--kborder)}
+/* 次级背景(内嵌 chip/工具条) */
+.kid-wb .kid-plan-item,.kid-wb .k-unit-chip,.kid-wb .k-reward-chip,.kid-wb .kid-avatar-item.on,
+.kid-wb .kid-hero-box,.kid-wb .k-s-ico,.kid-wb .kid-modal-x,.kid-wb .kid-pwd-key,.kid-wb .kid-star-btn,
+.kid-wb .kid-ring-bar,.kid-wb .kid-pwd-dot,.kid-wb .kid-switch{background:var(--kcard2)}
+/* 第三级背景 */
+.kid-wb .kid-modal-x,.kid-wb .kid-pwd-key,.kid-wb .kid-star-btn,.kid-wb .kid-ring-bar,.kid-wb .kid-pwd-dot{background:var(--kcard3)}
+/* 主文字 */
+.kid-wb .kid-title,.kid-wb .kid-today-title,.kid-wb .kid-sec-title,.kid-wb .kid-card-title,.kid-wb .kid-modal-title,
+.kid-wb .kid-lv-title,.kid-wb .kid-plan-day-name,.kid-wb .kid-task-name,.kid-wb .k-s-name,.kid-wb .k-dr-label,
+.kid-wb .k-m-name,.kid-wb .kid-wallet-card .k-w-num,.kid-wb .kid-pwd-key,.kid-wb .k-ti-title{color:var(--ktext)}
+.kid-wb .kid-today-item.overdue .k-ti-title{color:#f87171}
+/* 弱文字 */
+.kid-wb .kid-title small,.kid-wb .kid-date,.kid-wb .kid-today-sub,.kid-wb .kid-sec-sub,.kid-wb .k-task-cat,
+.kid-wb .k-task-foot,.kid-wb .kid-plan-empty,.kid-wb .kid-today-empty,.kid-wb .k-w-name,.kid-wb .k-a-name,
+.kid-wb .k-m-desc,.kid-wb .k-dr-sub,.kid-wb .kid-ring-label,.kid-wb .kid-lv-desc{color:var(--ktext3)}
+/* 次文字 */
+.kid-wb .kid-tab,.kid-wb .kid-label,.kid-wb .kid-btn,.kid-wb .kid-addtask,.kid-wb .kid-modal-x,
+.kid-wb .k-task-target,.kid-wb .k-task-tips,.kid-wb .k-s-note,.kid-wb .k-reward-chip,.kid-wb .k-s-price{color:var(--ktext2)}
+/* 虚线边框 */
+.kid-wb .kid-today-empty,.kid-wb .kid-addtask{border-color:var(--kborder2)}
+/* 强调色 */
+.kid-wb .kid-btn.primary,.kid-wb .kid-tab.on{background:linear-gradient(135deg,var(--kaccent),var(--kaccent2))}
+.kid-wb .kid-task.started,.kid-wb .kid-plan-day.today,.kid-wb .kid-avatar-item.on,.kid-wb .kid-addtask:hover{border-color:var(--kaccent)}
+.kid-wb .kid-switch.on,.kid-wb .kid-pwd-dot.fill{background:var(--kaccent);border-color:var(--kaccent)}
+.kid-wb .kid-ring-fill{background:linear-gradient(90deg,var(--kaccent),#8b5cf6)}
+.kid-wb .kid-addtask:hover{color:var(--kaccent)}
+.kid-wb input:focus,.kid-wb select:focus,.kid-wb textarea:focus{border-color:var(--kaccent)}
+
+/* ============ v2.1.9 UI 设计系统升级:设计 token + 糖果乐园/星际探险主题 + 组件精修 ============ */
+/* —— 设计 Token(圆角/阴影/进度环底色) —— */
+.kid-wb{
+  --kr-sm:10px;--kr:14px;--kr-lg:18px;--kr-xl:22px;--kr-pill:999px;
+  --ks-1:0 2px 8px rgba(20,30,60,.07);
+  --ks-2:0 10px 28px rgba(20,30,60,.13);
+  --ks-3:0 18px 48px rgba(20,30,60,.20);
+  --kring-bg:color-mix(in srgb,var(--kaccent) 22%,var(--kcard));
+  --kglow:0 6px 18px color-mix(in srgb,var(--kaccent) 38%,transparent);
+}
+/* —— 主题皮肤:糖果乐园(柔和粉彩马卡龙) —— */
+.kid-wb.theme-candy{
+  --kbg:#fff2f7;--kbg-top:#ffeaf3;--kcard:#fffdfe;--kcard2:#fff5fa;--kcard3:#ffe9f3;
+  --kborder:#f6d5e4;--kborder2:#f0bcd5;--ktext:#4a1d5f;--ktext2:#8a5a94;--ktext3:#b48ab8;
+  --kaccent:#f472b6;--kaccent2:#c084fc;--kblue:#f472b6;
+}
+/* —— 主题皮肤:星际探险(深蓝星空霓虹) —— */
+.kid-wb.theme-space{
+  --kbg:#0b1026;--kbg-top:#0d1230;--kcard:#1a2340;--kcard2:#212c52;--kcard3:#2a3763;
+  --kborder:#2b3a6b;--kborder2:#3a4c85;--ktext:#e2e8ff;--ktext2:#9fb0e8;--ktext3:#7d90c8;
+  --kaccent:#38bdf8;--kaccent2:#8b5cf6;--kblue:#38bdf8;
+  background:
+    radial-gradient(1.5px 1.5px at 12% 20%,rgba(255,255,255,.55) 50%,transparent 51%),
+    radial-gradient(1.5px 1.5px at 80% 10%,rgba(255,255,255,.45) 50%,transparent 51%),
+    radial-gradient(1px 1px at 30% 65%,rgba(255,255,255,.4) 50%,transparent 51%),
+    radial-gradient(1.5px 1.5px at 90% 55%,rgba(255,255,255,.5) 50%,transparent 51%),
+    radial-gradient(1px 1px at 55% 88%,rgba(255,255,255,.35) 50%,transparent 51%),
+    radial-gradient(2px 2px at 66% 32%,rgba(255,255,255,.3) 50%,transparent 51%),
+    linear-gradient(180deg,var(--kbg-top) 0%,var(--kbg) 260px);
+}
+/* —— 品牌区:Logo 光晕 + 等级徽章胶囊 —— */
+.kid-wb .kid-logo{border-radius:16px;box-shadow:0 6px 18px color-mix(in srgb,var(--kaccent) 45%,transparent)}
+.kid-wb .kid-title{font-size:20px}
+.kid-wb .kid-lv-pill{display:inline-flex;align-items:center;gap:4px;min-height:26px;padding:0 12px;border-radius:var(--kr-pill);
+  color:#fff;font-size:12px;font-weight:800;letter-spacing:.5px;box-shadow:0 4px 12px rgba(0,0,0,.18)}
+.kid-wb .kid-date{border-radius:var(--kr-pill)}
+/* —— 今日仪表盘:进度环 + 列表 —— */
+.kid-wb .kid-today-head{flex-wrap:wrap}
+.kid-wb .kid-progress{display:inline-flex;align-items:center;gap:6px}
+.kid-wb .kid-progress svg{filter:drop-shadow(0 2px 6px color-mix(in srgb,var(--kaccent) 40%,transparent))}
+.kid-wb .kid-progress circle:last-child{transition:stroke-dashoffset .6s cubic-bezier(.22,1,.36,1)}
+.kid-wb .kid-progress-txt{font-size:12px;font-weight:800;color:var(--kaccent);min-width:32px}
+.kid-wb .kid-today-item{border-radius:var(--kr-lg);transition:transform .18s cubic-bezier(.22,1,.36,1),box-shadow .18s}
+.kid-wb .kid-today-item:hover{transform:translateY(-1px);box-shadow:var(--ks-2)}
+.kid-wb .kid-today-item .k-ti-ico{border-radius:10px}
+.kid-wb .kid-today-item.overdue{background:linear-gradient(90deg,color-mix(in srgb,#f87171 12%,var(--kcard)),var(--kcard))}
+/* —— Tab 胶囊 + 激活光效 —— */
+.kid-wb .kid-tabs{gap:10px}
+.kid-wb .kid-tab{border-radius:var(--kr-lg);transition:transform .16s cubic-bezier(.22,1,.36,1),box-shadow .16s}
+.kid-wb .kid-tab:hover:not(.on){transform:translateY(-1px);box-shadow:var(--ks-1)}
+.kid-wb .kid-tab.on{box-shadow:var(--kglow)}
+.kid-wb .kid-tab .kid-tab-dot{font-size:16px}
+/* —— 任务卡:渐变顶条 + 悬停上浮 —— */
+.kid-wb .kid-task{position:relative;border-radius:var(--kr-lg);overflow:hidden;transition:transform .18s cubic-bezier(.22,1,.36,1),box-shadow .18s,border-color .18s}
+.kid-wb .kid-task:hover{transform:translateY(-2px);box-shadow:var(--ks-2)}
+.kid-wb .kid-task::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;
+  background:linear-gradient(90deg,var(--kaccent),var(--kaccent2));opacity:.9}
+.kid-wb .kid-task.done::before{background:linear-gradient(90deg,#4ade80,#22c55e)}
+.kid-wb .kid-task.carry::before{background:linear-gradient(90deg,#f87171,#ef4444)}
+.kid-wb .k-task-ico{border-radius:14px;box-shadow:0 4px 10px color-mix(in srgb,var(--kaccent) 22%,transparent)}
+.kid-wb .k-badge,.kid-wb .k-unit-chip,.kid-wb .k-reward-chip{border-radius:var(--kr-pill)}
+.kid-wb .kid-task .kid-btn{min-height:40px;border-radius:var(--kr)}
+/* —— 按钮质感 —— */
+.kid-wb .kid-btn{font-weight:700;transition:transform .12s cubic-bezier(.22,1,.36,1),box-shadow .18s,background .18s}
+.kid-wb .kid-btn:hover:not(:disabled){transform:translateY(-1px)}
+.kid-wb .kid-btn.primary,.kid-wb .kid-btn.gold,.kid-wb .kid-btn.green,.kid-wb .kid-btn.red{box-shadow:0 5px 14px color-mix(in srgb,currentColor 20%,transparent)}
+/* —— 钱包:圆形徽章 + 悬停 —— */
+.kid-wb .kid-wallet-card{border-radius:var(--kr-lg);transition:transform .18s cubic-bezier(.22,1,.36,1),box-shadow .18s}
+.kid-wb .kid-wallet-card:hover{transform:translateY(-2px);box-shadow:var(--ks-2)}
+.kid-wb .kid-wallet-card .k-w-ico{border-radius:50%;width:40px;height:40px}
+/* —— 数字人舞台:主题光晕 —— */
+.kid-wb .kid-hero-box{border-radius:var(--kr-lg);background:
+  radial-gradient(circle at 50% 28%,color-mix(in srgb,var(--kaccent) 34%,var(--kcard2)),var(--kcard2) 72%)}
+/* —— 计划/商城/奖章 —— */
+.kid-wb .kid-plan-day{border-radius:var(--kr-lg)}
+.kid-wb .kid-plan-item{border-radius:10px}
+.kid-wb .kid-shop-item{border-radius:var(--kr-lg)}
+.kid-wb .kid-medal{border-radius:var(--kr-lg);transition:transform .18s,box-shadow .18s}
+.kid-wb .kid-medal:hover{transform:translateY(-2px);box-shadow:var(--ks-2)}
+/* —— 弹窗/抽屉/密码键盘 —— */
+.kid-wb .kid-modal{border-radius:var(--kr-xl)}
+.kid-wb .kid-modal-x,.kid-wb .kid-pwd-key{border-radius:var(--kr)}
+/* —— 可访问性:焦点可见 + 减少动效 —— */
+.kid-wb :focus-visible{outline:2px solid var(--kaccent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){
+  .kid-wb *,.kid-wb *::before,.kid-wb *::after{animation-duration:.001s!important;transition-duration:.001s!important}
+}
+
+/* ============ v2.1.9 配色优化:按钮/图标对比度全面修正 ============ */
+/* 主因修复:主题覆盖段「次文字」规则曾把主按钮 color 覆盖成灰/深 → 彩色按钮统一高对比文字 */
+.kid-wb .kid-btn.primary,.kid-wb .kid-btn.green,.kid-wb .kid-btn.red{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.18)}
+.kid-wb .kid-btn.gold{color:#7c2d12;text-shadow:none}
+/* 主按钮底色加深,保证白字对比(≥3:1 大字标准,接近 AA) */
+.kid-wb .kid-btn.primary{background:linear-gradient(135deg,var(--kaccent),color-mix(in srgb,var(--kaccent2) 72%,#000))}
+.kid-wb .kid-btn.green{background:linear-gradient(135deg,#4ade80,#15803d)}
+.kid-wb .kid-btn.red{background:linear-gradient(135deg,#f87171,#dc2626)}
+.kid-wb .kid-btn.gold{background:linear-gradient(135deg,#fbbf24,#d97706)}
+/* 糖果乐园/星际探险:强调色偏亮,主按钮单独加深(白字对比≥3:1) */
+.kid-wb.theme-candy .kid-btn.primary{background:linear-gradient(135deg,#ec4899,#a21caf)}
+.kid-wb.theme-space .kid-btn.primary{background:linear-gradient(135deg,#0ea5e9,#7c3aed)}
+/* 默认按钮(非彩色):次级亮底 + 主文字,深浅主题下对比充足(原暗底灰字不可读) */
+.kid-wb .kid-btn:not(.primary):not(.gold):not(.green):not(.red){background:var(--kcard2);color:var(--ktext);border-color:var(--kborder)}
+.kid-wb .kid-btn:not(.primary):not(.gold):not(.green):not(.red):hover{border-color:var(--kaccent);color:var(--ktext)}
+/* 分类徽章(浅色分类底上的白线条图标)与锁定头像可读性 */
+.kid-wb .kid-avatar-item.locked{opacity:.62}
+.kid-wb .kid-lv-pill{text-shadow:0 1px 2px rgba(0,0,0,.5),0 0 4px rgba(0,0,0,.28)}
+/* 今日列表「去完成」与任务卡按钮同主按钮规则(默认按钮统一) */
+.kid-wb .kid-today-item .kid-btn.primary{color:#fff}
+/* Tab 激活态同问题:白字固定(次文字规则曾覆盖成灰) */
+.kid-wb .kid-tab.on{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.18)}
+
+/* ============ 跟随项目模式:变量兜底(应用内取应用主题变量;独立/预览环境回退系统深浅色) ============ */
+/* 关键修复:此前 var(--accent) 等无兜底,在无应用变量的环境(预览页/独立部署)下渐变全部失效 → 按钮透明底+白字 */
+.kid-wb.theme-project{
+  --kbg: var(--bg, #1b1d23); --kbg-top: var(--bg, #1b1d23);
+  --kcard: var(--bg2, #22242b); --kcard2: var(--bg3, #2a2d36); --kcard3: var(--bg4, #333642);
+  --kborder: var(--border, #343845); --kborder2: var(--border, #343845);
+  --ktext: var(--text, #e6e8ee); --ktext2: var(--text2, #9aa1b2); --ktext3: var(--text2, #9aa1b2);
+  --kaccent: var(--accent, #4f8cff); --kaccent2: var(--accent2, #6a5cff); --kblue: var(--accent, #4f8cff);
+}
+/* 系统浅色时(仅无应用变量的环境生效,应用内取应用变量值不受影响) */
+@media (prefers-color-scheme: light){
+  .kid-wb.theme-project{
+    --kbg: var(--bg, #f3f4f7); --kbg-top: var(--bg, #f3f4f7);
+    --kcard: var(--bg2, #ffffff); --kcard2: var(--bg3, #e8eaef); --kcard3: var(--bg4, #dce0e7);
+    --kborder: var(--border, #d2d6df); --kborder2: var(--border, #d2d6df);
+    --ktext: var(--text, #1f2329); --ktext2: var(--text2, #6b7280); --ktext3: var(--text2, #6b7280);
+    --kaccent: var(--accent, #2f6fe0); --kaccent2: var(--accent2, #1f5fd0); --kblue: var(--accent, #2f6fe0);
+  }
+}
+`;
+
+function ensureKidStyle() {
+  if (!document.getElementById('kid-wb-style')) {
+    const st = document.createElement('style');
+    st.id = 'kid-wb-style';
+    st.textContent = CSS;
+    document.head.appendChild(st);
+  }
+}
+
+// ---------------- 分类配置 ----------------
+// deep:图标线条深色变体,在浅色分类底(bg)上高对比(白线条在浅底上不可见)
+const CATS = {
+  sport: { name: '身体锻炼', color: '#f59e0b', deep: '#b45309', bg: '#fff7ed', unit: '分钟',
+    icon: '<path d="M13 2L4.5 13.5h5L8 22l8.5-11.5h-5L13 2z" fill="#fff"/>',
+    tips: ['跳绳 200 个', '开合跳 3 组 × 20 个', '原地慢跑 5 分钟', '广播体操 1 遍', '拉伸放松 3 分钟'] },
+  recite: { name: '背诵', color: '#8b5cf6', deep: '#6d28d9', bg: '#f5f3ff', unit: '篇',
+    icon: '<path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5zm4-1v16M12 7h4M12 11h4" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>',
+    tips: ['课文大声读 3 遍再背', '先背一段再连起来', '让家长抽查 2 次', '睡前再默背一遍更牢'] },
+  write: { name: '听写·默写·书法', color: '#ec4899', deep: '#be185d', bg: '#fdf2f8', unit: '课',
+    icon: '<path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>',
+    tips: ['生字先看笔顺再写', '写 3 遍记牢它', '英文单词边读边拼', '注意坐姿和握笔姿势'] },
+  math: { name: '数学口算·习题', color: '#3b82f6', deep: '#1d4ed8', bg: '#eff6ff', unit: '组',
+    icon: '<path d="M9 3h6v18H9zM3 8h3v10H3zM18 8h3v10h-3z" fill="#fff"/>',
+    tips: ['先计时口算一页', '错题抄进错题本', '用凑十法算得更快', '做完自己检查一遍'] },
+};
+const CAT_ORDER = ['sport', 'recite', 'write', 'math'];
+
+// ---------------- 等级/称号(12 级) ----------------
+const LEVELS = [
+  { lv: 1, exp: 0, title: '萌芽新芽', color: '#84cc16', desc: '刚刚出发的小种子,坚持就会发芽!' },
+  { lv: 2, exp: 50, title: '学习小兵', color: '#22c55e', desc: '开始训练啦,今天也要好好闯关!' },
+  { lv: 3, exp: 120, title: '闯关新秀', color: '#06b6d4', desc: '戴上棒球帽,闯关更有范儿!' },
+  { lv: 4, exp: 220, title: '打卡达人', color: '#3b82f6', desc: '每天的坚持,就是你变强的秘诀!' },
+  { lv: 5, exp: 360, title: '记忆小博士', color: '#6366f1', desc: '戴上眼镜,知识全都看得清清楚楚!' },
+  { lv: 6, exp: 540, title: '计算小能手', color: '#8b5cf6', desc: '披风加身,口算题目统统拿下!' },
+  { lv: 7, exp: 760, title: '知识勇士', color: '#ef4444', desc: '皇冠加冕,你是知识的守护者!' },
+  { lv: 8, exp: 1020, title: '全能小学霸', color: '#f43f5e', desc: '四科全能,所向披靡!' },
+  { lv: 9, exp: 1320, title: '闯关大师', color: '#f59e0b', desc: '星光闪耀,闯关对你小菜一碟!' },
+  { lv: 10, exp: 1660, title: '智慧骑士', color: '#f97316', desc: '黄金披风,智慧与勇气并存!' },
+  { lv: 11, exp: 2060, title: '闪耀学神', color: '#fbbf24', desc: '彩虹光环,光芒万丈!' },
+  { lv: 12, exp: 2520, title: '无敌学霸王', color: '#facc15', desc: '钻石王冠加身,终极闯关霸主诞生!' },
+];
+function levelDef(exp) {
+  let cur = LEVELS[0];
+  for (const l of LEVELS) if (exp >= l.exp) cur = l;
+  return cur;
+}
+function nextLevel(exp) {
+  const cur = levelDef(exp);
+  if (cur.lv >= 12) return null;
+  return LEVELS[cur.lv];
+}
+
+// ---------------- 成就奖章 ----------------
+const MEDALS = [
+  { id: 'first', name: '初次闯关', desc: '完成第 1 个任务', icon: '🚩', check: (s) => s.totalTasks >= 1 },
+  { id: 'streak3', name: '三天连胜', desc: '连续打卡 3 天', icon: '🔥', check: (s) => s.bestStreak >= 3 },
+  { id: 'streak7', name: '一周坚持', desc: '连续打卡 7 天', icon: '🎯', check: (s) => s.bestStreak >= 7 },
+  { id: 'streak14', name: '半月达人', desc: '连续打卡 14 天', icon: '⚡', check: (s) => s.bestStreak >= 14 },
+  { id: 'streak30', name: '月度战神', desc: '连续打卡 30 天', icon: '🏆', check: (s) => s.bestStreak >= 30 },
+  { id: 'task50', name: '任务小能手', desc: '累计完成 50 个任务', icon: '💪', check: (s) => s.totalTasks >= 50 },
+  { id: 'task100', name: '百炼成钢', desc: '累计完成 100 个任务', icon: '🏅', check: (s) => s.totalTasks >= 100 },
+  { id: 'all4', name: '全能四连', desc: '一天完成全部 4 类任务', icon: '🌈', check: (s) => s.bestAllFour >= 1 },
+  { id: 'crown', name: '皇冠加冕', desc: '获得第 1 个皇冠', icon: '👑', check: (s) => s.crowns >= 1 },
+  { id: 'lv6', name: '等级飞升', desc: '达到 6 级', icon: '🚀', check: (s) => levelDef(s.exp).lv >= 6 },
+  { id: 'lv10', name: '大师之路', desc: '达到 10 级', icon: '🌟', check: (s) => levelDef(s.exp).lv >= 10 },
+];
+
+// ---------------- 默认道具商城 ----------------
+const DEFAULT_SHOP = [
+  { id: 'g1', name: '游戏时间 +30 分钟', cost: 80, cur: 'coin', icon: '🎮', note: '完成今日任务后,找爸爸妈妈兑换' },
+  { id: 'g2', name: '动画片 +20 分钟', cost: 60, cur: 'coin', icon: '📺', note: '周末专属,记得写完作业再看' },
+  { id: 'g3', name: '零花钱 +5 元', cost: 120, cur: 'coin', icon: '💰', note: '存入自己的小钱包' },
+  { id: 'g4', name: '周末郊游券', cost: 5, cur: 'diamond', icon: '🏕️', note: '兑换一次周末亲子出游' },
+];
+
+// ---------------- 示例计划(均衡模板) ----------------
+const TEMPLATE_PLAN = [
+  { day: 0, name: '周日', items: [{ id: 'tpl-sun-1', cat: 'sport', title: '户外运动', target: '30' }, { id: 'tpl-sun-2', cat: 'recite', title: '背诵古诗', target: '1' }, { id: 'tpl-sun-3', cat: 'write', title: '书法练习', target: '1' }] },
+  { day: 1, name: '周一', items: [{ id: 'tpl-mon-1', cat: 'sport', title: '跳绳训练', target: '20' }, { id: 'tpl-mon-2', cat: 'recite', title: '背诵课文', target: '1' }, { id: 'tpl-mon-3', cat: 'write', title: '生词听写', target: '1' }, { id: 'tpl-mon-4', cat: 'math', title: '口算练习', target: '2' }] },
+  { day: 2, name: '周二', items: [{ id: 'tpl-tue-1', cat: 'sport', title: '开合跳', target: '3' }, { id: 'tpl-tue-2', cat: 'recite', title: '背诵英语单词', target: '10' }, { id: 'tpl-tue-3', cat: 'write', title: '默写生字', target: '1' }, { id: 'tpl-tue-4', cat: 'math', title: '竖式计算', target: '1' }] },
+  { day: 3, name: '周三', items: [{ id: 'tpl-wed-1', cat: 'sport', title: '广播体操', target: '1' }, { id: 'tpl-wed-2', cat: 'recite', title: '背诵课文', target: '1' }, { id: 'tpl-wed-3', cat: 'write', title: '英文书写', target: '1' }, { id: 'tpl-wed-4', cat: 'math', title: '口算练习', target: '2' }] },
+  { day: 4, name: '周四', items: [{ id: 'tpl-thu-1', cat: 'sport', title: '跑步慢走', target: '15' }, { id: 'tpl-thu-2', cat: 'recite', title: '背诵古诗', target: '1' }, { id: 'tpl-thu-3', cat: 'write', title: '生词听写', target: '1' }, { id: 'tpl-thu-4', cat: 'math', title: '应用题练习', target: '2' }] },
+  { day: 5, name: '周五', items: [{ id: 'tpl-fri-1', cat: 'sport', title: '跳绳训练', target: '20' }, { id: 'tpl-fri-2', cat: 'recite', title: '背诵英语单词', target: '10' }, { id: 'tpl-fri-3', cat: 'write', title: '书法练习', target: '1' }, { id: 'tpl-fri-4', cat: 'math', title: '口算练习', target: '2' }] },
+  { day: 6, name: '周六', items: [{ id: 'tpl-sat-1', cat: 'sport', title: '户外运动', target: '40' }, { id: 'tpl-sat-2', cat: 'recite', title: '背诵课文', target: '1' }, { id: 'tpl-sat-3', cat: 'write', title: '周记书写', target: '1' }] },
+];
+
+// ---------------- 头像(内置 8 个 SVG 头像,高等级解锁) ----------------
+function headSvg(id) {
+  const H = {
+    a1: { bg: '#fbbf24', skin: '#ffd9b3', hair: '#8b5a2b', mouth: 'M25 33q5 5 10 0', eye: 'M22 27h4M34 27h4', unlock: 0 },
+    a2: { bg: '#60a5fa', skin: '#ffd9b3', hair: '#111827', mouth: 'M27 33h6', eye: 'M21 28h5M34 28h5', unlock: 0, glasses: true },
+    a3: { bg: '#f472b6', skin: '#ffd9b3', hair: '#7c3aed', mouth: 'M24 33q6 6 12 0', eye: 'M22 27h4M35 28h4', unlock: 0, wink: true },
+    a4: { bg: '#34d399', skin: '#ffd9b3', hair: '#1f2937', mouth: 'M26 35q4 -4 8 0q4 4 8 0', eye: 'M22 27h4M34 27h4', unlock: 0, tongue: true },
+    a5: { bg: '#a78bfa', skin: '#ffd9b3', hair: '#374151', mouth: 'M27 36a3 3 0 0 0 6 0', eye: 'M21 26a2.6 2.6 0 1 0 0 .1M34 26a2.6 2.6 0 1 0 0 .1', unlock: 0 },
+    a6: { bg: '#fb923c', skin: '#ffd9b3', hair: '#78350f', mouth: 'M25 31q5 -3 10 0', eye: 'M22 26h4M34 26h4', unlock: 0, brow: true },
+    a7: { bg: '#22d3ee', skin: '#ffd9b3', hair: '#0f766e', mouth: 'M26 34q4 4 8 0', eye: 'M21 26l3 3M25 26l-3 3M34 26l3 3M38 26l-3 3', unlock: 5, sparkle: true },
+    a8: { bg: '#facc15', skin: '#ffd9b3', hair: '#f59e0b', mouth: 'M25 32q5 5 10 0', eye: 'M22 26h4M34 26h4', unlock: 8, crown: true },
+  }[id] || { bg: '#fbbf24', skin: '#ffd9b3', hair: '#8b5a2b', mouth: 'M25 33q5 5 10 0', eye: 'M22 27h4M34 27h4', unlock: 0 };
+  const p = (v) => `${Math.round(v)}`;
+  return `<svg viewBox="0 0 60 60" width="52" height="52" aria-hidden="true">
+    <circle cx="30" cy="30" r="29" fill="${H.bg}"/>
+    ${H.crown ? `<path d="M16 14l4 5 4-6 6 7 4-6 4 5 4-2-2 10H14L14 12z" fill="#f59e0b" stroke="#b45309" stroke-width="1"/><path d="M26 11l2 3 2-3z" fill="#7c3aed"/>` : ''}
+    ${H.sparkle ? `<path d="M8 18l1.6 3.4L13 23l-3.4 1.6L8 28l-1.6-3.4L3 23l3.4-1.6zM48 10l1.2 2.6L52 14l-2.8 1.4L48 18l-1.2-2.6L44 14l2.8-1.4z" fill="#fff"/>` : ''}
+    <path d="M16 26q0-12 14-12t14 12v2q0 8-7 9v4a7 7 0 0 1-14 0v-4q-7-1-7-9z" fill="${H.hair}"/>
+    <circle cx="30" cy="31" r="13.5" fill="${H.skin}"/>
+    ${H.glasses ? `<rect x="18" y="24" width="9" height="7" rx="2.5" fill="none" stroke="#1f2937" stroke-width="1.6"/><rect x="33" y="24" width="9" height="7" rx="2.5" fill="none" stroke="#1f2937" stroke-width="1.6"/><path d="M27 27h6" stroke="#1f2937" stroke-width="1.6"/>` : ''}
+    ${!H.glasses ? H.eye.replace(/q/g, `q`) : ''}
+    ${H.wink ? `<path d="M22 27q2 2 4 0" stroke="#1f2937" stroke-width="1.8" fill="none" stroke-linecap="round"/><circle cx="36" cy="28" r="1.9" fill="#1f2937"/>` : ''}
+    ${H.sparkle && !H.glasses ? `<path d="M20 25l2.2 2.2M27 25l-2.2 2.2M33 25l2.2 2.2M40 25l-2.2 2.2" stroke="#1f2937" stroke-width="1.6" stroke-linecap="round"/>` : ''}
+    ${H.brow ? `<path d="M20 23q3-2 6 0M34 23q3-2 6 0" stroke="#1f2937" stroke-width="1.8" fill="none" stroke-linecap="round"/>` : ''}
+    <circle cx="24.5" cy="28.5" r="1.7" fill="#fda4af"/><circle cx="35.5" cy="28.5" r="1.7" fill="#fda4af"/>
+    ${H.tongue ? `<path d="M27 34q0 4 3 4t3-4z" fill="#fb7185"/>` : ''}
+    <path d="${H.mouth}" stroke="#b45309" stroke-width="2" fill="none" stroke-linecap="round"/>
+  </svg>`;
+}
+
+// ---------------- 数字人形象(随等级进化,手绘 SVG) ----------------
+function heroSvg(exp) {
+  const lv = levelDef(exp).lv;
+  const hairColors = ['#8b5a2b', '#6d4a2f', '#1f2937', '#1f2937', '#312e81', '#4c1d95', '#7c2d12', '#9f1239', '#b45309', '#92400e', '#713f12', '#5b21b6'];
+  const shirtColors = ['#84cc16', '#22c55e', '#3b82f6', '#06b6d4', '#6366f1', '#8b5cf6', '#ef4444', '#f43f5e', '#f59e0b', '#f97316', '#fbbf24', '#facc15'];
+  const hair = hairColors[lv - 1], shirt = shirtColors[lv - 1];
+  const pant = '#475569';
+  const cape = lv >= 9 ? '#f97316' : (lv >= 5 ? '#8b5cf6' : null);
+  const hasHat = lv >= 3 && lv < 5;
+  const hasGlasses = lv >= 5;
+  const hasCrown = lv >= 7;
+  const bigCrown = lv >= 11;
+  const halo = lv >= 10;
+  const stars = lv >= 9;
+  const sparkles = lv >= 10;
+  const bgGrad = lv <= 8 ? 'url(#hg1)' : 'url(#hg2)';
+  const mouth = lv >= 9 ? 'M62 96q8 9 16 0' : (lv >= 3 ? 'M62 94q8 8 16 0' : 'M64 95q6 5 12 0');
+  const eyeY = lv >= 9 ? 'M57 86h8M75 86h8' : 'M57 88h8M75 88h8';
+  const brow = lv >= 7 ? '<path d="M55 82q5-3 10 0M75 82q5-3 10 0" stroke="#1f2937" stroke-width="2.6" fill="none" stroke-linecap="round"/>' : '';
+  return `<svg viewBox="0 0 140 170" width="104" height="126" aria-hidden="true" style="display:block">
+    <defs>
+      <radialGradient id="hg1" cx="50%" cy="40%" r="70%"><stop offset="0%" stop-color="#dbeafe"/><stop offset="100%" stop-color="#eef2ff"/></radialGradient>
+      <radialGradient id="hg2" cx="50%" cy="35%" r="75%"><stop offset="0%" stop-color="#fef3c7"/><stop offset="100%" stop-color="#fff7ed"/></radialGradient>
+    </defs>
+    ${stars ? Array.from({ length: 5 }).map((_, i) => {
+      const x = 12 + i * 26 + (i % 2) * 8, y = 14 + (i % 3) * 8;
+      return `<path d="M${x} ${y}l2 4 4.4.6-3.2 3.1.8 4.4-4-2-4 2 .8-4.4L${x - 2} ${y + 4.6}l4.4-.6z" fill="#fbbf24" opacity=".9"/>`;
+    }).join('') : ''}
+    ${sparkles ? `<path d="M16 130l1.8 3.8 3.8 1.8-3.8 1.8-1.8 3.8-1.8-3.8-3.8-1.8 3.8-1.8zM122 40l1.4 3 3 1.4-3 1.4-1.4 3-1.4-3-3-1.4 3-1.4z" fill="#fff" opacity=".95"/>` : ''}
+    ${halo ? `<ellipse cx="70" cy="20" rx="26" ry="7" fill="none" stroke="#fbbf24" stroke-width="4" opacity=".9"/><ellipse cx="70" cy="20" rx="18" ry="4.5" fill="none" stroke="#f59e0b" stroke-width="2.5" opacity=".8"/>` : ''}
+    <circle cx="70" cy="88" r="64" fill="${bgGrad}"/>
+    ${bigCrown ? `<path d="M30 20l8 10 7-12 8 14 7-12 7 10 7-8-4 20H26L26 12z" fill="#fbbf24" stroke="#b45309" stroke-width="2"/><circle cx="44" cy="18" r="3" fill="#ec4899"/><circle cx="70" cy="16" r="3.4" fill="#22d3ee"/><circle cx="96" cy="18" r="3" fill="#a3e635"/>` :
+      (hasCrown ? `<path d="M40 32l6 7 5-9 6 10 5-9 6 8 5-5-3 14H37L34 24z" fill="#fbbf24" stroke="#b45309" stroke-width="1.6"/><circle cx="52" cy="30" r="2.2" fill="#ec4899"/><circle cx="68" cy="28" r="2.4" fill="#22d3ee"/>` : '')}
+    ${cape ? `<path d="M52 92q-20 8-26 26l6 14q20-12 30-14q10 2 30 14l6-14q-6-18-26-26z" fill="${cape}" opacity=".9"/>` : ''}
+    ${hasHat ? `<path d="M46 44q0-16 24-16t24 16v4H46z" fill="#1e40af"/><path d="M46 46h48q-4 10-10 10H56q-6 0-10-10z" fill="#1e3a8a"/><circle cx="70" cy="30" r="4" fill="#fbbf24"/>` : ''}
+    <path d="M42 52q0-18 28-18t28 18q0 16-8 17v9a13 13 0 0 1-40 0v-9q-8-1-8-17z" fill="${hair}"/>
+    <circle cx="70" cy="54" r="20" fill="#ffd9b3"/>
+    ${brow}
+    ${hasGlasses ? `<rect x="52" y="82" width="15" height="11" rx="4" fill="none" stroke="#1f2937" stroke-width="2.2"/><rect x="73" y="82" width="15" height="11" rx="4" fill="none" stroke="#1f2937" stroke-width="2.2"/><path d="M67 87h6" stroke="#1f2937" stroke-width="2.2"/>` : `<path d="${eyeY}" stroke="#1f2937" stroke-width="2.4" stroke-linecap="round"/>`}
+    <circle cx="61" cy="84" r="3" fill="#fda4af" opacity=".7"/><circle cx="79" cy="84" r="3" fill="#fda4af" opacity=".7"/>
+    <path d="${mouth}" stroke="#b45309" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+    <path d="M48 70h44a22 22 0 0 1-44 0z" fill="#fff" opacity=".28"/>
+    <rect x="46" y="74" width="48" height="34" rx="12" fill="${shirt}"/>
+    <rect x="36" y="80" width="10" height="26" rx="5" fill="${shirt}"/>
+    <rect x="94" y="80" width="10" height="26" rx="5" fill="${shirt}"/>
+    <circle cx="41" cy="108" r="5" fill="#ffd9b3"/><circle cx="99" cy="108" r="5" fill="#ffd9b3"/>
+    <rect x="52" y="108" width="14" height="24" rx="6" fill="${pant}"/>
+    <rect x="74" y="108" width="14" height="24" rx="6" fill="${pant}"/>
+    <ellipse cx="59" cy="134" rx="11" ry="6.5" fill="#3b4252"/><ellipse cx="81" cy="134" rx="11" ry="6.5" fill="#3b4252"/>
+  </svg>`;
+}
+
+// ---------------- 通用 SVG 小件 ----------------
+function coinSvg(s = 16) { return `<svg viewBox="0 0 24 24" width="${s}" height="${s}"><circle cx="12" cy="12" r="10.5" fill="#fbbf24" stroke="#d97706" stroke-width="1.4"/><circle cx="12" cy="12" r="7" fill="#f59e0b"/><path d="M12 7.5l1.3 2.9 3.2.3-2.4 2.1.7 3.1L12 14.3l-2.8 1.6.7-3.1-2.4-2.1 3.2-.3z" fill="#fff7ed"/></svg>`; }
+function diamondSvg(s = 16) { return `<svg viewBox="0 0 24 24" width="${s}" height="${s}"><path d="M7 4h10l4 5-9 11L3 9z" fill="#22d3ee" stroke="#0891b2" stroke-width="1.3" stroke-linejoin="round"/><path d="M3 9h18M12 4l-3 5 3 11 3-11z" fill="#a5f3fc" opacity=".55"/></svg>`; }
+function crownSvg(s = 16) { return `<svg viewBox="0 0 24 24" width="${s}" height="${s}"><path d="M3 8l4 4 5-6 5 6 4-4-2 10H5z" fill="#fbbf24" stroke="#d97706" stroke-width="1.3" stroke-linejoin="round"/><circle cx="8" cy="6.5" r="1.6" fill="#ec4899"/><circle cx="16" cy="6.5" r="1.6" fill="#22d3ee"/></svg>`; }
+function medalSvg(s = 16) { return `<svg viewBox="0 0 24 24" width="${s}" height="${s}"><circle cx="12" cy="14" r="7" fill="#fb923c" stroke="#ea580c" stroke-width="1.3"/><circle cx="12" cy="14" r="4.5" fill="#fff7ed"/><path d="M9 3l3 5 3-5-2 8h-2z" fill="#fbbf24" stroke="#d97706" stroke-width="1"/><path d="M8.5 2l2 4-1.5 1.5L6 5.5zM15.5 2l-2 4 1.5 1.5 3.5-2z" fill="#f59e0b"/></svg>`; }
+function starSvg(s = 16, fill = '#fbbf24') { return `<svg viewBox="0 0 24 24" width="${s}" height="${s}"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L3.3 9.3l6.1-.7z" fill="${fill}" stroke="#d97706" stroke-width="0.8" stroke-linejoin="round"/></svg>`; }
+function expSvg(s = 16) { return `<svg viewBox="0 0 24 24" width="${s}" height="${s}"><path d="M13 2L4.5 13.5h5L8 22l8.5-11.5h-5L13 2z" fill="#a78bfa" stroke="#7c3aed" stroke-width="1" stroke-linejoin="round"/></svg>`; }
+function lockSvg(s = 14) { return `<svg viewBox="0 0 24 24" width="${s}" height="${s}"><rect x="5" y="10" width="14" height="10" rx="2.5" fill="var(--ktext3)"/><path d="M8 10V7a4 4 0 0 1 8 0v3" fill="none" stroke="var(--ktext3)" stroke-width="2.4"/></svg>`; }
+
+function catIco(cat) {
+  const c = CATS[cat] || CATS.math;
+  // 白色线条 → 分类深色变体(浅色分类底上高对比)
+  const icon = c.icon.split('#fff').join(c.deep || '#3a4056');
+  return `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">${icon}</svg>`;
+}
+
+// ---------------- 工具函数 ----------------
+let _uid = 0;
+function uid(prefix) { _uid = (_uid + 1) % 100000; return `${prefix}${Date.now().toString(36)}${_uid.toString(36)}`; }
+function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function pad(n) { return String(n).padStart(2, '0'); }
+function dateStr(d) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
+function todayStr() { return dateStr(new Date()); }
+function ystr() { const d = new Date(); d.setDate(d.getDate() - 1); return dateStr(d); }
+function fmtCn(tsOrStr) {
+  const d = typeof tsOrStr === 'number' ? new Date(tsOrStr) : new Date(String(tsOrStr).replace(/-/g, '/'));
+  const wd = ['日', '一', '二', '三', '四', '五', '六'][d.getDay()];
+  return `${d.getMonth() + 1}月${d.getDate()}日 周${wd}`;
+}
+function daysAgo(dateStrKey) {
+  const d = new Date(String(dateStrKey).replace(/-/g, '/'));
+  const today = new Date(todayStr().replace(/-/g, '/'));
+  return Math.round((today - d) / 86400000);
+}
+function weekKeyOf(d) {
+  const date = d || new Date();
+  const onejan = new Date(date.getFullYear(), 0, 1);
+  return `${date.getFullYear()}-W${Math.ceil((((date - onejan) / 86400000) + onejan.getDay() + 1) / 7)}`;
+}
+
+// ---------------- 状态管理 ----------------
+const LS_KEY = 'wb_kid_state_v1';
+let S = null;
+let activeTab = 'today';
+let rootEl = null;
+
+function emptyState() {
+  return {
+    v: 1,
+    name: '小勇士',
+    avatarId: 'a1',
+    themeMode: 'project',   // project(跟随项目) | light(儿童亮色) | dark(深色)
+    parentMode: false,
+    parentPwd: '',
+    rewardMult: 1,          // 金币/经验倍数 1 | 1.5 | 2
+    coins: 0, diamonds: 0, crowns: 0, exp: 0,
+    totalTasks: 0,
+    streak: 0, bestStreak: 0, lastDoneDate: '', lastStreakDia: 0,
+    bestAllFour: 0, lastAllFourDate: '',
+    lastWeeklyCrown: '',
+    medals: {},
+    tasks: [],
+    plan: { enabled: true, weekly: JSON.parse(JSON.stringify(TEMPLATE_PLAN)) },
+    shop: JSON.parse(JSON.stringify(DEFAULT_SHOP)),
+    claimLog: [],
+    lastEnterDate: '',
+    sampleLoaded: false,
+  };
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (raw) {
+      const d = JSON.parse(raw);
+      // 结构合并(向后兼容)
+      const base = emptyState();
+      S = Object.assign(base, d);
+      if (!Array.isArray(S.plan.weekly) || S.plan.weekly.length !== 7) S.plan.weekly = JSON.parse(JSON.stringify(TEMPLATE_PLAN));
+      if (!Array.isArray(S.shop)) S.shop = JSON.parse(JSON.stringify(DEFAULT_SHOP));
+      if (!S.medals) S.medals = {};
+      if (!S.claimLog) S.claimLog = [];
+      return;
+    }
+  } catch (e) { /* 数据损坏则重置 */ }
+  S = emptyState();
+  seedSample();
+}
+
+function persist() { try { localStorage.setItem(LS_KEY, JSON.stringify(S)); } catch (e) { /* 忽略 */ } }
+
+// ---------------- 示例数据(首次进入,含 1 条逾期) ----------------
+// 只预置 1 条「昨天未完成」的逾期示例(自动顺延到今天,演示今天要处理);
+// 今天的计划任务由 rollover() 按学习计划模板自动生成,避免示例与计划重复。
+function seedSample() {
+  const t = todayStr();
+  S.sampleLoaded = true;
+  S.coins = 90; S.exp = 20;
+  S.tasks = [
+    { id: uid('tk'), date: ystr(), cat: 'write', title: '生词听写', target: '1', unit: CATS.write.unit, done: false, started: false, stars: 0, carryover: 1, planItemId: null, doneAt: 0, rewarded: false },
+  ];
+  persist();
+}
+
+// ---------------- 每日滚动(昨天没做完的自动滚到今天) ----------------
+function rollover() {
+  const today = todayStr();
+  if (S.lastEnterDate === today) return;
+  // 未完成且日期早于今天的 → 自动顺延到今天(昨天没做完的自动滚到今天,不凭空消失)
+  for (const t of S.tasks) {
+    if (t.date < today && !t.done) {
+      t.date = today;
+      t.carryover = (t.carryover || 0) + 1;
+      t.started = false;
+    }
+  }
+  // 按计划补齐今日任务
+  const day = new Date().getDay();
+  if (S.plan.enabled) {
+    const items = (S.plan.weekly[day] && S.plan.weekly[day].items) || [];
+    for (const it of items) {
+      if (!S.tasks.some((t) => t.date === today && t.planItemId === it.id)) {
+        S.tasks.push({ id: uid('tk'), date: today, cat: it.cat, title: it.title || CATS[it.cat].name, target: String(it.target != null ? it.target : 1), unit: CATS[it.cat].unit, done: false, started: false, stars: 0, carryover: 0, planItemId: it.id, doneAt: 0, rewarded: false });
+      }
+    }
+  }
+  S.lastEnterDate = today;
+  persist();
+}
+
+function tasksToday() { return S.tasks.filter((t) => t.date === todayStr()); }
+
+// ---------------- 奖励计算 ----------------
+function taskBase(rev, mult) { return Math.round(rev * mult * 2) / 2; }
+function rewardFor(stars) {
+  const mult = S.rewardMult || 1;
+  return { coins: taskBase(10, mult) + stars * taskBase(5, mult), exp: taskBase(10, mult) + stars * taskBase(5, mult) };
+}
+
+function grantReward(task, stars) {
+  const r = rewardFor(stars);
+  S.coins += r.coins;
+  S.exp += r.exp;
+  S.totalTasks += 1;
+  task.done = true;
+  task.stars = stars;
+  task.doneAt = Date.now();
+  task.rewarded = true;
+  // 连胜
+  const today = todayStr();
+  if (S.lastDoneDate === today) { /* 今天已打过卡,连胜不变 */ }
+  else if (S.lastDoneDate === ystr()) S.streak += 1;
+  else S.streak = 1;
+  S.lastDoneDate = today;
+  if (S.streak > S.bestStreak) S.bestStreak = S.streak;
+  // 连胜里程碑钻石(3/7/14/30 当天一次性)
+  if ([3, 7, 14, 30].includes(S.streak) && S.lastStreakDia !== S.streak) {
+    S.lastStreakDia = S.streak;
+    S.diamonds += 5;
+    toast(`连续打卡 ${S.streak} 天!+${5} 钻石 💎`, 'ok');
+  }
+  // 全能四连:当天 4 类任务全部完成
+  if (S.lastAllFourDate !== today) {
+    const doneCats = new Set(tasksToday().filter((t) => t.done).map((t) => t.cat));
+    if (CAT_ORDER.every((c) => doneCats.has(c))) {
+      S.bestAllFour += 1;
+      S.lastAllFourDate = today;
+    }
+  }
+  // 周皇冠:本周计划任务全部完成
+  const wk = weekKeyOf();
+  if (S.lastWeeklyCrown !== wk && S.plan.enabled) {
+    const weekTasks = S.tasks.filter((t) => {
+      const d = new Date(String(t.date).replace(/-/g, '/'));
+      return weekKeyOf(d) === wk;
+    });
+    const planItems = S.plan.weekly.map((d) => d.items).flat().map((i) => i.id);
+    const relevant = weekTasks.filter((t) => t.planItemId && planItems.includes(t.planItemId));
+    if (relevant.length && relevant.every((t) => t.done)) {
+      S.lastWeeklyCrown = wk;
+      S.crowns += 1;
+      toast('本周计划全部完成!+1 皇冠 👑', 'ok');
+    }
+  }
+  checkMedals();
+  persist();
+}
+
+function checkMedals() {
+  for (const m of MEDALS) {
+    if (!S.medals[m.id] && m.check(S)) {
+      S.medals[m.id] = { got: true, at: Date.now() };
+      toast(`解锁奖章「${m.name}」🏅`, 'ok');
+    }
+  }
+  persist();
+}
+
+function undoTask(id) {
+  const t = S.tasks.find((x) => x.id === id);
+  if (!t || !t.done) return;
+  const r = rewardFor(t.stars || 3);
+  S.coins = Math.max(0, S.coins - r.coins);
+  S.exp = Math.max(0, S.exp - r.exp);
+  S.totalTasks = Math.max(0, S.totalTasks - 1);
+  t.done = false; t.stars = 0; t.doneAt = 0; t.started = false; t.rewarded = false;
+  checkMedals();
+  persist();
+  render();
+}
+
+// ---------------- 渲染入口 ----------------
+function renderKidWorkspaceTool(container) {
+  if (!container) return;
+  ensureKidStyle();
+  loadState();
+  rollover();
+  activeTab = 'today';
+  container.innerHTML = '';
+  rootEl = document.createElement('div');
+  rootEl.className = 'kid-wb theme-' + (S.themeMode || 'project');
+  container.appendChild(rootEl);
+  render();
+}
+
+function render() {
+  if (!rootEl) return;
+  rootEl.className = 'kid-wb theme-' + (S.themeMode || 'project');
+  rootEl.innerHTML = '';
+  rootEl.appendChild(renderTopbar());
+  rootEl.appendChild(renderToday());
+  rootEl.appendChild(renderTabs());
+  const content = document.createElement('div');
+  content.className = 'kid-content';
+  if (activeTab === 'today') content.appendChild(renderTodayTab());
+  else if (activeTab === 'plan') content.appendChild(renderPlanTab());
+  else content.appendChild(renderRewardTab());
+  rootEl.appendChild(content);
+}
+
+// ---------------- 顶栏 ----------------
+function renderTopbar() {
+  const bar = document.createElement('div');
+  bar.className = 'kid-topbar';
+  const lv = levelDef(S.exp);
+  bar.innerHTML = `
+    <div class="kid-brand">
+      <div class="kid-logo">${starSvg(24, '#fff')}</div>
+      <div class="kid-title">得乐学苑<small>${esc(S.name)} · ${lv.title}</small></div>
+    </div>
+    <span class="kid-lv-pill" style="background:${lv.color}" title="当前等级:${esc(lv.title)}">★ Lv.${lv.lv}</span>
+    <span class="kid-date">📅 ${fmtCn(Date.now())}</span>
+    <div class="kid-top-actions">
+      <button class="kid-btn sm" data-act="export" title="导出 JSON 备份">⬇ 导出</button>
+      <button class="kid-btn sm" data-act="import" title="从 JSON 恢复">⬆ 导入</button>
+      <button class="kid-btn sm ${S.parentMode ? 'gold' : ''}" data-act="parent" title="家长模式(编辑计划/管理道具/撤销)">${S.parentMode ? '👨‍👩‍👦 家长' : '🔒 家长'}</button>
+      <button class="kid-btn sm primary" data-act="settings" title="设置">⚙ 设置</button>
+    </div>`;
+  bar.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-act]');
+    if (!b) return;
+    const act = b.dataset.act;
+    if (act === 'export') exportData();
+    else if (act === 'import') importData();
+    else if (act === 'parent') enterParentGate();
+    else if (act === 'settings') openSettings();
+  });
+  return bar;
+}
+
+// ---------------- 「今天要处理」置顶区 ----------------
+function renderToday() {
+  const sec = document.createElement('div');
+  sec.className = 'kid-today';
+  const today = tasksToday();
+  const pending = today.filter((t) => !t.done);
+  const overdue = pending.filter((t) => (t.carryover || 0) > 0);
+  const doneCount = today.length - pending.length;
+  const done = doneCount === today.length && today.length > 0;
+
+  let itemsHtml = '';
+  if (!today.length) {
+    itemsHtml = `<div class="kid-today-empty">今天还没有安排任务,去「学习计划」给今天加几关吧 🎯</div>`;
+  } else {
+    for (const t of today) {
+      const c = CATS[t.cat] || CATS.math;
+      const isOv = !t.done && (t.carryover || 0) > 0;
+      itemsHtml += `
+        <div class="kid-today-item${isOv ? ' overdue' : ''}" data-today="${t.id}">
+          <div class="k-ti-ico" style="background:${c.bg}">${catIco(t.cat)}</div>
+          <div class="k-ti-main">
+            <div class="k-ti-title">${isOv ? '⚠ ' : ''}${esc(t.title)}</div>
+            <div class="k-ti-sub">${c.name} · ${esc(t.target)}${esc(t.unit)}${t.done ? ' · 已闯关 ✅' : ''}</div>
+          </div>
+          ${isOv ? `<span class="k-ti-tag">逾期 ${t.carryover} 天</span>` : ''}
+          ${!t.done ? `<button class="kid-btn sm primary" data-go="${t.id}">去完成 →</button>` : `<span style="font-size:18px">✅</span>`}
+        </div>`;
+    }
+  }
+  const lv = levelDef(S.exp);
+  const pct = today.length ? Math.round((doneCount / today.length) * 100) : 0;
+  const R = 17, CIRC = 2 * Math.PI * R;
+  sec.innerHTML = `
+    <div class="kid-today-head">
+      <span class="kid-today-title">🎯 今天要处理</span>
+      <span class="kid-today-sub">${done ? '全部闯关完成,今天也超棒!' : `已完成 ${doneCount}/${today.length}`}${S.streak > 1 ? ` · 已连续打卡 ${S.streak} 天 🔥` : ''}</span>
+      <span class="kid-progress" title="今日完成率 ${pct}%">
+        <svg viewBox="0 0 44 44" width="40" height="40" aria-hidden="true">
+          <circle cx="22" cy="22" r="${R}" fill="none" stroke="var(--kring-bg)" stroke-width="5"/>
+          <circle cx="22" cy="22" r="${R}" fill="none" stroke="var(--kaccent)" stroke-width="5" stroke-linecap="round"
+            stroke-dasharray="${CIRC.toFixed(1)}" stroke-dashoffset="${(CIRC * (1 - pct / 100)).toFixed(1)}" transform="rotate(-90 22 22)"/>
+        </svg>
+        <span class="kid-progress-txt">${pct}%</span>
+      </span>
+      ${lv.lv < 12 ? `<button class="kid-btn sm gold" data-act="go-today" title="去完成今天的任务" style="margin-left:auto">开始闯关 →</button>` : ''}
+    </div>
+    <div class="kid-today-list">${itemsHtml}</div>
+    ${S.totalTasks >= 30 ? `<div class="kid-today-banner">📌 <span>已累计完成 <b>${S.totalTasks}</b> 个任务,建议在顶部点「⬇ 导出」做一次数据备份</span></div>` : ''}`;
+  sec.addEventListener('click', (e) => {
+    const go = e.target.closest('[data-go]');
+    const gt = e.target.closest('[data-act="go-today"]');
+    if (go) { switchTab('today'); scrollToTask(go.dataset.go); }
+    else if (gt) { switchTab('today'); scrollToTask(today.find((t) => !t.done)?.id); }
+  });
+  return sec;
+}
+
+function scrollToTask(id) {
+  if (!id) return;
+  setTimeout(() => {
+    const card = rootEl.querySelector(`[data-task-id="${id}"]`);
+    if (card) { card.scrollIntoView({ behavior: 'smooth', block: 'center' }); card.classList.add('kid-hl'); setTimeout(() => card.classList.remove('kid-hl'), 2200); }
+  }, 60);
+}
+
+// ---------------- Tab ----------------
+function renderTabs() {
+  const tabs = document.createElement('div');
+  tabs.className = 'kid-tabs';
+  const items = [
+    { id: 'today', label: '今日闯关', dot: '⚔️' },
+    { id: 'plan', label: '学习计划', dot: '🗓️' },
+    { id: 'reward', label: '成长奖励', dot: '👑' },
+  ];
+  tabs.innerHTML = items.map((it) => `<button class="kid-tab${activeTab === it.id ? ' on' : ''}" data-tab="${it.id}"><span class="kid-tab-dot">${it.dot}</span>${it.label}</button>`).join('');
+  tabs.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-tab]');
+    if (b) switchTab(b.dataset.tab);
+  });
+  return tabs;
+}
+function switchTab(tab) { activeTab = tab; render(); }
+
+// ---------------- 今日闯关 Tab ----------------
+function renderTodayTab() {
+  const wrap = document.createElement('div');
+  const today = tasksToday();
+  const sec = document.createElement('div');
+  sec.className = 'kid-sec-head';
+  sec.innerHTML = `<span class="kid-sec-title">⚔️ 今日任务(${today.filter((t) => t.done).length}/${today.length})</span>
+    <span class="kid-sec-sub">完成后请家长验收打星,获得金币和经验</span>`;
+  wrap.appendChild(sec);
+
+  const grid = document.createElement('div');
+  grid.className = 'kid-grid';
+  if (!today.length || !today.some((t) => !t.done)) {
+    grid.innerHTML = `<div class="kid-today-empty" style="grid-column:1/-1">${!today.length ? '今天没有任务。' + (S.plan.enabled ? '去「学习计划」给今天安排任务,或' : '') + '点下方按钮添加一个自定义任务吧!' : '今天的任务全部闯关完成,太棒了!🏆'}</div>`;
+  }
+  for (const t of today) { if (!t.done) grid.appendChild(renderTaskCard(t)); }
+  wrap.appendChild(grid);
+
+  const add = document.createElement('button');
+  add.className = 'kid-addtask';
+  add.innerHTML = `＋ 添加自定义任务`;
+  add.addEventListener('click', () => openTaskModal());
+  wrap.appendChild(add);
+
+  // 已完成的今日任务(在下方汇总区展示奖励与撤销)
+  const doneTasks = today.filter((t) => t.done);
+  if (doneTasks.length) {
+    const doneSec = document.createElement('div');
+    doneSec.style.marginTop = '16px';
+    doneSec.innerHTML = `<div class="kid-sec-head"><span class="kid-sec-title">🏆 今日已闯关</span></div>`;
+    const dgrid = document.createElement('div');
+    dgrid.className = 'kid-grid';
+    for (const t of doneTasks) dgrid.appendChild(renderTaskCard(t));
+    doneSec.appendChild(dgrid);
+    wrap.appendChild(doneSec);
+  }
+  return wrap;
+}
+
+function renderTaskCard(t) {
+  const c = CATS[t.cat] || CATS.math;
+  const card = document.createElement('div');
+  const carry = (t.carryover || 0) > 0 && !t.done;
+  card.className = `kid-task${t.done ? ' done' : t.started ? ' started' : ''}${carry ? ' carry' : ''}`;
+  card.setAttribute('data-task-id', t.id);
+  const starsHtml = t.done
+    ? `<div class="k-task-stars">${[1, 2, 3].map((i) => starSvg(16, i <= t.stars ? '#fbbf24' : '#e5e7f0')).join('')}</div>`
+    : '';
+  const badge = t.done ? `<span class="k-badge done">✅ 已完成</span>`
+    : carry ? `<span class="k-badge carry">⚠ 昨日未完成</span>`
+    : t.started ? `<span class="k-badge doing">⏳ 闯关中</span>` : '';
+  const rewardHtml = t.done && t.rewarded
+    ? (() => { const r = rewardFor(t.stars || 3); return `<div class="k-task-reward"><span class="k-reward-chip c">${coinSvg(14)} +${r.coins} 金币</span><span class="k-reward-chip e">${expSvg(14)} +${r.exp} 经验</span><span class="k-reward-chip">⭐ ${t.stars} 星</span></div>`; })()
+    : t.done ? `<div class="k-task-reward"><span class="k-reward-chip">${starsHtml}</span></div>` : '';
+
+  let actions = '';
+  if (!t.done) {
+    actions = t.started
+      ? `<div class="k-task-actions"><button class="kid-btn green" data-act="finish" data-id="${t.id}">🎉 闯关成功!</button><button class="kid-btn" data-act="reset" data-id="${t.id}">↺ 重来</button></div>`
+      : `<div class="k-task-actions"><button class="kid-btn primary" data-act="start" data-id="${t.id}">⚔️ 开始闯关</button><button class="kid-btn" data-act="del" data-id="${t.id}">✕ 移除</button></div>`;
+  } else if (S.parentMode) {
+    actions = `<div class="k-task-actions"><button class="kid-btn" data-act="undo" data-id="${t.id}" title="撤销完成并退回奖励(家长)">↺ 撤销(家长)</button></div>`;
+  }
+
+  const tip = c.tips[Math.abs(t.title.length + t.cat.length) % c.tips.length];
+  card.innerHTML = `
+    <div class="k-task-head">
+      <div class="k-task-ico" style="background:${c.bg}">${catIco(t.cat)}</div>
+      <div class="k-task-titles">
+        <div class="k-task-name">${esc(t.title)}</div>
+        <div class="k-task-cat">${c.name}</div>
+      </div>
+      <div class="k-task-badges">${badge}</div>
+    </div>
+    <div class="k-task-target">目标:<span class="k-unit-chip">${esc(t.target)} ${esc(t.unit)}</span>${t.done ? `<span style="font-size:11px;color:var(--ktext3)">${fmtCn(t.doneAt)}</span>` : ''}</div>
+    ${t.done ? rewardHtml : ''}
+    ${actions}
+    <div class="k-task-tips">💡 ${esc(tip)}</div>
+    <div class="k-task-foot">${carry ? `从昨天自动顺延到今天,坚持就是胜利!` : t.started ? '集中注意力,一鼓作气闯过去!' : '点击「开始闯关」进入挑战'}</div>`;
+
+  card.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-act]');
+    if (!b) return;
+    const act = b.dataset.act, id = b.dataset.id;
+    if (act === 'start') { const tt = S.tasks.find((x) => x.id === id); if (tt) { tt.started = true; persist(); render(); } }
+    else if (act === 'finish') openStarModal(id);
+    else if (act === 'reset') { const tt = S.tasks.find((x) => x.id === id); if (tt) { tt.started = false; persist(); render(); } }
+    else if (act === 'del') { confirmDialog({ title: '移除任务', message: '确定移除这个任务吗?', okText: '移除', danger: true, onOk: () => { S.tasks = S.tasks.filter((x) => x.id !== id); persist(); render(); } }); }
+    else if (act === 'undo') { confirmDialog({ title: '撤销完成', message: '将退回该任务的金币与经验,确认撤销?', okText: '确认撤销', danger: true, onOk: () => undoTask(id) }); }
+  });
+  return card;
+}
+
+// ---------------- 星级验收弹窗 ----------------
+function openStarModal(taskId) {
+  const t = S.tasks.find((x) => x.id === taskId);
+  if (!t) return;
+  const c = CATS[t.cat] || CATS.math;
+  const r3 = rewardFor(3), r2 = rewardFor(2), r1 = rewardFor(1);
+  const ov = document.createElement('div');
+  ov.className = 'kid-overlay';
+  const box = document.createElement('div');
+  box.className = 'kid-modal';
+  let stars = 3;
+  box.innerHTML = `
+    <div class="kid-modal-head">
+      <div class="kid-modal-title">🎉 闯关成功!</div>
+      <button class="kid-modal-x" data-close>✕</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;background:${c.bg};border-radius:12px;padding:10px 12px;margin-bottom:12px">
+      <div class="k-task-ico" style="background:${c.bg}">${catIco(t.cat)}</div>
+      <div style="font-weight:800;font-size:15px">${esc(t.title)}<div style="font-size:12px;color:var(--ktext2);font-weight:600">${c.name} · ${esc(t.target)} ${esc(t.unit)}</div></div>
+    </div>
+    <div class="kid-label" style="text-align:center">请家长验收,给这次闯关打星 ⭐</div>
+    <div class="kid-stars-pick">
+      ${[1, 2, 3].map((i) => `<button class="kid-star-btn${i === stars ? ' on' : ''}" data-star="${i}">${starSvg(34, '#fbbf24')}</button>`).join('')}
+    </div>
+    <div id="kid-star-preview" style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap"></div>
+    <div class="kid-modal-actions">
+      <button class="kid-btn" data-close>稍后</button>
+      <button class="kid-btn gold" data-confirm>确认领取 🎁</button>
+    </div>`;
+  function preview() {
+    const r = stars === 1 ? r1 : stars === 2 ? r2 : r3;
+    box.querySelector('#kid-star-preview').innerHTML = `
+      <span class="k-reward-chip c">${coinSvg(14)} +${r.coins} 金币</span>
+      <span class="k-reward-chip e">${expSvg(14)} +${r.exp} 经验</span>`;
+  }
+  preview();
+  box.querySelectorAll('[data-star]').forEach((b) => b.addEventListener('click', () => {
+    stars = Number(b.dataset.star);
+    box.querySelectorAll('[data-star]').forEach((x) => x.classList.toggle('on', Number(x.dataset.star) === stars));
+    preview();
+  }));
+  const close = () => { ov.remove(); };
+  box.querySelector('[data-close]').addEventListener('click', close);
+  box.querySelector('[data-confirm]').addEventListener('click', () => {
+    grantReward(t, stars);
+    close();
+    confetti();
+    render();
+  });
+  ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+  ov.appendChild(box);
+  document.body.appendChild(ov);
+}
+
+// 简单撒花效果(SVG 彩片,不引库)
+function confetti() {
+  const host = document.createElement('div');
+  host.className = 'kid-overlay';
+  host.style.background = 'transparent';
+  host.style.pointerEvents = 'none';
+  const colors = ['#4f7cff', '#f59e0b', '#22c55e', '#ec4899', '#8b5cf6', '#22d3ee'];
+  let html = '';
+  for (let i = 0; i < 26; i++) {
+    const x = 10 + Math.random() * 80;
+    const y = -10 - Math.random() * 20;
+    const size = 6 + Math.random() * 8;
+    const color = colors[i % colors.length];
+    const dur = 1.2 + Math.random() * 1.2;
+    const delay = Math.random() * 0.3;
+    html += `<svg width="${size}" height="${size}" style="position:absolute;left:${x}%;top:${y}%;animation:kidFall ${dur}s ${delay}s ease-in forwards;opacity:0"><rect x="0" y="0" width="${size}" height="${size}" rx="2" fill="${color}" transform="rotate(${Math.random() * 180} ${size / 2} ${size / 2})"/></svg>`;
+  }
+  const st = document.createElement('style');
+  st.textContent = `@keyframes kidFall{0%{opacity:1;transform:translateY(0) rotate(0)}100%{opacity:0;transform:translateY(${window.innerHeight * 0.7}px) rotate(540deg)}}`;
+  host.appendChild(st);
+  host.innerHTML += html;
+  document.body.appendChild(host);
+  setTimeout(() => host.remove(), 3000);
+}
+
+// ---------------- 自定义任务弹窗 ----------------
+function openTaskModal() {
+  const ov = document.createElement('div');
+  ov.className = 'kid-overlay';
+  const box = document.createElement('div');
+  box.className = 'kid-modal';
+  box.innerHTML = `
+    <div class="kid-modal-head"><div class="kid-modal-title">＋ 添加今日任务</div><button class="kid-modal-x" data-close>✕</button></div>
+    <div class="kid-field"><label class="kid-label">任务类型</label>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px" data-cats>
+        ${CAT_ORDER.map((c) => { const cc = CATS[c]; return `<button class="kid-btn" data-cat="${c}" style="justify-content:flex-start;border-color:${cc.color}44;background:${cc.bg};color:#3a4056"><span style="width:20px;height:20px;border-radius:6px;background:${cc.color};display:flex;align-items:center;justify-content:center">${catIco(c)}</span>${cc.name}</button>`; }).join('')}
+      </div></div>
+    <div class="kid-field"><label class="kid-label">任务名称</label><input type="text" data-in="title" placeholder="例如:跳绳 200 个" maxlength="30"></div>
+    <div class="kid-field"><label class="kid-label">目标数量</label><input type="number" data-in="target" min="1" max="999" value="1"></div>
+    <div class="kid-modal-actions"><button class="kid-btn" data-close>取消</button><button class="kid-btn primary" data-save>添加任务</button></div>`;
+  let cat = 'sport';
+  box.querySelectorAll('[data-cat]').forEach((b) => b.addEventListener('click', () => {
+    cat = b.dataset.cat;
+    box.querySelectorAll('[data-cat]').forEach((x) => x.style.outline = x === b ? `2px solid ${CATS[cat].color}` : '');
+  }));
+  box.querySelectorAll('[data-cat]')[0].style.outline = `2px solid ${CATS.sport.color}`;
+  const close = () => ov.remove();
+  box.querySelector('[data-close]').addEventListener('click', close);
+  box.querySelector('[data-save]').addEventListener('click', () => {
+    const title = box.querySelector('[data-in="title"]').value.trim();
+    const target = box.querySelector('[data-in="target"]').value || '1';
+    const cc = CATS[cat];
+    S.tasks.push({ id: uid('tk'), date: todayStr(), cat, title: title || cc.name, target: String(target), unit: cc.unit, done: false, started: false, stars: 0, carryover: 0, planItemId: null, doneAt: 0, rewarded: false });
+    persist();
+    toast('已添加到今日任务 🎯', 'ok');
+    close();
+    render();
+  });
+  ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+  ov.appendChild(box);
+  document.body.appendChild(ov);
+}
+
+// ---------------- 学习计划 Tab ----------------
+function renderPlanTab() {
+  const wrap = document.createElement('div');
+  wrap.className = 'kid-plan-wrap';
+  const tools = document.createElement('div');
+  tools.className = 'kid-plan-tools';
+  tools.innerHTML = `
+    <button class="kid-btn primary" data-plan="template">📋 套用均衡模板</button>
+    <button class="kid-btn" data-plan="clear">🗑 清空计划</button>
+    <label class="kid-plan-enable" style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700;margin-left:auto;cursor:pointer">
+      <span>计划生成今日任务</span>
+      <span class="kid-switch${S.plan.enabled ? ' on' : ''}" data-plan="toggle"></span>
+    </label>`;
+  tools.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-plan]');
+    if (!b) return;
+    const act = b.dataset.plan;
+    if (act === 'template') {
+      confirmDialog({ title: '套用均衡模板', message: '将用「四科均衡」模板覆盖当前每周计划(不会删除已打卡记录)。', okText: '套用', onOk: () => { S.plan.weekly = JSON.parse(JSON.stringify(TEMPLATE_PLAN)); S.plan.enabled = true; persist(); render(); } });
+    } else if (act === 'clear') {
+      confirmDialog({ title: '清空计划', message: '清空每周计划后,今日任务将只来自手动添加。确定?', okText: '清空', danger: true, onOk: () => { S.plan.weekly = TEMPLATE_PLAN.map((d) => ({ day: d.day, name: d.name, items: [] })); persist(); render(); } });
+    } else if (act === 'toggle') {
+      S.plan.enabled = !S.plan.enabled;
+      if (S.plan.enabled) { const today = todayStr(); const day = new Date().getDay(); const items = S.plan.weekly[day].items; for (const it of items) { if (!S.tasks.some((t) => t.date === today && t.planItemId === it.id)) { S.tasks.push({ id: uid('tk'), date: today, cat: it.cat, title: it.title || CATS[it.cat].name, target: String(it.target != null ? it.target : 1), unit: CATS[it.cat].unit, done: false, started: false, stars: 0, carryover: 0, planItemId: it.id, doneAt: 0, rewarded: false }); } } }
+      persist(); render();
+    }
+  });
+  wrap.appendChild(tools);
+
+  const todayDay = new Date().getDay();
+  const days = document.createElement('div');
+  days.className = 'kid-plan-days';
+  const weekNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+  for (let d = 0; d < 7; d++) {
+    const col = document.createElement('div');
+    col.className = `kid-plan-day${d === todayDay ? ' today' : ''}`;
+    const items = S.plan.weekly[d].items || [];
+    // 本周该天计划任务的完成情况
+    const wk = weekKeyOf();
+    const doneCount = items.filter((it) => S.tasks.some((t) => weekKeyOf(new Date(String(t.date).replace(/-/g, '/'))) === wk && t.planItemId === it.id && t.done)).length;
+    col.innerHTML = `
+      <div class="kid-plan-day-head">
+        <span class="kid-plan-day-name">${weekNames[d]}${d === todayDay ? ' · 今天' : ''}</span>
+        ${items.length ? `<span style="font-size:10px;color:var(--ktext3);font-weight:700">${doneCount}/${items.length}</span>` : ''}
+      </div>
+      ${items.map((it) => { const cc = CATS[it.cat] || CATS.math; return `<div class="kid-plan-item"><span class="k-pi-dot" style="background:${cc.color}"></span><span class="k-pi-text">${esc(it.title)} · ${esc(it.target)}${esc(cc.unit)}</span><button class="k-pi-x" data-del="${d}:${it.id}" title="删除">✕</button></div>`; }).join('') || `<div class="kid-plan-empty">${S.plan.enabled ? '空,点「＋」添加' : '计划已停用'}</div>`}
+      <button class="kid-addtask" style="min-height:40px;font-size:12px" data-add="${d}">＋ 添加</button>`;
+    days.appendChild(col);
+  }
+  wrap.appendChild(days);
+
+  const hint = document.createElement('div');
+  hint.className = 'kid-today-banner';
+  hint.style.marginTop = '4px';
+  hint.innerHTML = '💡 每个任务都有固定奖励:完成 +10 金币/经验,星级越高奖励越多;连续打卡 3/7/14/30 天额外送钻石,一周计划全完成送 1 皇冠。';
+  wrap.appendChild(hint);
+
+  wrap.addEventListener('click', (e) => {
+    const del = e.target.closest('[data-del]');
+    const add = e.target.closest('[data-add]');
+    if (del) {
+      const [day, itemId] = del.dataset.del.split(':');
+      const arr = S.plan.weekly[Number(day)].items;
+      const idx = arr.findIndex((i) => i.id === itemId);
+      if (idx >= 0) { arr.splice(idx, 1); persist(); render(); }
+    } else if (add) {
+      openPlanItemModal(Number(add.dataset.add));
+    }
+  });
+  return wrap;
+}
+
+function openPlanItemModal(day) {
+  const ov = document.createElement('div');
+  ov.className = 'kid-overlay';
+  const box = document.createElement('div');
+  box.className = 'kid-modal';
+  const weekNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+  box.innerHTML = `
+    <div class="kid-modal-head"><div class="kid-modal-title">${weekNames[day]} · 添加计划任务</div><button class="kid-modal-x" data-close>✕</button></div>
+    <div class="kid-field"><label class="kid-label">任务类型</label>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px" data-cats>
+        ${CAT_ORDER.map((c) => { const cc = CATS[c]; return `<button class="kid-btn" data-cat="${c}" style="justify-content:flex-start;border-color:${cc.color}44;background:${cc.bg};color:#3a4056"><span style="width:20px;height:20px;border-radius:6px;background:${cc.color};display:flex;align-items:center;justify-content:center">${catIco(c)}</span>${cc.name}</button>`; }).join('')}
+      </div></div>
+    <div class="kid-field"><label class="kid-label">任务名称</label><input type="text" data-in="title" placeholder="例如:跳绳训练" maxlength="30"></div>
+    <div class="kid-field"><label class="kid-label">目标数量</label><input type="number" data-in="target" min="1" max="999" value="1"></div>
+    <div class="kid-modal-actions"><button class="kid-btn" data-close>取消</button><button class="kid-btn primary" data-save>加入计划</button></div>`;
+  let cat = 'sport';
+  box.querySelectorAll('[data-cat]').forEach((b) => b.addEventListener('click', () => {
+    cat = b.dataset.cat;
+    box.querySelectorAll('[data-cat]').forEach((x) => x.style.outline = x === b ? `2px solid ${CATS[cat].color}` : '');
+  }));
+  box.querySelectorAll('[data-cat]')[0].style.outline = `2px solid ${CATS.sport.color}`;
+  const close = () => ov.remove();
+  box.querySelector('[data-close]').addEventListener('click', close);
+  box.querySelector('[data-save]').addEventListener('click', () => {
+    const title = box.querySelector('[data-in="title"]').value.trim();
+    const target = box.querySelector('[data-in="target"]').value || '1';
+    const cc = CATS[cat];
+    const items = (S.plan.weekly[day].items = S.plan.weekly[day].items || []);
+    items.push({ id: uid('tp'), cat, title: title || cc.name, target: String(target) });
+    persist();
+    toast('已加入计划 🗓️', 'ok');
+    close();
+    render();
+  });
+  ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+  ov.appendChild(box);
+  document.body.appendChild(ov);
+}
+
+// ---------------- 成长奖励 Tab ----------------
+function renderRewardTab() {
+  const wrap = document.createElement('div');
+  const lv = levelDef(S.exp);
+  const next = nextLevel(S.exp);
+  const progress = next ? Math.min(100, Math.round(((S.exp - lv.exp) / (next.exp - lv.exp)) * 100)) : 100;
+
+  // 钱包
+  const wallet = document.createElement('div');
+  wallet.className = 'kid-wallet';
+  wallet.innerHTML = `
+    <div class="kid-wallet-card"><div class="k-w-ico" style="background:#fffbeb">${coinSvg(22)}</div><div><div class="k-w-num">${S.coins}</div><div class="k-w-name">金币</div></div></div>
+    <div class="kid-wallet-card"><div class="k-w-ico" style="background:#ecfeff">${diamondSvg(22)}</div><div><div class="k-w-num">${S.diamonds}</div><div class="k-w-name">钻石</div></div></div>
+    <div class="kid-wallet-card"><div class="k-w-ico" style="background:#fffbeb">${crownSvg(22)}</div><div><div class="k-w-num">${S.crowns}</div><div class="k-w-name">皇冠</div></div></div>
+    <div class="kid-wallet-card"><div class="k-w-ico" style="background:var(--kcard)7ed">${medalSvg(22)}</div><div><div class="k-w-num">${Object.keys(S.medals).length}/${MEDALS.length}</div><div class="k-w-name">奖章</div></div></div>`;
+  wrap.appendChild(wallet);
+
+  // 等级 + 数字人
+  const row2 = document.createElement('div');
+  row2.className = 'kid-row2';
+  row2.innerHTML = `
+    <div class="kid-card">
+      <div class="kid-card-title">🏅 等级称号</div>
+      <div class="kid-level-row">
+        <div class="kid-hero-box">${heroSvg(S.exp)}</div>
+        <div class="kid-level-info">
+          <div class="kid-lv-title">${esc(lv.title)}<span class="kid-lv-tag" style="background:${lv.color}">Lv.${lv.lv}</span></div>
+          <div class="kid-lv-desc">${esc(lv.desc)}</div>
+          <div class="kid-ring-row">
+            <span class="kid-ring-label">经验</span>
+            <div class="kid-ring-bar"><div class="kid-ring-fill" style="width:${progress}%"></div></div>
+            <span class="kid-ring-val">${S.exp}${next ? `/${next.exp}` : '/MAX'}</span>
+          </div>
+          <div style="font-size:11px;color:var(--ktext3);margin-top:6px">${next ? `再攒 ${next.exp - S.exp} 经验晋级「${next.title}」` : '已达最高等级,你是传奇!🌟'}</div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--ktext2);margin-top:10px;line-height:1.6">${S.streak > 0 ? `🔥 已连续打卡 <b>${S.streak}</b> 天(历史最长 ${S.bestStreak} 天)` : '今天开始打卡,点亮你的连胜吧!'}${S.totalTasks > 0 ? ` · 累计闯关 <b>${S.totalTasks}</b> 关` : ''}</div>
+    </div>
+    <div class="kid-card">
+      <div class="kid-card-title">😀 我的头像</div>
+      <div class="kid-avatars">
+        ${['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7', 'a8'].map((id) => {
+          const def = { a1: '开心', a2: '酷酷', a3: '眨眼', a4: '淘气', a5: '惊讶', a6: '得意', a7: '星星眼', a8: '小王子' }[id];
+          const unlock = { a1: 0, a2: 0, a3: 0, a4: 0, a5: 0, a6: 0, a7: 5, a8: 8 }[id];
+          const locked = lv.lv < unlock;
+          return `<div class="kid-avatar-item${S.avatarId === id ? ' on' : ''}${locked ? ' locked' : ''}" data-avatar="${id}" data-lv="${unlock}" title="${def}${locked ? ` · Lv.${unlock} 解锁` : ''}">
+            ${headSvg(id)}<span class="k-a-name">${locked ? `${lockSvg(11)} Lv.${unlock}` : def}</span></div>`;
+        }).join('')}
+      </div>
+      <div style="font-size:11px;color:var(--ktext3);margin-top:8px">数字人会随等级换装进化:帽子(3级)→ 眼镜披风(5级)→ 皇冠(7级)→ 星光(9级)→ 光环(10级)→ 钻石王冠(11级)</div>
+    </div>`;
+  wrap.appendChild(row2);
+
+  // 道具商城
+  const shop = document.createElement('div');
+  shop.className = 'kid-card';
+  const shopHead = document.createElement('div');
+  shopHead.className = 'kid-card-title';
+  shopHead.innerHTML = `🎁 道具商城${S.parentMode ? `<button class="kid-btn sm" data-shop="manage" style="margin-left:auto">＋ 管理道具</button>` : ''}<button class="kid-btn sm" data-shop="log" style="margin-left:8px">兑换记录</button>`;
+  shop.appendChild(shopHead);
+  const grid = document.createElement('div');
+  grid.className = 'kid-shop-grid';
+  if (!S.shop.length) grid.innerHTML = `<div class="kid-today-empty" style="grid-column:1/-1">商城空空如也,家长可点击「管理道具」添加奖励</div>`;
+  for (const it of S.shop) {
+    const isDia = it.cur === 'diamond';
+    const item = document.createElement('div');
+    item.className = 'kid-shop-item';
+    item.innerHTML = `
+      <div class="k-s-head"><div class="k-s-ico" style="background:${isDia ? '#ecfeff' : '#fffbeb'}">${it.icon}</div>
+        <div><div class="k-s-name">${esc(it.name)}</div><div style="font-size:11px;color:var(--ktext3)">${isDia ? '钻石道具' : '金币道具'}</div></div></div>
+      <div class="k-s-note">${esc(it.note)}</div>
+      <div class="k-s-foot">
+        <span class="k-s-price${isDia ? ' d' : ''}">${isDia ? diamondSvg(15) : coinSvg(15)} ${it.cost}</span>
+        <button class="kid-btn sm ${isDia ? 'primary' : 'gold'}" data-claim="${it.id}">兑换</button>
+      </div>`;
+    grid.appendChild(item);
+  }
+  shop.appendChild(grid);
+  shop.addEventListener('click', (e) => {
+    const claim = e.target.closest('[data-claim]');
+    const mg = e.target.closest('[data-shop="manage"]');
+    const log = e.target.closest('[data-shop="log"]');
+    if (claim) claimItem(claim.dataset.claim);
+    else if (mg) openShopManageModal();
+    else if (log) openClaimLog();
+  });
+  wrap.appendChild(shop);
+
+  // 奖章墙
+  const medalsCard = document.createElement('div');
+  medalsCard.className = 'kid-card';
+  medalsCard.innerHTML = `<div class="kid-card-title">🏅 奖章墙</div>`;
+  const mgrid = document.createElement('div');
+  mgrid.className = 'kid-medal-grid';
+  for (const m of MEDALS) {
+    const got = !!S.medals[m.id];
+    const cell = document.createElement('div');
+    cell.className = `kid-medal${got ? ' got' : ' locked'}`;
+    cell.innerHTML = `
+      <div style="font-size:30px;filter:${got ? 'none' : 'grayscale(1)'}">${m.icon}</div>
+      <div class="k-m-name">${esc(m.name)}</div>
+      <div class="k-m-desc">${esc(m.desc)}</div>
+      <div style="font-size:10px;font-weight:700;color:${got ? '#b45309' : '#9aa0b3'}">${got ? '✅ 已获得' : '未解锁'}</div>`;
+    mgrid.appendChild(cell);
+  }
+  medalsCard.appendChild(mgrid);
+  wrap.appendChild(medalsCard);
+
+  // 奖励规则说明
+  const rule = document.createElement('div');
+  rule.className = 'kid-today-banner';
+  rule.style.marginTop = '4px';
+  rule.innerHTML = '💰 奖励规则:基础完成 +10 金币/经验(家长可在设置调整倍数);星级加成 ⭐×5;金币可兑换道具,钻石由连胜里程碑获得,皇冠由周计划全勤获得。';
+  wrap.appendChild(rule);
+
+  wrap.addEventListener('click', (e) => {
+    const av = e.target.closest('[data-avatar]');
+    if (av) {
+      const need = Number(av.dataset.lv);
+      if (lv.lv < need) { toast(`达到 Lv.${need} 解锁此头像`, 'warn'); return; }
+      S.avatarId = av.dataset.avatar;
+      persist();
+      render();
+    }
+  });
+  return wrap;
+}
+
+// ---------------- 道具兑换 ----------------
+function claimItem(id) {
+  const it = S.shop.find((x) => x.id === id);
+  if (!it) return;
+  const isDia = it.cur === 'diamond';
+  const balance = isDia ? S.diamonds : S.coins;
+  const curName = isDia ? '钻石' : '金币';
+  if (balance < it.cost) { toast(`${curName}不够啦,继续闯关赚取吧!`, 'warn'); return; }
+  confirmDialog({
+    title: '兑换道具', message: `确定用 ${it.cost} ${curName} 兑换「${it.name}」吗?`, okText: '确认兑换',
+    onOk: () => {
+      if (isDia) S.diamonds -= it.cost; else S.coins -= it.cost;
+      S.claimLog.unshift({ name: it.name, cur: it.cur, cost: it.cost, at: Date.now() });
+      persist();
+      render();
+      toast(`兑换成功!向爸爸妈妈出示「${it.name}」🎉`, 'ok');
+    },
+  });
+}
+
+function openClaimLog() {
+  const ov = document.createElement('div');
+  ov.className = 'kid-overlay';
+  const box = document.createElement('div');
+  box.className = 'kid-modal';
+  box.innerHTML = `
+    <div class="kid-modal-head"><div class="kid-modal-title">📜 兑换记录</div><button class="kid-modal-x" data-close>✕</button></div>
+    <div style="max-height:52vh;overflow:auto">
+      ${S.claimLog.length ? S.claimLog.map((c) => `<div style="display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid var(--kborder)"><span style="font-size:18px">🎁</span><div style="flex:1"><div style="font-size:14px;font-weight:700">${esc(c.name)}</div><div style="font-size:11px;color:var(--ktext3)">${fmtCn(c.at)}</div></div><span class="k-s-price${c.cur === 'diamond' ? ' d' : ''}">${c.cur === 'diamond' ? diamondSvg(14) : coinSvg(14)} ${c.cost}</span></div>`).join('') : `<div class="kid-today-empty">还没有兑换记录,去商城看看喜欢的道具吧 🎁</div>`}
+    </div>`;
+  const close = () => ov.remove();
+  box.querySelector('[data-close]').addEventListener('click', close);
+  ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+  ov.appendChild(box);
+  document.body.appendChild(ov);
+}
+
+// ---------------- 道具管理(家长) ----------------
+function openShopManageModal() {
+  if (!S.parentMode) { toast('请在家长模式下管理道具', 'warn'); return; }
+  const ov = document.createElement('div');
+  ov.className = 'kid-overlay';
+  const box = document.createElement('div');
+  box.className = 'kid-modal';
+  box.style.maxWidth = '480px';
+  box.innerHTML = `
+    <div class="kid-modal-head"><div class="kid-modal-title">🎁 管理道具</div><button class="kid-modal-x" data-close>✕</button></div>
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <input type="text" data-new-name placeholder="道具名称,如:冰淇淋券" style="flex:1">
+      <input type="number" data-new-cost placeholder="价格" style="width:76px" min="1">
+      <button class="kid-btn primary" data-new-cur="coin" title="金币道具">金币</button>
+      <button class="kid-btn" data-new-cur="diamond" title="钻石道具">钻石</button>
+    </div>
+    <div style="max-height:46vh;overflow:auto">
+      ${S.shop.length ? S.shop.map((it) => {
+        const isDia = it.cur === 'diamond';
+        return `<div style="display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid var(--kborder)">
+          <span style="font-size:20px">${it.icon}</span>
+          <div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(it.name)}</div><div style="font-size:11px;color:var(--ktext3)">${isDia ? '💎' : '🪙'} ${it.cost}</div></div>
+          <button class="kid-btn sm" data-del-shop="${it.id}">删除</button></div>`;
+      }).join('') : '<div class="kid-today-empty">还没有道具</div>'}
+    </div>`;
+  let newCur = 'coin';
+  const close = () => ov.remove();
+  box.querySelector('[data-close]').addEventListener('click', close);
+  box.querySelector('[data-new-cur="coin"]').addEventListener('click', (e) => { newCur = 'coin'; e.currentTarget.className = 'kid-btn primary'; box.querySelector('[data-new-cur="diamond"]').className = 'kid-btn'; });
+  box.querySelector('[data-new-cur="diamond"]').addEventListener('click', (e) => { newCur = 'diamond'; e.currentTarget.className = 'kid-btn primary'; box.querySelector('[data-new-cur="coin"]').className = 'kid-btn'; });
+  box.querySelector('[data-new-cur="coin"]').addEventListener('click', (e) => { newCur = 'coin'; });
+  const addItem = () => {
+    const name = box.querySelector('[data-new-name]').value.trim();
+    const cost = Number(box.querySelector('[data-new-cost]').value);
+    if (!name) { toast('请输入道具名称', 'warn'); return; }
+    if (!cost || cost <= 0) { toast('请输入有效价格', 'warn'); return; }
+    S.shop.push({ id: uid('sp'), name, cost, cur: newCur, icon: '🎁', note: '家长自定义奖励' });
+    persist();
+    toast('道具已添加 🎁', 'ok');
+    close();
+    render();
+  };
+  box.querySelector('[data-new-cur="coin"]').addEventListener('click', (e) => { if (e.target === e.currentTarget) { newCur = 'coin'; } });
+  box.addEventListener('click', (e) => {
+    const del = e.target.closest('[data-del-shop]');
+    if (del) { S.shop = S.shop.filter((x) => x.id !== del.dataset.delShop); persist(); close(); render(); }
+    const cur = e.target.closest('[data-new-cur]');
+    if (cur && cur.tagName === 'BUTTON' && cur.dataset.newCur !== undefined && e.target === cur) {
+      newCur = cur.dataset.newCur;
+      box.querySelectorAll('[data-new-cur]').forEach((x) => x.className = x === cur ? 'kid-btn primary' : 'kid-btn');
+    }
+  });
+  // 回车添加
+  box.querySelector('[data-new-name]').addEventListener('keydown', (e) => { if (e.key === 'Enter') addItem(); });
+  ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+  ov.appendChild(box);
+  document.body.appendChild(ov);
+}
+
+// ---------------- 家长模式(4 位密码) ----------------
+function enterParentGate() {
+  if (S.parentMode) { S.parentMode = false; persist(); toast('已退出家长模式', 'ok'); render(); return; }
+  if (!S.parentPwd) {
+    // 首次:设置 4 位密码
+    openPwdModal('设置家长模式密码(4 位数字)', (pwd) => {
+      S.parentPwd = pwd;
+      S.parentMode = true;
+      persist();
+      toast('家长模式已开启 👨‍👩‍👦', 'ok');
+      render();
+    });
+  } else {
+    openPwdModal('输入家长密码', (pwd) => {
+      if (pwd === S.parentPwd) {
+        S.parentMode = true;
+        persist();
+        toast('家长模式已开启 👨‍👩‍👦', 'ok');
+        render();
+      } else {
+        toast('密码不对哦 🔒', 'warn');
+      }
+    });
+  }
+}
+
+function openPwdModal(title, onSuccess) {
+  const ov = document.createElement('div');
+  ov.className = 'kid-overlay';
+  const box = document.createElement('div');
+  box.className = 'kid-modal';
+  box.style.maxWidth = '300px';
+  let input = '';
+  box.innerHTML = `
+    <div class="kid-modal-head"><div class="kid-modal-title">${esc(title)}</div><button class="kid-modal-x" data-close>✕</button></div>
+    <div class="kid-pwd-dots">${[0, 1, 2, 3].map(() => '<span class="kid-pwd-dot"></span>').join('')}</div>
+    <div class="kid-pwd-pad">
+      ${['1', '2', '3', '4', '5', '6', '7', '8', '9', '清空', '0', '⌫'].map((k) => `<button class="kid-pwd-key${k === '清空' || k === '⌫' ? ' del' : ''}" data-key="${k}">${k}</button>`).join('')}
+    </div>`;
+  const dots = box.querySelectorAll('.kid-pwd-dot');
+  function refresh() { dots.forEach((d, i) => d.classList.toggle('fill', i < input.length)); }
+  const close = () => ov.remove();
+  box.querySelector('[data-close]').addEventListener('click', close);
+  box.querySelectorAll('[data-key]').forEach((b) => b.addEventListener('click', () => {
+    const k = b.dataset.key;
+    if (k === '清空') { input = ''; refresh(); return; }
+    if (k === '⌫') { input = input.slice(0, -1); refresh(); return; }
+    if (input.length >= 4) return;
+    input += k;
+    refresh();
+    if (input.length === 4) {
+      setTimeout(() => { close(); onSuccess(input); }, 120);
+    }
+  }));
+  ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+  ov.appendChild(box);
+  document.body.appendChild(ov);
+}
+
+// ---------------- 设置抽屉 ----------------
+function openSettings() {
+  const ov = document.createElement('div');
+  ov.className = 'kid-overlay';
+  ov.style.alignItems = 'stretch';
+  ov.style.justifyContent = 'flex-end';
+  ov.style.padding = '0';
+  const drawer = document.createElement('div');
+  drawer.className = 'kid-drawer';
+  const lv = levelDef(S.exp);
+  drawer.innerHTML = `
+    <div class="kid-drawer-head">
+      <div class="kid-logo" style="width:38px;height:38px">${starSvg(20, '#fff')}</div>
+      <div class="kid-title" style="font-size:16px">设置</div>
+      <button class="kid-modal-x" data-close style="margin-left:auto">✕</button>
+    </div>
+    <div class="kid-drawer-body">
+      <div class="kid-drawer-row"><div><div class="k-dr-label">我的昵称</div><div class="k-dr-sub">显示在顶部与等级旁</div></div>
+        <input type="text" data-set="name" value="${esc(S.name)}" style="width:130px;padding:8px 10px" maxlength="12"></div>
+
+      <div class="kid-sec-gap kid-drawer-row"><div><div class="k-dr-label">主题模式</div><div class="k-dr-sub">「跟随项目」与应用外观(深色/浅色)自动一致</div></div>
+        <select data-set="theme" style="width:138px;padding:8px 10px">
+          <option value="project"${S.themeMode === 'project' ? ' selected' : ''}>跟随项目</option>
+          <option value="light"${S.themeMode === 'light' ? ' selected' : ''}>儿童亮色</option>
+          <option value="candy"${S.themeMode === 'candy' ? ' selected' : ''}>糖果乐园 🍬</option>
+          <option value="space"${S.themeMode === 'space' ? ' selected' : ''}>星际探险 🚀</option>
+          <option value="dark"${S.themeMode === 'dark' ? ' selected' : ''}>深色</option>
+        </select></div>
+
+      <div class="kid-sec-gap kid-drawer-row"><div><div class="k-dr-label">奖励倍数</div><div class="k-dr-sub">金币/经验按此倍数发放</div></div>
+        <select data-set="mult" style="width:110px;padding:8px 10px">
+          <option value="1"${S.rewardMult === 1 ? ' selected' : ''}>×1 标准</option>
+          <option value="1.5"${S.rewardMult === 1.5 ? ' selected' : ''}>×1.5 加量</option>
+          <option value="2"${S.rewardMult === 2 ? ' selected' : ''}>×2 翻倍</option>
+        </select></div>
+
+      <div class="kid-sec-gap kid-drawer-row"><div><div class="k-dr-label">家长模式</div><div class="k-dr-sub">${S.parentMode ? '已开启 · 编辑计划/管理道具/撤销已解锁' : '开启后解锁家长专属操作'}</div></div>
+        <span class="kid-switch${S.parentMode ? ' on' : ''}" data-set="parent"></span></div>
+
+      ${S.parentPwd ? `<div class="kid-drawer-row"><div><div class="k-dr-label">修改家长密码</div><div class="k-dr-sub">重新设置 4 位数字密码</div></div>
+        <button class="kid-btn sm" data-set="pwd">修改</button></div>` : ''}
+
+      <div class="kid-sec-gap kid-drawer-row"><div><div class="k-dr-label">清空示例数据</div><div class="k-dr-sub">删除示例任务,重置为全新开始</div></div>
+        <button class="kid-btn sm" data-set="sample">清空</button></div>
+
+      <div class="kid-drawer-row"><div><div class="k-dr-label" style="color:#ef4444">清空全部数据</div><div class="k-dr-sub">删除所有任务/金币/等级/计划</div></div>
+        <button class="kid-btn sm red" data-set="wipe">清空</button></div>
+
+      <div class="kid-sec-gap" style="font-size:12px;color:var(--ktext3);line-height:1.7">
+        当前:${esc(S.name)} · ${esc(lv.title)} Lv.${lv.lv} · 金币 ${S.coins} · 钻石 ${S.diamonds} · 皇冠 ${S.crowns} · 累计 ${S.totalTasks} 关<br>
+        <br>数据保存在本机浏览器(localStorage),可随时「⬇ 导出」备份。首次打开内置示例数据(含 1 条逾期任务),用于演示「今天要处理」。
+      </div>
+    </div>`;
+
+  const close = () => ov.remove();
+  drawer.querySelector('[data-close]').addEventListener('click', close);
+  drawer.querySelector('[data-set="name"]').addEventListener('change', (e) => {
+    const v = e.target.value.trim();
+    if (v) { S.name = v.slice(0, 12); persist(); render(); }
+  });
+  drawer.querySelector('[data-set="theme"]').addEventListener('change', (e) => {
+    S.themeMode = e.target.value;
+    persist();
+    render();
+  });
+  drawer.querySelector('[data-set="mult"]').addEventListener('change', (e) => {
+    S.rewardMult = Number(e.target.value); persist(); toast('奖励倍数已更新', 'ok');
+  });
+  drawer.querySelector('[data-set="parent"]').addEventListener('click', () => {
+    if (S.parentMode) { S.parentMode = false; persist(); render(); }
+    else enterParentGate();
+  });
+  const pwdBtn = drawer.querySelector('[data-set="pwd"]');
+  if (pwdBtn) pwdBtn.addEventListener('click', () => {
+    openPwdModal('设置新的家长密码', (pwd) => { S.parentPwd = pwd; persist(); toast('密码已更新 🔒', 'ok'); render(); });
+  });
+  drawer.querySelector('[data-set="sample"]').addEventListener('click', () => {
+    if (!S.sampleLoaded) { toast('当前不是示例数据', 'warn'); return; }
+    confirmDialog({ title: '清空示例数据', message: '将删除全部示例任务并重置金币/经验为初始值(孩子进度也会清空)。确定?', okText: '清空', danger: true, onOk: () => { S = emptyState(); seedSample(); close(); render(); toast('已重置为初始示例', 'ok'); } });
+  });
+  drawer.querySelector('[data-set="wipe"]').addEventListener('click', () => {
+    confirmDialog({ title: '清空全部数据', message: '将永久删除所有任务、金币、等级、计划与设置。此操作不可恢复,建议先导出备份!确定?', okText: '清空', danger: true, onOk: () => { localStorage.removeItem(LS_KEY); loadState(); close(); render(); toast('已清空全部数据,重新开始', 'ok'); } });
+  });
+  ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+  ov.appendChild(drawer);
+  document.body.appendChild(ov);
+}
+
+// ---------------- 导出 / 导入 ----------------
+function exportData() {
+  const payload = { app: 'kid-workspace', exportedAt: new Date().toISOString(), data: S };
+  const text = JSON.stringify(payload, null, 2);
+  const name = `得乐学苑备份-${todayStr()}.json`;
+  if (window.api && window.api.saveText) {
+    window.api.saveText({ defaultName: name, content: text, filters: [{ name: 'JSON 备份', extensions: ['json'] }] })
+      .then((r) => { if (r && r.ok) toast(`已导出到 ${r.path}`, 'ok'); else if (r && r.error) toast('导出失败: ' + r.error, 'warn'); });
+  } else {
+    const blob = new Blob([text], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast('已导出 JSON 备份', 'ok');
+  }
+}
+
+function importData() {
+  const doImport = (text) => {
+    try {
+      const d = JSON.parse(text);
+      const data = d && d.app === 'kid-workspace' ? d.data : d;
+      if (!data || typeof data !== 'object' || !Array.isArray(data.tasks)) { toast('文件不是有效的闯关台备份', 'warn'); return; }
+      confirmDialog({
+        title: '导入数据', message: '导入将覆盖当前全部数据(任务/金币/等级/计划)。建议先导出当前备份。确定导入?', okText: '导入', danger: true,
+        onOk: () => {
+          const base = emptyState();
+          S = Object.assign(base, data);
+          if (!Array.isArray(S.plan.weekly) || S.plan.weekly.length !== 7) S.plan.weekly = JSON.parse(JSON.stringify(TEMPLATE_PLAN));
+          if (!Array.isArray(S.shop)) S.shop = JSON.parse(JSON.stringify(DEFAULT_SHOP));
+          if (!S.medals) S.medals = {};
+          if (!S.claimLog) S.claimLog = [];
+          persist();
+          render();
+          toast(`导入成功!共 ${S.tasks.length} 条任务记录`, 'ok');
+        },
+      });
+    } catch (e) { toast('JSON 解析失败: ' + e.message, 'warn'); }
+  };
+
+  if (window.api && window.api.pickFiles && window.api.readText) {
+    window.api.pickFiles({ title: '选择备份文件', filters: [{ name: 'JSON 备份', extensions: ['json'] }], multi: false })
+      .then(async (pick) => {
+        if (!pick || pick.canceled || !pick.filePaths || !pick.filePaths.length) return;
+        const rd = await window.api.readText(pick.filePaths[0]);
+        if (!rd || !rd.ok) { toast('读取文件失败', 'warn'); return; }
+        doImport(rd.text);
+      });
+  } else {
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = '.json';
+    inp.addEventListener('change', () => {
+      const f = inp.files && inp.files[0];
+      if (!f) return;
+      const reader = new FileReader();
+      reader.onload = () => doImport(String(reader.result));
+      reader.readAsText(f);
+    });
+    inp.click();
+  }
+}
+
+
+// ---- 启动 ----
+(function () {
+  const host = document.getElementById('kid-app');
+  renderKidWorkspaceTool(host);
+})();
+
+</script>
+</body>
+</html>

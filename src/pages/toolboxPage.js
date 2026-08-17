@@ -5,6 +5,29 @@
 import { toast, confirmDialog } from '../dialogs.js';
 import { packImages, serializeAtlas } from '../atlasPacker.js';
 import { renderSpineConvertTool, disposeSpineConvertPreview } from './spineConvertPage.js';
+import { MarkdownEditorController } from '../viewers/markdownEditor.js';
+import { renderTodoTool } from './todoPage.js';
+import { renderKidWorkspaceTool } from './kidWorkspacePage.js';
+
+/** 工具箱全部工具定义(模块级:renderToolboxPage 渲染 + 菜单终端节点「目标页面」下拉动态生成) */
+const TOOLS = {
+  astc2png: { title: 'ASTC → PNG', desc: '纯软件解码 .astc GPU 压缩贴图为 PNG;支持 2D LDR/HDR,3D 文件暂不支持。', render: renderAstcTool },
+  skel2json: { title: 'SKEL → JSON', desc: '把 Spine 二进制骨架(.skel)转为 JSON(自动探测 3.x / 4.x 版本,调用对应运行时解析)。', render: renderSkelTool },
+  spinefix: { title: 'Spine 文件修复', desc: '对 .json / .skel / .atlas 执行诊断与自动修复(JSON 注释/尾逗号/版本字段;atlas 缺图检测),输出修复副本。可单选/多选文件或整个目录(含子目录),记住最近输入目录。', render: renderSpineFixTool },
+  imageedit: { title: '图片编辑', desc: '单个或批量处理图片:镜像翻转、旋转、缩放、生成指定大小/样式的缩略图(canvas 处理,导出 PNG/JPEG,可覆盖原文件)。', render: renderImageEditTool },
+  fgui: { title: 'FGUI 导出源', desc: '把 FairyGUI 发布的 .bin 包批量还原为标准源工程:每个包在其同目录生成 FGUI_src/<包名>(package.xml + 组件 XML + 碎图 + 字体 + 动画),可直接用 FairyGUI 编辑器打开。', render: renderFguiTool },
+  sk2spine: { title: 'Laya .sk → Spine', desc: '把 LayaAir 骨骼动画二进制(.sk,DragonBones 导出)逆向转换为 Spine 可读文件:骨架 .json + 纹理图集 .atlas。可单选/多选文件或整个目录(含子目录);选择时自动探测是否为 .sk 格式。', render: renderSk2SpineTool },
+  atlas: { title: '图片集打包', desc: '把多张图片合并为纹理图集(精灵表):MaxRects 装箱、支持旋转/修剪透明像素/内边距/强制 2 的幂尺寸,导出 PixiJS / Phaser3 / Cocos2d / CSS 雪碧图,并内联预览。', render: renderAtlasTool },
+  spineconvert: { title: 'Spine 格式转换', desc: '双向转换 skel ↔ json,并支持跨 Spine 版本升级/降级(3.5-3.8 / 4.0-4.3),自动识别输入版本。拖入文件自动加入待转换列表;目标格式默认 .skel → .json、.json → .skel;点击列表行打开预览,右键可加入资源库分类;转换产物自动汇入下方列表。', render: renderSpineConvertTool },
+  markdown: { title: 'Markdown 文档', desc: 'Markdown 查看与编辑:分栏编辑 + 实时预览(参考 MarkText),打开 .md/.markdown 文件编辑并保存回写原文件;支持 分栏/预览/编辑 三种模式。', render: renderMarkdownTool },
+  todo: { title: 'Todo-List 任务管理', desc: '个人任务管理(移植自 Taskwingo):任务增删改/拖拽排序、优先级、状态、截止日期、标签、子任务、项目分组;列表 + 看板双视图,支持筛选、归档与 CSV/JSON 导出。', render: renderTodoTool },
+  kidworkspace: { title: '得乐学苑', desc: '给 10 岁四年级男孩的每日成长台:身体锻炼/背诵/听写默写书法/数学口算 四类任务闯关打卡 + 学习计划制订 + 金币钻石皇冠奖章五级奖励,等级称号晋级、数字人形象随等级进化、头像解锁、道具商城兑换。', render: renderKidWorkspaceTool },
+};
+
+/** 工具箱全部工具 → 菜单终端节点「目标页面」动作选项(动态生成,新增工具自动出现) */
+export function toolboxToolActions() {
+  return Object.keys(TOOLS).map((id) => ({ value: 'tool:' + id, label: TOOLS[id].title }));
+}
 
 /**
  * 渲染工具箱页面。tool: 'astc2png' | 'skel2json' | 'spinefix' | 'imageedit' | '__home__'
@@ -18,21 +41,14 @@ export function renderToolboxPage(container, tool) {
     renderToolboxHome(container);
     return;
   }
-  const tools = {
-    astc2png: { title: 'ASTC → PNG', desc: '纯软件解码 .astc GPU 压缩贴图为 PNG;支持 2D LDR/HDR,3D 文件暂不支持。', render: renderAstcTool },
-    skel2json: { title: 'SKEL → JSON', desc: '把 Spine 二进制骨架(.skel)转为 JSON(自动探测 3.x / 4.x 版本,调用对应运行时解析)。', render: renderSkelTool },
-    spinefix: { title: 'Spine 文件修复', desc: '对 .json / .skel / .atlas 执行诊断与自动修复(JSON 注释/尾逗号/版本字段;atlas 缺图检测),输出修复副本。可单选/多选文件或整个目录(含子目录),记住最近输入目录。', render: renderSpineFixTool },
-    imageedit: { title: '图片编辑', desc: '单个或批量处理图片:镜像翻转、旋转、缩放、生成指定大小/样式的缩略图(canvas 处理,导出 PNG/JPEG,可覆盖原文件)。', render: renderImageEditTool },
-    fgui: { title: 'FGUI 导出源', desc: '把 FairyGUI 发布的 .bin 包批量还原为标准源工程:每个包在其同目录生成 FGUI_src/<包名>(package.xml + 组件 XML + 碎图 + 字体 + 动画),可直接用 FairyGUI 编辑器打开。', render: renderFguiTool },
-    sk2spine: { title: 'Laya .sk → Spine', desc: '把 LayaAir 骨骼动画二进制(.sk,DragonBones 导出)逆向转换为 Spine 可读文件:骨架 .json + 纹理图集 .atlas。可单选/多选文件或整个目录(含子目录);选择时自动探测是否为 .sk 格式。', render: renderSk2SpineTool },
-    atlas: { title: '图片集打包', desc: '把多张图片合并为纹理图集(精灵表):MaxRects 装箱、支持旋转/修剪透明像素/内边距/强制 2 的幂尺寸,导出 PixiJS / Phaser3 / Cocos2d / CSS 雪碧图,并内联预览。', render: renderAtlasTool },
-    spineconvert: { title: 'Spine 格式转换', desc: '双向转换 skel ↔ json,并支持跨 Spine 版本升级/降级(3.5-3.8 / 4.0-4.3),自动识别输入版本。拖入文件自动加入待转换列表;目标格式默认 .skel → .json、.json → .skel;点击列表行打开预览,右键可加入资源库分类;转换产物自动汇入下方列表。', render: renderSpineConvertTool },
-  };
-  const cfg = tools[tool] || tools.astc2png;
-  const head = document.createElement('div');
-  head.className = 'tool-head';
-  head.innerHTML = `<h2 class="tool-title">${cfg.title}</h2><p class="tool-desc">${cfg.desc}</p>`;
-  container.appendChild(head);
+  const cfg = TOOLS[tool] || TOOLS.astc2png;
+  // 应用型工具(Todo-List / 得乐学苑)自带完整功能头部(标题+统计+操作按钮),跳过通用「标题+介绍」区,避免重复占位
+  if (tool !== 'todo' && tool !== 'kidworkspace') {
+    const head = document.createElement('div');
+    head.className = 'tool-head';
+    head.innerHTML = `<h2 class="tool-title">${cfg.title}</h2><p class="tool-desc">${cfg.desc}</p>`;
+    container.appendChild(head);
+  }
   const body = document.createElement('div');
   body.className = 'tool-body';
   container.appendChild(body);
@@ -50,6 +66,9 @@ function renderToolboxHome(container) {
     { id: 'sk2spine', icon: '🦴', title: 'Laya .sk → Spine', desc: '把 LayaAir 骨骼动画二进制(.sk,DragonBones 导出)逆向转换为 Spine 可读文件:骨架 .json + 纹理图集 .atlas。可单选/多选文件或整个目录(含子目录);选择时自动探测是否为 .sk 格式。' },
     { id: 'atlas', icon: '🗂', title: '图片集打包', desc: '把多张图片合并为纹理图集(精灵表):MaxRects 装箱、支持旋转/修剪透明像素/内边距/强制 2 的幂尺寸,导出 PixiJS / Phaser3 / Cocos2d / CSS 雪碧图,并内联预览。' },
     { id: 'spineconvert', icon: '🔄', title: 'Spine 格式转换', desc: '双向转换 skel ↔ json,并支持跨 Spine 版本升级/降级(3.5-3.8 / 4.0-4.3),自动识别输入版本。拖入文件自动加入待转换列表,点击行预览,右键加入资源库分类,产物自动汇入下方列表。' },
+    { id: 'markdown', icon: '📄', title: 'Markdown 文档', desc: 'Markdown 查看与编辑:分栏编辑 + 实时预览(参考 MarkText),打开 .md/.markdown 文件编辑并保存回写原文件。' },
+    { id: 'todo', icon: '✅', title: 'Todo-List 任务管理', desc: '个人任务管理(移植自 Taskwingo):任务增删改/拖拽排序、优先级、状态、截止日期、标签、子任务、项目分组;列表 + 看板双视图,支持筛选、归档与 CSV/JSON 导出。' },
+    { id: 'kidworkspace', icon: '🌟', title: '得乐学苑', desc: '每日身体锻炼/背诵/听写默写书法/数学口算四类任务闯关打卡 + 学习计划制订 + 金币钻石皇冠奖章奖励,等级称号晋级、数字人随等级进化。' },
   ];
   const head = document.createElement('div');
   head.className = 'tool-head';
@@ -427,6 +446,37 @@ function renderSk2SpineTool(body) {
 }
 
 // ---- FGUI 导出源(批量还原标准 FairyGUI 源工程到每个包同目录 FGUI_src/<包名>) ----
+
+/** Markdown 文档工具:打开 .md 查看/编辑(分栏 + 实时预览,可保存回写) */
+function renderMarkdownTool(body) {
+  body.classList.add('md-tool-root');
+  body.innerHTML = `
+    <div class="md-editor">
+      <div class="md-toolbar">
+        <span class="md-name" id="md-name">(未打开文件)</span>
+        <span class="ctrl-spacer"></span>
+        <button class="md-mode-btn active" data-mode="split" id="md-mode-split" title="分栏:左侧编辑、右侧预览">分栏</button>
+        <button class="md-mode-btn" data-mode="preview" id="md-mode-preview" title="仅预览渲染结果">预览</button>
+        <button class="md-mode-btn" data-mode="edit" id="md-mode-edit" title="仅编辑源码">编辑</button>
+        <button class="btn sm" id="md-open" title="打开本地 Markdown 文件">📂 打开</button>
+        <button class="btn sm" id="md-add-lib" title="把当前打开的文档加入资源库指定分类(如「文档资源」)">＋ 加入库</button>
+        <button class="btn sm primary" id="md-save" title="保存回写原文件(Ctrl+S)">💾 保存</button>
+        <button class="btn sm" id="md-copy" title="复制源码">📋</button>
+        <span class="status" id="md-status"></span>
+      </div>
+      <div class="md-body">
+        <div class="md-col md-edit-col" id="md-edit-col">
+          <textarea id="md-edit" spellcheck="false" placeholder="点击「📂 打开」选择 .md 文件,或直接在此编写 Markdown..."></textarea>
+        </div>
+        <div class="md-col md-preview-col" id="md-preview-col">
+          <div class="md-preview" id="md-preview"><div class="hint">输入内容或打开文件后在此预览渲染结果</div></div>
+        </div>
+      </div>
+    </div>
+  `;
+  const ed = new MarkdownEditorController();
+  ed.init(body);
+}
 
 function renderFguiTool(body) {
   const px = 'fgui';

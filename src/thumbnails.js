@@ -1,5 +1,5 @@
 import { createPlayer } from './preview/playerFactory.js';
-import { typeGroup, isVideoItem } from './state.js';
+import { typeGroup, isImageType, isVideoItem } from './state.js';
 import { getPixi } from './pixiLazy.js';
 
 function basename(p) {
@@ -21,6 +21,8 @@ export class ThumbnailService {
     this._viewC = null;
     this._initPromise = null;
     this._mtimeCache = new Map(); // filePath -> { mtime, at } 短 TTL,减少重渲染时的 stat IPC
+    this._posterCache = new Map(); // posterPath -> dataUrl(海报原图,长驻;视频卡片高清显示)
+    this._posterPending = new Map(); // posterPath -> Promise
   }
 
   /** 懒初始化隐藏 PIXI app(canvas 不入 DOM) */
@@ -48,15 +50,15 @@ export class ThumbnailService {
     return this._initPromise;
   }
 
-  /** 资源类型对应的缩略图 URL:动画 → dataURL;图片(含自定义 image 分组类型)→ 静态服务 URL;FGUI → 徽标 dataURL;视频 → 首帧 dataURL;音频 → null */
+  /** 资源类型对应的缩略图 URL:图片(含自定义图片类类型/分组,如 图标 .png/.ico)→ 静态服务 URL;动画 → dataURL;FGUI → 徽标 dataURL;视频 → 首帧 dataURL;音频 → null */
   thumbnailUrl(item) {
     if (!item) return null;
     if (item.type === 'audio') return null;
-    const g = typeGroup(item.type);
-    if (g === 'anim') return this.getAnimThumb(item);
-    if (g === 'image') {
+    if (isImageType(item.type)) {
       return `${location.origin}/a/${item.id}/${encodeURIComponent(basename(item.filePath))}`;
     }
+    const g = typeGroup(item.type);
+    if (g === 'anim') return this.getAnimThumb(item);
     if (item.type === 'fgui') return this.getFguiThumb(item);
     if (isVideoItem(item)) return this.getVideoThumb(item);
     return null;
@@ -165,6 +167,28 @@ export class ThumbnailService {
   }
 
   /**
+   * 海报原图 dataURL(本地图片绝对路径 → 原图,不做缩放;内存缓存 posterPath → dataUrl)。
+   * 供视频卡片高清显示海报;失败返回 null(调用方降级到首帧缩略图)。
+   */
+  getPosterUrl(poster) {
+    if (!poster) return Promise.resolve(null);
+    if (this._posterCache.has(poster)) return Promise.resolve(this._posterCache.get(poster));
+    if (this._posterPending.has(poster)) return this._posterPending.get(poster);
+    const p = window.api.readBase64(poster).then((r) => {
+      const url = (r && r.ok && r.dataUrl) ? r.dataUrl : null;
+      this._posterCache.set(poster, url);
+      this._posterPending.delete(poster);
+      return url;
+    }).catch(() => {
+      this._posterCache.set(poster, null);
+      this._posterPending.delete(poster);
+      return null;
+    });
+    this._posterPending.set(poster, p);
+    return p;
+  }
+
+  /**
    * 视频缩略图(与动画缩略图同缓存结构:内存 → 磁盘 → 生成写盘)。
    * 用隐藏 video 元素加载首帧(静音,seek 到 0.5s)绘制到 canvas(contain 适配,黑底)。
    */
@@ -194,8 +218,48 @@ export class ThumbnailService {
     return promise;
   }
 
-  /** 视频首帧绘制(96×96 contain 适配,黑底) */
+  /** 视频缩略图:优先 item.meta.poster 自定义海报图(本地图片绝对路径);失败/无则降级到视频首帧(静音 seek 0.5s) */
   _genVideoThumb(item) {
+    const poster = item && item.meta && item.meta.poster;
+    if (poster) {
+      return this._genPosterThumb(poster).then((url) => url || this._genVideoFirstFrame(item));
+    }
+    return this._genVideoFirstFrame(item);
+  }
+
+  /** 海报图缩略图(本地图片绝对路径 → 96×96 **cover 铺满** dataURL;通过 readBase64 读取;电影海报填满缩略图区域) */
+  _genPosterThumb(poster) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      const fail = () => { img.removeAttribute('src'); resolve(null); };
+      const to = setTimeout(fail, 8000);
+      img.onload = () => {
+        clearTimeout(to);
+        try {
+          const c = document.createElement('canvas');
+          c.width = 96; c.height = 96;
+          const ctx = c.getContext('2d');
+          const iw = img.naturalWidth, ih = img.naturalHeight;
+          if (!iw || !ih) return fail();
+          // cover:按大边铺满 96×96,海报裁切填满(不留黑边)
+          const s = Math.max(96 / iw, 96 / ih);
+          const w = iw * s, h = ih * s;
+          ctx.fillStyle = '#000';
+          ctx.fillRect(0, 0, 96, 96);
+          ctx.drawImage(img, (96 - w) / 2, (96 - h) / 2, w, h);
+          resolve(c.toDataURL('image/png'));
+        } catch (err) { fail(); }
+      };
+      img.onerror = fail;
+      window.api.readBase64(poster).then((r) => {
+        if (r && r.ok && r.dataUrl) img.src = r.dataUrl;
+        else fail();
+      }).catch(fail);
+    });
+  }
+
+  /** 视频首帧(96×96 contain 黑底) */
+  _genVideoFirstFrame(item) {
     return new Promise((resolve) => {
       const video = document.createElement('video');
       video.muted = true;

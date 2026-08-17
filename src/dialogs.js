@@ -306,11 +306,77 @@ export function promptDialog({ title, fields, onOk, onCancel }) {
 }
 
 // ============ 图标(emoji)选择面板 ============
-// 供对话框「图标(emoji)」输入框旁的 😀 按钮调用;点击项回填输入框。
-let _emojiPop = null, _emojiAnchor = null;
-function closeEmojiPicker() {
+// 供对话框「图标(emoji)」输入框旁的 😀 按钮调用。
+// 支持多选(最多 MAX_ICONS 个):emoji 点选切换、底部「已选 n/N + 清空/确定」;图片(dataURL)图标单击立即替换并关闭。
+let _emojiPop = null, _emojiAnchor = null, _emojiInput = null, _emojiSelected = new Set();
+export const MAX_ICONS = 4; // 单个节点/字段最多允许的图标数
+const _graphemeSeg = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+
+/** 把图标字符串拆成单个图标(按字素簇,忽略空白);图片(dataURL)图标不拆分 */
+export function iconGraphemes(str) {
+  const s = String(str || '');
+  if (isImageIcon(s)) return [s];
+  const out = [];
+  for (const { segment } of _graphemeSeg.segment(s)) {
+    if (/\s/u.test(segment)) continue;
+    out.push(segment);
+  }
+  return out;
+}
+
+/** 图标最多保留前 n 个(文本图标按字素截断;图片图标原样返回) */
+export function capIcons(str, n = MAX_ICONS) {
+  return iconGraphemes(str).slice(0, n).join('');
+}
+
+/** 保存前的图标收口:图片图标原样;文本图标超过 n 个时截断并提示 */
+export function finalizeIcon(value, n = MAX_ICONS) {
+  const v = String(value || '').trim();
+  if (isImageIcon(v)) return v;
+  const gs = iconGraphemes(v);
+  if (gs.length > n) {
+    toast(`图标最多 ${n} 个,已保留前 ${n} 个`, 'info');
+    return gs.slice(0, n).join('');
+  }
+  return v;
+}
+
+/** 侧栏树节点图标:2~4 个图标渲染为 2 列网格(第 1、2 个竖排,第 3、4 个放第 2 列);单图标/图片图标与 iconNode 相同 */
+export function treeIconNode(icon, cls = '') {
+  const parts = iconGraphemes(icon);
+  if (parts.length < 2) return iconNode(icon, cls);
+  const wrap = document.createElement('span');
+  wrap.className = (cls ? cls + ' ' : '') + 'cat-icon-multi';
+  for (const p of parts) {
+    const cell = document.createElement('span');
+    cell.className = 'cii';
+    cell.textContent = p;
+    wrap.appendChild(cell);
+  }
+  return wrap;
+}
+
+/** 提交当前多选结果到输入框(合并去重、最多 MAX_ICONS;图片图标与 emoji 不能混存,图片会被新选 emoji 替换) */
+function commitEmojiSelection() {
+  const input = _emojiInput;
+  const sel = _emojiSelected;
+  _emojiSelected = new Set();
+  if (!input) return;
+  const base = input.value || '';
+  if (isImageIcon(base) && sel.size === 0) return; // 原图片图标未改动,原样保留
+  const v = [...sel].join('');
+  if (v !== base) {
+    input.value = v;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+}
+
+function closeEmojiPicker(commit = true) {
+  if (commit) commitEmojiSelection();
   if (_emojiPop) { _emojiPop.remove(); _emojiPop = null; }
   _emojiAnchor = null;
+  _emojiInput = null;
+  _emojiSelected = new Set();
   hideIconTip();
   window.removeEventListener('mousedown', _emojiDocDown, true);
   window.removeEventListener('blur', _emojiDocDown);
@@ -319,7 +385,7 @@ function _emojiDocDown(e) {
   if (!_emojiPop) return;
   if (_emojiPop.contains(e.target)) return;
   if (e.target && e.target.closest && e.target.closest('.emoji-pick-btn')) return;
-  closeEmojiPicker();
+  closeEmojiPicker(); // 点外部:提交当前选择并关闭
 }
 
 /** 渲染节点图标:图片(dataURL)用 <img>,否则文本 emoji;返回 span 元素 */
@@ -346,17 +412,21 @@ export function attachIconPreview(input, row) {
     prev.innerHTML = '';
     const v = (input.value || '').trim();
     if (!v) return;
-    prev.appendChild(iconNode(v));
+    prev.appendChild(treeIconNode(v)); // 多图标显示 2 列网格,与侧栏树一致
   };
   input.addEventListener('input', update);
   update();
 }
 
-/** 打开图标选择面板:anchor 为触发按钮,input 为回填的输入框;点同一按钮可切换开/关 */
+/** 打开图标选择面板:anchor 为触发按钮,input 为回填的输入框;点同一按钮可切换开/关。
+ *  emoji 支持多选(最多 MAX_ICONS 个,底部计数/清空/确定);图片(dataURL)图标单击立即替换并关闭。 */
 export function openEmojiPicker(anchor, input) {
   if (_emojiPop && _emojiAnchor === anchor) { closeEmojiPicker(); return; }
-  closeEmojiPicker();
+  closeEmojiPicker(); // 关闭旧面板(提交其选择)
   _emojiAnchor = anchor;
+  _emojiInput = input;
+  // 以当前输入为初始集合:已输入的图标在面板中高亮,点选可增/删
+  _emojiSelected = new Set(isImageIcon(input.value || '') ? [] : iconGraphemes(input.value || ''));
   const pop = document.createElement('div');
   pop.className = 'emoji-pop';
 
@@ -398,17 +468,61 @@ export function openEmojiPicker(anchor, input) {
         img.src = it.icon;
         img.alt = '';
         b.appendChild(img);
+        // 图片图标与 emoji 不能混存:单击立即替换并关闭
+        b.addEventListener('click', () => {
+          input.value = it.icon;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          closeEmojiPicker(false);
+        });
       } else {
         b.textContent = it.icon;
+        if (_emojiSelected.has(it.icon)) b.classList.add('selected');
+        b.addEventListener('click', () => {
+          if (_emojiSelected.has(it.icon)) {
+            _emojiSelected.delete(it.icon);
+            b.classList.remove('selected');
+          } else {
+            if (_emojiSelected.size >= MAX_ICONS) { toast(`最多 ${MAX_ICONS} 个图标`, 'info'); return; }
+            _emojiSelected.add(it.icon);
+            b.classList.add('selected');
+          }
+          updateCount();
+        });
       }
-      b.addEventListener('click', () => {
-        input.value = it.icon;
-        closeEmojiPicker();
-      });
       grid.appendChild(b);
     }
     pop.appendChild(grid);
   }
+
+  // 底部:已选计数 + 清空 / 确定
+  const foot = document.createElement('div');
+  foot.className = 'emoji-pop-foot';
+  const cnt = document.createElement('span');
+  cnt.className = 'emoji-pop-count';
+  foot.appendChild(cnt);
+  const clearBtn = document.createElement('button');
+  clearBtn.type = 'button';
+  clearBtn.className = 'btn sm';
+  clearBtn.textContent = '清空';
+  clearBtn.title = '清空当前已选(含输入框中原有图标)';
+  clearBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    _emojiSelected.clear();
+    pop.querySelectorAll('.emoji-item.selected').forEach((el) => el.classList.remove('selected'));
+    updateCount();
+  });
+  foot.appendChild(clearBtn);
+  const okBtn = document.createElement('button');
+  okBtn.type = 'button';
+  okBtn.className = 'btn sm primary';
+  okBtn.textContent = '确定';
+  okBtn.title = '应用所选图标';
+  okBtn.addEventListener('click', (e) => { e.stopPropagation(); closeEmojiPicker(); });
+  foot.appendChild(okBtn);
+  pop.appendChild(foot);
+  const updateCount = () => { cnt.innerHTML = `已选 <b>${_emojiSelected.size}</b>/${MAX_ICONS}`; };
+  updateCount();
+
   document.body.appendChild(pop);
   _emojiPop = pop;
   const r = anchor.getBoundingClientRect();

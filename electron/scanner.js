@@ -10,6 +10,15 @@ const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tga', '.
 const AUDIO_EXTS = ['.mp3', '.wav', '.ogg', '.flac', '.wma', '.m4a'];
 const MODEL_EXTS = ['.glb', '.gltf', '.obj', '.fbx', '.dae', '.stl', '.blend', '.3ds', '.pmx', '.pmd', '.vrm'];
 
+// 内置文本类资源扩展名(设置页「资源类型管理」可编辑 → 覆盖)
+const DOC_EXTS = {
+  markdown: ['.md', '.markdown'],
+  text: ['.txt', '.log', '.csv'],
+  config: ['.ini', '.json', '.xml', '.yaml', '.yml', '.toml'],
+  database: ['.db', '.sql', '.mdd', '.mdx'],
+  web: ['.htm', '.html', '.xhtml'],
+};
+
 /** 探测 .bin 文件是否为 Spine 二进制骨架(.skel)。只读头部 256 字节,避免整文件读取。 */
 function probeBinFile(fp) {
   try {
@@ -47,8 +56,9 @@ function probeFguiBin(fp) {
  * @param {boolean} recursive 是否递归子目录
  * @param {Array<{id:string, exts:string[]}>} [customTypes] 自定义资源类型(扩展名优先于内置匹配)
  * @param {Array<{id:string, exts:string[]}>} [customGroups] 自定义资源分组(扩展名匹配 → type=<分组id>;优先级低于自定义类型、高于内置)
+ * @param {object} [builtinOverrides] 内置文本类类型扩展名覆盖(设置页修改):{ markdown: { exts }, text: {...}, ... }
  */
-function scanDir(dir, recursive, customTypes = [], customGroups = []) {
+function scanDir(dir, recursive, customTypes = [], customGroups = [], builtinOverrides = null) {
   const results = [];
   const visited = new Set();
 
@@ -72,6 +82,19 @@ function scanDir(dir, recursive, customTypes = [], customGroups = []) {
   }
   const isCustomExt = (ext) => customExtMap.has(ext);
   const isGroupExt = (ext) => groupExtMap.has(ext);
+
+  // 内置文本类扩展名映射(小写 → 类型 id):合并用户覆盖(设置页可改),优先级低于自定义类型/分组
+  const docExtMap = new Map();
+  for (const [tId, defaultExts] of Object.entries(DOC_EXTS)) {
+    const merged = (builtinOverrides && builtinOverrides[tId] && Array.isArray(builtinOverrides[tId].exts))
+      ? builtinOverrides[tId].exts : defaultExts;
+    for (const ex of merged) {
+      const e = String(ex).trim().toLowerCase();
+      if (e.startsWith('.') && e.length > 1 && !customExtMap.has(e) && !groupExtMap.has(e) && !docExtMap.has(e)) {
+        docExtMap.set(e, tId);
+      }
+    }
+  }
 
   function statOf(fp) {
     try {
@@ -310,6 +333,23 @@ function scanDir(dir, recursive, customTypes = [], customGroups = []) {
       const base = f.name.slice(0, -ext.length);
       const fp = path.join(d, f.name);
       results.push({ file: fp, dir: d, type: 'model', base, problems: [], ...statOf(fp) });
+    }
+
+    // ---- 内置文本类(markdown / text / config / database / web) ----
+    // .json 已识别为 spine/dragonbones 骨架(内容特征)的不再落入 config
+    if (docExtMap.size) {
+      for (const f of files) {
+        const ext = path.extname(f.name).toLowerCase();
+        const tId = docExtMap.get(ext);
+        if (!tId) continue;
+        if (ext === '.json') {
+          const data = parsed.get(f.name);
+          if (data && ((Array.isArray(data.armature) && data.armature.length) || (data.skeleton && Array.isArray(data.bones)))) continue;
+        }
+        const base = f.name.slice(0, -ext.length);
+        const fp = path.join(d, f.name);
+        results.push({ file: fp, dir: d, type: tId, base, problems: [], ...statOf(fp) });
+      }
     }
 
     // 子目录递归(限制深度,避免意外扫过大量目录)

@@ -1066,6 +1066,11 @@ export const state = {
   toolboxFolders: [],
   // 侧栏菜单管理:整棵侧栏菜单树(目录 + 终端)
   menuNodes: [],
+  // Todo-List 任务管理(移植自 taskwingo):项目 + 任务(含子任务)
+  todoProjects: [],
+  todoTasks: [],
+  // Todo-List 日历事件(生日/纪念日/待办事件/重要事件)
+  todoEvents: [],
 };
 
 // ---------------- 资源类型分组 ----------------
@@ -1114,6 +1119,62 @@ export const TYPE_EXTENSIONS = {
   model: ['.glb', '.gltf', '.obj', '.fbx', '.dae', '.stl', '.blend', '.3ds', '.pmx', '.pmd', '.vrm'],
 };
 
+/**
+ * 内置资源类型完整定义:id → { name, exts, group }(默认)。
+ * 名称与扩展名可在设置页「资源类型管理」修改 → settings.builtinTypeOverrides 覆盖。
+ * group: 类型归属的资源分组(anim/image/audio/3d/fgui)。
+ */
+export const BUILTIN_TYPE_DEFS = {
+  spine: { name: 'Spine', exts: ['.json', '.skel', '.sk', '.bin'], group: 'anim' },
+  dragonbones: { name: 'DragonBones', exts: ['.json'], group: 'anim' },
+  image: { name: '图片', exts: ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tga', '.ico'], group: 'image' },
+  audio: { name: '音频', exts: ['.mp3', '.wav', '.ogg', '.flac', '.wma', '.m4a'], group: 'audio' },
+  model: { name: '3D', exts: ['.glb', '.gltf', '.obj', '.fbx', '.dae', '.stl', '.blend', '.3ds', '.pmx', '.pmd', '.vrm'], group: '3d' },
+  fgui: { name: 'FGUI', exts: ['.bin', '.fui', '.fdp', '.fnt', '.jta'], group: 'fgui' },
+  markdown: { name: 'Markdown', exts: ['.md', '.markdown'], group: 'image' },
+  text: { name: '文本', exts: ['.txt', '.log', '.csv'], group: 'image' },
+  config: { name: '配置', exts: ['.ini', '.json', '.xml', '.yaml', '.yml', '.toml'], group: 'image' },
+  database: { name: '数据库', exts: ['.db', '.sql', '.mdd', '.mdx'], group: 'database' },
+  web: { name: '网页', exts: ['.htm', '.html', '.xhtml'], group: 'image' },
+  // 内置图标类型(.ico/.icns/.svg/.webp/.png 图标类;跨类型按资源组上下文判定为图片)
+  icon: { name: '图标', exts: ['.ico', '.icns', '.svg', '.webp', '.png'], group: 'icon' },
+  // 内置视频类型
+  video: { name: '视频', exts: ['.mp4', '.mkv', '.flv', '.webm', '.avi', '.mov', '.wmv', '.ts', '.3gp', '.m4v', '.ogv', '.mpg', '.mpeg'], group: 'video' },
+  // 内置项目管理类型
+  project: { name: '项目管理', exts: ['.prom'], group: 'image' },
+};
+export const BUILTIN_TYPE_IDS = Object.keys(BUILTIN_TYPE_DEFS);
+
+/** 内置类型名称/扩展名覆盖(设置页可编辑):settings.builtinTypeOverrides = { type: { name?, exts? } } */
+export function builtinTypeOverrides() {
+  const o = state.settings && state.settings.builtinTypeOverrides;
+  return (o && typeof o === 'object') ? o : {};
+}
+/** 内置类型显示名(覆盖优先 → 默认) */
+export function builtinTypeName(type) {
+  const o = builtinTypeOverrides()[type];
+  if (o && o.name != null && String(o.name).trim()) return String(o.name).trim();
+  return (BUILTIN_TYPE_DEFS[type] && BUILTIN_TYPE_DEFS[type].name) || type;
+}
+/** 内置类型扩展名(覆盖优先 → 默认) */
+export function builtinTypeExts(type) {
+  const o = builtinTypeOverrides()[type];
+  if (o && Array.isArray(o.exts)) return o.exts.map((e) => String(e).trim().toLowerCase()).filter((e) => e.startsWith('.'));
+  return (BUILTIN_TYPE_DEFS[type] && BUILTIN_TYPE_DEFS[type].exts) || [];
+}
+/** 修改内置类型名称/扩展名(覆盖合并;空 name/exts 删除对应覆盖) */
+export function setBuiltinTypeOverride(type, { name, exts } = {}) {
+  const o = builtinTypeOverrides();
+  const cur = { ...(o[type] || {}) };
+  if (name != null) cur.name = String(name).trim();
+  if (exts != null) {
+    cur.exts = exts.map((e) => String(e).trim().toLowerCase()).filter((e) => e.startsWith('.') && e.length > 1);
+  }
+  const next = { ...o, [type]: cur };
+  state.settings.builtinTypeOverrides = next;
+  setSetting('builtinTypeOverrides', next);
+}
+
 // ---------------- 自定义资源类型 ----------------
 
 export function customTypes() {
@@ -1123,6 +1184,13 @@ export function customTypeById(id) {
   return customTypes().find((t) => t.id === id) || null;
 }
 /** 新增自定义资源类型;exts 形如 ['.png','.ico'] */
+/** 自定义类型合法归属分组:内置分组 或 现有自定义分组 id(其余回退 image) */
+function normalizeTypeGroup(group) {
+  if (['anim', 'image', 'audio', '3d'].includes(group)) return group;
+  if (customTypeGroups().some((g) => g.id === group)) return group;
+  return 'image';
+}
+
 export function addCustomType({ name = '', group = 'image', exts = [], icon = '' }) {
   const cleanExts = [...new Set((Array.isArray(exts) ? exts : [])
     .map((e) => String(e).trim().toLowerCase())
@@ -1131,7 +1199,7 @@ export function addCustomType({ name = '', group = 'image', exts = [], icon = ''
   const t = {
     id: uid('ct'),
     name: String(name || '').trim() || '未命名类型',
-    group: ['anim', 'image', 'audio', '3d'].includes(group) ? group : 'image',
+    group: normalizeTypeGroup(group),
     exts: cleanExts,
     icon: icon || '',
   };
@@ -1146,7 +1214,7 @@ export function updateCustomType(id, patch) {
     patch.exts = [...new Set(patch.exts.map((e) => String(e).trim().toLowerCase()).filter((e) => e.startsWith('.') && e.length > 1))];
     if (!patch.exts.length) return null;
   }
-  if (patch.group && !['anim', 'image', 'audio', '3d'].includes(patch.group)) patch.group = 'image';
+  if (patch.group) patch.group = normalizeTypeGroup(patch.group);
   Object.assign(t, patch);
   setSetting('customTypes', customTypes());
   return t;
@@ -1213,7 +1281,19 @@ export function removeCustomTypeGroup(id) {
  */
 export const BUILTIN_TAG_ROOTS = [
   { tag: 'video', name: '视频资源', icon: '🎞', action: 'res:video' },
-  { tag: 'article', name: '文章资源', icon: '📄', action: 'res:article' },
+  { tag: 'article', name: '文档资源', icon: '📄', action: 'res:article' },
+];
+
+/**
+ * 内置资源分组(承载文件,类似自定义分组但内置):默认图标可用设置覆盖(settings.resourceGroupIcons[group])。
+ * 分类勾选其 id 后挂载到对应资源根;文件按 typeGroup 归入。
+ * ensureResourceRootsForCategories 默认全部补建侧栏资源根。
+ */
+export const BUILTIN_GROUP_ROOTS = [
+  { group: 'icon', name: '图标资源', icon: '🎨', action: 'res:group:icon', exts: ['.ico', '.icns', '.svg', '.webp', '.png'] },
+  { group: 'video', name: '视频资源', icon: '🎞', action: 'res:group:video', exts: ['.mp4', '.mkv', '.flv', '.webm', '.avi', '.mov', '.wmv', '.ts', '.3gp', '.m4v', '.ogv', '.mpg', '.mpeg'] },
+  { group: 'ui', name: 'UI资源', icon: '🧩', action: 'res:group:ui', exts: ['.bin', '.fui', '.fdp', '.fnt', '.jta'] },
+  { group: 'database', name: '数据资源', icon: '🗄', action: 'res:group:database', exts: ['.db', '.sql', '.sqlite', '.mdd', '.mdx', '.accdb'] },
 ];
 
 /** 判断菜单节点 action 是否为「资源根」(内置四组 + 内置标签根 + 自定义分组根) */
@@ -1277,9 +1357,24 @@ export function ensureResourceRootsForCategories() {
     }
     pushRoot({ name: g.name || '未命名分组', icon: (g.icon && String(g.icon).trim()) ? g.icon : '🗂', action, tooltip: g.name || '' });
   }
-  // 2) 内置标签(video/article) → 对应资源根;若已存在同名资源根(如自定义分组也叫「视频资源」)则跳过,避免重复根
+  // 1.5) 内置资源分组(图标等):始终确保资源根存在(名称/图标可用设置覆盖)
+  for (const r of BUILTIN_GROUP_ROOTS) {
+    const action = r.action;
+    const existing = state.menuNodes.find((m) => (m.action || '') === action);
+    const wantIcon = resourceGroupIcon(r.group) || r.icon;
+    if (existing) {
+      if (existing.name !== r.name || existing.icon !== wantIcon) {
+        existing.name = r.name;
+        existing.icon = wantIcon;
+        existing.updatedAt = now();
+        changed = true;
+      }
+      continue;
+    }
+    pushRoot({ name: r.name, icon: wantIcon, action, tooltip: r.name });
+  }
+  // 2) 内置标签(视频/文档) → 对应资源根;默认全部补建(分类未勾选也有根目录,与内置分组一致);若已存在同名资源根(如自定义分组也叫「视频资源」)则跳过,避免重复根
   for (const r of BUILTIN_TAG_ROOTS) {
-    if (!used.has(r.tag)) continue;
     if (state.menuNodes.some((m) => (m.action || '') === r.action)) continue;
     if (state.menuNodes.some((m) => m.name === r.name && isResourceRootAction(m.action))) continue;
     pushRoot(r);
@@ -1348,6 +1443,8 @@ export function typeGroup(type) {
   const ct = customTypeById(type);
   if (ct) return ct.group || 'image';
   if (customTypeGroupById(type)) return type; // 自定义分组 id 本身作为 type(分组默认条目)
+  const def = BUILTIN_TYPE_DEFS[type];
+  if (def) return def.group;
   if (type === 'image') return 'image';
   if (type === 'audio') return 'audio';
   if (type === 'model') return '3d';
@@ -1355,18 +1452,117 @@ export function typeGroup(type) {
   return 'anim';
 }
 
-/** 是否图片类资源(含自定义 image 分组类型;用于缩略图/预览) */
-export function isImageType(type) {
-  return typeGroup(type) === 'image';
+/** 图片类扩展名集合(用于判定「图标」等自定义图片类类型/分组;含 .ico/.icns 等图标格式) */
+const IMAGE_EXT_SET = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tga', '.ico', '.icns', '.svg', '.astc', '.tif', '.tiff', '.jfif', '.heic', '.avif', '.psd']);
+
+/** 扩展名列表是否全部为图片格式(图标类型 .ico/.png、图标分组等 → 视为图片类,可走缩略图/预览) */
+export function isAllImageExts(exts) {
+  const arr = (Array.isArray(exts) ? exts : []).map((e) => String(e).trim().toLowerCase());
+  return arr.length > 0 && arr.every((e) => IMAGE_EXT_SET.has(e));
 }
 
-/** 类型显示名(自定义类型/自定义分组优先) */
+/**
+ * 是否图片类资源(用于缩略图/预览):
+ * - 'image' 内置或自定义类型/分组**其扩展名全部为图片格式**(如「图标」.ico/.png/.svg)。
+ * 判定看扩展名而非 group(group 'image' 还含 markdown/text/config/web/database 等文档类,
+ * 这些走各自的文本查看器,不按图片处理)。
+ */
+export function isImageType(type) {
+  if (type === 'image') return true;
+  const def = BUILTIN_TYPE_DEFS[type];
+  if (def) return isAllImageExts(def.exts);
+  const ct = customTypeById(type);
+  if (ct) return isAllImageExts(ct.exts);
+  const cg = customTypeGroupById(type);
+  if (cg) return isAllImageExts(cg.exts);
+  return false;
+}
+
+/**
+ * 分类上下文下的有效类型(跨类型扩展名判定):
+ * 同一扩展名(.png/.ico 等)同时属于内置 image 与自定义类型/分组(如图标)时,
+ * 在「图片资源」组的分类(勾选 image 标签或未勾选=全类型)中按 image 显示,
+ * 在「图标资源」等自定义分组分类中保持原类型。其余返回 item.type。
+ */
+export function itemEffectiveType(item, cat, group, resourceTab) {
+  if (!item || !item.type || item.type === 'image') return item.type;
+  // 内置「图标」类型(.ico/.png 等图片类):当前在图标资源组(根 tab 或分类勾选 icon)→ 图标;
+  // 图片资源组 / 全类型分类 → 按图片显示
+  if (item.type === 'icon') {
+    const cur = (group && group !== 'all') ? group : resourceTab;
+    if (cur === 'icon') return 'icon';
+    const tags = cat ? categoryTypeTags(cat) : [];
+    if (tags.includes('icon')) return 'icon';
+    if (!tags.length || tags.includes('image')) return 'image';
+    return 'icon';
+  }
+  // 仅处理图片类自定义类型/分组条目(图标 .ico/.png 等)
+  const ct = customTypeById(item.type);
+  const cg = customTypeGroupById(item.type);
+  if (!(ct || cg)) return item.type;
+  if (!isAllImageExts(ct ? ct.exts : (cg ? cg.exts : []))) return item.type;
+  const tags = cat ? categoryTypeTags(cat) : [];
+  if (!tags.length || tags.includes('image')) return 'image';
+  return item.type;
+}
+
+/** 类型显示名(自定义类型/自定义分组优先;内置类型名可配置) */
 export function typeLabel(type) {
   const ct = customTypeById(type);
   if (ct) return ct.name;
   const g = customTypeGroupById(type);
   if (g) return g.name;
-  return TYPE_LABEL[type] || type;
+  return builtinTypeName(type) || TYPE_LABEL[type] || type;
+}
+
+/** 自定义分组 exts 映射的内置资源类型(用于分组内条目的类型徽标) */
+export function groupEntryType(g) {
+  const exts = (g.exts || []).map((e) => String(e).toLowerCase());
+  const has = (arr) => exts.some((e) => arr.includes(e));
+  if (has(['.mp4', '.mkv', '.flv', '.webm', '.avi', '.mov', '.wmv', '.ts', '.3gp', '.m4v', '.ogv', '.mpg', '.mpeg'])) return 'video';
+  if (has(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.svg', '.tga', '.ico', '.astc'])) return 'image';
+  if (has(['.mp3', '.wav', '.ogg', '.flac', '.m4a', '.wma', '.aac'])) return 'audio';
+  if (has(['.bin', '.fui', '.fdp', '.fnt', '.jta', '.atlas', '.plist'])) return 'fgui';
+  return '';
+}
+
+/**
+ * 条目类型徽标图标:
+ * - 自定义类型 → 类型自身图标;
+ * - 内置类型(spine/dragonbones/image/audio/model/fgui/video/markdown/text/config/database/web) → 配置的资源类型图标;
+ * - 自定义分组条目 → 按分组扩展名映射的类型图标(视频 → 🎞 等);
+ * - 无匹配 → 空(不显示)。
+ * (资源分组图标仅用于顶级资源根,不用于条目)
+ */
+export function typeBadgeIcon(it) {
+  if (!it || !it.type) return '';
+  const ct = customTypeById(it.type);
+  if (ct) return (ct.icon && String(ct.icon).trim()) ? ct.icon : '';
+  const tic = resourceTypeIcon(it.type);
+  if (tic) return tic;
+  const g = customTypeGroupById(it.type);
+  if (g) {
+    const mapped = groupEntryType(g);
+    if (mapped) return resourceTypeIcon(mapped) || '';
+  }
+  return '';
+}
+
+/** 内置类型固定徽标色(其余按类型名哈希取色) */
+export const BUILTIN_TYPE_COLORS = {
+  spine: '#7fb0ff', dragonbones: '#6cc07e', image: '#eec285', audio: '#c9a8ff',
+  model: '#8fd9f5', fgui: '#c9a2ff', markdown: '#9ad1ff', text: '#b0a8ff',
+  config: '#ffd76b', database: '#7fc8ff', web: '#ff8fd8', video: '#7fc8ff',
+  icon: '#ff9ad1', project: '#7fdcb5',
+};
+
+/** 类型徽标颜色:内置类型固定色;自定义类型/分组按名称哈希取色(不同资源类型不同颜色) */
+export function typeColor(type) {
+  if (BUILTIN_TYPE_COLORS[type]) return BUILTIN_TYPE_COLORS[type];
+  const name = typeLabel(type);
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return `hsl(${h % 360}, 72%, 64%)`;
 }
 
 /** 扩展名 → 类型:自定义类型 > 自定义分组 > 内置 */
@@ -1384,10 +1580,11 @@ export function extToType(ext) {
   return null;
 }
 
-/** 目录/分类可标记的分组标签选项(内置 + 自定义分组);选项带 kind('tag' 内置标签 | 'group' 自定义分组),数据与设置页资源类型管理一致 */
+/** 目录/分类可标记的分组标签选项(内置 + 内置分组 + 自定义分组);选项带 kind('tag' 内置标签 | 'builtin' 内置分组 | 'group' 自定义分组),数据与设置页资源类型管理一致 */
 export function groupTagOptions() {
   const out = [];
   for (const [v, l] of Object.entries(CAT_TYPE_TAG_LABELS)) out.push({ value: v, label: l, kind: 'tag' });
+  for (const r of BUILTIN_GROUP_ROOTS) out.push({ value: r.group, label: r.name, kind: 'builtin' });
   for (const g of customTypeGroups()) out.push({ value: g.id, label: g.name, kind: 'group' });
   return out;
 }
@@ -1404,7 +1601,7 @@ export function groupTagOptionSections() {
     {
       kind: 'tag',
       title: '内置标签(挂载标记)',
-      note: '仅决定分类在哪些资源根下显示,不承载文件。勾选「视频/文章」时侧栏自动补建对应资源根。',
+      note: '仅决定分类在哪些资源根下显示,不承载文件。勾选「视频/文档」时侧栏自动补建对应资源根。',
       options: opts.filter((o) => o.kind === 'tag'),
     },
     {
@@ -1429,22 +1626,24 @@ export function extOwners(ext) {
   }
   return out;
 }
-/** 是否为有效分组标签(内置或自定义分组) */
+/** 是否为有效分组标签(内置标签 / 内置分组 / 自定义分组) */
 export function isValidTypeTag(t) {
-  return !!(CAT_TYPE_TAG_LABELS[t] || customTypeGroupById(t));
+  return !!(CAT_TYPE_TAG_LABELS[t] || customTypeGroupById(t) || BUILTIN_GROUP_ROOTS.some((r) => r.group === t));
 }
 
 // ---------------- 分类的资源类型标签 ----------------
 
-/** 目录可标记的资源类型标签(勾选后目录只在对应类型的资源树中显示;不勾选 = 所有类型显示) */
+/** 目录可标记的资源类型标签(勾选后目录只在对应类型的资源树中显示;不勾选 = 所有类型显示)。
+ * 「视频/图标资源/UI资源/数据资源」由 BUILTIN_GROUP_ROOTS 提供(kind='builtin'),此处不再重复;
+ * 「fgui 标签」显示为「FGUI」(与内置分组根「UI资源」区分),分类 typeTags 含 'fgui' 时挂载 UI 资源根(由 catVisibleInGroup 兼容)。
+ * 名称统一「资源」后缀。 */
 export const CAT_TYPE_TAG_LABELS = {
-  anim: '动画',
-  image: '图片',
-  audio: '音频',
-  '3d': '3D',
-  video: '视频',
-  article: '文章',
-  fgui: 'UI',
+  anim: '动画资源',
+  image: '图片资源',
+  audio: '音频资源',
+  '3d': '3D资源',
+  article: '文档资源',
+  fgui: 'FGUI',
 };
 
 /** 全部标签 key(供勾选组按固定顺序渲染) */
@@ -1459,7 +1658,7 @@ export function categoryTypeTags(cat) {
 
 /** 分类资源类型标签的中文名数组(如 ['音频']) */
 export function categoryTypeTagNames(cat) {
-  return categoryTypeTags(cat).map((t) => CAT_TYPE_TAG_LABELS[t] || ((customTypeGroupById(t) || {}).name) || t);
+  return categoryTypeTags(cat).map((t) => CAT_TYPE_TAG_LABELS[t] || ((customTypeGroupById(t) || {}).name) || ((BUILTIN_GROUP_ROOTS.find((r) => r.group === t) || {}).name) || t);
 }
 
 /**
@@ -1474,7 +1673,10 @@ export function catVisibleInGroup(cat, group) {
   const tags = categoryTypeTags(cat);
   if (!tags.length) return true;
   if (!group || group === 'all') return true;
-  return tags.includes(group);
+  if (tags.includes(group)) return true;
+  // FGUI 分类(fgui 标签)归 UI 资源组(用户已建 FGUI 分类时 typeTags='fgui')
+  if (group === 'ui' && tags.includes('fgui')) return true;
+  return false;
 }
 
 /** 分类是否在"允许显示的类型组"集合中的任一类型组下可见:分类未勾选标签(全部)或标签命中任一类型组 */
@@ -1543,6 +1745,47 @@ export async function loadState() {
   }
   if (resMigrated) saveState();
   seedMenuNodes();
+  // Todo-List 任务管理(兼容旧库缺字段)
+  state.todoProjects = Array.isArray(data.todoProjects) ? data.todoProjects : [];
+  state.todoTasks = Array.isArray(data.todoTasks) ? data.todoTasks : [];
+  for (const p of state.todoProjects) {
+    if (p.color == null) p.color = '#6366f1';
+    if (p.sort == null) p.sort = 0;
+    if (p.createdAt == null) p.createdAt = now();
+    if (p.updatedAt == null) p.updatedAt = now();
+  }
+  for (const t of state.todoTasks) {
+    if (!Array.isArray(t.tags)) t.tags = [];
+    if (t.notes == null) t.notes = '';
+    if (t.notesHtml == null) t.notesHtml = '';
+    if (t.projectId == null) t.projectId = '';
+    if (t.recurRule == null) t.recurRule = '';
+    if (t.priority == null) t.priority = 'medium';
+    if (t.status == null) t.status = 'todo';
+    if (t.sort == null) t.sort = 0;
+    if (t.archived == null) t.archived = false;
+    if (t.deadline == null) t.deadline = null;
+    if (t.reminderAt == null) t.reminderAt = null;
+    if (t.createdAt == null) t.createdAt = now();
+    if (t.updatedAt == null) t.updatedAt = now();
+    if (!Array.isArray(t.subtasks)) t.subtasks = [];
+    for (const s of t.subtasks) {
+      if (s.done == null) s.done = false;
+      if (s.sort == null) s.sort = 0;
+      if (s.createdAt == null) s.createdAt = now();
+    }
+  }
+  // Todo-List 日历事件(兼容旧库缺字段)
+  state.todoEvents = Array.isArray(data.todoEvents) ? data.todoEvents : [];
+  for (const ev of state.todoEvents) {
+    if (ev.date == null) ev.date = '';
+    if (ev.type == null) ev.type = 'todo';
+    if (ev.calendar == null) ev.calendar = 'solar';
+    if (ev.title == null) ev.title = '';
+    if (ev.note == null) ev.note = '';
+    if (ev.createdAt == null) ev.createdAt = now();
+    if (ev.updatedAt == null) ev.updatedAt = now();
+  }
   // 自修复:被分类目录引用的自定义资源分组,确保左侧栏有对应资源根(否则分类在侧栏不可见)
   ensureResourceRootsForCategories();
   // 自修复:在「图标资源」分组根下挂载「emoji 图标」管理入口
@@ -1909,6 +2152,40 @@ export function setSetting(key, value) {
   saveState();
 }
 
+// ---------------- 资源组/资源类型图标(可配置,settings 持久化) ----------------
+
+/** 内置资源分组默认图标(顶级资源根显示;可在设置页「资源类型管理」修改) */
+export const DEFAULT_RESOURCE_GROUP_ICONS = { anim: '🎬', image: '🖼', audio: '♪', '3d': '🧊' };
+/** 内置资源类型默认图标(具体资源文件条目徽标;可在设置页「资源类型管理」修改) */
+export const DEFAULT_RESOURCE_TYPE_ICONS = {
+  spine: '🎬', dragonbones: '🦕', image: '🖼', audio: '♪', model: '🧊', fgui: '🧩', video: '🎞',
+  markdown: '📄', text: '📄', config: '⚙️', database: '🗄', web: '🌐',
+};
+
+/** 资源分组(内置 anim/image/audio/3d)图标:settings.resourceGroupIcons → 默认 */
+export function resourceGroupIcon(group) {
+  const m = (state.settings && state.settings.resourceGroupIcons) || {};
+  return m[group] || DEFAULT_RESOURCE_GROUP_ICONS[group] || '';
+}
+
+/** 资源类型图标(spine/dragonbones/image/audio/model/fgui/video):settings.resourceTypeIcons → 默认 */
+export function resourceTypeIcon(type) {
+  const m = (state.settings && state.settings.resourceTypeIcons) || {};
+  return m[type] || DEFAULT_RESOURCE_TYPE_ICONS[type] || '';
+}
+
+/** 修改资源分组图标(顶级资源根) */
+export function setResourceGroupIcon(group, icon) {
+  state.settings.resourceGroupIcons = { ...(state.settings.resourceGroupIcons || {}), [group]: String(icon || '') };
+  setSetting('resourceGroupIcons', state.settings.resourceGroupIcons);
+}
+
+/** 修改资源类型图标(条目徽标) */
+export function setResourceTypeIcon(type, icon) {
+  state.settings.resourceTypeIcons = { ...(state.settings.resourceTypeIcons || {}), [type]: String(icon || '') };
+  setSetting('resourceTypeIcons', state.settings.resourceTypeIcons);
+}
+
 /** 最近打开(首页展示与再次打开): 去重按 path, 最新在前, 上限 20, 持久化 */
 export function recordRecentOpen({ name = '', path = '', type = '', tab = '', itemId = null }) {
   if (!path) return;
@@ -2082,8 +2359,14 @@ export function itemsByGroup(group) {
 export function itemsInCategoryAndGroup(catId, group) {
   const inCat = itemsInCategory(catId);
   if (!group || group === 'all') return inCat;
-  // 按分组匹配(内置组 + 自定义分组/自定义类型):typeGroup 归一到分组 id
-  return inCat.filter((i) => typeGroup(i.type) === group);
+  // 按分组匹配(内置组 + 自定义分组/自定义类型):typeGroup 归一到分组 id;「图标/视频/数据库」在图片资源组同样可见(跨组兼容);FGUI 类型在 UI 资源组可见
+  return inCat.filter((i) => {
+    const g = typeGroup(i.type);
+    if (g === group) return true;
+    if ((g === 'icon' || g === 'video' || g === 'database') && group === 'image') return true;
+    if (g === 'fgui' && group === 'ui') return true;
+    return false;
+  });
 }
 
 /** 格式化文件大小 */
@@ -2130,8 +2413,17 @@ export function getFolderData(catId, group) {
 export function getHomeData() {
   const byType = { anim: 0, image: 0, audio: 0, '3d': 0, totalSize: 0 };
   for (const it of state.items) {
-    byType[typeGroup(it.type)]++;
+    const g = typeGroup(it.type);
+    byType[g] = (byType[g] || 0) + 1;
     if (it.size != null) byType.totalSize += it.size;
+  }
+  // 文档资源独立统计(markdown/text/config/web 归「文档资源」,不计入「图片资源」)
+  byType.article = 0;
+  for (const it of state.items) {
+    if (it.type === 'markdown' || it.type === 'text' || it.type === 'config' || it.type === 'web') {
+      byType.article++;
+      if (byType.image > 0) byType.image--;
+    }
   }
   const categories = state.categories.map((cat) => {
     let count = 0;
@@ -2615,17 +2907,37 @@ export function apiEndpointsInProject(projectId) {
 
 /** 首次启动(或旧库无数据)注入默认工具箱目录结构 */
 function seedToolboxFolders() {
-  if (state.toolboxFolders.length) return;
-  const conv = addToolboxFolder({ name: '文件格式转换', parentId: '', toolId: '' });
-  addToolboxFolder({ name: 'astc 转 png', parentId: conv.id, toolId: 'astc2png' });
-  addToolboxFolder({ name: 'skel 转 json', parentId: conv.id, toolId: 'skel2json' });
-  addToolboxFolder({ name: 'spine 文件修复', parentId: conv.id, toolId: 'spinefix' });
-  addToolboxFolder({ name: 'Laya .sk 转 Spine', parentId: conv.id, toolId: 'sk2spine' });
-  addToolboxFolder({ name: 'spine 格式转换', parentId: conv.id, toolId: 'spineconvert' });
-  addToolboxFolder({ name: '图片集打包', parentId: '', toolId: 'atlas' });
-  addToolboxFolder({ name: '图片编辑', parentId: '', toolId: 'imageedit' });
-  addToolboxFolder({ name: 'FGUI导出源', parentId: '', toolId: 'fgui' });
-  addToolboxFolder({ name: 'FGUI编辑器', parentId: '', toolId: '__fgui_editor__' });
+  if (!state.toolboxFolders.length) {
+    const conv = addToolboxFolder({ name: '文件格式转换', parentId: '', toolId: '' });
+    addToolboxFolder({ name: 'astc 转 png', parentId: conv.id, toolId: 'astc2png' });
+    addToolboxFolder({ name: 'skel 转 json', parentId: conv.id, toolId: 'skel2json' });
+    addToolboxFolder({ name: 'spine 文件修复', parentId: conv.id, toolId: 'spinefix' });
+    addToolboxFolder({ name: 'Laya .sk 转 Spine', parentId: conv.id, toolId: 'sk2spine' });
+    addToolboxFolder({ name: 'spine 格式转换', parentId: conv.id, toolId: 'spineconvert' });
+    addToolboxFolder({ name: '图片集打包', parentId: '', toolId: 'atlas' });
+    addToolboxFolder({ name: '图片编辑', parentId: '', toolId: 'imageedit' });
+    addToolboxFolder({ name: 'FGUI导出源', parentId: '', toolId: 'fgui' });
+    addToolboxFolder({ name: 'FGUI编辑器', parentId: '', toolId: '__fgui_editor__' });
+    addToolboxFolder({ name: 'Markdown 编辑器', parentId: '', toolId: 'markdown' });
+    addToolboxFolder({ name: 'Todo-List 任务管理', parentId: '', toolId: 'todo' });
+    return;
+  }
+  // 老库补种缺失的默认工具(Markdown 编辑器 / Todo-List)
+  if (!state.toolboxFolders.some((f) => f.toolId === 'markdown')) {
+    addToolboxFolder({ name: 'Markdown 编辑器', parentId: '', toolId: 'markdown' });
+  }
+  if (!state.toolboxFolders.some((f) => f.toolId === 'todo')) {
+    addToolboxFolder({ name: 'Todo-List 任务管理', parentId: '', toolId: 'todo' });
+  }
+  if (!state.toolboxFolders.some((f) => f.toolId === 'kidworkspace')) {
+    addToolboxFolder({ name: '得乐学苑', parentId: '', toolId: 'kidworkspace' });
+  }
+  // 老库节点改名同步:「小学生成长闯关台」→「得乐学苑」(v2.1.9 改名,老用户已有节点更新显示名)
+  for (const f of state.toolboxFolders) {
+    if (f.toolId === 'kidworkspace' && f.name === '小学生成长闯关台') {
+      f.name = '得乐学苑';
+    }
+  }
 }
 
 export function toolboxFolderById(id) {
@@ -2885,7 +3197,7 @@ export function menuNodePath(id) {
 }
 
 /** 新增菜单节点(目录或终端);parentId '' = 顶级 */
-export function addMenuNode({ name, icon = '', parentId = '', nodeType = 'dir', actionType = '', action = '', tooltip = '', note = '', typeTags = [], isResource = false, locked = false }) {
+export function addMenuNode({ name, icon = '', parentId = '', nodeType = 'dir', actionType = '', action = '', tooltip = '', note = '', typeTags = [], isResource = false, locked = false, hidden = false }) {
   const node = {
     id: uid('mn'),
     name,
@@ -2899,6 +3211,7 @@ export function addMenuNode({ name, icon = '', parentId = '', nodeType = 'dir', 
     typeTags: Array.isArray(typeTags) ? typeTags.filter((t) => isValidTypeTag(t)) : [],
     isResource: !!isResource,
     locked: !!locked,
+    hidden: !!hidden,
     sort: state.menuNodes.length,
     createdAt: now(),
     updatedAt: now(),

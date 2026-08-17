@@ -84,6 +84,8 @@ function createServer({ dist, roots, previewRoots }) {
         return serveFile(req, res, full);
       }
 
+      // 查看模式「超大图标」自定义图标已改为内联 SVG(节省体积 + currentColor 自动适配主题);此路由删除
+
       // Spine 转换工具预览目录:token 由 tool:spinePreviewRegister 注册
       if (pathname.startsWith('/spine-pv/')) {
         const rest = pathname.slice(10); // "<token>/<rel>"

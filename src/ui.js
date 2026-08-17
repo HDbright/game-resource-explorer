@@ -13,6 +13,7 @@ import {
   TYPE_LABEL, TYPE_GROUPS, typeGroup, formatSize, typeLabel, isImageType, isVideoItem, customTypes, customTypeById,
   customTypeGroups, customTypeGroupById, groupTagOptions, groupTagOptionSections, isValidTypeTag,
   CAT_TYPE_TAG_LABELS, CAT_TYPE_TAGS, categoryTypeTags, categoryTypeTagNames, catVisibleInGroup,
+  BUILTIN_GROUP_ROOTS, BUILTIN_TAG_ROOTS, BUILTIN_TYPE_DEFS,
   getCategoryPathList, getFolderData, sortItems,
   setResourceTab, setListViewMode, setListSort,
   itemTags, allTags, cleanTags,
@@ -33,14 +34,17 @@ import {
   isCategoryLocked, isMenuNodeLocked,
   ensureResourceRootsForCategories,
   isUrlPath, nameFromPath, isLocalHtmlPath, toFileUrl,
+  isImageIcon,
+  resourceGroupIcon, resourceTypeIcon,
+  typeBadgeIcon, typeColor, itemEffectiveType,
   customPages, customPageById, updateCustomPage,
 } from './state.js';
-import { openModal, footButtons, confirmDialog, promptDialog, toast, showContextMenu, openEmojiPicker, iconNode, attachIconPreview, newPageDialog } from './dialogs.js';
+import { openModal, footButtons, confirmDialog, promptDialog, toast, showContextMenu, openEmojiPicker, iconNode, attachIconPreview, newPageDialog, treeIconNode, finalizeIcon } from './dialogs.js';
 import { initBgColorBar, customBgColor, BG_DARK, BG_LIGHT } from './bgColor.js';
 import { runAddFlow, addPathsToCategory } from './addFlow.js';
 import { renderHomePage, renderFavHome, renderFilterHome } from './pages/homePage.js';
 import { renderFolderPage, renderFavFolderPage } from './pages/folderPage.js';
-import { renderToolboxPage } from './pages/toolboxPage.js';
+import { renderToolboxPage, toolboxToolActions } from './pages/toolboxPage.js';
 import { renderSceneHome, renderSceneFolderPage, renderFguiPreviewPage, promptRegisterFgui, renderSceneSearchResults } from './pages/scenePage.js';
 import { renderFguiEditorPage } from './pages/fguiEditorPage.js';
 import { renderSettingsPage } from './pages/settingsPage.js';
@@ -52,6 +56,7 @@ import { applyAppearance, setupSystemThemeListener } from './appearance.js';
 import { ImageViewerController } from './viewers/imageViewer.js';
 import { AudioPlayerController } from './viewers/audioViewer.js';
 import { FguiViewerController } from './viewers/fguiViewer.js';
+import { MarkdownEditorController } from './viewers/markdownEditor.js';
 import { thumbnailService } from './thumbnails.js';
 import { makeCopyablePath, setCopyablePath } from './clipboard.js';
 import { loadSearchHistory, saveSearchHistory, addSearchHistory, removeSearchHistory } from './searchHistory.js';
@@ -63,6 +68,7 @@ let preview = null;
 let imageViewer = null;
 let audioPlayer = null;
 let fguiViewer = null;
+let markdownEditor = null;
 let fguiPvTab = 'editor'; // pv-fgui-view 当前标签: 'editor'(FGUI编辑器) | 'list'(资源清单)
 let fguiPvListItem = null; // 资源清单待加载的 item(切到该标签时懒加载)
 let lastFolderTab = 'anim'; // 进入预览前所在 tab,返回时恢复
@@ -124,7 +130,44 @@ function renderTabStrip() {
       if (e.target.classList.contains('mt-close')) { closeTab(t.id); return; }
       if (t.id !== activeTabId) switchTab(t.id);
     });
+    // 右键菜单:关闭 / 关闭其它标签 / 关闭右侧标签
+    el.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      showContextMenu(e.clientX, e.clientY, [
+        { label: '关闭', onClick: () => closeTab(t.id) },
+        { label: '关闭其它标签', onClick: () => closeOtherTabs(t.id) },
+        { label: '关闭右侧标签', onClick: () => closeRightTabs(t.id) },
+      ]);
+    });
     strip.appendChild(el);
+  }
+}
+
+/** 关闭其它标签:只保留指定标签(若当前激活标签被关则切到它) */
+function closeOtherTabs(id) {
+  const i = mainTabs.findIndex((x) => x.id === id);
+  if (i < 0) return;
+  const keep = mainTabs[i];
+  mainTabs.splice(0, mainTabs.length, keep);
+  if (activeTabId !== id) {
+    activeTabId = id;
+    applyTabState(keep);
+  } else {
+    renderTabStrip();
+  }
+}
+
+/** 关闭指定标签右侧的所有标签(若当前激活标签被关则切到指定标签) */
+function closeRightTabs(id) {
+  const i = mainTabs.findIndex((x) => x.id === id);
+  if (i < 0) return;
+  mainTabs.splice(i + 1);
+  if (activeTabId !== id && !mainTabs.some((x) => x.id === activeTabId)) {
+    activeTabId = id;
+    applyTabState(mainTabs[i]);
+  } else {
+    renderTabStrip();
   }
 }
 
@@ -234,7 +277,7 @@ function closeTab(id) {
 /** 兜底:确保至少有一个首页标签 */
 function ensureHomeTab() {
   if (mainTabs.length) return;
-  ensureTab('home', { kind: 'home', label: '资源首页', icon: '🏠' });
+  ensureTab('home', { kind: 'home', label: '首页', icon: '🏠' });
   applyTabState(mainTabs[mainTabs.length - 1]);
 }
 
@@ -275,9 +318,9 @@ function syncTabFromState() {
   const tabName = (state.settings && state.settings.resourceTab) || 'home';
   const catId = currentCategoryId == null ? 'all' : currentCategoryId;
   if (tabName === 'home') {
-    tab = ensureTab('home', { kind: 'home', label: '资源首页', icon: '🏠' });
+    tab = ensureTab('home', { kind: 'home', label: '首页', icon: '🏠' });
   } else if (catId === 'all' || catId === '') {
-    tab = ensureTab(`folder-${tabName}-all`, { kind: 'folder', params: { tab: tabName, catId: 'all' }, label: GROUP_LABEL[tabName] || '资源主页', icon: '📁' });
+    tab = ensureTab(`folder-${tabName}-all`, { kind: 'folder', params: { tab: tabName, catId: 'all' }, label: GROUP_LABEL[tabName] || '资源', icon: '📁' });
   } else {
     const cat = categoryById(catId);
     tab = ensureTab(`folder-${tabName}-${catId}`, { kind: 'folder', params: { tab: tabName, catId }, label: cat ? cat.name : '未分类', icon: '📁' });
@@ -286,7 +329,7 @@ function syncTabFromState() {
   renderTabStrip();
 }
 
-const GROUP_LABEL = { anim: '动画主页', image: '图片主页', audio: '音频主页', '3d': '3D 资源主页' };
+const GROUP_LABEL = { anim: '动画资源', image: '图片资源', audio: '音频资源', '3d': '3D资源' };
 
 function previewTypeIcon(type) {
   const g = typeGroup(type);
@@ -299,7 +342,7 @@ function previewTypeIcon(type) {
 }
 
 function toolLabel(tool) {
-  return ({ astc2png: 'ASTC→PNG', skel2json: 'SKEL→JSON', spinefix: 'Spine 修复', imageedit: '图片编辑', sk2spine: 'Laya .sk → Spine', atlas: '图片集打包', spineconvert: 'Spine 格式转换' })[tool] || tool;
+  return ({ astc2png: 'ASTC→PNG', skel2json: 'SKEL→JSON', spinefix: 'Spine 修复', imageedit: '图片编辑', sk2spine: 'Laya .sk → Spine', atlas: '图片集打包', spineconvert: 'Spine 格式转换', todo: 'Todo-List', kidworkspace: '得乐学苑' })[tool] || tool;
 }
 
 export function initUI(pv) {
@@ -357,6 +400,10 @@ export function initUI(pv) {
     fguiViewer.init(fguiWrap);
     bindFguiPvTabs();
   }
+  // Markdown 查看/编辑器(预览页 pv-markdown-view)
+  markdownEditor = new MarkdownEditorController();
+  const mdWrap = document.getElementById('pv-markdown-view');
+  if (mdWrap) markdownEditor.init(mdWrap);
   // 视频播放器:倍速选择 → 播放器 playbackRate
   const videoRateSel = document.getElementById('video-rate');
   if (videoRateSel) {
@@ -698,8 +745,8 @@ function renderTree() {
   // 收藏夹区块(置顶,特殊样式 + 「＋」新建收藏分类按钮)
   renderFavSection(tree, menuNodeById('__m_fav__'));
 
-  // 其余菜单节点按 menuNodes 顺序渲染(动画/图片/音频/3D资源 + 场景 + 抓取 + 工具箱 + 开发工具箱 + 设置 + 自定义节点)
-  const roots = getMenuRoots().filter((n) => (n.action || '') !== 'fav' && !menuRootEmpty(n));
+  // 其余菜单节点按 menuNodes 顺序渲染(动画/图片/音频/3D资源 + 场景 + 抓取 + 工具箱 + 开发工具箱 + 设置 + 自定义节点);隐藏的节点不在侧栏显示
+  const roots = getMenuRoots().filter((n) => (n.action || '') !== 'fav' && !menuRootEmpty(n) && !n.hidden);
   for (const node of roots) {
     const sep = document.createElement('div');
     sep.className = 'tree-section-sep';
@@ -720,7 +767,7 @@ function menuRootEmpty(node) {
   const grp = menuNodeResourceGroup(node);
   if (!grp) return false;
   if (a === 'res:anim' || a === 'res:image' || a === 'res:audio' || a === 'res:3d') return false;
-  if (a.startsWith('res:group:') && !customTypeGroupById(grp)) return true; // 自定义分组已被删除
+  if (a.startsWith('res:group:') && !customTypeGroupById(grp) && !BUILTIN_GROUP_ROOTS.some((r) => r.group === grp)) return true; // 自定义分组已被删除
   // 自定义分组(存在)即使为空也显示:用户可通过根上的「＋新建分类」按钮建立第一个分类
   // (避免新建顶级资源根后因无内容被静默隐藏,操作路径中断)
   return false;
@@ -770,10 +817,10 @@ function menuNodeActive(node) {
 /** 节点缺省图标(按内置 action 兜底) */
 function defaultMenuIcon(node) {
   const a = node.action || '';
-  if (a === 'res:anim') return '🎬';
-  if (a === 'res:image') return '🖼';
-  if (a === 'res:audio') return '♪';
-  if (a === 'res:3d') return '🧊';
+  if (a === 'res:anim') return resourceGroupIcon('anim') || '🎬';
+  if (a === 'res:image') return resourceGroupIcon('image') || '🖼';
+  if (a === 'res:audio') return resourceGroupIcon('audio') || '♪';
+  if (a === 'res:3d') return resourceGroupIcon('3d') || '🧊';
   if (a === 'res:video') return '🎞';
   if (a === 'res:article') return '📄';
   if (a === 'scene') return '🎬';
@@ -788,8 +835,12 @@ function defaultMenuIcon(node) {
     return (ct && ct.icon) ? ct.icon : '🗂';
   }
   if (a.startsWith('res:group:')) {
-    const g = customTypeGroupById(a.slice('res:group:'.length));
-    return (g && g.icon) ? g.icon : '🗂';
+    const gid = a.slice('res:group:'.length);
+    const g = customTypeGroupById(gid);
+    if (g) return (g.icon && String(g.icon).trim()) ? g.icon : '🗂';
+    const br = BUILTIN_GROUP_ROOTS.find((r) => r.group === gid);
+    if (br) return resourceGroupIcon(gid) || br.icon;
+    return '🗂';
   }
   if (node.nodeType === 'term') return '▶';
   return '📁';
@@ -862,7 +913,10 @@ function renderMenuNode(parent, node, depth) {
   wrap.className = 'tree-items';
   parent.appendChild(wrap);
   renderMenuChildren(wrap, node);       // 内置动态子内容
-  for (const k of menuKids) renderMenuNode(wrap, k, depth + 1);
+  for (const k of menuKids) {
+    if (k.hidden) continue;             // 隐藏的子节点不在侧栏显示
+    renderMenuNode(wrap, k, depth + 1);
+  }
 }
 
 /** 渲染目录节点的内置动态子内容(分类树 / 场景树 / 收藏夹分类 / 工具箱树) */
@@ -1073,9 +1127,9 @@ function dispatchMenuTerm(node) {
     return;
   }
   if (a.startsWith('res:group:')) {
-    // 资源浏览页(自定义资源分组):进入该分组的资源主页/分类页
+    // 资源浏览页(自定义/内置资源分组):进入该分组的资源主页/分类页
     const gid = a.slice('res:group:'.length);
-    if (!customTypeGroupById(gid)) return toast('资源分组不存在或已删除', 'error');
+    if (!customTypeGroupById(gid) && !BUILTIN_GROUP_ROOTS.some((r) => r.group === gid)) return toast('资源分组不存在或已删除', 'error');
     currentTypeFilter = null;
     currentGroupFilterSet = null;
     clearOverlays();
@@ -1170,7 +1224,7 @@ function attachMenuDrag(n, node) {
   });
 }
 
-/** 取菜单节点的资源分组(动画=anim/图片=image/音频=audio/3D=3d/视频=video/文章=article/自定义分组=groupId);非资源根返回 null */
+/** 取菜单节点的资源分组(动画=anim/图片=image/音频=audio/3D=3d/视频=video/文档=article/自定义分组=groupId);非资源根返回 null */
 function menuNodeResourceGroup(node) {
   const a = node.action || '';
   if (a === 'res:anim') return 'anim';
@@ -1221,14 +1275,8 @@ const MENU_ACTION_OPTIONS = [
   { value: 'res:image', label: '图片资源' },
   { value: 'res:audio', label: '音频资源' },
   { value: 'res:3d', label: '3D资源' },
-  { value: 'tool:astc2png', label: 'astc 转 png' },
-  { value: 'tool:skel2json', label: 'skel 转 json' },
-  { value: 'tool:spinefix', label: 'spine 文件修复' },
-  { value: 'tool:sk2spine', label: 'Laya .sk 转 Spine' },
-  { value: 'tool:spineconvert', label: 'spine 格式转换' },
-  { value: 'tool:atlas', label: '图片集打包' },
-  { value: 'tool:imageedit', label: '图片编辑' },
-  { value: 'tool:fgui', label: 'FGUI 导出源' },
+  // 工具箱全部工具动态生成(新增工具自动出现在目标页面下拉)
+  ...toolboxToolActions(),
 ];
 
 /** 新建菜单节点(目录或终端) */
@@ -1389,6 +1437,34 @@ function fillResTypeSelect(sel, currentVal, opts = {}) {
   for (const [v, l] of builtins) {
     const op = document.createElement('option'); op.value = v; op.textContent = l; sel.appendChild(op);
   }
+  // 内置标签型资源根(文档资源 等):action='res:article' 实际由 BUILTIN_TAG_ROOTS 提供
+  const tagRoots = BUILTIN_TAG_ROOTS || [];
+  if (tagRoots.length) {
+    const sep = document.createElement('option');
+    sep.disabled = true;
+    sep.textContent = '──────── 内置标签 ────────';
+    sel.appendChild(sep);
+    for (const r of tagRoots) {
+      const op = document.createElement('option');
+      op.value = r.action;
+      op.textContent = r.name;
+      sel.appendChild(op);
+    }
+  }
+  // 内置资源分组(图标/视频/UI/数据)
+  const bgRoots = BUILTIN_GROUP_ROOTS || [];
+  if (bgRoots.length) {
+    const sep = document.createElement('option');
+    sep.disabled = true;
+    sep.textContent = '──────── 内置分组 ────────';
+    sel.appendChild(sep);
+    for (const r of bgRoots) {
+      const op = document.createElement('option');
+      op.value = r.action;
+      op.textContent = r.name;
+      sel.appendChild(op);
+    }
+  }
   const cgs = customTypeGroups();
   if (cgs.length) {
     const sep = document.createElement('option');
@@ -1519,7 +1595,7 @@ function newMenuNodeDialog(parentId = '', nodeType = 'dir') {
     body.appendChild(typeTagsRow);
   }
 
-  // 锁定:禁止删除(右键删除项置灰)
+  // 锁定 + 隐藏:同一行(隐藏 = 左侧菜单树不显示该节点)
   const lockRow = makeRow('锁定');
   const lockCb = document.createElement('input');
   lockCb.type = 'checkbox';
@@ -1530,6 +1606,16 @@ function newMenuNodeDialog(parentId = '', nodeType = 'dir') {
   lockLabel.textContent = ' 锁定(禁止删除)';
   lockRow.appendChild(lockCb);
   lockRow.appendChild(lockLabel);
+  const hideCb = document.createElement('input');
+  hideCb.type = 'checkbox';
+  hideCb.checked = false;
+  const hideLabel = document.createElement('span');
+  hideLabel.style.fontSize = '13px';
+  hideLabel.style.color = 'var(--text2)';
+  hideLabel.style.marginLeft = '16px';
+  hideLabel.textContent = ' 隐藏(侧栏不显示)';
+  lockRow.appendChild(hideCb);
+  lockRow.appendChild(hideLabel);
   body.appendChild(lockRow);
 
   const { close } = openModal({
@@ -1554,13 +1640,14 @@ function newMenuNodeDialog(parentId = '', nodeType = 'dir') {
           }
           addMenuNode({
             name,
-            icon: iconInp.value.trim(),
+            icon: finalizeIcon(iconInp.value),
             parentId,
             nodeType,
             actionType,
             action,
             isResource: resCb.checked,
             locked: lockCb.checked,
+            hidden: hideCb.checked,
             typeTags: typeTagsRow ? [...typeTagsRow.querySelectorAll('input:checked')].map((c) => c.value) : [],
           });
           expandedCats.add(parentId || '');
@@ -1616,7 +1703,7 @@ function editMenuNodeDialog(id) {
   body.appendChild(tipRow);
   body.appendChild(noteRow);
 
-  // 锁定:禁止删除(右键删除项置灰)
+  // 锁定 + 隐藏:同一行(隐藏 = 左侧菜单树不显示该节点,系统设置「菜单和分类管理」仍可见并可取消)
   const lockRow = makeRow('锁定');
   const lockCb = document.createElement('input');
   lockCb.type = 'checkbox';
@@ -1627,6 +1714,16 @@ function editMenuNodeDialog(id) {
   lockLabel.textContent = ' 锁定(禁止删除)';
   lockRow.appendChild(lockCb);
   lockRow.appendChild(lockLabel);
+  const hideCb = document.createElement('input');
+  hideCb.type = 'checkbox';
+  hideCb.checked = !!node.hidden;
+  const hideLabel = document.createElement('span');
+  hideLabel.style.fontSize = '13px';
+  hideLabel.style.color = 'var(--text2)';
+  hideLabel.style.marginLeft = '16px';
+  hideLabel.textContent = ' 隐藏(侧栏不显示)';
+  lockRow.appendChild(hideCb);
+  lockRow.appendChild(hideLabel);
   body.appendChild(lockRow);
 
   let typeSel = null;
@@ -1706,11 +1803,12 @@ function editMenuNodeDialog(id) {
           if (!name) { toast('名称不能为空', 'error'); return; }
             const patch = {
               name,
-              icon: iconInp.value.trim(),
+              icon: finalizeIcon(iconInp.value),
               tooltip: tipInp.value.trim(),
               note: noteInp.value.trim(),
               isResource: resCb.checked,
               locked: lockCb.checked,
+              hidden: hideCb.checked,
             };
           if (isTerm) {
             const isExe = typeSel.value === 'exe';
@@ -1812,7 +1910,7 @@ function enterFguiEditor(binPath) {
 /** 内置工具链接的图标映射(侧栏目录树中显示) */
 const TOOLBOX_TOOL_ICONS = {
   astc2png: '🖼', skel2json: '📦', spinefix: '🛠', sk2spine: '🦴', spineconvert: '🔄',
-  atlas: '🗂', imageedit: '🎨', fgui: '🧩', '__fgui_editor__': '✏️',
+  atlas: '🗂', imageedit: '🎨', fgui: '🧩', '__fgui_editor__': '✏️', todo: '✅',
 };
 /** 侧栏根节点「资源工具箱」的虚拟 id(非数据节点,仅作展开键) */
 const TOOLBOX_ROOT_ID = '__tools__';
@@ -2118,7 +2216,7 @@ function editToolboxFolderDialog(id) {
         text: '确定', cls: 'primary', onClick: () => {
           const name = nameInp.value.trim();
           if (!name) { toast(isTool ? '工具名称不能为空' : '目录名称不能为空', 'error'); return; }
-          updateToolboxFolder(id, { name, icon: iconInp.value.trim() });
+          updateToolboxFolder(id, { name, icon: finalizeIcon(iconInp.value) });
           close();
           renderTree();
           toast(isTool ? '工具已更新' : '目录已更新');
@@ -2642,7 +2740,7 @@ function makeTreeNode({ icon, name, nodeId, active, paddingLeft, hasChildren, is
   arrow.className = 'cat-arrow';
   arrow.textContent = hasChildren ? (isOpen ? '▼' : '▶') : '·';
   node.appendChild(arrow);
-  node.appendChild(iconNode(icon, 'cat-icon'));
+  node.appendChild(treeIconNode(icon, 'cat-icon'));
   const nm = document.createElement('span');
   nm.className = 'cat-name';
   nm.textContent = name;
@@ -3804,7 +3902,7 @@ function renderFavSection(tree, menuNode) {
   arrow.className = 'cat-arrow';
   arrow.textContent = total > 0 ? (isOpen ? '▼' : '▶') : '·';
   node.appendChild(arrow);
-  node.appendChild(iconNode(favIcon, 'cat-icon fav-icon'));
+  node.appendChild(treeIconNode(favIcon, 'cat-icon fav-icon'));
   const name = document.createElement('span');
   name.className = 'cat-name';
   name.textContent = favName;
@@ -3989,10 +4087,21 @@ function renderItemNode(it) {
   row.className = 'item-node' + (preview.currentItemId === it.id ? ' active' : '');
   row.dataset.id = it.id;
 
-  const badge = document.createElement('span');
-  badge.className = 'type-badge ' + it.type;
-  badge.textContent = TYPE_LABEL[it.type] || it.type;
-  row.appendChild(badge);
+  const badgeIcon = typeBadgeIcon(it);
+  if (badgeIcon) {
+    const badge = document.createElement('span');
+    badge.className = 'type-badge ' + it.type;
+    if (isImageIcon(badgeIcon)) {
+      const img = document.createElement('img');
+      img.src = badgeIcon;
+      img.alt = '';
+      img.className = 'type-badge-img';
+      badge.appendChild(img);
+    } else {
+      badge.textContent = badgeIcon;
+    }
+    row.appendChild(badge);
+  }
 
   const nm = document.createElement('span');
   nm.className = 'ic-name';
@@ -4072,6 +4181,9 @@ function renderItemNode(it) {
 
 /** 条目右键菜单;编辑模式多选时 → 批量操作菜单(标签/移动/收藏/删除) */
 async function openItemMenu(x, y, it) {
+  // 当前打开标签页的分类上下文(用于跨类型扩展名按资源组判定属性/编辑标题与类型名)
+  const curTab = mainTabs.find((t) => t.active);
+  const ctxCat = curTab && curTab.params && curTab.params.catId ? categoryById(curTab.params.catId) : null;
   // 编辑模式:右键作用于选中集(右键未选中项 → 先单选它)
   if (editModeActive) {
     if (!editSelected.has(it.id)) {
@@ -4095,7 +4207,7 @@ async function openItemMenu(x, y, it) {
   const items = [
     { label: firstLabel, onClick: () => (hasAtlas ? openAtlasViewer(it) : selectItem(it.id)) },
     { label: '打开目录', onClick: () => window.api.showItem(it.filePath) },
-    { label: '编辑信息', onClick: () => editItemDialog(it.id) },
+    { label: '编辑信息', onClick: () => editItemDialog(it.id, ctxCat) },
     { label: '重命名', onClick: () => renameItemDialog(it) },
     { label: '移动到...', onClick: () => moveItemDialog(it) },
   ];
@@ -4123,7 +4235,7 @@ async function openItemMenu(x, y, it) {
   items.push(
     { label: '收藏', onClick: () => collectTargetDialog([it.id]) },
     { label: '删除', danger: true, onClick: () => deleteItemDialog(it.id) },
-    { label: '属性', onClick: () => itemPropertiesDialog(it) },
+    { label: '属性', onClick: () => itemPropertiesDialog(it, ctxCat) },
   );
   showContextMenu(x, y, items);
 }
@@ -4203,7 +4315,7 @@ function openFavItemMenu(x, y, it) {
   const items = [
     { label: firstLabel, onClick: () => selectItem(it.id) },
     { label: '打开目录', onClick: () => window.api.showItem(it.filePath) },
-    { label: '编辑信息', onClick: () => editItemDialog(it.id) },
+    { label: '编辑信息', onClick: () => editItemDialog(it.id, ctxCat) },
   ];
   // 图片:右键「打开方式」(与列表页一致,基于设置中配置的外部软件)
   if (it.type === 'image' && it.filePath) {
@@ -4303,8 +4415,36 @@ function moveItemDialog(it) {
   });
 }
 
+/** 资源属性对话框标题:按分类上下文的有效资源类型判断(图片资源库的图标类型 → 图片属性) */
+function itemPropsTitle(it, cat) {
+  const eff = itemEffectiveType(it, cat);
+  if (isVideoItem(it)) return '视频属性';
+  if (eff === 'image') return '图片属性';
+  if (eff === 'audio') return '音频属性';
+  if (eff === 'model') return '3D 属性';
+  if (eff === 'fgui') return 'FGUI 属性';
+  if (eff === 'markdown' || eff === 'text' || eff === 'config' || eff === 'web') return '文档属性';
+  if (eff === 'database') return '数据库属性';
+  if (eff === 'spine' || eff === 'dragonbones' || eff === 'anim') return '动画属性';
+  return typeLabel(eff) + ' 属性';
+}
+
+/** 编辑信息对话框标题:按分类上下文的有效资源类型判断(图片资源库的图标类型 → 编辑图片信息) */
+function editItemTitle(it, cat) {
+  const eff = itemEffectiveType(it, cat);
+  if (isVideoItem(it)) return '编辑视频信息';
+  if (eff === 'image') return '编辑图片信息';
+  if (eff === 'audio') return '编辑音频信息';
+  if (eff === 'model') return '编辑 3D 模型信息';
+  if (eff === 'fgui') return '编辑 FGUI 信息';
+  if (eff === 'markdown' || eff === 'text' || eff === 'config' || eff === 'web') return '编辑文档信息';
+  if (eff === 'database') return '编辑数据库信息';
+  if (eff === 'spine' || eff === 'dragonbones' || eff === 'anim') return '编辑动画信息';
+  return '编辑' + typeLabel(eff) + '信息';
+}
+
 /** 资源属性(只读) */
-function itemPropertiesDialog(it) {
+function itemPropertiesDialog(it, cat = null) {
   const fmt = (ts) => (ts ? new Date(ts).toLocaleString() : '');
   const catName = it.categoryId ? (categoryById(it.categoryId)?.name || '未分类') : '未分类';
   const body = document.createElement('div');
@@ -4312,7 +4452,7 @@ function itemPropertiesDialog(it) {
   const tagHtml = itemTags(it).map((t) => `<span class="tag-chip">${esc(t)}</span>`).join(' ');
   const rows = [
     ['名称', it.displayName],
-    ['类型', TYPE_LABEL[it.type] || it.type],
+    ['类型', typeLabel(itemEffectiveType(it, cat))],
     ['所属分类', catName],
     ['文件', it.filePath],
     ['大小', it.size != null ? formatSize(it.size) : '—'],
@@ -4353,7 +4493,7 @@ function itemPropertiesDialog(it) {
     body.insertBefore(sizeRow, sizeLabelRow ? sizeLabelRow.nextSibling : body.firstChild);
     loadImageDimensions(it).then((d) => { sizeSpan.textContent = d || '—'; });
   }
-  const title = it.type === 'image' ? '图片属性' : it.type === 'audio' ? '音频属性' : '动画属性';
+  const title = itemPropsTitle(it, cat);
   openModal({ title, body, foot: footButtons([{ text: '关闭', cls: 'primary', onClick: (btn) => btn.closest('.modal-mask').remove() }]) });
 }
 
@@ -4385,10 +4525,21 @@ function renderFavItemNode(f) {
   row.className = 'item-node' + (it && preview.currentItemId === it.id ? ' active' : '');
   row.dataset.id = f.id;
 
-  const badge = document.createElement('span');
-  badge.className = 'type-badge ' + (it ? it.type : 'spine');
-  badge.textContent = it ? (TYPE_LABEL[it.type] || it.type) : 'DB';
-  row.appendChild(badge);
+  const badgeIcon = it ? typeBadgeIcon(it) : '🎬';
+  if (badgeIcon) {
+    const badge = document.createElement('span');
+    badge.className = 'type-badge ' + (it ? it.type : 'spine');
+    if (it && isImageIcon(badgeIcon)) {
+      const img = document.createElement('img');
+      img.src = badgeIcon;
+      img.alt = '';
+      img.className = 'type-badge-img';
+      badge.appendChild(img);
+    } else {
+      badge.textContent = badgeIcon;
+    }
+    row.appendChild(badge);
+  }
 
   const nm = document.createElement('span');
   nm.className = 'ic-name';
@@ -5193,6 +5344,7 @@ export function renderMainArea() {
     renderFolderPage(document.getElementById('page-folder'), {
       catId: currentCategoryId,
       group,
+      resourceTab: (state.settings && state.settings.resourceTab) || 'all',
       typeFilter: currentTypeFilter,
       viewMode: (state.settings && state.settings.listViewMode) || 'list',
       sortBy: (state.settings && state.settings.listSortBy) || 'name',
@@ -5352,11 +5504,11 @@ function syncTabs() {
   });
 }
 
-/** 品牌名 → 回到统计主页(需求5:主页标签已移除,保留入口) */
+/** 品牌名 → 回到统计主页(首页按钮,主页标签不重复显示) */
 function bindBrandHome() {
   const brand = document.querySelector('.brand');
   if (brand) {
-    brand.title = '回到全部资源首页';
+    brand.title = '回到首页';
     brand.style.cursor = 'pointer';
     brand.addEventListener('click', () => {
       setResourceTab('home');
@@ -5693,10 +5845,12 @@ function showPreviewPage(item) {
   const audioView = document.getElementById('pv-audio-view');
   const fguiView = document.getElementById('pv-fgui-view');
   const videoView = document.getElementById('pv-video-view');
+  const markdownView = document.getElementById('pv-markdown-view');
   if (imgView) imgView.hidden = !(isImageType(item.type));
   if (audioView) audioView.hidden = !(item.type === 'audio');
   if (fguiView) fguiView.hidden = !(item.type === 'fgui');
   if (videoView) videoView.hidden = !isVideoItem(item);
+  if (markdownView) markdownView.hidden = !isMarkdownFile(item);
   // 顶部工具栏的「⇕ 隐藏工具栏」「⛶ 全屏」仅图片预览显示
   const isImage = isImageType(item.type);
   const chromeBtn = document.getElementById('img-chrome');
@@ -5789,6 +5943,12 @@ export async function selectItem(id, opts = {}) {
       await showFguiViewer(item);
     } else if (isVideoItem(item)) {
       await showVideoPlayer(item);
+    } else if (isMarkdownFile(item)) {
+      await showMarkdownViewer(item);
+    } else if (isTextType(item)) {
+      await showTextPreview(item);
+    } else if (item.type === 'database') {
+      await showModelPlaceholder(item); // 数据库文件无内置查看器 → 显示文件信息占位
     }
   } catch (err) {
     console.error('[load]', item.id, err);
@@ -5864,6 +6024,60 @@ async function showVideoPlayer(item) {
     v.onplaying = () => { statusEl.textContent = ''; };
   }
   try { await v.play(); } catch (e) { /* 静音自动播放受限等情况忽略 */ }
+}
+
+/** 文本类内置类型(text/config/web 打开 → 文本预览;markdown 走 Markdown 编辑器) */
+const TEXT_PREVIEW_TYPES = new Set(['text', 'config', 'web']);
+function isTextType(item) {
+  return !!(item && TEXT_PREVIEW_TYPES.has(item.type));
+}
+
+/** 是否为 Markdown 文件(.md/.markdown,按扩展名判定——「文档资源」分组条目 type 可能是自定义分组 id) */
+function isMarkdownFile(item) {
+  if (!item || !item.filePath) return false;
+  const s = String(item.filePath).toLowerCase();
+  return s.endsWith('.md') || s.endsWith('.markdown');
+}
+
+/** Markdown 打开 → 查看/编辑(分栏编辑 + markdown-it 渲染预览,可保存回写原文件) */
+async function showMarkdownViewer(item) {
+  showPreviewPage(item);
+  const errEl = document.getElementById('pv-error');
+  if (errEl) errEl.hidden = true;
+  if (!markdownEditor) return;
+  try {
+    await markdownEditor.load(item.filePath);
+  } catch (e) {
+    const er = document.getElementById('pv-error');
+    if (er) { er.hidden = false; er.textContent = 'Markdown 加载失败: ' + (e.message || e); }
+  }
+}
+
+/** 文本类资源预览:读文件内容(base64 → UTF-8)显示在预览区 */
+async function showTextPreview(item) {
+  showPreviewPage(item);
+  const errEl = document.getElementById('pv-error');
+  if (errEl) errEl.hidden = false;
+  try {
+    const r = await window.api.readBase64(item.filePath);
+    if (!r || !r.ok) throw new Error((r && r.error) || '读取失败');
+    const b64 = String(r.dataUrl || '').split(',')[1] || '';
+    const bin = atob(b64);
+    const buf = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+    const text = new TextDecoder('utf-8').decode(buf);
+    if (errEl) {
+      errEl.style.justifyContent = 'flex-start';
+      errEl.style.overflow = 'auto';
+      errEl.innerHTML = `<pre class="text-preview">${esc(text)}</pre>`;
+    }
+  } catch (err) {
+    if (errEl) {
+      errEl.style.justifyContent = 'center';
+      errEl.style.overflow = 'auto';
+      errEl.innerHTML = '<div class="hint">文本加载失败: ' + esc(err.message || err) + '</div>';
+    }
+  }
 }
 
 /** 3D 模型预览占位(暂未内置 3D 渲染器,显示文件信息) */
@@ -6925,7 +7139,127 @@ function createTagEditor(initialTags = [], onChange) {
   };
 }
 
-function editItemDialog(id) {
+/** 视频元信息编辑 section:海报图(本地图片绝对路径)+ 评分/简介/导演/演员/年份(commit 返回 meta 对象,null 表示空) */
+function renderVideoMetaSection(it) {
+  const meta = (it.meta && typeof it.meta === 'object') ? { ...it.meta } : {};
+  const el = document.createElement('div');
+  el.className = 'form-section video-meta-section';
+  el.innerHTML = '<div class="f-section-title">🎬 元信息(海报图/简介)</div>';
+
+  // 海报图行:左预览(2:3) + 右选择/清除按钮
+  const posterRow = document.createElement('div');
+  posterRow.className = 'form-row video-poster-row';
+  const posterLabel = document.createElement('label');
+  posterLabel.className = 'f-label';
+  posterLabel.textContent = '海报图';
+  posterRow.appendChild(posterLabel);
+  const posterBox = document.createElement('div');
+  posterBox.className = 'video-poster-box';
+  const posterImg = document.createElement('img');
+  posterImg.className = 'video-poster-img';
+  posterImg.alt = '海报图';
+  posterBox.appendChild(posterImg);
+  const posterHint = document.createElement('div');
+  posterHint.className = 'video-poster-hint';
+  posterHint.textContent = '未设置';
+  posterBox.appendChild(posterHint);
+  const posterBtns = document.createElement('div');
+  posterBtns.className = 'video-poster-btns';
+  const pickBtn = document.createElement('button');
+  pickBtn.type = 'button'; pickBtn.className = 'btn sm'; pickBtn.textContent = '选择图片';
+  const clearBtn = document.createElement('button');
+  clearBtn.type = 'button'; clearBtn.className = 'btn sm'; clearBtn.textContent = '清除';
+  posterBtns.appendChild(pickBtn); posterBtns.appendChild(clearBtn);
+  posterBox.appendChild(posterBtns);
+  posterRow.appendChild(posterBox);
+  el.appendChild(posterRow);
+
+  const refreshPoster = async () => {
+    const p = meta.poster;
+    if (!p) {
+      posterImg.removeAttribute('src');
+      posterImg.style.display = 'none';
+      posterHint.style.display = '';
+      return;
+    }
+    try {
+      const r = await window.api.readBase64(p);
+      if (r && r.ok && r.dataUrl) {
+        posterImg.src = r.dataUrl;
+        posterImg.style.display = '';
+        posterHint.style.display = 'none';
+      } else {
+        posterImg.removeAttribute('src');
+        posterImg.style.display = 'none';
+        posterHint.style.display = '';
+      }
+    } catch (e) {
+      posterImg.removeAttribute('src'); posterImg.style.display = 'none'; posterHint.style.display = '';
+    }
+  };
+  refreshPoster();
+
+  pickBtn.addEventListener('click', async () => {
+    try {
+      const r = await window.api.pickFiles({
+        title: '选择海报图(.jpg/.png/.webp)',
+        directory: false,
+        filters: [{ name: '图片', extensions: ['jpg', 'jpeg', 'png', 'webp'] }],
+      });
+      if (!r || r.canceled || !r.filePaths || !r.filePaths[0]) return;
+      meta.poster = r.filePaths[0];
+      await refreshPoster();
+    } catch (e) {
+      toast('选择图片失败: ' + e.message, 'error');
+    }
+  });
+  clearBtn.addEventListener('click', () => { meta.poster = ''; refreshPoster(); });
+
+  // 评分/简介/导演/演员/年份 输入行
+  const mkInput = (label, key, placeholder, type = 'text') => {
+    const row = document.createElement('div');
+    row.className = 'form-row';
+    row.innerHTML = '<label class="f-label">' + label + '</label>';
+    const inp = document.createElement('input');
+    inp.type = type;
+    if (placeholder) inp.placeholder = placeholder;
+    inp.value = meta[key] != null ? String(meta[key]) : '';
+    row.appendChild(inp);
+    el.appendChild(row);
+    return inp;
+  };
+  const ratingInput = mkInput('评分(0-10)', 'rating', '如 9.6', 'number');
+  ratingInput.min = '0'; ratingInput.max = '10'; ratingInput.step = '0.1';
+  const yearInput = mkInput('年份', 'year', '如 2024', 'number');
+  yearInput.min = '1900'; yearInput.max = '2999'; yearInput.step = '1';
+  const directorInput = mkInput('导演/作者', 'director', '选填');
+  const castInput = mkInput('演员/主演(逗号分隔)', 'cast', '选填');
+  const introRow = document.createElement('div');
+  introRow.className = 'form-row';
+  introRow.innerHTML = '<label class="f-label">简介</label>';
+  const introInput = document.createElement('textarea');
+  introInput.placeholder = '一句话简介(用于卡片副标题/搜索)';
+  introInput.value = meta.intro || '';
+  introRow.appendChild(introInput);
+  el.appendChild(introRow);
+
+  return {
+    el,
+    commit() {
+      const out = { ...meta };
+      const num = (v) => { const n = Number(v); return v !== '' && !Number.isNaN(n) ? n : undefined; };
+      const r = num(ratingInput.value); if (r != null) out.rating = r; else delete out.rating;
+      const y = num(yearInput.value); if (y != null) out.year = y; else delete out.year;
+      if (directorInput.value.trim()) out.director = directorInput.value.trim(); else delete out.director;
+      if (castInput.value.trim()) out.cast = castInput.value.trim(); else delete out.cast;
+      if (introInput.value.trim()) out.intro = introInput.value.trim(); else delete out.intro;
+      if (!out.poster) delete out.poster;
+      return Object.keys(out).length ? out : null;
+    },
+  };
+}
+
+function editItemDialog(id, cat = null) {
   const it = itemById(id);
   if (!it) return;
   const body = document.createElement('div');
@@ -6940,11 +7274,11 @@ function editItemDialog(id) {
   nameRow.appendChild(nameInput);
   body.appendChild(nameRow);
 
-  // 文件名(仅图片类型:修改磁盘文件名,扩展名保持不变)
+  // 文件名(图片类类型:修改磁盘文件名,扩展名保持不变)
   let fileBase = null, fileExt = '', fileDir = '';
   // ⚠ 必须在函数作用域声明(而非 if 块内 const):保存 handler 在块外引用 fileInput
   let fileInput = null, fileWrap = null, extSpan = null;
-  if (it.type === 'image' && it.filePath) {
+  if (isImageType(it.type) && it.filePath) {
     const nm = it.filePath.split(/[\\/]/).pop();
     const dot = nm.lastIndexOf('.');
     fileExt = dot > 0 ? nm.slice(dot) : '';
@@ -7001,13 +7335,20 @@ function editItemDialog(id) {
   tagRow.appendChild(tagEditor.el);
   body.appendChild(tagRow);
 
+  // 视频元信息(仅视频条目):海报图 + 评分/简介/导演/演员/年份(JSON 存 item.meta)
+  let metaSection = null;
+  if (isVideoItem(it)) {
+    metaSection = renderVideoMetaSection(it);
+    body.appendChild(metaSection.el);
+  }
+
   const pathRow = document.createElement('div');
   pathRow.className = 'form-row';
   pathRow.innerHTML = '<label class="f-label">文件</label>';
-  pathRow.appendChild(makeCopyablePath(`${TYPE_LABEL[it.type] || it.type} · ${it.filePath}`, { mono: true, wrap: true }));
+  pathRow.appendChild(makeCopyablePath(`${typeLabel(itemEffectiveType(it, cat))} · ${it.filePath}`, { mono: true, wrap: true }));
   body.appendChild(pathRow);
 
-  const title = it.type === 'image' ? '编辑图片' : it.type === 'audio' ? '编辑音频' : '编辑动画';
+  const title = editItemTitle(it, cat);
   const { close } = openModal({
     title,
     body,
@@ -7040,13 +7381,15 @@ function editItemDialog(id) {
             }
           }
           const moved = catSelect.value !== it.categoryId;
-          updateItem(id, {
+          const patch = {
             displayName: nameInput.value.trim(),
             remark: remarkInput.value.trim(),
             tags: tagEditor.commit(), // 提交未确认输入(不依赖 blur 时序)
             categoryId: catSelect.value,
             filePath: newFilePath,
-          });
+          };
+          if (metaSection) patch.meta = metaSection.commit();
+          updateItem(id, patch);
           thumbnailService.invalidate(id); // 编辑后失效缩略图缓存(重新生成)
           close();
           renderCategories();
@@ -7485,12 +7828,114 @@ export function updatePlaybackUI() {
 
 // ---- 顶栏搜索历史(localStorage 持久化, 见 searchHistory.js) ----
 
+/** 系统登记过的可添加文件扩展名(内置类型 + 自定义类型/分组,去点去重) */
+function registeredAddExts() {
+  const set = new Set();
+  for (const def of Object.values(BUILTIN_TYPE_DEFS)) (def.exts || []).forEach((e) => set.add(String(e).replace(/^\./, '').toLowerCase()));
+  for (const ct of customTypes()) (ct.exts || []).forEach((e) => set.add(String(e).replace(/^\./, '').toLowerCase()));
+  for (const cg of customTypeGroups()) (cg.exts || []).forEach((e) => set.add(String(e).replace(/^\./, '').toLowerCase()));
+  return [...set].filter(Boolean).sort();
+}
+
+/** 顶栏「+ 添加资源」统一入口:单个文件 / 多个文件 / 整个目录;文件类型默认系统登记,可选任意 */
+function addResourceDialog(defaultCategoryId) {
+  const body = document.createElement('div');
+  body.className = 'modal-body';
+  const makeRow = (label) => {
+    const row = document.createElement('div');
+    row.className = 'form-row';
+    const lb = document.createElement('label');
+    lb.className = 'f-label';
+    lb.textContent = label;
+    row.appendChild(lb);
+    return row;
+  };
+  // 添加方式
+  const modeRow = makeRow('添加方式');
+  const modeSel = document.createElement('select');
+  [['file-one', '单个文件'], ['file-multi', '多个文件'], ['dir', '整个目录(扫描)']].forEach(([v, l]) => {
+    const o = document.createElement('option');
+    o.value = v; o.textContent = l; modeSel.appendChild(o);
+  });
+  modeRow.appendChild(modeSel);
+  // 文件类型筛选(默认系统登记类型;可选全部文件)
+  const filterRow = makeRow('文件类型');
+  const filterSel = document.createElement('select');
+  const exts = registeredAddExts();
+  const optRegistered = document.createElement('option');
+  optRegistered.value = 'registered';
+  optRegistered.textContent = `系统登记类型(${exts.length} 种)`;
+  filterSel.appendChild(optRegistered);
+  const optAll = document.createElement('option');
+  optAll.value = 'all';
+  optAll.textContent = '全部文件(*.*)';
+  filterSel.appendChild(optAll);
+  filterRow.appendChild(filterSel);
+  // 加入分类
+  const catRow = makeRow('加入分类');
+  const catSelect = document.createElement('select');
+  const hasDefaultCat = !!defaultCategoryId && state.categories.some((c) => c.id === defaultCategoryId);
+  if (!hasDefaultCat) {
+    const ph = document.createElement('option');
+    ph.value = '';
+    ph.textContent = '—— 请选择分类目录 ——';
+    catSelect.appendChild(ph);
+  }
+  for (const c of state.categories) {
+    const op = document.createElement('option');
+    op.value = c.id; op.textContent = c.name; catSelect.appendChild(op);
+  }
+  catSelect.value = hasDefaultCat ? defaultCategoryId : '';
+  catRow.appendChild(catSelect);
+  const hint = document.createElement('div');
+  hint.className = 'form-hint';
+  hint.textContent = '「单个/多个文件」选中后直接添加(重复自动跳过);「整个目录」会扫描目录内资源,弹窗逐项确认。';
+  body.appendChild(modeRow);
+  body.appendChild(filterRow);
+  body.appendChild(catRow);
+  body.appendChild(hint);
+
+  const { close } = openModal({
+    title: '添加资源',
+    body,
+    foot: footButtons([
+      { text: '取消', cls: '', onClick: () => close() },
+      {
+        text: '选择并添加',
+        cls: 'primary',
+        onClick: async (btn) => {
+          const catId = catSelect.value;
+          if (!catId) { toast('请先选择分类目录', 'error'); return; }
+          const mode = modeSel.value;
+          const filters = filterSel.value === 'registered'
+            ? [{ name: '资源文件', extensions: exts }]
+            : [{ name: '所有文件', extensions: ['*'] }];
+          btn.disabled = true;
+          try {
+            if (mode === 'dir') {
+              close();
+              runAddFlow(true, catId); // 目录扫描:沿用批量添加的勾选确认界面
+              return;
+            }
+            const opts = { filters, multiSelections: mode === 'file-multi' };
+            const { canceled, filePaths } = await window.api.pickFiles(opts);
+            if (canceled || !filePaths.length) { btn.disabled = false; return; }
+            const added = await addPathsToCategory(filePaths, catId);
+            close();
+            if (!added) toast('未添加新资源(无可识别文件或均已存在)', 'error');
+          } catch (err) {
+            btn.disabled = false;
+            toast('添加失败: ' + ((err && err.message) || err), 'error');
+          }
+        },
+      },
+    ]),
+  });
+}
+
 function bindToolbar() {
   const btnAdd = document.getElementById('btn-add');
-  btnAdd.addEventListener('click', () => runAddFlow(false, currentCategoryId === 'all' || currentCategoryId === '' ? '' : currentCategoryId));
-
-  const btnBatch = document.getElementById('btn-add-batch');
-  btnBatch.addEventListener('click', () => runAddFlow(true, currentCategoryId === 'all' || currentCategoryId === '' ? '' : currentCategoryId));
+  btnAdd.addEventListener('click', () => addResourceDialog(currentCategoryId === 'all' || currentCategoryId === '' ? '' : currentCategoryId));
 
   // 系统设置
   const btnSettings = document.getElementById('btn-settings');

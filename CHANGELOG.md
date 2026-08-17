@@ -3,9 +3,696 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.0.51`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.0`）。
 
 ---
+
+## 2026-08-17
+
+### [新增] 发布 v2.2.0：得乐学苑（原小学生成长闯关台）更名 + 配色全面优化 + 跟随项目模式兜底
+
+- **需求**(用户:①将「小学生成长闯关台」改名为「得乐学苑」;②UI 设计师全面审查并修复界面配色——深色模式下蓝底灰字按钮、灰底白线条图标看不清,亮色模式下蓝底深字按钮不合理;③「跟随项目」模式在独立/预览环境应跟随系统深浅色显示)。
+- **改名**(`src/pages/kidWorkspacePage.js` + `src/pages/toolboxPage.js` + `src/state.js` + `src/ui.js` + `src/pages/settingsPage.js` + `scripts/*`):
+  - 全模块显示名统一为「得乐学苑」:页面标题/工具箱入口卡/侧栏树节点/Tab 标签/设置页工具清单/备份文件名(得乐学苑备份-日期.json)/冒烟断言/预览标题;技术标识符(kidworkspace toolId、kid-wb 类、kidWorkspacePage.js 文件名)保持不变;
+  - `seedToolboxFolders` 增加老库节点改名迁移:已有 `toolId=kidworkspace` 且名称为旧名的节点自动更新为「得乐学苑」,老用户侧栏升级后同步;
+- **配色全面优化**(`src/pages/kidWorkspacePage.js`):
+  - 根因①:主题覆盖段「次文字」规则无 `:not` 排除,把 primary/gold/green/red 主按钮与 Tab 激活态的白色文字覆盖成灰/深色;修复:强制白字(+文字阴影),gold 改深棕字;
+  - 根因②:分类图标白线条(fill/stroke #fff)在浅色分类底上对比度仅 1.06;修复:CATS 增加 deep 深色变体,图标线条按分类着色(浅底对比 4.73~6.48,达 AA);
+  - 主按钮底加深(primary 渐变混合黑、green #15803d、candy/space 主题单独加深),默认按钮改次级亮底+主文字(深色对比 11.23),锁定头像/等级徽章可读性优化;WCAG 实测关键组合;
+  - 根因③:「跟随项目」变量无兜底,独立环境(预览页)下 var(--accent) 等不存在 → 渐变全部失效 → 按钮透明底+白字;修复:theme-project 全部变量加 `var(--x, 深色兜底)`,并 `@media (prefers-color-scheme: light)` 覆盖浅色兜底(应用内取应用变量不受影响;独立环境真正跟随系统深浅),预览模板声明 `color-scheme: light dark`;实测:预览页 project 模式正确显示深色背景+蓝底白字按钮;
+- **验证**:`npm run build` 通过;冒烟 `scripts/kid-wb-smoke-main.js` 37/37 全过(含改名断言、主题切换、等级徽章、进度环)。
+- 发布:版本 2.1.9 → 2.2.0;产物 `release/游戏资源管理器-v2.2.0-便携版.zip`（data/ 已排除）;已推送 gitee + github。
+
+## 2026-08-17
+
+### [新增] 发布 v2.1.9：小学生成长闯关台 UI 全面升级（设计系统 + 糖果乐园/星际探险主题）
+
+- **需求**(用户:UI 设计师为「小学生成长闯关台」重新设计用户界面,要求美观易用、与本项目主题配色配套,优化深/浅色模式,并按审美增加别的主题模式)。
+- **设计方向**:儿童成长乐园(目标用户 10 岁男孩+家长)——俏皮但有酷感,游戏化激励,避免通用 AI 审美;差异化记忆点:数字人成长舞台 + 今日完成率进度仪表盘。
+- **实现**(`src/pages/kidWorkspacePage.js` + `scripts/kid-wb-smoke-main.js`):
+  - **设计 Token 体系**:圆角 10/14/18/22/pill、阴影 3 级(ks-1/2/3)、进度环底色、强调光晕(--kglow),全部 CSS 变量化;
+  - **新增 2 套主题皮肤**:
+    - 🍬 **糖果乐园**(theme-candy):柔和粉彩马卡龙(蜜桃粉底/奶白卡/粉紫强调/葡萄紫文字);
+    - 🚀 **星际探险**(theme-space):深蓝星空霓虹(深空蓝底 + radial-gradient 手绘星点、电光蓝→紫强调、霓虹青点缀)——满足男孩"酷"感;
+    - 与原 跟随项目/儿童亮色/深色 共 **5 档**,设置抽屉可选,localStorage 记忆;
+  - **组件精修**:品牌 Logo 光晕、顶栏新增**等级徽章胶囊**(★ Lv.N,随等级变色);「今天要处理」头部新增 **SVG 完成率进度环**(stroke-dasharray 动画,百分比实时);Tab 胶囊化 + 激活光效;任务卡顶部**分类渐变条**(accent 渐变,完成=绿/逾期=红)+ 悬停上浮;按钮统一质感(渐变+微光+按压缩放);钱包图标圆形徽章化;数字人舞台主题光晕背景;商城/奖章/弹窗圆角体系化;徽章 chip 全胶囊化;
+  - **可访问性**:`:focus-visible` 焦点环;`prefers-reduced-motion` 一键关闭动效;深浅主题对比度按 WCAG 优化(深色弱文字提亮);
+  - **冒烟**:`scripts/kid-wb-smoke-main.js` 扩展 5 项断言(糖果乐园 class / 星际探险 class / 星空背景 radial-gradient / 等级徽章胶囊 / 今日进度环),38/38 全过。
+- 发布:版本 2.1.8 → 2.1.9;`npm run build` 通过;产物 `release/游戏资源管理器-v2.1.9-便携版.zip`（data/ 已排除）。
+
+## 2026-08-17
+
+### [新增] 发布 v2.1.8：小学生成长闯关台支持主题模式（深色 / 儿童亮色 / 跟随项目）
+
+- **需求**(用户:小学生成长闯关台要有主题模式,深色、浅色等模式和本项目保持一致)。
+- **实现**(`src/pages/kidWorkspacePage.js` + `scripts/kid-wb-smoke-main.js`):
+  - **三档主题模式**:设置抽屉新增「主题模式」下拉——「跟随项目」(默认,映射应用 `--bg/--bg2/--bg3/--bg4/--border/--text/--text2/--accent` 变量,随应用深色/浅色/自定义/系统主题自动同步)/「儿童亮色」(原固定明亮配色)/「深色」(固定暗色);选择即时生效并 localStorage(`wb_kid_state_v1.themeMode`)记忆,旧数据无字段默认「跟随项目」;
+  - **样式变量化**:CSS 常量追加主题覆盖段,引入 `--kbg/--kcard/--kcard2/--kcard3/--kborder/--kborder2/--ktext/--ktext2/--ktext3/--kaccent` 中性色变量体系,基础样式全部中性硬编码色(背景/边框/文字)批量替换为 `var(--k*)`;语义色(分类色/金币金/钻石青/成功绿/警告红/badge 彩色 chip/黄色便签条)保留——深浅主题下均可读;
+  - **特殊态保留**:逾期红边(.carry/.overdue)、完成绿边(.done)、进行中蓝边(.started)、金色奖章(.medal.got)等状态色不受主题覆盖影响(:not 排除);
+  - 渲染时 `.kid-wb` 加 `theme-project|theme-light|theme-dark` class,切换即整页换肤(弹窗/抽屉/数字人/头像/商城/奖章墙全跟随);
+  - **冒烟**:`scripts/kid-wb-smoke-main.js` 新增 3 项断言(设置抽屉切深色 → `.kid-wb.theme-dark`;切回跟随项目 → `.kid-wb.theme-project`;抽屉可关闭),32/32 全过。
+- 发布:版本 2.1.7 → 2.1.8;`npm run build` 通过;产物 `release/游戏资源管理器-v2.1.8-便携版.zip`（data/ 已排除）。
+
+## 2026-08-17
+
+### [优化] 发布 v2.1.7：菜单终端节点「目标页面」下拉动态覆盖全部工具箱工具
+
+- **需求**(用户:在资源工具箱中增加的功能模块都要能在菜单终端节点的「目标页面」下拉里选到)。
+- **实现**(`src/pages/toolboxPage.js` + `src/ui.js` + `src/pages/settingsPage.js`):
+  - `toolboxPage.js` 工具表 `TOOLS` 提升为模块级常量,并导出 `toolboxToolActions()`(遍历 TOOLS 生成 `tool:xxx` 动作选项);
+  - `ui.js` 与 `settingsPage.js` 两处 `MENU_ACTION_OPTIONS` 的工具段改为 `...toolboxToolActions()` 动态展开——此前静态列表漏了 v2.1.3 新增的「小学生成长闯关台」(tool:kidworkspace),且将来新增工具若忘登记又会漏;
+  - 设置页「系统页面结构」工具清单同步补 `tool:kidworkspace`;
+  - **验证**:启动应用打开「新建终端」对话框实测,「目标页面」下拉共 29 项,含 小学生成长闯关台 / Todo-List 任务管理 / Markdown 文档(hasKid/hasTodo/hasMarkdown 全 true);冒烟 59/59 无回归。
+- 发布:版本 2.1.6 → 2.1.7;`npm run build` 通过;产物 `release/游戏资源管理器-v2.1.7-便携版.zip`（data/ 已排除）。
+
+## 2026-08-17
+
+### [修复] 发布 v2.1.6：Todo-List 事件弹窗类型/历法高亮残留（无法切农历、待办按钮常亮）
+
+- **需求**(用户:新建生日提醒时无法切换到农历模式;类型切换时待办事件按钮一直高亮)。
+- **根因**(`src/pages/todoPage.js` renderEventModal):类型/历法按钮选中态只 `classList.toggle('on')`,但选中样式是**初始 innerHTML 内联 style**(border-color/color/background)写的——切走时 class 移除但内联边框残留,导致「待办事件」按钮看起来常亮、点「农历」视觉上切不过去(实际值已变但无反馈)。
+- **修复**:新增 `paintTypeBtns()` / `paintCalBtns()` 统一管理高亮(class + 内联样式同步刷新,选中项写色值、非选中清空),类型/历法点击后重绘;非生日类型强制公历;打开弹窗时先 paint 一遍保证初始一致。
+- **验证**(`scripts/todo-smoke-main.js`):新增 4 项断言(默认待办高亮/切生日后待办 class+边框都清除/历法行出现且切农历高亮/事件落库),59/59 全过。
+- 发布:版本 2.1.5 → 2.1.6;`npm run build` 通过;产物 `release/游戏资源管理器-v2.1.6-便携版.zip`（data/ 已排除）。
+
+## 2026-08-17
+
+### [新增] 发布 v2.1.5：Todo-List 生日事件分公历/农历 + 每年提醒 + 头部事件提醒文字
+
+- **需求**(用户:生日提醒要分公历生日和农历生日,生日是每年都提醒;在标题下面的完成统计后面加事件提醒文字,鼠标悬停弹出详细提示信息——今日待办事项、今日 N 人生日、3 日内 N 人生日)。
+- **实现**(`src/calendarLunar.js` + `electron/db.js` + `src/state.js` + `src/pages/todoPage.js` + `src/style.css` + `scripts/todo-smoke-main.js`):
+  - **农历生日换算** `calendarLunar.js` 新增 `lunarMonthDayToSolar(year, month, day)`:农历月日 → 当年公历日期(遍历+缓存)。核对:2026 七夕 7-7→8/19、端午 5-5→6/19、中秋 8-15→9/25、2027 春节→2/6;
+  - **公历/农历生日**:事件新增 `calendar` 字段(solar/lunar,SQLite `todo_events` 表加列+旧库 ALTER 迁移),事件弹窗选「生日」时显示「公历/农历」切换;事件 chip 悬停标注(公历)/(农历);
+  - **每年提醒**:`eventRemindDate()` 计算生日今年提醒日期(公历=今年同月日;农历=换算到今年),日历事件按「今年提醒日期」归组显示(农历生日自动出现在换算后的格子);
+  - **头部提醒文字**:完成统计(已完成 x/y)后追加橙色提醒「今日待办 N 项，今日 N 人生日，3 日内 N 人生日」,悬停 title 弹出详细清单(☐ 任务标题 / 🎂 姓名(8月19日)(农历));「3 日内」= 明天起 3 天;提醒全量接入中英文 i18n;
+  - 冒烟扩展 2 项断言(提醒文字三段 + 悬停详情含公历/农历生日且农历标注),56/56 全过。
+- 发布:版本 2.1.4 → 2.1.5;`npm run build` 通过;产物 `release/游戏资源管理器-v2.1.5-便携版.zip`（data/ 已排除）。
+
+## 2026-08-17
+
+### [新增] 发布 v2.1.4：Todo-List 日历增加农历 / 24节气 / 节假日 + 单元格右键新建事件（生日/纪念日/待办事件/重要事件）
+
+- **需求**(用户:任务日历要有农历日期和 24 节气、节假日;单元格要能直接右键添加事件提示——生日、纪念日、待办事件、重要事件记录)。
+- **实现**(`src/calendarLunar.js`(新) + `electron/db.js` + `src/state.js` + `src/pages/todoPage.js` + `src/style.css` + `scripts/todo-smoke-main.js`):
+  - **农历/节气工具** `src/calendarLunar.js`:1900-2100 农历年数据表(压缩位运算)+ 公历转农历算法;24 节气 sTermInfo 世纪参数法(近似定气);节假日内置规则(公历固定节日:元旦/劳动节/国庆节/圣诞节等 + 农历节日:春节/元宵/端午/七夕/中秋/重阳/腊八等 + 清明节气节日)。已知日期核对全过(2026 春节 2/17、中秋 9/25、端午 6/19、清明 4/5、惊蛰 3/5、冬至 12/22);
+  - **日历单元格增强**:日期号 + 农历小字(「七月初五」完整格式,闰月带「闰」)+ 节气/节日红字(节假日优先)+ 事件 chips + 任务 chips;农历计算带 Map 缓存;
+  - **日历事件**:数据层 SQLite 新增 `todo_events` 表(date/type/title/note),state.todoEvents 随 saveState 落盘;
+  - **右键新建事件**:单元格右键 → 「新建事件…」→ 事件弹窗(日期默认该格、类型 生日🎂/纪念日💍/待办事件📝/重要事件⭐ 四选一、标题、备注);事件 chip 按类型着色显示,点击查看/编辑,右键可删除;弹窗含删除按钮(编辑态);全部文案接入中英文 i18n;
+  - 冒烟扩展 7 项断言(今天格子农历文本/右键菜单/新建事件弹窗/事件 chip 出现/点击打开编辑回显/弹窗关闭/事件落库 type+date 格式),54/54 全过。
+- 发布:版本 2.1.3 → 2.1.4;`npm run build` 通过;产物 `release/游戏资源管理器-v2.1.4-便携版.zip`（data/ 已排除）。
+
+## 2026-08-17
+
+### [新增] 发布 v2.1.3：小学生每日成长闯关台（工具箱新模块，为 10 岁四年级男孩定制）
+
+- **需求**(用户:为 10 岁的四年级小学生男孩做一个每日身体锻炼、背诵、听写|默写|书法(中文|英文)、数学口算|习题练习的工作台,含学习计划制订、闯关积分奖励(金币/钻石/皇冠/道具/奖章)、等级称号晋级、个人头像与数字人形象随升级进化,并作为功能模块集成到本项目)。
+- **实现**(`src/pages/kidWorkspacePage.js`(新) + `src/pages/toolboxPage.js` + `src/state.js` + `src/ui.js` + `scripts/kid-wb-smoke-main.js`(新)):
+  - **模块定位**:工具箱新增「小学生成长闯关台」工具(toolId `kidworkspace`),侧栏树 `seedToolboxFolders` 老库自动补种;应用型工具自带头部,跳过通用标题区;
+  - **今日闯关**:身体锻炼/背诵/听写·默写·书法/数学口算·习题 四类任务卡片,「开始闯关 → 闯关成功 → 家长验收打星(1-3⭐)」,完成发放金币+经验(星级加成),支持自定义任务/移除/重来,家长模式可撤销;
+  - **学习计划**:周一~周日 7 天周计划制订(增删任务项),可套用「四科均衡」模板/清空/停用开关;今日任务自动按计划生成,开启计划时即时补齐;
+  - **成长奖励**:金币/钻石/皇冠/奖章 四宫格钱包;12 级等级称号(萌芽新芽→无敌学霸王) + 经验进度条;手绘 SVG 数字人随等级进化(帽子3级/眼镜披风5级/皇冠7级/星光9级/光环10级/钻石王冠11级);8 个内置头像(2 个按等级解锁);道具商城(金币/钻石道具,家长可自定义增删);11 枚成就奖章墙;兑换记录;
+  - **奖励经济**:基础 +10 金币/经验(设置可调 ×1/×1.5/×2),连胜 3/7/14/30 天送钻石+奖章,一周计划全勤送皇冠,全能四连奖章;
+  - **「今天要处理」置顶**:逾期项标红+逾期天数+一键处理跳转,昨天没完成的自动顺延到今天(不凭空消失),数据累计 30 条温和提示备份;
+  - **数据安全**:localStorage(`wb_kid_state_v1`)持久化,顶栏「⬇导出/⬆导入」JSON 备份(兼容纯浏览器 Blob 下载,Electron 走系统对话框),清空示例/清空全部二次确认;家长模式 4 位密码(首次进入设置);
+  - **规范**:样式内联注入(`kid-` 前缀,固定明亮儿童配色,不随应用暗色主题),全部图标/数字人/头像/撒花动画手写 SVG 零外部依赖,PC 网格 + 移动端单列适配(按钮≥44px、输入框≥16px、safe-area);
+  - **示例数据**:首次打开预置 4 条今日任务(其中 1 条昨天未完成自动顺延标红)+ 90 金币/20 经验体验值 + 7 天均衡计划模板;
+  - **冒烟**:`scripts/kid-wb-smoke-main.js` 隔离 userData 运行,28 项断言(进入工具/示例任务/逾期标红/开始闯关/星级弹窗/奖励发放/成长奖励四区/商城兑换扣币/计划 7 天/家长密码/撤销/导出/localStorage 持久化)全过。
+- 发布:版本 2.1.2 → 2.1.3;`npm run build` 通过;产物 `release/游戏资源管理器-v2.1.3-便携版.zip`（data/ 已排除）。
+
+## 2026-08-17
+
+### [新增] 发布 v2.1.2：Todo-List 新增日历视图（移植自 Taskwingo）
+
+- **需求**(用户:将原项目 taskwingo 的日历功能添加到 Todo-List 任务管理模块)。
+- **实现**(`src/pages/todoPage.js` + `src/style.css` + `scripts/todo-smoke-main.js`):
+  - 视图切换新增「📅 日历」(列表/看板/日历三态,localStorage 记忆);
+  - 月历网格(周一开头):导航头 ← 月份标题 →(上/下月,仅重绘内容区)、星期表头(周一~周日/ Mon-Sun 随语言)、6 行 × 7 列格子;
+  - 每天格子:日期号(今天高亮)、最多 3 个有截止日期的任务 chip(按优先级着色,悬停高亮)、"+N 更多";非当月日期淡化;
+  - 点击任务 chip → 打开任务详情面板;日历不过滤,展示全部有截止日期的活跃任务;
+  - 进入模块时日历重置当月;月份标题与星期/更多文案全部接入中英文 i18n;
+  - 冒烟新增日历 8 项断言(网格/单元格=42/chip 命中今天/月份标题/chip 开详情/详情关闭/下月导航/切回列表),47/47 全过。
+- 发布:版本 2.1.1 → 2.1.2;`npm run build` 通过;产物 `release/游戏资源管理器-v2.1.2-便携版.zip`（data/ 已排除）。
+
+## 2026-08-17
+
+### [新增] 发布 v2.1.1：侧栏菜单节点图标支持最多 4 个叠加（2 个竖排/3-4 个两列网格）
+
+- **需求**(用户:左侧菜单树栏的菜单节点前的图标，修改添加图标时允许最多添加 4 个图标;2 个按现在的竖直摆放;3-4 个第 3、4 个放到第 2 列)。
+- **实现**(`src/dialogs.js` + `src/style.css` + `src/ui.js` + `src/pages/settingsPage.js` + `scripts/menu-icon-smoke-main.js`):
+  - **图标选择面板多选**(`openEmojiPicker`):emoji 点选切换集合(以输入框当前字素为初值),底部「已选 n/4 + 清空 + 确定」粘性条;图片(dataURL)图标单击立即替换并关闭(图片与 emoji 不能混存);点同一锚按钮再开/外部点击/管理入口均提交当前选择后关闭,dialogs.js 暴露 `MAX_ICONS=4`;
+  - **树节点多图标渲染**(`treeIconNode` + `.cat-icon-multi`):2~4 个图标按 `grid-auto-flow: column` 排成 2 列 2 行——1、2 竖排第 1 列,3、4 进第 2 列;1/图片图标沿用原 `iconNode` 路径无变化;`makeTreeNode` + `renderFavSection` 改用 `treeIconNode`;
+  - **保存截断**(`finalizeIcon`):图片图标原样;文本图标超过 4 个时截断前 4 个并 toast 提示;`iconGraphemes` 用 `Intl.Segmenter` 字素簇拆分;新建/编辑菜单节点、工具箱目录/工具四道对话框保存处统一接入;
+  - **预览同步**(`attachIconPreview`):图标输入框右侧实时预览同样按 2 列网格渲染,所见即所得。
+- **冒烟**:`scripts/menu-icon-smoke-main.js` 注入 4 图标与 2 图标节点 → 20 项断言(树渲染 4/2 网格 + 列方向填充 + 单图标无 multi + 编辑对话框图标初值 + 选择面板「已选 2/4」初值 + 点选追加 3/4 + 确定关闭 + 输入框追加 3 个 + 入库 3 个 + 粘贴 6 个截断 4 个 + toast + 树刷新 4 格)20/20 全过。
+- 发布:版本 2.1.0 → 2.1.1;`npm run build` 通过;产物 `release/游戏资源管理器-v2.1.1-便携版.zip`（data/ 已排除）。
+
+## 2026-08-17
+
+### [新增] 发布 v2.1.0：Todo-List 看板列宽自适应 + 中英文界面切换
+
+- **需求**(用户:①看板页三个状态列宽度随窗口调整变化;②Todo-List 顶栏工具栏增加中英文界面切换按钮)。
+- **实现**(`src/pages/todoPage.js` + `src/style.css` + `scripts/todo-smoke-main.js`):
+  - 看板列宽:`.todo-kanban-col` 由固定 `flex: 0 0 280px` → `flex: 1 1 0; min-width: 220px`——三列均分容器宽度,随窗口缩放自适应;窗口过窄保留最小宽度,横向滚动兜底;
+  - 中英文切换:全模块 UI 文案(头部/筛选/看板/卡片/模态框/详情/项目/归档/导出导入/提示)接入 LANGS{zh,en} 字典 + `T(key, ...args)`(支持 {0} 占位);日期格式跟随语言(8月16日 ↔ Aug 16);优先级/状态标签动态翻译;
+  - 顶栏新增语言切换按钮(显示目标语言「EN」/「中」),点击即时切换并 localStorage(todoLang) 记忆;`renderTodoTool` 进入时恢复偏好;
+  - 冒烟扩展语言切换 4 项断言(默认中文/切英文 Completed 1/2/按钮文案 EN→中/切回中文),39/39 全过。
+- 发布:版本 2.0.99 → 2.1.0;`npm run build` 通过;产物 `release/游戏资源管理器-v2.1.0-便携版.zip`（data/ 已排除）。
+
+## 2026-08-17
+
+### [优化] 发布 v2.0.99：Todo-List 去掉重复标题/介绍占位区
+
+- **需求**(用户:Todo-List 头部有两个「Todo-List 任务管理」标题行,上面那行带模块介绍的部分没有实际功能,占用屏幕空间)。
+- **实现**(`src/pages/toolboxPage.js`):工具箱 `renderToolboxPage` 对应用型工具 `tool === 'todo'` 跳过通用 `tool-head`(标题+功能简介)区——Todo-List 自带完整功能头部(标题+完成统计+视图切换/项目/归档/导入导出/新建按钮),原重复标题与介绍不再显示,节省一屏行高。
+- 发布:版本 2.0.98 → 2.0.99;`npm run build` 通过;冒烟 35/35 通过;产物 `release/游戏资源管理器-v2.0.99-便携版.zip`（data/ 已排除）。
+
+## 2026-08-17
+
+### [新增] 发布 v2.0.98：Todo-List 任务管理新增「导入」功能（兼容 Taskwingo 导出格式）
+
+- **需求**(用户:将原项目 taskwingo 的导入功能添加到 Todo-List 任务管理模块)。
+- **实现**(`electron/main.js` + `electron/preload.js` + `src/pages/todoPage.js` + `scripts/todo-smoke-main.js`):
+  - 主进程新增 `fs:readText` IPC(UTF-8 读取文本文件,避免 base64 中转中文乱码),`preload` 暴露 `readText`;
+  - Todo-List 头部新增「↓ 导入」按钮:选择 JSON 文件 → 解析 → 导入任务/项目/子任务;
+  - 兼容两种导出格式:本项目导出(驼峰 projectId)与 **taskwingo 导出(下划线 project_id / notes_html,数据库列名)**,任务 title/notes/priority/status/deadline(ISO 或秒/毫秒时间戳)/tags/子任务全量还原;
+  - 导入时项目与任务重新生成 id(uid),旧项目 id → 新 id 映射,避免与现有数据冲突;子任务按序重建;归档标志统一置为活跃;
+  - 完成后 toast 汇总「已导入 N 个任务(M 个子任务,K 个项目)」;
+  - 冒烟测试扩展:新增导入 JSON(含项目+2 任务+子任务+ISO 截止日期)断言 6 项(按钮/卡片+2/任务可见/项目下拉/持久化含 projectId 映射+子任务+截止日期),35/35 全过。
+- 发布:版本 2.0.97 → 2.0.98;`npm run build` 通过;产物 `release/游戏资源管理器-v2.0.98-便携版.zip`（data/ 已排除）。
+
+## 2026-08-17
+
+### [新增] 发布 v2.0.97：侧栏菜单终端节点可选 Todo-List / Markdown 工具
+
+- **需求**(用户:左侧菜单栏顶级终端节点的目标页面如何选择 Todo-List 任务管理模块)。
+- **实现**(`src/ui.js` + `src/pages/settingsPage.js`):
+  - 机制说明:菜单终端节点动作 `tool:xxx` → `openTool(x)` 直接打开工具箱工具页,`tool:todo` 即可打开 Todo-List;
+  - 两处「目标页面」下拉(`MENU_ACTION_OPTIONS`:ui.js 新建/编辑终端节点对话框 + 设置页「菜单和分类管理」)补齐 `tool:todo`(Todo-List 任务管理) 与 `tool:markdown`(Markdown 文档,此前同样缺失);
+  - 设置页「系统页面结构」清单工具动作列表同步补 `tool:todo` / `tool:markdown`。
+- 用法:侧栏菜单节点右键 → 「新建终端」(或编辑已有终端)→ 动作类型「内置页面/工具」→ 目标页面选「Todo-List 任务管理」。
+- 发布:版本 2.0.96 → 2.0.97;`npm run build` 通过;产物 `release/游戏资源管理器-v2.0.97-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [新增] 发布 v2.0.96：Todo-List 任务管理（移植自 Taskwingo）
+
+- **需求**(用户:将 E:\MyProject\taskwingo 项目移植到本项目的 Todo-List 模块;选定范围 = 核心任务管理 + SQLite 存储 + 工具箱入口)。
+- **实现**(`electron/db.js` + `electron/main.js` + `electron/preload.js` + `src/state.js` + `src/pages/todoPage.js` + `src/pages/toolboxPage.js` + `src/ui.js` + `src/style.css`):
+  - 数据层:SQLite 新增 `todo_projects` / `todo_tasks` / `todo_subtasks` 三表(含索引),`readDb`/`writeDb` 全量事务读写,`dbStats` 补统计;渲染端 `state.todoProjects` / `state.todoTasks` 随 `saveState` 落盘;
+  - 主进程:新增 `fs:saveText` IPC(保存对话框 + 写入文本,导出 CSV/JSON 用),`preload` 暴露 `saveText`;
+  - 入口:资源工具箱侧栏 + 工具箱主页新增「Todo-List 任务管理」工具(`seedToolboxFolders` 首次注入 + 老库自动补种;`toolLabel`/`toolboxPage.js` 注册);
+  - 任务管理(原生 JS 重写 taskwingo 核心):列表 + 看板双视图;任务卡片状态循环(待办→进行中→已完成)与优先级循环(紧急→高→中→低)点击即切;截止日期今天/明天/逾期(红)视觉警告(完成后抑制);标签、子任务(勾选/双击重命名/▲▼/拖拽排序/进度条);项目分组(彩色,增删改);列表拖拽排序 + 看板拖拽换列;筛选(搜索/优先级/状态/项目/手工顺序/优先级/截止日期/创建时间);归档(恢复/永久删除);CSV/JSON 导出;
+  - 任务详情面板:状态/优先级徽章、截止日期、标签、描述、子任务勾选、复制任务摘要、编辑/归档;
+- 发布:版本 2.0.95 → 2.0.96;`npm run build` 通过;产物 `release/游戏资源管理器-v2.0.96-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [优化] 发布 v2.0.95：全局首页与资源组主页「最近打开/最近添加」紧凑平铺
+
+- **需求**(用户:全局首页和资源组主页的"最近打开"和"最近添加"模块采用更紧凑的平铺显示方式,图片/图标/视频/动画/UI 等可缩略图资源显示缩略图)。
+- **实现**(`homePage.js` + `style.css`):
+  - 容器 `.recent-list`(单列行式) → `.recent-grid`(auto-fill 紧凑网格,minmax(78px, 1fr),gap 8px);
+  - 条目 `.recent-item`(横排) → `.recent-card`(竖排:52×52 缩略图 + 名称 + 小字 meta);
+  - 缩略图能力:图片(含自定义图片/图标)→ thumbnailService.thumbnailUrl 同步;动画→ getAnimThumb;UI/FGUI→ getFguiThumb;视频→ getVideoThumb;音频/3D 等无缩略图→ 保留类型图标 rc-fallback(不再像旧版那样移除整格);
+  - 同步刷新 `loadRecentThumbs`:querySelectorAll 处理同 id 多 box(最近打开/最近添加 同时命中),按 id 去重避免重复生成;
+  - 全局主页 + 类型主页 + renderFilterHome 三处共用同一卡片结构;
+  - `resourceTypeIcon(type)` 兜底图标(可在设置页「资源类型管理」配置)。
+- **附带**(测试同步):`scripts/recent-smoke-main.js` 选择器 `.recent-item` → `.recent-card`,并调整测试流程:先验证类型主页过滤(切动画 tab 只剩 spine 记录),再回主页点击 FGUI 卡片验证打开编辑器(原断言 `fgpv-canvas`/`fgpv-pkg` 为旧版预览器 id,改为检测 `#page-fgui-editor` 可见);`src/main.js` 首页冒烟 `recentItems` 计数同步。
+- 发布：版本 2.0.94 → 2.0.95；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.95-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [新增] 发布 v2.0.94：系统设置「页面管理」新增系统页面结构清单
+
+- **需求**(用户:页面管理模块将所有系统页面按结构和功能列出,体现层级关系、入口引用、页面文件位置)。
+- **实现**(`settingsPage.js` + `style.css`):「页面管理」卡片底部新增「系统页面结构」面板(分组 → 页面行):
+  - 分组层级:资源浏览区 / 工具区 / 场景区 / 网络与数据区 / 系统区;
+  - 每个页面行:页面名称 + 功能说明 + **源码文件位置**(等宽字体) + **入口引用**;
+  - 入口引用 = 内置入口(顶栏/侧栏/首页卡片/tabs 等) + **动态计算的菜单节点引用**(`menuNodeRefs`:遍历 `state.menuNodes`,按 action 精确或前缀 `*` 通配匹配,显示「节点路径」,如工具页被哪些菜单节点引用);
+  - 内置分组根(res:group:*)、内置标签根(res:article/res:video)、自定义页面(page:custom:*)均被覆盖;
+- 发布：版本 2.0.93 → 2.0.94；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.94-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [优化] 发布 v2.0.93：顶栏「首页」按钮迁移到 tabs 区
+
+- **需求**(用户:顶栏「首页」+「主页」两个按钮,将首页图标移到「主页」前,去掉首页按钮,「主页」改名「首页」):
+  - 实际方案:隐藏品牌区「首页」按钮(`style.css .brand { display:none }`),恢复 v2.0.91 跳过的首页 tab 在 tabs 区显示;
+  - tabs 首页 tab label/icon 沿用 v2.0.91/`🏠`/首页 → 顶栏首个标签为「🏠首页」(承接原 brand 的回首页入口);
+  - tabs 区原来的「主页」标签(v2.0.92 类型 tab 资源资源/group_label=动画资源等)不受影响,仅首页标签由品牌区迁移到 tabs。
+- 顶部由两按钮(首页+主页)合并为单一「🏠首页」标签,简洁一致。
+- 发布：版本 2.0.92 → 2.0.93；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.93-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [优化] 发布 v2.0.92：顶栏类型标签去掉「主页」字样
+
+- **需求**(用户:顶栏的「主页」标签去掉):v2.0.91 已移除首页标签,剩余「主页」字样来自**类型主页标签**——`ui.js GROUP_LABEL`(动画主页/图片主页/音频主页/3D 资源主页)与 fallback「资源主页」。
+- **修复**:`GROUP_LABEL` 改为资源组名(动画资源/图片资源/音频资源/3D资源),fallback「资源主页」→「资源」→ 顶栏类型标签不再出现「主页」字样(图标/视频/UI/数据等组 tab 显示「资源」)。
+- 发布：版本 2.0.91 → 2.0.92；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.92-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [优化] 发布 v2.0.91：顶栏「全部资源首页」改名「首页」;tabs 区重复的首页标签不再显示
+
+- **需求**(用户):顶栏「全部资源首页」按钮改名为「首页」;去掉后面重复功能的「主页」按钮。
+- **实现**:
+  - `index.html` 品牌区文字「全部资源首页」→「首页」;悬停提示「回到全部资源首页」→「回到首页」;
+  - `ui.js renderTabStrip` 跳过 `kind==='home'` 的标签 → tabs 区不再重复显示首页标签(品牌「首页」即回首页入口);home tab 内部状态仍保留(`ensureTab`/`switchTab`/`closeTab` 逻辑不变,关闭全部标签后兜底重建);
+  - home tab label「资源首页」→「首页」统一命名;style.css 注释同步。
+- 发布：版本 2.0.90 → 2.0.91；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.91-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [新增] 发布 v2.0.90：菜单节点支持「隐藏」(左侧菜单树不显示)
+
+- **需求**(用户):系统设置→菜单和分类管理的「编辑目录节点」窗口中,「锁定」同一行新增「隐藏」勾选项(默认不勾选);勾选的目录节点左侧菜单树不再显示;设置页菜单树中该节点名称后显示不可见图标(👁‍🗨)。
+- **实现**:
+  - `state.js addMenuNode/updateMenuNode` 支持 `hidden` 字段(新建/编辑均可保存,updateMenuNode 为全量 assign 无需白名单);
+  - `ui.js` 编辑/新建菜单节点对话框:锁定行同一行新增「隐藏(侧栏不显示)」checkbox(编辑读取 node.hidden 回显,默认不勾选);保存/新建写入 patch.hidden;
+  - `settingsPage.js` 设置页编辑对话框(editMmNodeDialog)同步加隐藏选项;菜单树名称后按 `node.hidden` 追加「👁‍🗨」并带悬停提示,可再次进入取消隐藏;
+  - 侧栏渲染:`renderTree` 根过滤 + `renderMenuNode` 子节点过滤 `n.hidden` → 隐藏节点(及其子孙)不显示;
+  - 隐藏节点数据仍在库中(最近打开/直接导航等仍可用),随时可在系统设置取消隐藏。
+- 发布：版本 2.0.89 → 2.0.90；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.90-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [优化] 发布 v2.0.89：顶栏「添加资源/批量添加」合并为一个统一入口
+
+- **合并**(用户:顶栏添加资源与批量添加两按钮合并成一个):`index.html` 删除 `#btn-add-batch`,`#btn-add` 一个按钮承载全部添加能力。
+- **新对话框 `addResourceDialog`**(`ui.js`):点击「+ 添加资源」弹出三行选择:
+  - 添加方式:单个文件 / 多个文件 / 整个目录(扫描);
+  - 文件类型筛选:**系统登记类型(默认)**——内置类型(BUILTIN_TYPE_DEFS)+自定义类型/分组全部扩展名并集(`registeredAddExts`,自动去点去重统计种数);或「全部文件(*.*)」;
+  - 加入分类(默认当前浏览分类,可换);
+  - 确定后:单个/多个文件 → `fs:pickFiles`(按所选筛选器)→ 直接入库(复用 `addPathsToCategory`,重复自动跳过、分类标签自动修正);整个目录 → 沿用 `runAddFlow` 批量扫描勾选确认界面。
+- `bindToolbar` 绑定同步更新;分类右键菜单的「添加资源/批量添加」两项保留不变。
+- 发布：版本 2.0.88 → 2.0.89；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.89-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [优化] 发布 v2.0.88：首页「最近打开/最近添加」显示资源缩略图
+
+- **最近添加**(`renderRecentList`):每项左侧新增 32×32 缩略图占位(`.ri-thumb`),渲染后由 `loadRecentThumbs` 异步加载——复用列表页同一套 `thumbnailService`(图片直连 / FGUI 包缩略图 / 视频首帧或海报 / 动画缩略图;音频与 3D 保留默认图标,加载失败自动隐藏)。
+- **最近打开**(`renderRecentOpens`):通过记录中的 `itemId` 反查条目 → 显示其缩略图;无 itemId 的记录(如 FGUI 包/目录)回退到类型 emoji(🎬/🖼/🎵/🧊/🧩/🏞/📂)。
+- 全局主页 / 类型主页 / 收藏夹主页均生效(`loadRecentThumbs` 在各自渲染后调用)。
+- `style.css` 新增 `.ri-thumb/.ri-thumb-img/.ri-icon` 样式(32×32 圆角,object-fit:cover)。
+- 发布：版本 2.0.87 → 2.0.88；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.88-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [优化] 发布 v2.0.87：资源首页统计覆盖全部资源组类型
+
+- **需求**(用户:资源首页要把所有的资源组类型都有统计):首页统计卡片由 4 组(动画/图片/音频/3D)+总数 → **9 组全部**:
+  - 动画资源 / 图片资源 / 音频资源 / 3D资源 / 图标资源 / 视频资源 / UI资源 / 文档资源 / 数据资源 + 资源总数;
+- **数据修正**(`state.js getHomeData`):`byType` 改为动态 key(icon/video/fgui/database 自动出现);markdown/text/config/web 条目独立统计为「文档资源」并从「图片资源」扣除(此前文档混入图片统计)。
+- `homePage.js renderGlobalHome`:卡片列表加 5 组(图标/视频/UI/文档/数据),副标题同步;点击卡片沿用 `onTab` 切换类型主页(视频/图标/UI/数据 组已由 v2.0.83 内置分组根支持)。
+- `style.css`:新增 `.stat-card.icon/.video/.ui/.article/.database` 左侧配色。
+- 发布：版本 2.0.86 → 2.0.87；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.87-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [优化] 发布 v2.0.86：视频列表缩略图海报铺满显示区域(视频卡片模式不改)
+
+- `thumbnails.js _genPosterThumb`(视频条目在列表/图标/平铺视图的缩略图,有 `meta.poster` 电影海报时优先):drawImage 缩放从 `Math.min(88/iw, 88/ih, 4)`(contain 黑底留边)改为 `Math.max(96/iw, 96/ih)`(cover)——海报**裁切铺满** 96×96 缩略图区域,不再留黑边。
+- 视频卡片模式(`video-card`)用 `getPosterUrl` 海报**原图**高清显示,不受影响。
+- 说明:已缓存缩略图(内存/磁盘)不会自动重生成,需在列表点「⟳ 重新生成缩略图」刷新;无海报的视频仍显示首帧(contain 黑底,不改)。
+- 发布：版本 2.0.85 → 2.0.86；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.86-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [修复] 发布 v2.0.85：设置页「资源分组(内置)」的「UI资源」重复
+
+- **根因**(用户反馈:系统设置→资源类型管理→资源分组(内置)中「UI资源」出现两次):`settingsPage GROUP_LABELS` 同时含 `fgui:'UI资源'`(v2.0.82 旧条目,fgui 分类挂载标签)与 `ui:'UI资源'`(v2.0.83 新增的内置资源分组根 UI 资源) → 内置分组区渲染两行同名。
+- **修复**:`settingsPage GROUP_LABELS` 删除 `fgui` 条目(FGUI 类型归内置分组 `ui` 代表,设置页「资源分组(内置)」区不再重复);FGUI 分类挂载仍由 `catVisibleInGroup` 的 `group='ui' && tags.includes('fgui')` 兼容,不受影响。
+- 发布：版本 2.0.84 → 2.0.85；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.85-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [修复] 发布 v2.0.84：编辑分类目录「UI 资源」重复;编辑目录节点「资源类型」下拉 res:article 显示原 action
+
+- **修复 1**(用户反馈:编辑分类目录的「资源组」勾选区同时出现「UI 资源」两次):`state.js CAT_TYPE_TAG_LABELS.fgui` 'UI资源'→'FGUI'(分类挂载标签用 FGUI 表示,与内置分组根「UI资源」区分);现有 FGUI 分类 typeTags=['fgui'] 仍由 `catVisibleInGroup` 的 `group='ui' && tags.includes('fgui')` 兼容挂载到 UI 资源根(无需库迁移)。
+- **修复 2**(用户反馈:编辑目录节点的「资源类型」下拉中「res:article」应显示为「文档资源」):`ui.js fillResTypeSelect` 新增「内置标签」段(读取 `BUILTIN_TAG_ROOTS`),label 用内置标签名(「文档资源」等);之前 v2.0.82 只加了 BUILTIN_GROUP_ROOTS,BUILTIN_TAG_ROOTS(article)未读取,`res:article` 落入 fallback 直接显示 action。下拉结构现在是「4 个内置组 → 内置标签(文档资源) → 内置分组(图标/视频/UI/数据) → 自定义分组」四段。
+- 发布：版本 2.0.83 → 2.0.84；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.84-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [新增] 发布 v2.0.83：内置资源分组新增「数据资源/UI资源」;UI→「UI资源」;内置分组全部默认侧栏根目录
+
+- **新增内置资源分组**(`state.js BUILTIN_GROUP_ROOTS`):
+  - `ui`(UI资源,🧩,exts `.bin/.fui/.fdp/.fnt/.jta`)→ FGUI 类归此根;
+  - `database`(数据资源,🗄,exts `.db/.sql/.sqlite/.mdd/.mdx/.accdb`)→ 数据库类归此根;
+  - 4 个内置资源分组(图标/视频/UI/数据)+ 文档资源(BUILTIN_TAG_ROOTS article)+ 4 固定内置组(动画/图片/音频/3D)= 全部默认补建侧栏资源根。
+- **兼容与迁移**:
+  - `BUILTIN_TYPE_DEFS.database.group` 'image'→'database';`fgui.group` 保持 'fgui'(兼容 fgui 标签)；
+  - `itemsInCategoryAndGroup` 增加 `g='database' && group='image'`(数据库条目在图片库可见,保持 v2.0.74 行为)+ `g='fgui' && group='ui'`(FGUI 条目在 UI 资源库可见)；
+  - `catVisibleInGroup` 增加 `group='ui' && tags.includes('fgui')`(用户已有的 FGUI 分类 typeTags=['fgui'] 自动挂载 UI 资源根)；
+  - `ensureResourceRootsForCategories` BUILTIN_TAG_ROOTS 改为默认全部补建(去掉 used.has 条件,与内置分组一致)。
+- **名称统一**:
+  - `CAT_TYPE_TAG_LABELS.fgui` 'UI'→'UI资源'；
+  - `settingsPage GROUP_LABELS` 加 `ui:'UI资源', database:'数据资源'`,`fgui:'UI资源'`;
+  - `CAT_TYPE_TAG_LABELS` 不再加 ui/database(由 BUILTIN_GROUP_ROOTS 以 kind='builtin' 提供,避免编辑分类时重复)。
+- **副作用**:之前残留的 FGUI 分类(如「异兽灵境」typeTags=['cg_mstnm953_10tvoa','fgui'],v2.0.81 删了 cg_* 根)→ cg tag 被过滤,仅剩 ['fgui'] → 通过 `group='ui' && tags.includes('fgui')` 兼容恢复可见。
+- 发布：版本 2.0.82 → 2.0.83；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.83-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [修复] 发布 v2.0.82：编辑菜单节点的「资源类型」下拉显示 res:group:video 原 action;内置资源组名称统一「资源」后缀并去除「视频」重复
+
+- **修复 1**(用户反馈:编辑目录节点对话框的「资源类型」下拉列表中「res:group:video」应显示为「视频资源」):`ui.js fillResTypeSelect` 新增「内置分组」段(读取 `BUILTIN_GROUP_ROOTS`),label 用内置分组名(「图标资源/视频资源」);之前因 `customTypeGroups` 已空(v2.0.80 内置化)且未读取 BUILTIN_GROUP_ROOTS,`res:group:video` 落入 fallback 直接显示 action。
+- **修复 2**(用户反馈:编辑分类目录时「资源组」同时出现「视频」(内置标签)与「视频资源」(内置分组)重复):`state.js CAT_TYPE_TAG_LABELS` 删除 `video`(由 `BUILTIN_GROUP_ROOTS` 以 kind='builtin' 提供);`isValidTypeTag` / `categoryTypeTags` / `categoryTypeTagNames` 已认 `BUILTIN_GROUP_ROOTS`,自动按名称匹配。
+- **名称统一**(用户要求:内置资源组名称以「资源」为后缀):
+  - `state.js CAT_TYPE_TAG_LABELS`: 动画资源/图片资源/音频资源/3D资源/文档资源/UI(原 动画/图片/音频/3D/文档/UI);
+  - `settingsPage GROUP_LABELS`: 动画资源/图片资源/音频资源/3D资源/文档资源/UI/图标资源/视频资源;
+  - `ui.js fillResTypeSelect` 已写死的 4 项内置「动画资源/图片资源/音频资源/3D资源」一致。
+- 发布：版本 2.0.81 → 2.0.82；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.82-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [修复] 发布 v2.0.81：「视频」升级为内置资源分组——侧栏恢复「视频资源」根;清理历史残留自定义分组根
+
+- **根因**(用户反馈:左侧栏没有「视频资源」资源根):v2.0.72 把自定义分组「视频资源」迁移为内置类型时只迁移了 items.type 并清空 `customTypeGroups`,**未清理 `menu_nodes` 中的旧自定义分组根**(视频资源×5 / 文档资源×2 / 项目管理 / FGUI资源 等共 9 个 `res:group:cg_*` 根一直残留);`menuRootEmpty` 因对应自定义分组已不存在而把它们全部静默隐藏 → 侧栏看不到视频资源根。
+- **修复**:
+  - `state.js BUILTIN_GROUP_ROOTS` 新增 `video`(视频资源,🎞,exts 与内置 video 类型一致)→ `ensureResourceRootsForCategories` 始终补建 `res:group:video` 根;
+  - `BUILTIN_TYPE_DEFS.video.group` 'image'→'video'(视频条目归视频资源根;`itemsInCategoryAndGroup` 加 `g==='video' && group==='image'` 兼容 → 视频条目在图片资源库仍可见,不破坏 v2.0.74 行为);
+  - **库迁移**(备份 .bak-20260816e):删除全部残留 `res:group:cg_*` 根(9 个);原视频根的自定义 dataURL 图标保存到 `settings.resourceGroupIcons.video`(内置视频分组默认图标沿用用户设定)。
+- **验证**:真实库 electron 冒烟——侧栏出现「视频资源」根(可点击进入类型主页),无渲染错误。
+- 发布：版本 2.0.80 → 2.0.81；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.81-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [新增] 发布 v2.0.80：自定义资源分组「图标」升级为内置资源分组(默认图标沿用原自定义图标)
+
+- **内置资源分组机制**(`state.js`):新增 `BUILTIN_GROUP_ROOTS = [{ group:'icon', name:'图标资源', icon:'🎨', action:'res:group:icon', exts:[.ico,.icns,.svg,.webp,.png] }]`;`ensureResourceRootsForCategories` 始终补建其资源根(名称/图标可用 `resourceGroupIcons` 覆盖);`groupTagOptions`/`isValidTypeTag`/`categoryTypeTagNames` 认内置分组 id;`isResourceRootAction` 已覆盖 res:group:*。
+- **跨类型上下文**(图标 = 图片类,双组可见):
+  - `BUILTIN_TYPE_DEFS.icon.group` 'image'→'icon'(侧栏图标资源根挂载);
+  - `itemsInCategoryAndGroup` 增加 `typeGroup==='icon' && group==='image'` 兼容(图标条目在图片资源库仍可见,保持 v2.0.66 修复);
+  - `itemEffectiveType(item, cat, group, resourceTab)` 增加 group/resourceTab 上下文:图标资源根(resourceTab='icon' 或分类勾选 icon)→「图标」;图片资源组/全类型→「图片」;`renderResources` 新增 resourceTab 参数(folderPage 渲染时由 ui.js 传入,修复 resourceTab 未定义 ReferenceError)。
+- **侧栏/UI 兼容**(`ui.js`):`menuRootEmpty` 内置分组根不因自定义分组缺失被过滤;`menuNodeIcon`/导航点击处理兼容 res:group:icon。
+- **设置页**:`GROUP_LABELS` 加 `icon:'图标资源'` → 「资源分组(内置)」区出现图标行,可编辑图标。
+- **库迁移**(备份 .bak-20260816d):`settings.customTypeGroups` 清空(图标分组内置化);分组 dataURL 图标保存到 `settings.resourceGroupIcons.icon`(内置分组默认图标沿用用户设定);`menu_nodes` 旧 cg 根 → `res:group:icon` 并合并去重;分类 typeTags/items.type 旧 cg id → 'icon'。
+- **验证**:真实库 electron 冒烟——侧栏出现「图标资源」根;点击进入正常;「图片资源→相册→源源每日打卡」27 个条目仍全部「🖼图片」(跨组兼容不破坏);无渲染错误。
+- 发布：版本 2.0.79 → 2.0.80；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.80-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [优化] 发布 v2.0.79：资源组「文章」更名「文档」
+
+- `state.js`: `CAT_TYPE_TAG_LABELS.article` '文章'→'文档';`BUILTIN_TAG_ROOTS` 文章资源→文档资源(action res:article 不变);注释文案同步。
+- `settingsPage.js GROUP_LABELS.article` '文章'→'文档'(设置页「资源分组(内置)」行与自定义类型分组下拉)。
+- 库迁移(备份 .bak-20260816c):`menu_nodes` 中 action='res:article' 的根节点 name/tooltip '文章资源'→'文档资源'。
+- 效果:侧栏「文档资源」根、设置页资源组显示、分类资源组徽标/下拉全部显示「文档」;已有勾选 article 的分类显示名随 CAT_TYPE_TAG_LABELS 自动更新。
+- 发布：版本 2.0.78 → 2.0.79；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.79-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [修复] 发布 v2.0.78：资源分组(内置)补全视频/文章/UI;设置页区域标题居中两行
+
+- **修复 1**(用户反馈:`编辑分类目录`窗口有视频/文章/UI 三个资源组,但设置页「资源分组(内置)」却只有 4 个):`settingsPage GROUP_LABELS` 扩展为 7 项 `{ anim:动画, image:图片, audio:音频, '3d':3D, video:视频, article:文章, fgui:UI }`(与 `state.js CAT_TYPE_TAG_LABELS` 同步),设置页「资源分组(内置)」增加视频/文章/UI 三个内置分组行(可编辑图标),自定义类型的资源分组下拉也同步多出 3 个选项。
+- **修复 2**(标题两行居中):4 个设置页区域标题改为 `资源分组 / (内置)` 等两行结构(label 加 `.section-label`,副标题 span `.f-label-sub`);CSS `.form-row label.f-label.section-label { text-align:center }` + `.f-label-sub { display:block; font-size:11px; opacity:0.75 }`。
+- 发布：版本 2.0.77 → 2.0.78；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.78-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [修复] 发布 v2.0.77：markdown/text/config/web/database 误走图片查看器;内置类型行描述按类型分支
+
+- **根因**(用户反馈:打开 .md → "图片加载失败";设置页所有内置类型描述都是"图标用于条目徽标"):
+  1) v2.0.66 增强的 `isImageType(type)` 仅看 `typeGroup(type)==='image'`,而 markdown/text/config/web/database/project 的 group 都是 'image' → 全部被判定为图片类 → `selectItem` 走 `showImageViewer` → "图片加载失败"。这是过度增强导致的核心 bug;
+  2) `buildBuiltinTypeRow` 描述写死为「图标用于条目徽标」(v2.0.65 时只图标一种内置类型,通用到所有内置类型后没改);视频类型行因扩展名过长换行挤压导致名称显示不全。
+- **修复**:
+  - `state.js isImageType`:`type==='image'` 或类型 def/custom exts **全部为图片格式** 才返回 true;markdown/text/config/web/database/project (非图片扩展名) → false → 各自走文本/Markdown/网页/数据库查看器。
+  - `settingsPage buildBuiltinTypeRow` 描述按类型分支:`icon`→「图标用于条目徽标」、`video`→「用于视频卡片缩略图」、其余→「扩展名用于识别该类型」。
+- 发布：版本 2.0.76 → 2.0.77；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.77-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [优化] 发布 v2.0.76：查看模式所有图标统一按 Windows 资源管理器样式重制为内联 SVG
+
+- 9 个 view + 2 个 pane 全部改为 `stroke="currentColor"` 内联 SVG(`SVG_ATTRS` 复用,16×16 viewBox 0 0 32 32,stroke-width=2,圆角连接):
+  - **超大图标** 显示器+底座 / **大图标** 单大方框 / **中图标** 方框+下方标签短横 / **小图标** 2×2 四小方块
+  - **列表** 三横线 / **详细信息** 多横线+表头分隔竖线 / **平铺** 2×2+下方双横线 / **内容** 2 个方块+三横线
+  - **详细信息窗格** 左小+右大方框 / **预览窗格** 左更窄+右更大方框
+- 体积:全部 SVG 共约 1.5KB(替换原 8 个字符图标),`currentColor` 自动适配深浅主题(不再需要 PNG 反色 hack)。
+- 发布：版本 2.0.75 → 2.0.76；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.76-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [修复] 发布 v2.0.75：超大图标深色模式下线条过浅 — SVG 与 PNG 分离样式类(不再被误反色)
+
+- 根因:v2.0.74 改内联 SVG 后仍使用 `.vm-img` 类,触发 v2.0.73 给 PNG 准备的 `html[data-theme="dark"] .vm-img { filter: invert(1) }` → SVG `stroke="currentColor"` 本来跟随主题浅色,被 invert 反成深色,在深色背景下线条消失。
+- 修复:`vmIconHtml()` 内联 SVG 改用 `vm-svg` 类(只继承尺寸,不走 invert);`style.css` `.vm-svg` 与 `.vm-img` 共享尺寸样式;深色 `filter: invert` 仍只作用于 `.vm-img`(PNG 图片图标)。
+- 发布：版本 2.0.74 → 2.0.75；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.75-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [优化] 发布 v2.0.74：超大图标 PNG → 内联 SVG(更省空间 + currentColor 自动适配深浅主题)
+
+- `folderPage.js VIEW_MODES` extra-icon icon 由 PNG URL `/view-icon/superbig.png` 改为内联 SVG 字符串(`SUPERBIG_SVG`,圆角矩形+底座横线,`stroke="currentColor"`,等价原 PNG);`vmIconHtml()` 支持 `'<'` 开头识别为内联 SVG 直接输出(自动加 `class="vm-img"` 走尺寸样式)。
+- `server.js` 删除 `/view-icon/superbig.png` 路由(不再需要)。
+- 体积/优势对比:PNG 2.3KB + server 路由 + HTTP 请求 → 内联 SVG ~270B,纯字符串,矢量任意缩放清晰,`currentColor` 跟随主题(深色自动适配),无需 `filter: invert`。
+- 发布：版本 2.0.73 → 2.0.74；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.74-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [优化] 发布 v2.0.73：查看模式「超大图标」使用自定义图片图标;深色主题自动反色
+
+- 资源列表页查看下拉与工具栏按钮的「超大图标」图标改用 `E:\backup\logo\ico\thumbail_superbig.png`(256px 内自定义图标):
+  - 主进程 `server.js` 新增路由 `/view-icon/superbig.png` → 读该固定路径(文件不存在 → 404 → 前端 img 失败但不影响其它);
+  - `folderPage.js VIEW_MODES` 超大图标 icon 改为 `/view-icon/superbig.png`,`vmIconHtml()`(URL 开头 '/' → `<img class="vm-img">`,否则原字符)应用于查看按钮与下拉菜单项;
+  - **深色主题反色**:CSS `html[data-theme="dark"] .vm-img { filter: invert(1); }`(主题基底取自 `document.documentElement.dataset.theme`,custom 按背景亮度映射)。
+- 验证:electron 冒烟导航「相册」打开查看下拉 → `.vm-img` 存在且 src=`/view-icon/superbig.png`,深色反色 CSS 规则存在;真实 exe 经 `loadURL(server.url)`(http://localhost) 正常命中该路由。
+- 发布：版本 2.0.72 → 2.0.73；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.73-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [新增] 发布 v2.0.72：内置资源类型新增「图标/视频/项目管理」;自定义→内置迁移
+
+- **新增内置类型**(`state.js BUILTIN_TYPE_DEFS`):`icon`(图标 .ico .icns .svg .webp .png)、`video`(视频 .mp4 .mkv .flv .webm .avi .mov .wmv .ts .3gp .m4v .ogv .mpg .mpeg)、`project`(项目管理 .prom),group 均为 image(视频走 isVideoItem 分支);`BUILTIN_TYPE_COLORS` 补对应色。
+- **库迁移**(备份 skeleton.db.bak-20260816b):清空 `settings.customTypes`/`customTypeGroups`(原 5 个自定义分组 + 2 个自定义类型 → 全部由内置接管);`items.type` 重映射:`ct_msv5m3qy_3dwbea`(138 条图标)→ `icon`,`cg_msuhxbu5_yv334h`(7 条视频)→ `video`;同时清掉 builtinTypeOverrides 中残留的自定义 id 覆盖。
+- **设置页内置区**:builtins 数组加入 icon/video/project,显示在「资源类型(内置)」区,可继续编辑名称/扩展名/图标(替代原自定义)。
+- 发布：版本 2.0.71 → 2.0.72；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.72-便携版.zip`（data/ 已排除)。
+
+## 2026-08-16
+
+### [新增] 发布 v2.0.71：主区标签页右键菜单——关闭 / 关闭其它标签 / 关闭右侧标签
+
+- `renderTabStrip` 标签节点新增 `contextmenu` → `showContextMenu` 三项菜单:
+  - **关闭**:关闭当前标签(`closeTab`,自动切相邻标签/兜底首页);
+  - **关闭其它标签**:只保留当前标签(`closeOtherTabs`,若当前不是激活标签则切换);
+  - **关闭右侧标签**:关闭当前标签右侧全部(`closeRightTabs`,激活标签被关则切回当前)。
+- 验证:electron 冒烟——打开 3 个标签,对第 2 个右键,菜单显示「关闭/关闭其它标签/关闭右侧标签」,点「关闭右侧标签」后标签 3 → 2。
+- 发布：版本 2.0.70 → 2.0.71；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.71-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [修复] 发布 v2.0.70：缩略图服务 `thumbnailUrl` 改用 isImageType 判定;平铺(tile)视图补缩略图绑定——图标类型/图标资源组条目恢复缩略图
+
+- **根因**(用户反馈:预览可打开,但图片资源-相册 与 图标资源-应用图标 列表无缩略图):
+  1) `thumbnailService.thumbnailUrl` 内部用 `typeGroup(item.type)==='image'` 判断,图标类型 group=「图标资源」分组 id → 不命中 → 落到 `getAnimThumb`(动画缩略图)→ 失败无图;而 folderPage 绑定处用的是增强版 `isImageType`(v2.0.69) → 两者不一致;
+  2) 平铺(tile)视图不在 `ICON_MODES` 集合 → 缩略图绑定块(仅 `isIconMode(viewMode)`)不执行 → tile 视图图片无缩略图。
+- **修复**:
+  - `thumbnails.js thumbnailUrl`:图片判定改 `isImageType(item.type)`(含自定义图片类类型/分组 .png/.ico/.icns)→ 返回静态服务 URL `/a/<itemId>/<文件名>`;
+  - `folderPage.js` 缩略图绑定条件 `isIconMode(viewMode)` → `isIconMode(viewMode) || viewMode==='tile'`(renderResources + renderFavResources 两处)。
+- **验证**:真实 exe 库(图标类型含 .icns)+最新 dist,electron 冒烟导航「相册」切超大图标视图 → 24 个 `.res-thumb` 的 src 全部 `file:///a/<id>/<file>.png`(静态服务路径);server.js `/a/<id>/<rel>` 服务正常(sendFile 返回 png/ico)。缩略图在真实 exe(含静态服务)下正常显示,冒烟环境无服务故 onerror 隐藏属预期。
+- 发布：版本 2.0.69 → 2.0.70；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.70-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [修复] 发布 v2.0.69：图片类扩展名集合补 .icns 等图标格式——exe 版图标类型恢复为图片显示(dev 正常/exe 异常根因)
+
+- **根因**(用户反馈:dev 正常、运行 exe 显示图标类型且无缩略图/预览):
+  - dev 与 exe 使用**不同库**:`electron/db.js dataDir()` 打包版读 `<exe>/data/skeleton.db`,开发版读 `项目根/data/skeleton.db`;两库的「图标」类型配置不同——dev 库 exts=['.png','.ico'],exe 库 exts=['.ico','.icns','.svg','.webp','.png'];
+  - `IMAGE_EXT_SET`(v2.0.66 新增)未含 `.icns` → exe 库图标类型 `isAllImageExts` 判定 false → `itemEffectiveType` 返回原类型 → 显示「图标」+ 不走图片缩略图/预览;dev 库恰好无 .icns 所以正常。
+- **修复**:`IMAGE_EXT_SET` 补 `.icns`(macOS 图标格式)及 `.tif/.tiff/.jfif/.heic/.avif/.psd`(常见图片格式)。
+- **验证**:导出 exe 库 JSON + 解包 release/app asar 代码(=用户 exe 确切环境)electron 冒烟,导航「源源每日打卡」27 个条目全部「🖼图片」;node 直接断言 `isAllImageExts(exe库图标类型exts)=true`、`itemEffectiveType→image`。
+- 发布：版本 2.0.68 → 2.0.69；`npm run build` + `pack-manual` 通过；产物 `release/游戏资源管理器-v2.0.69-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [修复] 发布 v2.0.68：资源详情列表「类型」行 cell-name 漏改,补齐跨类型上下文判定
+
+- 根因:v2.0.66 修复 detail 视图 cell-name 徽标时,因 `replace_all` 双匹配冲突被跳过,渲染函数内 detail 表头「名称+徽标」cell-name 仍调 `typeBadgeHtml(it)`(无 effType);同时「类型」列 `typeColor(it.type)/typeLabel(it.type)` 也未走 `itemEffectiveType`,详情视图跨类型条目仍显示原类型徽标/色/名。
+- 修复:`typeBadgeHtml(it, effType(it))` + `typeColor(itemEffectiveType(it, cat))` + `typeLabel(itemEffectiveType(it, cat))`(renderResources + renderFavResources)。
+- 验证:真实库 + electron 冒烟(tile/超大图标视图)导航「源源每日打卡」,27 个条目全部显示「🖼图片」。
+- 发布:版本 2.0.67 → 2.0.68;`npm run build` 通过;产物 `release/游戏资源管理器-v2.0.68-便携版.zip`(data/ 已排除)。
+
+## 2026-08-16
+
+### [修复+优化] 发布 v2.0.67:属性/编辑信息窗口按资源组+文件类型判断标题与类型名;修复类型 ID 显示
+
+- **根因**：
+  1) 属性窗口标题 `it.type==='image'?'图片属性':...'动画属性'` 与编辑窗口标题按 `it.type` 判断,「图标」类型(ct_xxx,.png/.ico 图片类)落「动画」分支 → 显示「动画属性」/「编辑动画」;
+  2) 属性窗口「类型」行与编辑窗口文件前缀用 `TYPE_LABEL[it.type] || it.type`,`TYPE_LABEL` 仅含内置类型 → 显示类型 ID(`ct_msv5m3qy_3dwbea · 路径`);
+  3) 编辑窗口「文件名」修改仅 `it.type==='image'` 生效,图片类自定义类型不可改文件名。
+- **修复**(ui.js):
+  - 新增 `itemPropsTitle(it, cat)` / `editItemTitle(it, cat)`:按分类上下文有效类型 `itemEffectiveType` + 文件特征判断标题(图片属性/编辑图片信息/音频属性/3D 属性/FGUI 属性/文档属性/数据库属性/视频属性/动画属性,自定义类型 → 「类型名 属性」);
+  - 属性「类型」行与编辑「文件」前缀改用 `typeLabel(itemEffectiveType(it, cat))`(图片资源库的图标类型 → 「图片」,不再显示 id);
+  - 编辑窗口文件名行条件 `it.type==='image'` → `isImageType(it.type)`(图片类自定义类型可改文件名);
+  - `openItemMenu` 从当前激活标签页取分类上下文 `ctxCat` 传入两对话框(侧栏/收藏无分类 → 按无标签=图片库判定)。
+- 提示:列表徽标跨类型判定(v2.0.66 已修复);若仍显示「图标」请确认运行的是 v2.0.66+ 并重启应用。
+- 发布：版本 2.0.66 → 2.0.67；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.67-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [修复+优化] 发布 v2.0.66：跨类型扩展名按资源组上下文判定;图片类自定义类型/分组(.ico/.png 图标)恢复缩略图与预览
+
+- **根因**：
+  1) 「图标」类型/「图标资源」分组扩展名(.ico/.png)未被识别为图片类 → `isImageType` 仅认 `typeGroup==='image'`,自定义图片类类型(尤其 group 设为自定义分组后 typeGroup 返回分组 id)缩略图走动画分支、预览无匹配 → 图标/相册图片无法显示;
+  2) 同一扩展名(.png)同时属内置 image 与「图标」类型时,列表徽标一律显示「图标」,未按所在资源组区分。
+- **修复**(state.js):
+  - `isAllImageExts(exts)`:扩展名全部为图片格式(含 .ico/.svg/.astc);
+  - `isImageType` 增强:归属 image 组 **或** 自定义类型/分组扩展名全为图片 → 按图片处理(缩略图静态服务、图片预览自动恢复,.ico 由 Chromium 渲染);
+  - 新增 `itemEffectiveType(item, cat)`:**跨类型扩展名按分类上下文判定**——图片类自定义类型/分组条目,在勾选 image 标签或未勾选(全类型)的分类中按 `image` 显示,在「图标资源」等自定义分组分类中保持原类型。
+- **folderPage**:`typeBadgeHtml(it, effType)` 支持有效类型;列表/详情/平铺/图标视图徽标按 `itemEffectiveType(item, 当前分类)` 显示(图片资源库 → 🖼 图片;图标资源库 → 图标类型图标/名称);收藏夹无分类上下文保持原类型。
+- 效果:相册中的 .png 显示「图片」徽标并正常缩略图/预览;应用图标目录的 .ico 正常显示图片;其他跨类型扩展名同理按组定位。
+- 发布：版本 2.0.65 → 2.0.66；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.66-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [优化] 发布 v2.0.65：内置资源类型 图标编辑并入「✎ 编辑」弹窗(名称/扩展名/图标一次编辑)
+
+- 「资源类型(内置)」行:移除独立的「🖼 图标」按钮,图标编辑并入「✎ 编辑」弹窗——弹窗新增「图标」行(emoji 输入 + 😀 图标库选择 + 实时预览,初始值=当前类型图标);保存同时写 `builtinTypeOverrides`(名称/扩展名)与 `resourceTypeIcons`(图标)。
+- 行 ops 区仅保留「✎ 编辑」,与自定义类型行一致。
+- 发布：版本 2.0.64 → 2.0.65；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.65-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [优化] 发布 v2.0.64：资源类型管理 内置分组/内置类型行排列与自定义一致(图标在名称前 + 编辑按钮);「内置资源类型」更名「资源类型(内置)」
+
+- 设置页「资源类型管理」:
+  - 资源分组(内置)行:图标移至名称前(`iconNode` cat-icon,emoji 或 dataURL),右侧 ops 区改为「✎ 编辑」按钮(改图标)——与自定义分组行排列一致;
+  - 资源类型(内置)行:图标移至名称前,右侧 ops 区 =「✎ 编辑」(名称/扩展名)+「🖼 图标」(改图标)——与自定义类型行排列一致;
+  - 标签「内置资源类型」→「资源类型(内置)」。
+- 发布：版本 2.0.63 → 2.0.64；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.64-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [修复] 发布 v2.0.63：自定义资源类型可归属自定义资源分组(如「图标资源」),不再强制回退「图片」组
+
+- **根因**：`addCustomType`/`updateCustomType` 强制 group 只能是内置分组(`['anim','image','audio','3d']`),用户在「资源类型管理 → 新增/编辑资源类型」的资源分组下拉选「图标资源」(自定义分组)保存时,`updateCustomType` 把 group 强制改回 `'image'` → 重开仍是「图片」组。
+- **修复**：新增 `normalizeTypeGroup(group)`——内置分组 或 **现有自定义分组 id** 均合法,其余回退 `image`;`addCustomType`/`updateCustomType` 共用。自定义类型归自定义分组后,`typeGroup` 返回分组 id → 该类型文件显示在对应资源组(如「图标资源」)下,分类勾选该分组标签即可看到。
+- 设置页自定义类型列表的「资源分组」列:group 为自定义分组时显示分组名(而非 id)。
+- 发布：版本 2.0.62 → 2.0.63；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.63-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [修复+优化] 发布 v2.0.62：资源列表类型徽标显示 类型图标+类型名+类型色(修复显示类型 id);库迁移旧自定义类型 id
+
+- **根因**：用户库 138 个条目的 type 为旧自定义类型 id(`ct_msstyr9k_et8ph7`),但设置中该类型已被删除/重建(现为 `ct_msv5m3qy_3dwbea`「图标」)→ `typeLabel` 无法解析 → 列表徽标显示原始 id。
+- **库迁移**(一次性,已备份 skeleton.db→skeleton.db.bak-20260816):`UPDATE items SET type='ct_msv5m3qy_3dwbea' WHERE type='ct_msstyr9k_et8ph7'`(138 条),校验后 ct_ 条目全部指向存在类型。
+- **类型徽标组件**(`state.js` 新增并导出):`typeBadgeIcon`(自定义类型图标 → 内置类型配置图标 → 分组条目按 exts 映射图标)、`typeColor`(内置类型固定色表 `BUILTIN_TYPE_COLORS`;自定义类型/分组按名称哈希取色——**不同资源类型不同颜色**);ui.js 删除本地重复实现改引用 state。
+- **folderPage 全部资源列表视图**新增 `typeBadgeHtml(it)`(图标+名称+类型色内联 style):列表/详情/平铺/图标/收藏夹等所有 type-badge 渲染点替换;detail 表「类型」列同样按类型着色;CSS 新增 `.tb-ico/.tb-ico-img`。
+- 发布：版本 2.0.61 → 2.0.62；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.62-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [新增] 发布 v2.0.61：Markdown 编辑器新增「＋ 加入库」——把打开的文档加入资源库指定分类(优先「文档资源」分组)
+
+- `MarkdownEditorController.addToLibrary()`:工具栏新增「＋ 加入库」按钮(预览页 pv-markdown-view 与工具箱工具页均含)。
+- 点击弹出分类选择对话框:**「文档资源」分组(名称含 文档/Markdown 或扩展名含 .md 的自定义分组)勾选的分类优先列出**,其余资源分类随后,(未分类)兜底;下拉按 `categoryPath` 显示完整层级。
+- 确认 → `addItem({ type:'markdown', filePath, displayName })`(自动 `ensureCategoryTypeTag`,分类勾选分组时标签自动补),dispatch `library:changed` 侧栏即时刷新;toast + 编辑器状态提示。
+- 未打开文件时点「＋ 加入库」提示先打开文档。
+- 发布：版本 2.0.60 → 2.0.61；`npm run build` 通过(导入自检 + 模块打包)；产物 `release/游戏资源管理器-v2.0.61-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [新增] 发布 v2.0.60：Markdown 查看/编辑器模块(参考 MarkText 分栏体验);资源工具箱 + 预览页集成
+
+- **依赖**:新增 `markdown-it@15`(渲染引擎,Vite 打包)。
+- **编辑器模块**(`src/viewers/markdownEditor.js` `MarkdownEditorController`):
+  - 工具栏:打开(.md/.markdown/.txt)/ 保存(回写原文件,Ctrl+S)/ 分栏·预览·编辑 三模式切换 / 复制源码;文件名 + 状态提示;
+  - 编辑区 textarea + 预览区 markdown-it 渲染(GitHub 风格 CSS:标题/列表/表格/引用/代码块/图片/链接,支持 HTML);输入防抖 250ms 实时刷新预览;
+  - 保存:TextEncoder → base64 → `fs:writeFileBase64` 回写原文件(UTF-8)。
+- **资源工具箱**:工具箱侧栏新增「Markdown 编辑器」工具(老库自动补种缺失工具);工具箱主页新增 📄 Markdown 文档 卡片;工具页内嵌同一编辑器(打开/编辑/保存任意 .md)。
+- **预览页集成**:`isMarkdownFile`(按 .md/.markdown 扩展名判定,兼容「文档资源」自定义分组条目 type=分组 id)→ 打开走 `showMarkdownViewer`(pv-markdown-view,分栏编辑+预览,可直接保存回写);markdown 从原纯文本预览升级为富渲染编辑器。
+- 样式:`#pv-markdown-view` 加入 flex:1 规则;`.md-editor/.md-toolbar/.md-body/.md-col/#md-edit/.md-preview` 布局 + GitHub 风格渲染样式。
+- 验证:electron 冒烟(DOM 结构/三模式按钮/flex:1/readBase64 桩)通过;导入自检 + 构建通过(markdown-it 打包)。
+- 发布：版本 2.0.59 → 2.0.60；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.60-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [优化] 发布 v2.0.59：资源类型管理「资源分组」与「类型配置」之间加分隔线;「内置类型」更名为「内置资源类型」
+
+- 设置页「资源类型管理」:资源分组区(内置/自定义)与类型配置区之间新增 `.settings-sep` 分隔线(横线 + 「类型配置」文字),视觉上区分两组;「内置类型」标签更名为「内置资源类型」,编辑对话框标题同步。
+- 发布：版本 2.0.58 → 2.0.59；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.59-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [新增] 发布 v2.0.58：内置类型新增 Markdown/文本/配置/数据库/网页五类;内置类型名称与扩展名可编辑
+
+- **新增内置类型**(`state.js BUILTIN_TYPE_DEFS`):
+  - `markdown` Markdown:`.md .markdown`;
+  - `text` 文本:`.txt .log .csv`;
+  - `config` 配置:`.ini .json .xml .yaml .yml .toml`;
+  - `database` 数据库:`.db .sql .mdd .mdx`;
+  - `web` 网页:`.htm .html .xhtml`;
+  - 归属分组:image(与图片同组展示,侧栏「图片资源」下可见)。
+- **扫描识别**(`electron/scanner.js` + `main.js` dir:scan 传 `builtinTypeOverrides`):新增文本类分类段;`.json` 已识别为 spine/dragonbones 骨架(内容特征)的不再落入 config;优先级 自定义类型 > 自定义分组 > 内置。
+- **内置类型名称/扩展名可编辑**:设置页「资源类型管理」内置类型区(现 11 类)每行新增「✎ 编辑」→ 对话框改名称 + 扩展名(空格分隔),存 `settings.builtinTypeOverrides`;图标按钮保留(条目徽标)。
+- **打开预览**:markdown/text/config/web 打开 → 新增**文本预览**(readBase64 → UTF-8 显示源码,`showTextPreview`);database 打开 → 文件信息占位。
+- **显示**:`typeLabel` 用可配置名称;`DEFAULT_RESOURCE_TYPE_ICONS` 补新类型默认图标(📄📄⚙️🗄🌐)。
+- 验证:scanner 冒烟 —— skeleton.json→spine(内容检测)、data.json→config、.md/.txt/.ini/.db/.html 各归其类,全部正确。
+- 发布：版本 2.0.57 → 2.0.58；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.58-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [新增] 发布 v2.0.57：资源类型管理可配置内置分组/内置类型图标;条目徽标改用资源类型图标(分组图标仅用于资源根)
+
+- **数据**：`state.js` 新增 `DEFAULT_RESOURCE_GROUP_ICONS`(anim/image/audio/3d → 🎬🖼♪🧊)与 `DEFAULT_RESOURCE_TYPE_ICONS`(spine/dragonbones/image/audio/model/fgui/video → 🎬🦕🖼♪🧊🧩🎞);`resourceGroupIcon/resourceTypeIcon` 读 `settings.resourceGroupIcons/resourceTypeIcons`(缺省回退默认);`setResourceGroupIcon/setResourceTypeIcon` 持久化。
+- **设置页「资源类型管理」**：
+  - 内置资源分组(动画/图片/音频/3D)行新增「✎ 图标」按钮 → 修改图标(emoji 或 dataURL 图片,实时预览),用于**侧栏顶级资源根**;
+  - 内置资源类型(Spine/DB/图片/音频/3D/FGUI/视频)行新增「✎ 图标」按钮 → 修改图标,用于**具体资源文件条目的类型徽标**;
+  - 保存后 dispatch `library:changed` 即时刷新侧栏。
+- **条目徽标逻辑调整**(`typeBadgeIcon`):自定义类型 → 类型自身图标;内置类型 → `resourceTypeIcon(type)`(可配置);自定义分组条目 → 按分组扩展名映射的类型图标(视频→🎞/图片/音频/FGUI);**不再使用资源分组图标**(该图标仅用于顶级资源根)。
+- **侧栏资源根图标**(`defaultMenuIcon`):内置四组改用 `resourceGroupIcon`(可配置),缺省回退原 emoji。
+- 发布：版本 2.0.56 → 2.0.57；`npm run build` 通过(导入自检 + 模块打包)；产物 `release/游戏资源管理器-v2.0.57-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [优化] 发布 v2.0.56：侧栏条目类型徽标改为图标(自定义分组用分组图标,无图标不显示;图片等内置类型用图标)
+
+- **需求**：侧栏/收藏夹条目类型徽标显示「视频资源」「图片」等文字占空间,挤压资源文件名显示位置;应改图标显示。
+- **修复**：新增 `typeBadgeIcon(it)`(ui.js):
+  - 自定义分组(cg_xxx)→ 显示分组配置的图标(emoji 或 dataURL 图片;`isImageIcon` 时用 `<img class="type-badge-img">`);
+  - **未设置图标 → 不显示徽标**(不占空间);
+  - 内置类型 → 图标:`image=🖼 audio=♪ model=🧊 fgui=🧩 spine/dragonbones=🎬`;
+- `renderItemNode`/`renderFavItemNode` 两处改为按 `typeBadgeIcon` 输出徽标(无图标整块省略);CSS 新增 `.type-badge-img`(14×14 圆角 contain)。
+- 发布：版本 2.0.55 → 2.0.56；`npm run build` 通过(导入自检 + 模块打包)；产物 `release/游戏资源管理器-v2.0.56-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [修复] 发布 v2.0.55：侧栏条目/收藏条目类型徽标显示自定义分组 id(应为可读名)
+
+- **根因**：`renderItemNode`/`renderFavItemNode` 类型徽标用 `TYPE_LABEL[it.type] || it.type` 取文本,`TYPE_LABEL` 仅含内置类型(spine/anim/image/audio/model/fgui),自定义分组 id(如 `cg_msuhxbu5_yv334h` = 视频资源)无对应映射 → 兜底显示原 id。
+- **修复**:改用 `typeLabel(it.type)`(state.js 已支持自定义分组 → 分组名 `customTypeGroupById(type).name`)。两处条目节点渲染修复后,侧栏/收藏夹条目类型徽标显示「视频资源」/「图标资源」等可读名,而非分组 id。
+- 发布：版本 2.0.54 → 2.0.55；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.55-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [优化] 发布 v2.0.54：视频卡片直接显示元信息里的海报原图(高清,替代 96×96 缩略图放大)
+
+- **根因**：视频卡片此前使用 `getVideoThumb`(96×96 缩略图)放大显示,海报图模糊;且若海报读取失败会降级到首帧。
+- **修复**：`thumbnailService` 新增 `getPosterUrl(poster)`——按 `item.meta.poster` 绝对路径读**海报原图 dataURL**(内存缓存 posterPath→dataUrl,长驻避免重复 IPC);`folderPage` 视频卡片异步加载改为**优先海报原图**,海报缺失/读取失败才降级到首帧缩略图(`getVideoThumb`)。
+- 图标视图等其它场景仍用海报 96×96 缩略图(`getVideoThumb` 内部 poster 优先逻辑不变)。
+- 发布：版本 2.0.53 → 2.0.54；`npm run build` 通过(导入自检 + 模块打包)；产物 `release/游戏资源管理器-v2.0.54-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [修复] 发布 v2.0.53：视频卡片 海报图占满整个卡片上半部分(解除全局 max-width 限制)
+
+- **根因**：全局 `.res-thumb { max-width: 120px; max-height: 120px; }` 在视频卡片视图里仍生效,海报图被限制为 120×120 缩在卡片中央(外圈大块黑色),与参考图效果差距大。
+- **修复**：CSS 选择器改为 `.res-view-video-card .video-card-poster .res-thumb`(specificity 0,3,0 > 全局 0,2,1),明确写 `max-width: none; max-height: none`,配合 `width: 100%; height: 100%; object-fit: cover` → 海报图 fill 整个卡片 2:3 海报框,与参考图一致。
+- 发布：版本 2.0.52 → 2.0.53；`npm run build` 通过；产物 `release/游戏资源管理器-v2.0.53-便携版.zip`（data/ 已排除）。
+
+## 2026-08-16
+
+### [新增] 发布 v2.0.52：视频元信息编辑(海报图/评分/简介/导演/演员/年份)+ 视频卡片列表视图
+
+- **数据模型**：`items` 表新增 `meta TEXT` 字段(JSON 字符串,旧库自动 ALTER TABLE 迁移),存视频/一般元信息:{poster, rating, intro, director, cast, year};`db.js` 读写 + `state.js updateItem({meta})` 自动持久化。
+- **元信息编辑对话框**(视频条目):右键「编辑信息」/预览页「编辑」→ 新增「🎬 元信息」区块 — 「海报图」选择器(选本地图片存绝对路径 + 实时预览)、评分(0-10 浮点)、简介、导演/作者、演员/主演(逗号分隔)、年份;保存后元信息跟随条目。
+- **缩略图优先海报图**:`thumbnailService.getVideoThumb` 优先读取 `item.meta.poster`(本地图片绝对路径 → 96×96 contain 黑底 dataURL,失败降级到视频首帧);视频列表首帧缩略图行为不变。
+- **视频卡片列表视图**(参考参考图):新增 `viewMode: 'video-card'`(「🎞 视频卡片(海报)」);卡片样式:2:3 海报图 + 右下角评分徽标(白色 tabular-nums) + 标题 + 简介(最多 2 行)+ 年份后缀;**自动启用**:当前分类下条目均为视频时自动切到视频卡片视图(用户在图标模式时尊重其偏好);手动也可在「查看」下拉选择。
+- 样式:`.res-view-video-card/.video-card/.video-card-poster/.video-card-rating/.video-card-title/.video-card-intro`;编辑对话框 `.form-section/.video-poster-row/.video-poster-box/.video-poster-img`。
+- 发布：版本 2.0.51 → 2.0.52；`npm run build` 通过(导入自检 + 模块打包);产物 `release/游戏资源管理器-v2.0.52-便携版.zip`(data/ 已排除)。
 
 ## 2026-08-15
 
