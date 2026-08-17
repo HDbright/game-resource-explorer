@@ -1,48 +1,49 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>得乐学苑 · 组件标注报告</title>
+<title>得乐学苑 · 组件标注报告(层级分编号)</title>
 <style>
-  :root{--bg:#f4f6fb;--panel:#ffffff;--ink:#1f2330;--sub:#5b6172;--line:#e3e6f0;--accent:#4f7cff;--hot:#ff4d4f}
+  :root{--bg:#f4f6fb;--panel:#ffffff;--ink:#1f2330;--sub:#5b6172;--line:#e3e6f0;--accent:#4f7cff;--hot:#ff4d4f;--subc:#ff8c1a}
   *{box-sizing:border-box}
   body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,sans-serif;background:var(--bg);color:var(--ink);line-height:1.55}
   header.top{background:linear-gradient(135deg,#4f7cff,#8b5cf6);color:#fff;padding:22px 26px}
   header.top h1{margin:0 0 6px;font-size:22px;letter-spacing:.5px}
   header.top p{margin:0;opacity:.92;font-size:13px}
-  .wrap{max-width:1180px;margin:0 auto;padding:18px;display:grid;grid-template-columns:1fr 360px;gap:18px}
+  .wrap{max-width:1240px;margin:0 auto;padding:18px;display:grid;grid-template-columns:1fr 380px;gap:18px}
   @media(max-width:1000px){.wrap{grid-template-columns:1fr}}
   .col-main{min-width:0}
   .col-side{position:sticky;top:14px;align-self:start;max-height:calc(100vh - 28px);overflow:auto}
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:16px;box-shadow:0 4px 16px rgba(20,30,60,.05)}
-  .panel h2{margin:0 0 4px;font-size:17px}
-  .panel .hint{margin:0 0 12px;font-size:12px;color:var(--sub)}
-  .device{border:1px solid #d0d5e0;border-radius:14px;padding:10px;background:#fff;box-shadow:0 6px 20px rgba(20,30,60,.07);overflow:hidden}
+  .panel h2{margin:0 0 12px;font-size:17px}
+  .device{border:1px solid #d0d5e0;border-radius:14px;padding:10px;background:#fff;box-shadow:0 6px 20px rgba(20,30,60,.07);overflow:visible}
   .device .kid-wb{max-height:none}
-  /* pin */
   .pinwrap{position:relative}
-  .pin{position:absolute;top:-13px;left:-13px;width:26px;height:26px;border-radius:50%;background:var(--hot);color:#fff;font:800 13px/26px system-ui;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.28);cursor:pointer;z-index:30;border:2px solid #fff;transition:transform .12s}
+  .pin{position:absolute;top:-13px;left:-13px;width:26px;height:26px;border-radius:50%;background:var(--hot);color:#fff;font:800 12px/26px system-ui;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.28);cursor:pointer;z-index:30;border:2px solid #fff;transition:transform .12s}
+  .pin.sub{top:-9px;right:-9px;left:auto;width:18px;height:18px;font:700 9px/18px system-ui;background:var(--subc);border-width:1.5px}
   .pin:hover{transform:scale(1.12)}
-  .pin.hot{background:#111;transform:scale(1.28);box-shadow:0 0 0 4px rgba(255,77,79,.35)}
-  /* 侧栏图例 */
-  .legend{width:100%;border-collapse:collapse;font-size:12px}
-  .legend th{text-align:left;color:var(--sub);font-weight:700;padding:6px 8px;border-bottom:2px solid var(--line);position:sticky;top:0;background:#fff;font-size:11px}
-  .legend td{border-bottom:1px solid var(--line);padding:8px;border-top:1px solid #f0f2f7;vertical-align:top}
+  .pin.hot{background:#111;transform:scale(1.3);box-shadow:0 0 0 4px rgba(255,77,79,.35);z-index:40}
+  .legend{width:100%;border-collapse:collapse;font-size:11.5px}
+  .legend th{text-align:left;color:var(--sub);font-weight:700;padding:6px 8px;border-bottom:2px solid var(--line);position:sticky;top:0;background:#fff}
+  .legend td{border-bottom:1px solid #eee;padding:6px 8px;vertical-align:top}
   .legend tr{cursor:pointer}
   .legend tr:hover td{background:#f7f9ff}
   .legend tr.hot td{background:#fff3f3;box-shadow:inset 3px 0 0 var(--hot)}
-  .legend .cnum{font-weight:800;color:var(--accent);width:26px;text-align:center}
-  .legend .cname{font-weight:700;width:120px}
-  .legend .ccode{color:#2563eb;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;width:150px}
+  .legend .cnum{font-weight:800;color:var(--accent);width:34px;text-align:center;white-space:nowrap}
+  .legend .clevel0 .cnum{color:var(--hot)}
+  .legend .cname{font-weight:700;min-width:120px}
+  .legend .clevel0 .cname{font-size:12.5px}
+  .legend .ccode{color:#2563eb;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:10.5px;width:140px}
   .legend .crole{color:var(--sub)}
-  .zoom-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
-  @media(max-width:640px){.zoom-grid{grid-template-columns:1fr 1fr}}
-  .note{font-size:12px;color:var(--sub);background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 12px;margin-bottom:14px}
+  .legend .clevel1{background:#fffaf3}
+  .legend .clevel2{background:#fdf6f0}
+  .legend .clevel3{background:#fbf2ec}
   .toc{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:6px}
   .toc a{font-size:12px;text-decoration:none;background:#eef2ff;color:#3742b0;padding:5px 10px;border-radius:20px;font-weight:700}
   .toc a:hover{background:#dfe6ff}
   .src{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:#2563eb}
+  .note{font-size:12px;color:var(--sub);background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 12px;margin-bottom:14px}
   footer{color:var(--sub);font-size:12px;text-align:center;padding:18px}
   .kid-wb{--kaccent:#4f7cff;--kaccent2:#6a5cff}
 </style>
@@ -103,7 +104,7 @@
 .kid-tabs{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
 .kid-tab{flex:1;min-width:120px;min-height:48px;border-radius:14px;background:var(--kcard);border:2px solid var(--kborder);
   font-size:15px;font-weight:800;color:var(--ktext2);display:flex;align-items:center;justify-content:center;gap:8px}
-.kid-tab.on{background:linear-gradient(135deg,var(--kaccent),var(--kaccent2));color:#fff;border-color:transparent;box-shadow:0 4px 14px rgba(79,124,255,.35)}
+.kid-tab.on{background:var(--kcard2);color:var(--kaccent);border-color:var(--kaccent);box-shadow:0 2px 8px color-mix(in srgb,var(--kaccent) 16%,transparent)}
 .kid-tab.on .kid-tab-dot{background:none}
 .kid-sec-head{display:flex;align-items:center;gap:8px;margin:4px 0 10px}
 .kid-sec-head .kid-sec-title{font-size:16px;font-weight:800;color:var(--ktext)}
@@ -299,7 +300,7 @@
 /* 虚线边框 */
 .kid-wb .kid-today-empty,.kid-wb .kid-addtask{border-color:var(--kborder2)}
 /* 强调色 */
-.kid-wb .kid-btn.primary,.kid-wb .kid-tab.on{background:linear-gradient(135deg,var(--kaccent),var(--kaccent2))}
+.kid-wb .kid-btn.primary{background:linear-gradient(135deg,var(--kaccent),var(--kaccent2))}
 .kid-wb .kid-task.started,.kid-wb .kid-plan-day.today,.kid-wb .kid-avatar-item.on,.kid-wb .kid-addtask:hover{border-color:var(--kaccent)}
 .kid-wb .kid-switch.on,.kid-wb .kid-pwd-dot.fill{background:var(--kaccent);border-color:var(--kaccent)}
 .kid-wb .kid-ring-fill{background:linear-gradient(90deg,var(--kaccent),#8b5cf6)}
@@ -356,7 +357,7 @@
 .kid-wb .kid-tabs{gap:10px}
 .kid-wb .kid-tab{border-radius:var(--kr-lg);transition:transform .16s cubic-bezier(.22,1,.36,1),box-shadow .16s}
 .kid-wb .kid-tab:hover:not(.on){transform:translateY(-1px);box-shadow:var(--ks-1)}
-.kid-wb .kid-tab.on{box-shadow:var(--kglow)}
+.kid-wb .kid-tab.on{box-shadow:0 2px 8px color-mix(in srgb,var(--kaccent) 14%,transparent)}
 .kid-wb .kid-tab .kid-tab-dot{font-size:16px}
 /* —— 任务卡:渐变顶条 + 悬停上浮 —— */
 .kid-wb .kid-task{position:relative;border-radius:var(--kr-lg);overflow:hidden;transition:transform .18s cubic-bezier(.22,1,.36,1),box-shadow .18s,border-color .18s}
@@ -415,8 +416,8 @@
 .kid-wb .kid-lv-pill{text-shadow:0 1px 2px rgba(0,0,0,.5),0 0 4px rgba(0,0,0,.28)}
 /* 今日列表「去完成」与任务卡按钮同主按钮规则(默认按钮统一) */
 .kid-wb .kid-today-item .kid-btn.primary{color:#fff}
-/* Tab 激活态同问题:白字固定(次文字规则曾覆盖成灰) */
-.kid-wb .kid-tab.on{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.18)}
+/* Tab 激活态:不再用白字+渐变填充,改主题强调色文字(贴近非激活标签的浅底配色) */
+.kid-wb .kid-tab.on{color:var(--kaccent)}
 
 /* ============ 开启挑战按钮(直接使用背景图片) ============
    来源:E:\backup\asset\btn\btn_start_challenge256.png (256×96 橙黄渐变胶囊+紫描边+紫火箭+紫文字)
@@ -477,245 +478,363 @@
   }
 }
 </style>
+<style>
+/* 报告专用：弹窗遮罩/抽屉从 fixed 全屏降级为文档流内静态展示,避免覆盖整页 */
+.kid-overlay{position:relative!important;inset:auto!important;top:auto!important;right:auto!important;bottom:auto!important;left:auto!important;z-index:auto!important;background:none!important;backdrop-filter:none!important;display:flex!important;justify-content:center;align-items:flex-start;flex-wrap:wrap;gap:14px;padding:8px 0!important;min-height:0!important}
+.kid-drawer{position:relative!important;inset:auto!important;top:auto!important;right:auto!important;bottom:auto!important;left:auto!important;z-index:auto!important;width:100%!important;max-width:440px!important;box-shadow:0 10px 30px rgba(20,24,40,.12)!important;margin:8px 0!important}
+.kid-toast-ok{position:static!important;transform:none!important;z-index:auto!important;margin:8px 0!important}
+</style>
 </head>
 <body>
 <header class="top">
-  <h1>得乐学苑 · 页面组件可视化标注报告</h1>
-  <p>模块文件：src/pages/kidWorkspacePage.js（小学生成长闯关台 / 定制版）。下方每个可视组件均标注编号，点击编号或右侧图例可联动高亮，方便精准描述与手动修改布局与功能。</p>
+  <h1>得乐学苑 · 页面组件可视化标注报告（层级分编号）</h1>
+  <p>模块文件：src/pages/kidWorkspacePage.js（小学生成长闯关台 / 定制版）。父组件编号为 1–23，其内部按钮/卡片/标签用 <b>父.子</b> 层级编号（如 17 → 17.1 / 17.2 …）。点击编号或右侧图例可联动高亮并定位。</p>
 </header>
 <div class="wrap">
   <div class="col-main">
-    <div class="note">说明：本报告使用模块<strong>真实 CSS</strong> 还原各组件外观（示例数据为演示用），编号所对应的<strong>代码位置</strong>指向 <span class="src">src/pages/kidWorkspacePage.js</span> 中的渲染函数与行号。修改 UI 时，按编号定位函数即可。</div>
-    <div class="toc"><a href="#scr-A">主框架(顶栏/今天要处理/Tab)</a><a href="#scr-B">今日挑战</a><a href="#scr-C">学习计划</a><a href="#scr-D">成长奖励</a><a href="#scr-E">弹窗与键盘</a><a href="#scr-E2">设置抽屉</a><a href="#scr-Z">部件细节放大</a><a href="#legend-top">📑 组件总表</a></div>
-
-    <div class="panel" id="scr-A">
-      <h2>① 主框架：顶栏 / 今天要处理 / Tab 栏</h2>
-      <p class="hint">renderTopbar() · renderToday() · renderTabs()</p>
-      <div class="device"><div class="kid-wb">
-<div class="kid-topbar pinwrap" id="pw-1"><span class="pin" data-id="1" title="组件 1">1</span>
-  <div class="kid-brand">
-    <div class="kid-logo"><svg viewBox="0 0 24 24" width="15" height="15"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L3.3 9.3l6.1-.7z" fill="22" stroke="#d97706" stroke-width="0.8"/></svg></div>
-    <div class="kid-title">得乐学苑<small>小宇 · 初级学者</small></div>
-  </div>
-  <span class="kid-lv-pill" style="background:#4f7cff">★ Lv.3</span>
-  <span class="kid-date">📅 2026年8月17日 周一</span>
-  <div class="kid-top-actions">
-    <button class="kid-btn sm">⬇ 导出</button>
-    <button class="kid-btn sm">⬆ 导入</button>
-    <button class="kid-btn sm">🔒 家长</button>
-    <button class="kid-btn sm">⚙ 设置</button>
+    <div class="note">说明：本报告使用模块<strong>真实 CSS</strong> 还原各组件外观（示例数据为演示用）。<strong>红圆=大组件编号</strong>，<strong>橙圆=子组件编号</strong>。编号对应的<strong>代码位置</strong>指向 <span class="src">src/pages/kidWorkspacePage.js</span> 中的渲染函数与行号。</div>
+    <div class="toc"><a href="#scr-1">① 主框架</a><a href="#scr-2">② 今日挑战</a><a href="#scr-3">③ 学习计划</a><a href="#scr-4">④ 成长奖励</a><a href="#scr-5">⑤ 弹窗键盘</a><a href="#scr-6">⑥ 设置抽屉</a><a href="#legend-top">📑 组件总表</a></div>
+    <div class="panel" id="scr-1"><h2>① 主框架：顶栏 / 今天要处理 / Tab 栏</h2><div class="device"><div class="kid-wb theme-project"><div class="pinwrap" id="pw-1"><span class="pin" data-id="1" title="组件 1">1</span><div class="kid-topbar">
+  <div class="pinwrap" id="pw-1.1"><span class="pin sub" data-id="1.1" title="组件 1.1">1.1</span><div class="kid-brand"><div class="pinwrap" id="pw-1.1.1"><span class="pin sub" data-id="1.1.1" title="组件 1.1.1">1.1.1</span><div class="kid-logo"><svg viewBox="0 0 24 24" width="24" height="24"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L3.3 9.3l6.1-.7z" fill="#fff" stroke="#d97706" stroke-width="0.8" stroke-linejoin="round"/></svg></div></div><div class="pinwrap" id="pw-1.1.2"><span class="pin sub" data-id="1.1.2" title="组件 1.1.2">1.1.2</span><div class="kid-title">得乐学苑<small>小宇 · 记忆小博士</small></div></div></div></div>
+  <div class="pinwrap" id="pw-1.2"><span class="pin sub" data-id="1.2" title="组件 1.2">1.2</span><div class="kid-lv-pill">★ Lv.5</div></div>
+  <div class="pinwrap" id="pw-1.3"><span class="pin sub" data-id="1.3" title="组件 1.3">1.3</span><div class="kid-date">📅 8月17日 周一</div></div>
+  <div class="pinwrap" id="pw-1.4"><span class="pin sub" data-id="1.4" title="组件 1.4">1.4</span><div class="kid-top-actions">
+    <div class="pinwrap" id="pw-1.4.1"><span class="pin sub" data-id="1.4.1" title="组件 1.4.1">1.4.1</span><div class="kid-btn sm">⬇ 导出</div></div>
+    <div class="pinwrap" id="pw-1.4.2"><span class="pin sub" data-id="1.4.2" title="组件 1.4.2">1.4.2</span><div class="kid-btn sm">⬆ 导入</div></div>
+    <div class="pinwrap" id="pw-1.4.3"><span class="pin sub" data-id="1.4.3" title="组件 1.4.3">1.4.3</span><div class="kid-btn sm gold">👨‍👩‍👦 家长</div></div>
+    <div class="pinwrap" id="pw-1.4.4"><span class="pin sub" data-id="1.4.4" title="组件 1.4.4">1.4.4</span><div class="kid-btn sm">⚙ 设置</div></div>
   </div></div>
-<div class="kid-today pinwrap" id="pw-2"><span class="pin" data-id="2" title="组件 2">2</span>
-  <div class="kid-today-head">
-    <span class="kid-today-title">🎯 今天要处理</span>
-    <span class="kid-today-sub">已完成 1/3 · 已连续打卡 5 天 🔥</span>
-    <span class="kid-progress"><svg viewBox="0 0 44 44" width="40" height="40"><circle cx="22" cy="22" r="17" fill="none" stroke="var(--kring-bg)" stroke-width="5"/><circle cx="22" cy="22" r="17" fill="none" stroke="var(--kaccent)" stroke-width="5" stroke-linecap="round" stroke-dasharray="106.8" stroke-dashoffset="71" transform="rotate(-90 22 22)"/></svg><span class="kid-progress-txt">33%</span></span>
-  </div>
-  <div class="kid-today-list">
-    <div class="kid-today-item overdue" data-today="x">
-      <div class="k-ti-ico" style="background:#dcfce7">🔢</div>
-      <div class="k-ti-main"><div class="k-ti-title">⚠ 口算 50 道</div><div class="k-ti-sub">数学口算 · 50 道</div></div>
-      <span class="k-ti-tag">逾期 1 天</span>
-      <button class="kid-btn sm">去完成 →</button>
-    </div>
-    <div class="kid-today-item" data-today="y">
-      <div class="k-ti-ico" style="background:#e0f2fe">🏃</div>
-      <div class="k-ti-main"><div class="k-ti-title">跳绳 200 个</div><div class="k-ti-sub">身体锻炼 · 200 个</div></div>
-      <button class="kid-btn sm">去完成 →</button>
-    </div>
-  </div>
-  <div class="kid-today-banner">📌 <span>已累计完成 <b>32</b> 个任务,建议在顶部点「⬇ 导出」做一次数据备份</span></div></div>
-<div class="kid-tabs pinwrap" id="pw-3"><span class="pin" data-id="3" title="组件 3">3</span>
-  <button class="kid-tab on"><span class="kid-tab-dot">🚀</span>今日挑战</button>
-  <button class="kid-tab"><span class="kid-tab-dot">🗓️</span>学习计划</button>
-  <button class="kid-tab"><span class="kid-tab-dot">👑</span>成长奖励</button></div>
-</div></div>
-    </div>
-
-    <div class="panel" id="scr-B">
-      <h2>② 今日挑战 Tab</h2>
-      <p class="hint">renderTodayTab() · renderTaskCard()</p>
-      <div class="device"><div class="kid-wb">
-<div class="kid-sec-head pinwrap" id="pw-4"><span class="pin" data-id="4" title="组件 4">4</span><span class="kid-sec-title">⚔️ 今日任务(1/3)</span><span class="kid-sec-sub">完成后请家长验收打星,获得金币和经验</span></div>
-<div class="kid-grid pinwrap" id="pw-5"><span class="pin" data-id="5" title="组件 5">5</span><div class="kid-task carry" data-task-id="x">
-    <div class="k-task-head">
-      <div class="k-task-ico" style="background:#dcfce7">🔢</div>
-      <div class="k-task-titles"><div class="k-task-name">口算 50 道</div><div class="k-task-cat">数学口算</div></div>
-      <div class="k-task-badges"><span class="k-badge carry">⚠ 昨日未完成</span></div>
-    </div>
-    <div class="k-task-target">目标:<span class="k-unit-chip">50 道</span></div>
-    <div class="k-task-actions"><button class="kid-btn challenge"></button><button class="kid-btn">✕ 移除</button></div>
-    <div class="k-task-tips">💡 每天进步一点点,坚持就是胜利!</div>
-    <div class="k-task-foot">从昨天自动顺延到今天,坚持就是胜利!</div>
-  </div><div class="kid-task started" data-task-id="x">
-    <div class="k-task-head">
-      <div class="k-task-ico" style="background:#e0f2fe">🏃</div>
-      <div class="k-task-titles"><div class="k-task-name">跳绳 200 个</div><div class="k-task-cat">身体锻炼</div></div>
-      <div class="k-task-badges"><span class="k-badge doing">⏳ 挑战中</span></div>
-    </div>
-    <div class="k-task-target">目标:<span class="k-unit-chip">200 个</span></div>
-    <div class="k-task-actions"><button class="kid-btn green">🚀 挑战成功!</button><button class="kid-btn">↺ 重来</button></div>
-    <div class="k-task-tips">💡 每天进步一点点,坚持就是胜利!</div>
-    <div class="k-task-foot">集中注意力,一鼓作气挑战到底!</div>
-  </div><div class="kid-task done" data-task-id="x">
-    <div class="k-task-head">
-      <div class="k-task-ico" style="background:#fef3c7">📖</div>
-      <div class="k-task-titles"><div class="k-task-name">背诵古诗 2 首</div><div class="k-task-cat">背诵</div></div>
-      <div class="k-task-badges"><span class="k-badge done">✅ 已完成</span></div>
-    </div>
-    <div class="k-task-target">目标:<span class="k-unit-chip">2 首</span></div>
-    <div class="k-task-reward"><span class="k-reward-chip c"><svg viewBox="0 0 24 24" width="14" height="14"><circle cx="12" cy="12" r="10.5" fill="#fbbf24" stroke="#d97706" stroke-width="1.4"/><circle cx="12" cy="12" r="7" fill="#f59e0b"/><path d="M12 7.5l1.3 2.9 3.2.3-2.4 2.1.7 3.1L12 14.3l-2.8 1.6.7-3.1-2.4-2.1 3.2-.3z" fill="#fff7ed"/></svg> +15 金币</span><span class="k-reward-chip e"><svg viewBox="0 0 24 24" width="14" height="14"><path d="M13 2L4.5 13.5h5L8 22l8.5-11.5h-5L13 2z" fill="#a78bfa" stroke="#7c3aed" stroke-width="1"/></svg> +15 经验</span><span class="k-reward-chip">⭐ 3 星</span></div><div class="k-task-actions"><button class="kid-btn">↺ 撤销(家长)</button></div>
-    <div class="k-task-tips">💡 每天进步一点点,坚持就是胜利!</div>
-    <div class="k-task-foot">点击「开启挑战」开始挑战</div>
+</div></div><div class="pinwrap" id="pw-2"><span class="pin" data-id="2" title="组件 2">2</span><div class="kid-today">
+  <div class="pinwrap" id="pw-2.1"><span class="pin sub" data-id="2.1" title="组件 2.1">2.1</span><div class="kid-today-head">
+    <div class="pinwrap" id="pw-2.1.1"><span class="pin sub" data-id="2.1.1" title="组件 2.1.1">2.1.1</span><div class="kid-today-title">🎯 今天要处理</div></div>
+    <div class="pinwrap" id="pw-2.1.2"><span class="pin sub" data-id="2.1.2" title="组件 2.1.2">2.1.2</span><div class="kid-today-sub">已完成 1/2 · 已连续打卡 5 天 🔥</div></div>
+    <div class="pinwrap" id="pw-2.1.3"><span class="pin sub" data-id="2.1.3" title="组件 2.1.3">2.1.3</span><div class="kid-progress"><svg viewBox="0 0 44 44" width="40" height="40"><circle cx="22" cy="22" r="17" fill="none" stroke="var(--kring-bg)" stroke-width="5"/><circle cx="22" cy="22" r="17" fill="none" stroke="var(--kaccent)" stroke-width="5" stroke-linecap="round" stroke-dasharray="106.8" stroke-dashoffset="53.4" transform="rotate(-90 22 22)"/></svg><span class="kid-progress-txt">50%</span></div></div>
+    <div class="pinwrap" id="pw-2.1.4"><span class="pin sub" data-id="2.1.4" title="组件 2.1.4">2.1.4</span><div class="kid-btn sm challenge"></div></div>
   </div></div>
-<div class="kid-addtask pinwrap" id="pw-6"><span class="pin" data-id="6" title="组件 6">6</span>＋ 添加自定义任务</div>
-<div class="kid-sec-head pinwrap" id="pw-7"><span class="pin" data-id="7" title="组件 7">7</span><span class="kid-sec-title">🏆 今日已挑战</span></div>
-</div></div>
-    </div>
-
-    <div class="panel" id="scr-C">
-      <h2>③ 学习计划 Tab</h2>
-      <p class="hint">renderPlanTab()</p>
-      <div class="device"><div class="kid-wb">
-<div class="kid-plan-tools pinwrap" id="pw-8"><span class="pin" data-id="8" title="组件 8">8</span>
-  <button class="kid-btn primary">📋 套用均衡模板</button>
-  <button class="kid-btn">🗑 清空计划</button>
-  <label style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700;margin-left:auto;cursor:pointer"><span>计划生成今日任务</span><span class="kid-switch on"></span></label></div>
-<div class="kid-plan-days pinwrap" id="pw-9"><span class="pin" data-id="9" title="组件 9">9</span><div class="kid-plan-day"><div class="kid-plan-day-head"><span class="kid-plan-day-name">周日</span></div><div class="kid-plan-empty">空,点「＋」添加</div><button class="kid-addtask" style="min-height:40px;font-size:12px">＋ 添加</button></div><div class="kid-plan-day today"><div class="kid-plan-day-head"><span class="kid-plan-day-name">周一 · 今天</span><span style="font-size:10px;color:var(--ktext3);font-weight:700">1/2</span></div><div class="kid-plan-item"><span class="k-pi-dot" style="background:#22c55e"></span><span class="k-pi-text">口算 50 道 · 道</span><button class="k-pi-x">✕</button></div><div class="kid-plan-item"><span class="k-pi-dot" style="background:#22c55e"></span><span class="k-pi-text">跳绳 200 个 · 个</span><button class="k-pi-x">✕</button></div><button class="kid-addtask" style="min-height:40px;font-size:12px">＋ 添加</button></div><div class="kid-plan-day"><div class="kid-plan-day-head"><span class="kid-plan-day-name">周二</span></div><div class="kid-plan-empty">空,点「＋」添加</div><button class="kid-addtask" style="min-height:40px;font-size:12px">＋ 添加</button></div><div class="kid-plan-day"><div class="kid-plan-day-head"><span class="kid-plan-day-name">周三</span><span style="font-size:10px;color:var(--ktext3);font-weight:700">1/2</span></div><div class="kid-plan-item"><span class="k-pi-dot" style="background:#22c55e"></span><span class="k-pi-text">undefined · undefined</span><button class="k-pi-x">✕</button></div><button class="kid-addtask" style="min-height:40px;font-size:12px">＋ 添加</button></div><div class="kid-plan-day"><div class="kid-plan-day-head"><span class="kid-plan-day-name">周四</span></div><div class="kid-plan-empty">空,点「＋」添加</div><button class="kid-addtask" style="min-height:40px;font-size:12px">＋ 添加</button></div><div class="kid-plan-day"><div class="kid-plan-day-head"><span class="kid-plan-day-name">周五</span></div><div class="kid-plan-empty">空,点「＋」添加</div><button class="kid-addtask" style="min-height:40px;font-size:12px">＋ 添加</button></div><div class="kid-plan-day"><div class="kid-plan-day-head"><span class="kid-plan-day-name">周六</span></div><div class="kid-plan-empty">空,点「＋」添加</div><button class="kid-addtask" style="min-height:40px;font-size:12px">＋ 添加</button></div></div>
-<div class="kid-today-banner pinwrap" id="pw-10"><span class="pin" data-id="10" title="组件 10">10</span>💡 每个任务都有固定奖励:完成 +10 金币/经验,星级越高奖励越多;连续打卡 3/7/14/30 天额外送钻石,一周计划全完成送 1 皇冠。</div>
-</div></div>
-    </div>
-
-    <div class="panel" id="scr-D">
-      <h2>④ 成长奖励 Tab</h2>
-      <p class="hint">renderRewardTab()</p>
-      <div class="device"><div class="kid-wb">
-<div class="kid-wallet pinwrap" id="pw-11"><span class="pin" data-id="11" title="组件 11">11</span>
-  <div class="kid-wallet-card"><div class="k-w-ico" style="background:#fffbeb"><svg viewBox="0 0 24 24" width="22" height="22"><circle cx="12" cy="12" r="10.5" fill="#fbbf24" stroke="#d97706" stroke-width="1.4"/><circle cx="12" cy="12" r="7" fill="#f59e0b"/><path d="M12 7.5l1.3 2.9 3.2.3-2.4 2.1.7 3.1L12 14.3l-2.8 1.6.7-3.1-2.4-2.1 3.2-.3z" fill="#fff7ed"/></svg></div><div><div class="k-w-num">120</div><div class="k-w-name">金币</div></div></div>
-  <div class="kid-wallet-card"><div class="k-w-ico" style="background:#ecfeff"><svg viewBox="0 0 24 24" width="22" height="22"><path d="M7 4h10l4 5-9 11L3 9z" fill="#22d3ee" stroke="#0891b2" stroke-width="1.3" stroke-linejoin="round"/></svg></div><div><div class="k-w-num">4</div><div class="k-w-name">钻石</div></div></div>
-  <div class="kid-wallet-card"><div class="k-w-ico" style="background:#fffbeb"><svg viewBox="0 0 24 24" width="22" height="22"><path d="M3 8l4 4 5-6 5 6 4-4-2 10H5z" fill="#fbbf24" stroke="#d97706" stroke-width="1.3" stroke-linejoin="round"/></svg></div><div><div class="k-w-num">2</div><div class="k-w-name">皇冠</div></div></div>
-  <div class="kid-wallet-card"><div class="k-w-ico" style="background:var(--kcard)"><svg viewBox="0 0 24 24" width="22" height="22"><circle cx="12" cy="14" r="7" fill="#fb923c" stroke="#ea580c" stroke-width="1.3"/><circle cx="12" cy="14" r="4.5" fill="#fff7ed"/></svg></div><div><div class="k-w-num">3/6</div><div class="k-w-name">奖章</div></div></div></div>
-<div class="kid-row2 pinwrap" id="pw-12"><span class="pin" data-id="12" title="组件 12">12</span>
-  <div class="kid-card">
-    <div class="kid-card-title">🏅 等级称号</div>
-    <div class="kid-level-row">
-      <div class="kid-hero-box"><div style="font-size:54px">🧒</div></div>
-      <div class="kid-level-info">
-        <div class="kid-lv-title">初级学者<span class="kid-lv-tag" style="background:#4f7cff">Lv.3</span></div>
-        <div class="kid-lv-desc">稳步前进的小学霸,继续加油!</div>
-        <div class="kid-ring-row"><span class="kid-ring-label">经验</span><div class="kid-ring-bar"><div class="kid-ring-fill" style="width:60%"></div></div><span class="kid-ring-val">180/300</span></div>
-        <div style="font-size:11px;color:var(--ktext3);margin-top:6px">再攒 120 经验晋级「中级学者」</div>
+  <div class="pinwrap" id="pw-2.2"><span class="pin sub" data-id="2.2" title="组件 2.2">2.2</span><div class="kid-today-list">
+    <div class="pinwrap" id="pw-2.2.1"><span class="pin sub" data-id="2.2.1" title="组件 2.2.1">2.2.1</span><div class="kid-today-item overdue">
+      <div class="pinwrap" id="pw-2.2.1.1"><span class="pin sub" data-id="2.2.1.1" title="组件 2.2.1.1">2.2.1.1</span><div class="k-ti-ico"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5zm4-1v16M12 7h4M12 11h4" fill="none" stroke="#6d28d9" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div></div>
+      <div class="k-ti-main">
+        <div class="pinwrap" id="pw-2.2.1.2"><span class="pin sub" data-id="2.2.1.2" title="组件 2.2.1.2">2.2.1.2</span><div class="k-ti-title">⚠ 生词听写</div></div>
+        <div class="pinwrap" id="pw-2.2.1.3"><span class="pin sub" data-id="2.2.1.3" title="组件 2.2.1.3">2.2.1.3</span><div class="k-ti-sub">背诵 · 10 篇</div></div>
       </div>
-    </div>
-    <div style="font-size:12px;color:var(--ktext2);margin-top:10px;line-height:1.6">🔥 已连续打卡 <b>5</b> 天(历史最长 12 天) · 累计挑战 <b>32</b> 关</div>
+      <div class="pinwrap" id="pw-2.2.1.4"><span class="pin sub" data-id="2.2.1.4" title="组件 2.2.1.4">2.2.1.4</span><div class="k-ti-tag">逾期 1 天</div></div>
+      <div class="pinwrap" id="pw-2.2.1.5"><span class="pin sub" data-id="2.2.1.5" title="组件 2.2.1.5">2.2.1.5</span><div class="kid-btn sm">去完成 →</div></div>
+    </div></div>
+  </div></div>
+  <div class="pinwrap" id="pw-2.3"><span class="pin sub" data-id="2.3" title="组件 2.3">2.3</span><div class="kid-today-banner">📌 已累计完成 <b>42</b> 个任务,建议在顶部点「⬇ 导出」做一次数据备份</div></div>
+</div></div><div class="pinwrap" id="pw-3"><span class="pin" data-id="3" title="组件 3">3</span><div class="kid-tabs">
+  <div class="pinwrap" id="pw-3.1"><span class="pin sub" data-id="3.1" title="组件 3.1">3.1</span><div class="kid-tab on"><span class="kid-tab-dot">🚀</span>今日挑战</div></div>
+  <div class="pinwrap" id="pw-3.2"><span class="pin sub" data-id="3.2" title="组件 3.2">3.2</span><div class="kid-tab"><span class="kid-tab-dot">🗓️</span>学习计划</div></div>
+  <div class="pinwrap" id="pw-3.3"><span class="pin sub" data-id="3.3" title="组件 3.3">3.3</span><div class="kid-tab"><span class="kid-tab-dot">👑</span>成长奖励</div></div>
+</div></div></div></div></div><div class="panel" id="scr-2"><h2>② 今日挑战：区标题 / 任务卡 / 添加 / 已挑战</h2><div class="device"><div class="kid-wb theme-project">
+  <div class="pinwrap" id="pw-4"><span class="pin" data-id="4" title="组件 4">4</span><div class="kid-sec-head"><div class="pinwrap" id="pw-4.1"><span class="pin sub" data-id="4.1" title="组件 4.1">4.1</span><div class="kid-sec-title">⚔️ 今日任务(1/2)</div></div><span class="kid-sec-sub">完成后请家长验收打星,获得金币和经验</span></div></div>
+  <div class="kid-grid"><div class="pinwrap" id="pw-5"><span class="pin" data-id="5" title="组件 5">5</span><div class="kid-task">
+  <div class="pinwrap" id="pw-5.1"><span class="pin sub" data-id="5.1" title="组件 5.1">5.1</span><div class="k-task-head">
+    <div class="pinwrap" id="pw-5.1.1"><span class="pin sub" data-id="5.1.1" title="组件 5.1.1">5.1.1</span><div class="k-task-ico"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M13 2L4.5 13.5h5L8 22l8.5-11.5h-5L13 2z" fill="#b45309"/></svg></div></div>
+    <div class="pinwrap" id="pw-5.1.2"><span class="pin sub" data-id="5.1.2" title="组件 5.1.2">5.1.2</span><div class="k-task-titles"><div class="pinwrap" id="pw-5.1.2.1"><span class="pin sub" data-id="5.1.2.1" title="组件 5.1.2.1">5.1.2.1</span><div class="k-task-name">跳绳 200 个</div></div><div class="pinwrap" id="pw-5.1.2.2"><span class="pin sub" data-id="5.1.2.2" title="组件 5.1.2.2">5.1.2.2</span><div class="k-task-cat">身体锻炼</div></div></div></div>
+    <div class="pinwrap" id="pw-5.1.3"><span class="pin sub" data-id="5.1.3" title="组件 5.1.3">5.1.3</span><div class="k-task-badges"><span class="k-badge">未开始</span></div></div>
+  </div></div>
+  <div class="pinwrap" id="pw-5.2"><span class="pin sub" data-id="5.2" title="组件 5.2">5.2</span><div class="k-task-target">目标:<div class="pinwrap" id="pw-5.2.1"><span class="pin sub" data-id="5.2.1" title="组件 5.2.1">5.2.1</span><div class="k-unit-chip">200 分钟</div></div></div></div>
+  <div class="pinwrap" id="pw-5.3"><span class="pin sub" data-id="5.3" title="组件 5.3">5.3</span><div class="k-task-actions"><div class="pinwrap" id="pw-5.3.1"><span class="pin sub" data-id="5.3.1" title="组件 5.3.1">5.3.1</span><div class="kid-btn challenge"></div></div><div class="pinwrap" id="pw-5.3.2"><span class="pin sub" data-id="5.3.2" title="组件 5.3.2">5.3.2</span><div class="kid-btn">✕ 移除</div></div></div></div>
+  <div class="pinwrap" id="pw-5.4"><span class="pin sub" data-id="5.4" title="组件 5.4">5.4</span><div class="k-task-tips">💡 跳绳 200 个</div></div>
+  <div class="pinwrap" id="pw-5.5"><span class="pin sub" data-id="5.5" title="组件 5.5">5.5</span><div class="k-task-foot">点击「开启挑战」开始挑战</div></div>
+</div></div></div>
+  <div class="pinwrap" id="pw-6"><span class="pin" data-id="6" title="组件 6">6</span><div class="kid-addtask">＋ 添加自定义任务</div></div>
+  <div class="pinwrap" id="pw-7"><span class="pin" data-id="7" title="组件 7">7</span><div class="kid-sec-head"><span class="kid-sec-title">🏆 今日已挑战</span></div></div>
+</div></div></div><div class="panel" id="scr-3"><h2>③ 学习计划：工具条 / 周计划 / 规则</h2><div class="device"><div class="kid-wb theme-project">
+  <div class="pinwrap" id="pw-8"><span class="pin" data-id="8" title="组件 8">8</span><div class="kid-plan-tools">
+    <div class="pinwrap" id="pw-8.1"><span class="pin sub" data-id="8.1" title="组件 8.1">8.1</span><div class="kid-btn primary">📋 套用均衡模板</div></div>
+    <div class="pinwrap" id="pw-8.2"><span class="pin sub" data-id="8.2" title="组件 8.2">8.2</span><div class="kid-btn">🗑 清空计划</div></div>
+    <div class="pinwrap" id="pw-8.3"><span class="pin sub" data-id="8.3" title="组件 8.3">8.3</span><div class="kid-plan-enable">计划生成今日任务 <div class="pinwrap" id="pw-8.3.1"><span class="pin sub" data-id="8.3.1" title="组件 8.3.1">8.3.1</span><div class="kid-switch on"></div></div></div></div>
+  </div></div>
+  <div class="pinwrap" id="pw-9"><span class="pin" data-id="9" title="组件 9">9</span><div class="kid-plan-days"><div class="pinwrap" id="pw-9.1"><span class="pin sub" data-id="9.1" title="组件 9.1">9.1</span><div class="kid-plan-day today">
+  <div class="pinwrap" id="pw-9.1.1"><span class="pin sub" data-id="9.1.1" title="组件 9.1.1">9.1.1</span><div class="kid-plan-day-head"><span class="kid-plan-day-name">周一 · 今天</span></div></div>
+  <div class="pinwrap" id="pw-9.1.2"><span class="pin sub" data-id="9.1.2" title="组件 9.1.2">9.1.2</span><div class="kid-plan-item"><div class="pinwrap" id="pw-9.1.2.1"><span class="pin sub" data-id="9.1.2.1" title="组件 9.1.2.1">9.1.2.1</span><div class="k-pi-dot"></div></div><span class="k-pi-text">跳绳 200 个 · 分钟</span><div class="pinwrap" id="pw-9.1.2.3"><span class="pin sub" data-id="9.1.2.3" title="组件 9.1.2.3">9.1.2.3</span><div class="k-pi-x">✕</div></div></div></div><div class="pinwrap" id="pw-9.1.2"><span class="pin sub" data-id="9.1.2" title="组件 9.1.2">9.1.2</span><div class="kid-plan-item"><div class="pinwrap" id="pw-9.1.2.1"><span class="pin sub" data-id="9.1.2.1" title="组件 9.1.2.1">9.1.2.1</span><div class="k-pi-dot"></div></div><span class="k-pi-text">课文背诵 · 篇</span><div class="pinwrap" id="pw-9.1.2.3"><span class="pin sub" data-id="9.1.2.3" title="组件 9.1.2.3">9.1.2.3</span><div class="k-pi-x">✕</div></div></div></div>
+  <div class="pinwrap" id="pw-9.1.3"><span class="pin sub" data-id="9.1.3" title="组件 9.1.3">9.1.3</span><div class="kid-addtask">＋ 添加</div></div>
+</div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-plan-day">
+  <div class="pinwrap" id="pw-x.1"><span class="pin sub" data-id="x.1" title="组件 x.1">x.1</span><div class="kid-plan-day-head"><span class="kid-plan-day-name">周二</span></div></div>
+  <div class="pinwrap" id="pw-x.2"><span class="pin sub" data-id="x.2" title="组件 x.2">x.2</span><div class="kid-plan-item"><div class="pinwrap" id="pw-x.2.1"><span class="pin sub" data-id="x.2.1" title="组件 x.2.1">x.2.1</span><div class="k-pi-dot"></div></div><span class="k-pi-text">听写生字 · 课</span><div class="pinwrap" id="pw-x.2.3"><span class="pin sub" data-id="x.2.3" title="组件 x.2.3">x.2.3</span><div class="k-pi-x">✕</div></div></div></div>
+  <div class="pinwrap" id="pw-x.3"><span class="pin sub" data-id="x.3" title="组件 x.3">x.3</span><div class="kid-addtask">＋ 添加</div></div>
+</div></div></div></div>
+  <div class="pinwrap" id="pw-10"><span class="pin" data-id="10" title="组件 10">10</span><div class="kid-today-banner">💡 每个任务固定奖励:完成 +10 金币/经验,星级越高奖励越多;连续打卡送钻石,周计划全完成送皇冠。</div></div>
+</div></div></div><div class="panel" id="scr-4"><h2>④ 成长奖励：钱包 / 等级数字人 / 头像 / 商城 / 奖章 / 规则</h2><div class="device"><div class="kid-wb theme-project">
+  <div class="pinwrap" id="pw-11"><span class="pin" data-id="11" title="组件 11">11</span><div class="kid-wallet">
+  <div class="pinwrap" id="pw-11.1"><span class="pin sub" data-id="11.1" title="组件 11.1">11.1</span><div class="kid-wallet-card"><div class="k-w-ico" style="background:#fffbeb"><svg viewBox="0 0 24 24" width="22" height="22"><circle cx="12" cy="12" r="10.5" fill="#fbbf24" stroke="#d97706" stroke-width="1.4"/><circle cx="12" cy="12" r="7" fill="#f59e0b"/><path d="M12 7.5l1.3 2.9 3.2.3-2.4 2.1.7 3.1L12 14.3l-2.8 1.6.7-3.1-2.4-2.1 3.2-.3z" fill="#fff7ed"/></svg></div><div><div class="k-w-num">120</div><div class="k-w-name">金币</div></div></div></div>
+  <div class="pinwrap" id="pw-11.2"><span class="pin sub" data-id="11.2" title="组件 11.2">11.2</span><div class="kid-wallet-card"><div class="k-w-ico" style="background:#ecfeff"><svg viewBox="0 0 24 24" width="22" height="22"><path d="M7 4h10l4 5-9 11L3 9z" fill="#22d3ee" stroke="#0891b2" stroke-width="1.3" stroke-linejoin="round"/><path d="M3 9h18M12 4l-3 5 3 11 3-11z" fill="#a5f3fc" opacity=".55"/></svg></div><div><div class="k-w-num">3</div><div class="k-w-name">钻石</div></div></div></div>
+  <div class="pinwrap" id="pw-11.3"><span class="pin sub" data-id="11.3" title="组件 11.3">11.3</span><div class="kid-wallet-card"><div class="k-w-ico" style="background:#fffbeb"><svg viewBox="0 0 24 24" width="22" height="22"><path d="M3 8l4 4 5-6 5 6 4-4-2 10H5z" fill="#fbbf24" stroke="#d97706" stroke-width="1.3" stroke-linejoin="round"/><circle cx="8" cy="6.5" r="1.6" fill="#ec4899"/><circle cx="16" cy="6.5" r="1.6" fill="#22d3ee"/></svg></div><div><div class="k-w-num">1</div><div class="k-w-name">皇冠</div></div></div></div>
+  <div class="pinwrap" id="pw-11.4"><span class="pin sub" data-id="11.4" title="组件 11.4">11.4</span><div class="kid-wallet-card"><div class="k-w-ico" style="background:#fff"><svg viewBox="0 0 24 24" width="22" height="22"><circle cx="12" cy="14" r="7" fill="#fb923c" stroke="#ea580c" stroke-width="1.3"/><circle cx="12" cy="14" r="4.5" fill="#fff7ed"/><path d="M9 3l3 5 3-5-2 8h-2z" fill="#fbbf24" stroke="#d97706" stroke-width="1"/><path d="M8.5 2l2 4-1.5 1.5L6 5.5zM15.5 2l-2 4 1.5 1.5 3.5-2z" fill="#f59e0b"/></svg></div><div><div class="k-w-num">2/11</div><div class="k-w-name">奖章</div></div></div></div>
+</div></div><div class="pinwrap" id="pw-12"><span class="pin" data-id="12" title="组件 12">12</span><div class="kid-card">
+  <div class="pinwrap" id="pw-12.1"><span class="pin sub" data-id="12.1" title="组件 12.1">12.1</span><div class="kid-card-title">🏅 等级称号</div></div>
+  <div class="pinwrap" id="pw-12.2"><span class="pin sub" data-id="12.2" title="组件 12.2">12.2</span><div class="kid-level-row">
+    <div class="pinwrap" id="pw-12.2.1"><span class="pin sub" data-id="12.2.1" title="组件 12.2.1">12.2.1</span><div class="kid-hero-box"><svg viewBox="0 0 140 170" width="104" height="126" aria-hidden="true" style="display:block">
+    <defs><radialGradient id="hg1" cx="50%" cy="40%" r="70%"><stop offset="0%" stop-color="#dbeafe"/><stop offset="100%" stop-color="#eef2ff"/></radialGradient>
+    <radialGradient id="hg2" cx="50%" cy="35%" r="75%"><stop offset="0%" stop-color="#fef3c7"/><stop offset="100%" stop-color="#fff7ed"/></radialGradient></defs>
+    
+    
+    
+    <circle cx="70" cy="88" r="64" fill="url(#hg1)"/>
+    
+    <path d="M52 92q-20 8-26 26l6 14q20-12 30-14q10 2 30 14l6-14q-6-18-26-26z" fill="#8b5cf6" opacity=".9"/>
+    
+    <path d="M42 52q0-18 28-18t28 18q0 16-8 17v9a13 13 0 0 1-40 0v-9q-8-1-8-17z" fill="#312e81"/>
+    <circle cx="70" cy="54" r="20" fill="#ffd9b3"/>
+    
+    <rect x="52" y="82" width="15" height="11" rx="4" fill="none" stroke="#1f2937" stroke-width="2.2"/><rect x="73" y="82" width="15" height="11" rx="4" fill="none" stroke="#1f2937" stroke-width="2.2"/><path d="M67 87h6" stroke="#1f2937" stroke-width="2.2"/>
+    <circle cx="61" cy="84" r="3" fill="#fda4af" opacity=".7"/><circle cx="79" cy="84" r="3" fill="#fda4af" opacity=".7"/>
+    <path d="M62 94q8 8 16 0" stroke="#b45309" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+    <path d="M48 70h44a22 22 0 0 1-44 0z" fill="#fff" opacity=".28"/>
+    <rect x="46" y="74" width="48" height="34" rx="12" fill="#6366f1"/>
+    <rect x="36" y="80" width="10" height="26" rx="5" fill="#6366f1"/><rect x="94" y="80" width="10" height="26" rx="5" fill="#6366f1"/>
+    <circle cx="41" cy="108" r="5" fill="#ffd9b3"/><circle cx="99" cy="108" r="5" fill="#ffd9b3"/>
+    <rect x="52" y="108" width="14" height="24" rx="6" fill="#475569"/><rect x="74" y="108" width="14" height="24" rx="6" fill="#475569"/>
+    <ellipse cx="59" cy="134" rx="11" ry="6.5" fill="#3b4252"/><ellipse cx="81" cy="134" rx="11" ry="6.5" fill="#3b4252"/>
+  </svg></div></div>
+    <div class="pinwrap" id="pw-12.2.2"><span class="pin sub" data-id="12.2.2" title="组件 12.2.2">12.2.2</span><div class="kid-level-info">
+      <div class="pinwrap" id="pw-12.2.2.1"><span class="pin sub" data-id="12.2.2.1" title="组件 12.2.2.1">12.2.2.1</span><div class="kid-lv-title">记忆小博士<span class="kid-lv-tag" style="background:#6366f1">Lv.5</span></div></div>
+      <div class="pinwrap" id="pw-12.2.2.2"><span class="pin sub" data-id="12.2.2.2" title="组件 12.2.2.2">12.2.2.2</span><div class="kid-lv-desc">戴上眼镜,知识全都看得清清楚楚!</div></div>
+      <div class="pinwrap" id="pw-12.2.2.3"><span class="pin sub" data-id="12.2.2.3" title="组件 12.2.2.3">12.2.2.3</span><div class="kid-ring-row"><div class="pinwrap" id="pw-12.2.2.3.1"><span class="pin sub" data-id="12.2.2.3.1" title="组件 12.2.2.3.1">12.2.2.3.1</span><div class="kid-ring-label">经验</div></div><div class="kid-ring-bar"><div class="pinwrap" id="pw-12.2.2.3.2"><span class="pin sub" data-id="12.2.2.3.2" title="组件 12.2.2.3.2">12.2.2.3.2</span><div class="kid-ring-fill"></div></div></div><div class="pinwrap" id="pw-12.2.2.3.3"><span class="pin sub" data-id="12.2.2.3.3" title="组件 12.2.2.3.3">12.2.2.3.3</span><div class="kid-ring-val">460/540</div></div></div></div>
+      <div style="font-size:11px;color:var(--ktext3);margin-top:6px">再攒 80 经验晋级「计算小能手」</div>
+    </div></div>
+  </div></div>
+  <div class="pinwrap" id="pw-12.3"><span class="pin sub" data-id="12.3" title="组件 12.3">12.3</span><div class="kid-level-info">🔥 已连续打卡 <b>5</b> 天(历史最长 7 天) · 累计挑战 <b>42</b> 关</div></div>
+</div></div><div class="pinwrap" id="pw-13"><span class="pin" data-id="13" title="组件 13">13</span><div class="kid-card">
+  <div class="pinwrap" id="pw-13.1"><span class="pin sub" data-id="13.1" title="组件 13.1">13.1</span><div class="kid-card-title">😀 我的头像</div></div>
+  <div class="pinwrap" id="pw-13.2"><span class="pin sub" data-id="13.2" title="组件 13.2">13.2</span><div class="kid-avatars"><div class="pinwrap" id="pw-13.2.1"><span class="pin sub" data-id="13.2.1" title="组件 13.2.1">13.2.1</span><div class="kid-avatar-item on"><svg viewBox="0 0 60 60" width="52" height="52" aria-hidden="true">
+    <circle cx="30" cy="30" r="29" fill="#fbbf24"/>
+    
+    
+    <path d="M16 26q0-12 14-12t14 12v2q0 8-7 9v4a7 7 0 0 1-14 0v-4q-7-1-7-9z" fill="#8b5a2b"/>
+    <circle cx="30" cy="31" r="13.5" fill="#ffd9b3"/>
+    M22 27h4M34 27h4
+    
+    
+    <circle cx="24.5" cy="28.5" r="1.7" fill="#fda4af"/><circle cx="35.5" cy="28.5" r="1.7" fill="#fda4af"/>
+    
+    <path d="M25 33q5 5 10 0" stroke="#b45309" stroke-width="2" fill="none" stroke-linecap="round"/>
+  </svg><span class="k-a-name">开心</span></div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-avatar-item"><svg viewBox="0 0 60 60" width="52" height="52" aria-hidden="true">
+    <circle cx="30" cy="30" r="29" fill="#60a5fa"/>
+    
+    
+    <path d="M16 26q0-12 14-12t14 12v2q0 8-7 9v4a7 7 0 0 1-14 0v-4q-7-1-7-9z" fill="#111827"/>
+    <circle cx="30" cy="31" r="13.5" fill="#ffd9b3"/>
+    <rect x="18" y="24" width="9" height="7" rx="2.5" fill="none" stroke="#1f2937" stroke-width="1.6"/><rect x="33" y="24" width="9" height="7" rx="2.5" fill="none" stroke="#1f2937" stroke-width="1.6"/><path d="M27 27h6" stroke="#1f2937" stroke-width="1.6"/>
+    
+    
+    <circle cx="24.5" cy="28.5" r="1.7" fill="#fda4af"/><circle cx="35.5" cy="28.5" r="1.7" fill="#fda4af"/>
+    
+    <path d="M27 33h6" stroke="#b45309" stroke-width="2" fill="none" stroke-linecap="round"/>
+  </svg><span class="k-a-name">酷酷</span></div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-avatar-item"><svg viewBox="0 0 60 60" width="52" height="52" aria-hidden="true">
+    <circle cx="30" cy="30" r="29" fill="#f472b6"/>
+    
+    
+    <path d="M16 26q0-12 14-12t14 12v2q0 8-7 9v4a7 7 0 0 1-14 0v-4q-7-1-7-9z" fill="#7c3aed"/>
+    <circle cx="30" cy="31" r="13.5" fill="#ffd9b3"/>
+    <path d="M22 27q2 2 4 0" stroke="#1f2937" stroke-width="1.8" fill="none" stroke-linecap="round"/><circle cx="36" cy="28" r="1.9" fill="#1f2937"/>
+    
+    
+    <circle cx="24.5" cy="28.5" r="1.7" fill="#fda4af"/><circle cx="35.5" cy="28.5" r="1.7" fill="#fda4af"/>
+    
+    <path d="M24 33q6 6 12 0" stroke="#b45309" stroke-width="2" fill="none" stroke-linecap="round"/>
+  </svg><span class="k-a-name">眨眼</span></div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-avatar-item"><svg viewBox="0 0 60 60" width="52" height="52" aria-hidden="true">
+    <circle cx="30" cy="30" r="29" fill="#34d399"/>
+    
+    
+    <path d="M16 26q0-12 14-12t14 12v2q0 8-7 9v4a7 7 0 0 1-14 0v-4q-7-1-7-9z" fill="#1f2937"/>
+    <circle cx="30" cy="31" r="13.5" fill="#ffd9b3"/>
+    M22 27h4M34 27h4
+    
+    
+    <circle cx="24.5" cy="28.5" r="1.7" fill="#fda4af"/><circle cx="35.5" cy="28.5" r="1.7" fill="#fda4af"/>
+    <path d="M27 34q0 4 3 4t3-4z" fill="#fb7185"/>
+    <path d="M26 35q4 -4 8 0q4 4 8 0" stroke="#b45309" stroke-width="2" fill="none" stroke-linecap="round"/>
+  </svg><span class="k-a-name">淘气</span></div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-avatar-item"><svg viewBox="0 0 60 60" width="52" height="52" aria-hidden="true">
+    <circle cx="30" cy="30" r="29" fill="#a78bfa"/>
+    
+    
+    <path d="M16 26q0-12 14-12t14 12v2q0 8-7 9v4a7 7 0 0 1-14 0v-4q-7-1-7-9z" fill="#374151"/>
+    <circle cx="30" cy="31" r="13.5" fill="#ffd9b3"/>
+    M21 26a2.6 2.6 0 1 0 0 .1M34 26a2.6 2.6 0 1 0 0 .1
+    
+    
+    <circle cx="24.5" cy="28.5" r="1.7" fill="#fda4af"/><circle cx="35.5" cy="28.5" r="1.7" fill="#fda4af"/>
+    
+    <path d="M27 36a3 3 0 0 0 6 0" stroke="#b45309" stroke-width="2" fill="none" stroke-linecap="round"/>
+  </svg><span class="k-a-name">惊讶</span></div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-avatar-item"><svg viewBox="0 0 60 60" width="52" height="52" aria-hidden="true">
+    <circle cx="30" cy="30" r="29" fill="#fb923c"/>
+    
+    
+    <path d="M16 26q0-12 14-12t14 12v2q0 8-7 9v4a7 7 0 0 1-14 0v-4q-7-1-7-9z" fill="#78350f"/>
+    <circle cx="30" cy="31" r="13.5" fill="#ffd9b3"/>
+    M22 26h4M34 26h4
+    
+    <path d="M20 23q3-2 6 0M34 23q3-2 6 0" stroke="#1f2937" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+    <circle cx="24.5" cy="28.5" r="1.7" fill="#fda4af"/><circle cx="35.5" cy="28.5" r="1.7" fill="#fda4af"/>
+    
+    <path d="M25 31q5 -3 10 0" stroke="#b45309" stroke-width="2" fill="none" stroke-linecap="round"/>
+  </svg><span class="k-a-name">得意</span></div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-avatar-item"><svg viewBox="0 0 60 60" width="52" height="52" aria-hidden="true">
+    <circle cx="30" cy="30" r="29" fill="#22d3ee"/>
+    
+    <path d="M8 18l1.6 3.4L13 23l-3.4 1.6L8 28l-1.6-3.4L3 23l3.4-1.6zM48 10l1.2 2.6L52 14l-2.8 1.4L48 18l-1.2-2.6L44 14l2.8-1.4z" fill="#fff"/>
+    <path d="M16 26q0-12 14-12t14 12v2q0 8-7 9v4a7 7 0 0 1-14 0v-4q-7-1-7-9z" fill="#0f766e"/>
+    <circle cx="30" cy="31" r="13.5" fill="#ffd9b3"/>
+    M21 26l3 3M25 26l-3 3M34 26l3 3M38 26l-3 3
+    <path d="M20 25l2.2 2.2M27 25l-2.2 2.2M33 25l2.2 2.2M40 25l-2.2 2.2" stroke="#1f2937" stroke-width="1.6" stroke-linecap="round"/>
+    
+    <circle cx="24.5" cy="28.5" r="1.7" fill="#fda4af"/><circle cx="35.5" cy="28.5" r="1.7" fill="#fda4af"/>
+    
+    <path d="M26 34q4 4 8 0" stroke="#b45309" stroke-width="2" fill="none" stroke-linecap="round"/>
+  </svg><span class="k-a-name">星星眼</span></div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-avatar-item locked"><svg viewBox="0 0 60 60" width="52" height="52" aria-hidden="true">
+    <circle cx="30" cy="30" r="29" fill="#facc15"/>
+    <path d="M16 14l4 5 4-6 6 7 4-6 4 5 4-2-2 10H14L14 12z" fill="#f59e0b" stroke="#b45309" stroke-width="1"/><path d="M26 11l2 3 2-3z" fill="#7c3aed"/>
+    
+    <path d="M16 26q0-12 14-12t14 12v2q0 8-7 9v4a7 7 0 0 1-14 0v-4q-7-1-7-9z" fill="#f59e0b"/>
+    <circle cx="30" cy="31" r="13.5" fill="#ffd9b3"/>
+    M22 26h4M34 26h4
+    
+    
+    <circle cx="24.5" cy="28.5" r="1.7" fill="#fda4af"/><circle cx="35.5" cy="28.5" r="1.7" fill="#fda4af"/>
+    
+    <path d="M25 32q5 5 10 0" stroke="#b45309" stroke-width="2" fill="none" stroke-linecap="round"/>
+  </svg><span class="k-a-name">🔒 Lv.8</span></div></div></div></div>
+  <div class="pinwrap" id="pw-13.3"><span class="pin sub" data-id="13.3" title="组件 13.3">13.3</span><div class="kid-card-title">数字人会随等级换装进化:帽子(3级)→ 眼镜披风(5级)→ 皇冠(7级)→ 星光(9级)→ 光环(10级)→ 钻石王冠(11级)</div></div>
+</div></div><div class="pinwrap" id="pw-14"><span class="pin" data-id="14" title="组件 14">14</span><div class="kid-card">
+  <div class="pinwrap" id="pw-14.1"><span class="pin sub" data-id="14.1" title="组件 14.1">14.1</span><div class="kid-card-title">🎁 道具商城<div class="pinwrap" id="pw-14.1.1"><span class="pin sub" data-id="14.1.1" title="组件 14.1.1">14.1.1</span><div class="kid-btn sm">＋ 管理道具</div></div><div class="pinwrap" id="pw-14.1.2"><span class="pin sub" data-id="14.1.2" title="组件 14.1.2">14.1.2</span><div class="kid-btn sm">兑换记录</div></div></div></div>
+  <div class="pinwrap" id="pw-14.2"><span class="pin sub" data-id="14.2" title="组件 14.2">14.2</span><div class="kid-shop-grid"><div class="pinwrap" id="pw-14.2.1"><span class="pin sub" data-id="14.2.1" title="组件 14.2.1">14.2.1</span><div class="kid-shop-item">
+    <div class="pinwrap" id="pw-14.2.1.1"><span class="pin sub" data-id="14.2.1.1" title="组件 14.2.1.1">14.2.1.1</span><div class="k-s-head"><div class="k-s-ico" style="background:#fffbeb">🎁</div><div><div class="pinwrap" id="pw-14.2.1.2"><span class="pin sub" data-id="14.2.1.2" title="组件 14.2.1.2">14.2.1.2</span><div class="k-s-name">星空投影灯</div></div><div style="font-size:11px;color:var(--ktext3)">金币道具</div></div></div></div>
+    <div class="pinwrap" id="pw-14.2.1.3"><span class="pin sub" data-id="14.2.1.3" title="组件 14.2.1.3">14.2.1.3</span><div class="k-s-note">睡前小夜灯,呵护视力</div></div>
+    <div class="pinwrap" id="pw-14.2.1.4"><span class="pin sub" data-id="14.2.1.4" title="组件 14.2.1.4">14.2.1.4</span><div class="k-s-foot"><div class="pinwrap" id="pw-14.2.1.4.1"><span class="pin sub" data-id="14.2.1.4.1" title="组件 14.2.1.4.1">14.2.1.4.1</span><div class="k-s-price"><svg viewBox="0 0 24 24" width="15" height="15"><circle cx="12" cy="12" r="10.5" fill="#fbbf24" stroke="#d97706" stroke-width="1.4"/><circle cx="12" cy="12" r="7" fill="#f59e0b"/><path d="M12 7.5l1.3 2.9 3.2.3-2.4 2.1.7 3.1L12 14.3l-2.8 1.6.7-3.1-2.4-2.1 3.2-.3z" fill="#fff7ed"/></svg> 5</div></div><div class="pinwrap" id="pw-14.2.1.4.2"><span class="pin sub" data-id="14.2.1.4.2" title="组件 14.2.1.4.2">14.2.1.4.2</span><div class="kid-btn sm gold">兑换</div></div></div></div>
+  </div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-shop-item">
+    <div class="pinwrap" id="pw-x.1"><span class="pin sub" data-id="x.1" title="组件 x.1">x.1</span><div class="k-s-head"><div class="k-s-ico" style="background:#fffbeb">🍦</div><div><div class="pinwrap" id="pw-x.2"><span class="pin sub" data-id="x.2" title="组件 x.2">x.2</span><div class="k-s-name">冰淇淋券</div></div><div style="font-size:11px;color:var(--ktext3)">金币道具</div></div></div></div>
+    <div class="pinwrap" id="pw-x.3"><span class="pin sub" data-id="x.3" title="组件 x.3">x.3</span><div class="k-s-note">周末小奖励</div></div>
+    <div class="pinwrap" id="pw-x.4"><span class="pin sub" data-id="x.4" title="组件 x.4">x.4</span><div class="k-s-foot"><div class="pinwrap" id="pw-x.4.1"><span class="pin sub" data-id="x.4.1" title="组件 x.4.1">x.4.1</span><div class="k-s-price"><svg viewBox="0 0 24 24" width="15" height="15"><circle cx="12" cy="12" r="10.5" fill="#fbbf24" stroke="#d97706" stroke-width="1.4"/><circle cx="12" cy="12" r="7" fill="#f59e0b"/><path d="M12 7.5l1.3 2.9 3.2.3-2.4 2.1.7 3.1L12 14.3l-2.8 1.6.7-3.1-2.4-2.1 3.2-.3z" fill="#fff7ed"/></svg> 30</div></div><div class="pinwrap" id="pw-x.4.2"><span class="pin sub" data-id="x.4.2" title="组件 x.4.2">x.4.2</span><div class="kid-btn sm gold">兑换</div></div></div></div>
+  </div></div></div></div>
+</div></div><div class="pinwrap" id="pw-15"><span class="pin" data-id="15" title="组件 15">15</span><div class="kid-card">
+  <div class="pinwrap" id="pw-15.1"><span class="pin sub" data-id="15.1" title="组件 15.1">15.1</span><div class="kid-card-title">🏅 奖章墙</div></div>
+  <div class="pinwrap" id="pw-15.2"><span class="pin sub" data-id="15.2" title="组件 15.2">15.2</span><div class="kid-medal-grid"><div class="pinwrap" id="pw-15.2.1"><span class="pin sub" data-id="15.2.1" title="组件 15.2.1">15.2.1</span><div class="kid-medal got">
+    <div style="font-size:30px;filter:none">🚩</div>
+    <div class="k-m-name">初次挑战</div>
+    <div class="k-m-desc">完成第 1 个任务</div>
+    <div style="font-size:10px;font-weight:700;color:#b45309">✅ 已获得</div>
+  </div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-medal got">
+    <div style="font-size:30px;filter:none">🔥</div>
+    <div class="k-m-name">三天连胜</div>
+    <div class="k-m-desc">连续打卡 3 天</div>
+    <div style="font-size:10px;font-weight:700;color:#b45309">✅ 已获得</div>
+  </div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-medal locked">
+    <div style="font-size:30px;filter:grayscale(1)">🎯</div>
+    <div class="k-m-name">一周坚持</div>
+    <div class="k-m-desc">连续打卡 7 天</div>
+    <div style="font-size:10px;font-weight:700;color:#9aa0b3">未解锁</div>
+  </div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-medal locked">
+    <div style="font-size:30px;filter:grayscale(1)">⚡</div>
+    <div class="k-m-name">半月达人</div>
+    <div class="k-m-desc">连续打卡 14 天</div>
+    <div style="font-size:10px;font-weight:700;color:#9aa0b3">未解锁</div>
+  </div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-medal locked">
+    <div style="font-size:30px;filter:grayscale(1)">🏆</div>
+    <div class="k-m-name">月度战神</div>
+    <div class="k-m-desc">连续打卡 30 天</div>
+    <div style="font-size:10px;font-weight:700;color:#9aa0b3">未解锁</div>
+  </div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-medal locked">
+    <div style="font-size:30px;filter:grayscale(1)">💪</div>
+    <div class="k-m-name">任务小能手</div>
+    <div class="k-m-desc">累计完成 50 个任务</div>
+    <div style="font-size:10px;font-weight:700;color:#9aa0b3">未解锁</div>
+  </div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-medal locked">
+    <div style="font-size:30px;filter:grayscale(1)">🏅</div>
+    <div class="k-m-name">百炼成钢</div>
+    <div class="k-m-desc">累计完成 100 个任务</div>
+    <div style="font-size:10px;font-weight:700;color:#9aa0b3">未解锁</div>
+  </div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-medal locked">
+    <div style="font-size:30px;filter:grayscale(1)">🌈</div>
+    <div class="k-m-name">全能四连</div>
+    <div class="k-m-desc">一天完成全部 4 类任务</div>
+    <div style="font-size:10px;font-weight:700;color:#9aa0b3">未解锁</div>
+  </div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-medal locked">
+    <div style="font-size:30px;filter:grayscale(1)">👑</div>
+    <div class="k-m-name">皇冠加冕</div>
+    <div class="k-m-desc">获得第 1 个皇冠</div>
+    <div style="font-size:10px;font-weight:700;color:#9aa0b3">未解锁</div>
+  </div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-medal locked">
+    <div style="font-size:30px;filter:grayscale(1)">✨</div>
+    <div class="k-m-name">千验进阶</div>
+    <div class="k-m-desc">累计经验达到 1000</div>
+    <div style="font-size:10px;font-weight:700;color:#9aa0b3">未解锁</div>
+  </div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-medal locked">
+    <div style="font-size:30px;filter:grayscale(1)">🌟</div>
+    <div class="k-m-name">经验王者</div>
+    <div class="k-m-desc">累计经验达到 3000</div>
+    <div style="font-size:10px;font-weight:700;color:#9aa0b3">未解锁</div>
+  </div></div></div></div>
+</div></div>
+  <div class="pinwrap" id="pw-16"><span class="pin" data-id="16" title="组件 16">16</span><div class="kid-today-banner">💰 奖励规则:基础完成 +10 金币/经验;星级加成 ⭐×5;金币可兑换道具,钻石由连胜里程碑获得,皇冠由周计划全勤获得。</div></div>
+</div></div></div><div class="panel" id="scr-5"><h2>⑤ 弹窗与键盘：星级验收 / 添加任务 / 添加计划 / 兑换记录 / 管理道具 / 家长密码</h2><div class="device"><div class="kid-wb theme-project"><div class="pinwrap" id="pw-17"><span class="pin" data-id="17" title="组件 17">17</span><div class="kid-overlay"><div class="kid-modal" style="position:relative;max-width:420px;width:100%">
+  <div class="pinwrap" id="pw-17.1"><span class="pin sub" data-id="17.1" title="组件 17.1">17.1</span><div class="kid-modal-head"><div class="pinwrap" id="pw-17.1.1"><span class="pin sub" data-id="17.1.1" title="组件 17.1.1">17.1.1</span><div class="kid-modal-title">🎉 挑战成功!</div></div><div class="pinwrap" id="pw-17.1.2"><span class="pin sub" data-id="17.1.2" title="组件 17.1.2">17.1.2</span><div class="kid-modal-x">✕</div></div></div></div>
+  <div class="pinwrap" id="pw-17.2"><span class="pin sub" data-id="17.2" title="组件 17.2">17.2</span><div class=""><div style="display:flex;align-items:center;gap:10px;background:#fff7ed;border-radius:12px;padding:10px 12px"><div class="pinwrap" id="pw-17.2.1"><span class="pin sub" data-id="17.2.1" title="组件 17.2.1">17.2.1</span><div class="k-task-ico"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M13 2L4.5 13.5h5L8 22l8.5-11.5h-5L13 2z" fill="#b45309"/></svg></div></div><div style="font-weight:800;font-size:15px">跳绳 200 个<div style="font-size:12px;color:var(--ktext2);font-weight:600">身体锻炼 · 200 分钟</div></div></div></div></div>
+  <div class="pinwrap" id="pw-17.3"><span class="pin sub" data-id="17.3" title="组件 17.3">17.3</span><div class="kid-label">请家长验收,给这次挑战打星 ⭐</div></div>
+  <div class="pinwrap" id="pw-17.4"><span class="pin sub" data-id="17.4" title="组件 17.4">17.4</span><div class="kid-stars-pick"><div class="pinwrap" id="pw-17.4.1"><span class="pin sub" data-id="17.4.1" title="组件 17.4.1">17.4.1</span><div class="kid-star-btn"><svg viewBox="0 0 24 24" width="34" height="34"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L3.3 9.3l6.1-.7z" fill="#fbbf24" stroke="#d97706" stroke-width="0.8" stroke-linejoin="round"/></svg></div></div><div class="pinwrap" id="pw-17.4.2"><span class="pin sub" data-id="17.4.2" title="组件 17.4.2">17.4.2</span><div class="kid-star-btn"><svg viewBox="0 0 24 24" width="34" height="34"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L3.3 9.3l6.1-.7z" fill="#fbbf24" stroke="#d97706" stroke-width="0.8" stroke-linejoin="round"/></svg></div></div><div class="pinwrap" id="pw-17.4.3"><span class="pin sub" data-id="17.4.3" title="组件 17.4.3">17.4.3</span><div class="kid-star-btn on"><svg viewBox="0 0 24 24" width="34" height="34"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L3.3 9.3l6.1-.7z" fill="#fbbf24" stroke="#d97706" stroke-width="0.8" stroke-linejoin="round"/></svg></div></div></div></div>
+  <div class="pinwrap" id="pw-17.5"><span class="pin sub" data-id="17.5" title="组件 17.5">17.5</span><div class="kid-star-preview"><span class="k-reward-chip c"><svg viewBox="0 0 24 24" width="14" height="14"><circle cx="12" cy="12" r="10.5" fill="#fbbf24" stroke="#d97706" stroke-width="1.4"/><circle cx="12" cy="12" r="7" fill="#f59e0b"/><path d="M12 7.5l1.3 2.9 3.2.3-2.4 2.1.7 3.1L12 14.3l-2.8 1.6.7-3.1-2.4-2.1 3.2-.3z" fill="#fff7ed"/></svg> +30 金币</span><span class="k-reward-chip e"><svg viewBox="0 0 24 24" width="14" height="14"><path d="M13 2L4.5 13.5h5L8 22l8.5-11.5h-5L13 2z" fill="#a78bfa" stroke="#7c3aed" stroke-width="1" stroke-linejoin="round"/></svg> +30 经验</span><span class="k-reward-chip">⭐ 3 星</span></div></div>
+  <div class="pinwrap" id="pw-17.6"><span class="pin sub" data-id="17.6" title="组件 17.6">17.6</span><div class="kid-modal-actions"><div class="pinwrap" id="pw-17.6.1"><span class="pin sub" data-id="17.6.1" title="组件 17.6.1">17.6.1</span><div class="kid-btn">稍后</div></div><div class="pinwrap" id="pw-17.6.2"><span class="pin sub" data-id="17.6.2" title="组件 17.6.2">17.6.2</span><div class="kid-btn gold">确认领取 🎁</div></div></div></div>
+</div></div></div><div class="pinwrap" id="pw-18"><span class="pin" data-id="18" title="组件 18">18</span><div class="kid-overlay"><div class="kid-modal" style="position:relative;max-width:420px;width:100%">
+  <div class="pinwrap" id="pw-18.1"><span class="pin sub" data-id="18.1" title="组件 18.1">18.1</span><div class="kid-modal-head"><div class="kid-modal-title">＋ 添加今日任务</div><div class="kid-modal-x">✕</div></div></div>
+  <div class="pinwrap" id="pw-18.2"><span class="pin sub" data-id="18.2" title="组件 18.2">18.2</span><div class="kid-field"><label class="kid-label">任务类型</label><div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px"><div class="pinwrap" id="pw-18.2.1"><span class="pin sub" data-id="18.2.1" title="组件 18.2.1">18.2.1</span><div class="kid-btn"><span style="width:20px;height:20px;border-radius:6px;background:#f59e0b;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M13 2L4.5 13.5h5L8 22l8.5-11.5h-5L13 2z" fill="#b45309"/></svg></span>身体锻炼</div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-btn"><span style="width:20px;height:20px;border-radius:6px;background:#8b5cf6;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5zm4-1v16M12 7h4M12 11h4" fill="none" stroke="#6d28d9" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>背诵</div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-btn"><span style="width:20px;height:20px;border-radius:6px;background:#ec4899;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" fill="none" stroke="#be185d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>听写·默写·书法</div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-btn"><span style="width:20px;height:20px;border-radius:6px;background:#3b82f6;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M9 3h6v18H9zM3 8h3v10H3zM18 8h3v10h-3z" fill="#1d4ed8"/></svg></span>数学口算·习题</div></div></div></div></div>
+  <div class="pinwrap" id="pw-18.3"><span class="pin sub" data-id="18.3" title="组件 18.3">18.3</span><div class="kid-field"><label class="kid-label">任务名称</label><input type="text" placeholder="例如:跳绳 200 个" maxlength="30"></div></div>
+  <div class="pinwrap" id="pw-18.4"><span class="pin sub" data-id="18.4" title="组件 18.4">18.4</span><div class="kid-field"><label class="kid-label">目标数量</label><input type="number" min="1" max="999" value="1"></div></div>
+  <div class="pinwrap" id="pw-18.5"><span class="pin sub" data-id="18.5" title="组件 18.5">18.5</span><div class="kid-modal-actions"><div class="pinwrap" id="pw-18.5.1"><span class="pin sub" data-id="18.5.1" title="组件 18.5.1">18.5.1</span><div class="kid-btn">取消</div></div><div class="pinwrap" id="pw-18.5.2"><span class="pin sub" data-id="18.5.2" title="组件 18.5.2">18.5.2</span><div class="kid-btn primary">添加任务</div></div></div></div>
+</div></div></div><div class="pinwrap" id="pw-19"><span class="pin" data-id="19" title="组件 19">19</span><div class="kid-overlay"><div class="kid-modal" style="position:relative;max-width:420px;width:100%">
+  <div class="pinwrap" id="pw-19.1"><span class="pin sub" data-id="19.1" title="组件 19.1">19.1</span><div class="kid-modal-head"><div class="kid-modal-title">周一 · 添加计划任务</div><div class="kid-modal-x">✕</div></div></div>
+  <div class="pinwrap" id="pw-19.2"><span class="pin sub" data-id="19.2" title="组件 19.2">19.2</span><div class="kid-field"><label class="kid-label">任务类型</label><div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px"><div class="pinwrap" id="pw-19.2.1"><span class="pin sub" data-id="19.2.1" title="组件 19.2.1">19.2.1</span><div class="kid-btn"><span style="width:20px;height:20px;border-radius:6px;background:#f59e0b;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M13 2L4.5 13.5h5L8 22l8.5-11.5h-5L13 2z" fill="#b45309"/></svg></span>身体锻炼</div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-btn"><span style="width:20px;height:20px;border-radius:6px;background:#8b5cf6;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5zm4-1v16M12 7h4M12 11h4" fill="none" stroke="#6d28d9" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>背诵</div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-btn"><span style="width:20px;height:20px;border-radius:6px;background:#ec4899;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" fill="none" stroke="#be185d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>听写·默写·书法</div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-btn"><span style="width:20px;height:20px;border-radius:6px;background:#3b82f6;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M9 3h6v18H9zM3 8h3v10H3zM18 8h3v10h-3z" fill="#1d4ed8"/></svg></span>数学口算·习题</div></div></div></div></div>
+  <div class="pinwrap" id="pw-19.3"><span class="pin sub" data-id="19.3" title="组件 19.3">19.3</span><div class="kid-field"><label class="kid-label">任务名称</label><input type="text" placeholder="例如:跳绳训练" maxlength="30"></div></div>
+  <div class="pinwrap" id="pw-19.4"><span class="pin sub" data-id="19.4" title="组件 19.4">19.4</span><div class="kid-field"><label class="kid-label">目标数量</label><input type="number" min="1" max="999" value="1"></div></div>
+  <div class="pinwrap" id="pw-19.5"><span class="pin sub" data-id="19.5" title="组件 19.5">19.5</span><div class="kid-modal-actions"><div class="pinwrap" id="pw-19.5.1"><span class="pin sub" data-id="19.5.1" title="组件 19.5.1">19.5.1</span><div class="kid-btn">取消</div></div><div class="pinwrap" id="pw-19.5.2"><span class="pin sub" data-id="19.5.2" title="组件 19.5.2">19.5.2</span><div class="kid-btn primary">加入计划</div></div></div></div>
+</div></div></div><div class="pinwrap" id="pw-20"><span class="pin" data-id="20" title="组件 20">20</span><div class="kid-overlay"><div class="kid-modal" style="position:relative;max-width:420px;width:100%">
+  <div class="pinwrap" id="pw-20.1"><span class="pin sub" data-id="20.1" title="组件 20.1">20.1</span><div class="kid-modal-head"><div class="kid-modal-title">📜 兑换记录</div><div class="kid-modal-x">✕</div></div></div>
+  <div class="pinwrap" id="pw-20.2"><span class="pin sub" data-id="20.2" title="组件 20.2">20.2</span><div class=""><div style="max-height:52vh;overflow:auto"><div class="pinwrap" id="pw-20.2.1"><span class="pin sub" data-id="20.2.1" title="组件 20.2.1">20.2.1</span><div class=""><div style="display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid var(--kborder)"><span style="font-size:18px">🎁</span><div style="flex:1"><div style="font-size:14px;font-weight:700">星空投影灯</div><div style="font-size:11px;color:var(--ktext3)">8月14日</div></div><span class="k-s-price"><svg viewBox="0 0 24 24" width="14" height="14"><circle cx="12" cy="12" r="10.5" fill="#fbbf24" stroke="#d97706" stroke-width="1.4"/><circle cx="12" cy="12" r="7" fill="#f59e0b"/><path d="M12 7.5l1.3 2.9 3.2.3-2.4 2.1.7 3.1L12 14.3l-2.8 1.6.7-3.1-2.4-2.1 3.2-.3z" fill="#fff7ed"/></svg> 5</span></div></div></div></div></div></div>
+</div></div></div><div class="pinwrap" id="pw-21"><span class="pin" data-id="21" title="组件 21">21</span><div class="kid-overlay"><div class="kid-modal" style="position:relative;max-width:480px;width:100%">
+  <div class="pinwrap" id="pw-21.1"><span class="pin sub" data-id="21.1" title="组件 21.1">21.1</span><div class="kid-modal-head"><div class="kid-modal-title">🎁 管理道具</div><div class="kid-modal-x">✕</div></div></div>
+  <div class="pinwrap" id="pw-21.2"><span class="pin sub" data-id="21.2" title="组件 21.2">21.2</span><div class=""><div style="display:flex;gap:8px;margin-bottom:12px"><div class="pinwrap" id="pw-21.2.1"><span class="pin sub" data-id="21.2.1" title="组件 21.2.1">21.2.1</span><div class=""><input type="text" placeholder="道具名称,如:冰淇淋券" style="flex:1"></div></div><div class="pinwrap" id="pw-21.2.2"><span class="pin sub" data-id="21.2.2" title="组件 21.2.2">21.2.2</span><div class=""><input type="number" placeholder="价格" style="width:76px" min="1"></div></div><div class="pinwrap" id="pw-21.2.3"><span class="pin sub" data-id="21.2.3" title="组件 21.2.3">21.2.3</span><div class="kid-btn primary">金币</div></div><div class="pinwrap" id="pw-21.2.4"><span class="pin sub" data-id="21.2.4" title="组件 21.2.4">21.2.4</span><div class="kid-btn">钻石</div></div></div></div></div>
+  <div class="pinwrap" id="pw-21.3"><span class="pin sub" data-id="21.3" title="组件 21.3">21.3</span><div class=""><div style="max-height:46vh;overflow:auto"><div class="pinwrap" id="pw-21.3.1"><span class="pin sub" data-id="21.3.1" title="组件 21.3.1">21.3.1</span><div class=""><div style="display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid var(--kborder)"><span style="font-size:20px">🎁</span><div style="flex:1"><div style="font-size:14px;font-weight:700">星空投影灯</div><div style="font-size:11px;color:var(--ktext3)">🪙 5</div></div><button class="kid-btn sm">删除</button></div></div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class=""><div style="display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid var(--kborder)"><span style="font-size:20px">🍦</span><div style="flex:1"><div style="font-size:14px;font-weight:700">冰淇淋券</div><div style="font-size:11px;color:var(--ktext3)">🪙 30</div></div><button class="kid-btn sm">删除</button></div></div></div></div></div></div>
+</div></div></div><div class="pinwrap" id="pw-22"><span class="pin" data-id="22" title="组件 22">22</span><div class="kid-overlay"><div class="kid-modal" style="position:relative;max-width:300px;width:100%">
+  <div class="pinwrap" id="pw-22.1"><span class="pin sub" data-id="22.1" title="组件 22.1">22.1</span><div class="kid-modal-head"><div class="kid-modal-title">输入家长密码</div><div class="kid-modal-x">✕</div></div></div>
+  <div class="pinwrap" id="pw-22.2"><span class="pin sub" data-id="22.2" title="组件 22.2">22.2</span><div class="kid-pwd-dots"><span class="kid-pwd-dot"></span><span class="kid-pwd-dot"></span><span class="kid-pwd-dot"></span><span class="kid-pwd-dot"></span></div></div>
+  <div class="pinwrap" id="pw-22.3"><span class="pin sub" data-id="22.3" title="组件 22.3">22.3</span><div class="kid-pwd-pad"><div class="pinwrap" id="pw-22.3.1"><span class="pin sub" data-id="22.3.1" title="组件 22.3.1">22.3.1</span><div class="kid-pwd-key">1</div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-pwd-key">2</div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-pwd-key">3</div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-pwd-key">4</div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-pwd-key">5</div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-pwd-key">6</div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-pwd-key">7</div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-pwd-key">8</div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-pwd-key">9</div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-pwd-key del">清空</div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-pwd-key">0</div></div><div class="pinwrap" id="pw-x"><span class="pin" data-id="x" title="组件 x">x</span><div class="kid-pwd-key del">⌫</div></div></div></div>
+</div></div></div></div></div></div><div class="panel" id="scr-6"><h2>⑥ 设置抽屉</h2><div class="device"><div class="kid-wb theme-project"><div class="pinwrap" id="pw-23"><span class="pin" data-id="23" title="组件 23">23</span><div class="kid-overlay"><div class="kid-drawer" style="position:relative;max-width:440px;width:100%">
+  <div class="pinwrap" id="pw-23.1"><span class="pin sub" data-id="23.1" title="组件 23.1">23.1</span><div class="kid-drawer-head"><div class="pinwrap" id="pw-23.1.1"><span class="pin sub" data-id="23.1.1" title="组件 23.1.1">23.1.1</span><div class="kid-logo"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L3.3 9.3l6.1-.7z" fill="#fff" stroke="#d97706" stroke-width="0.8" stroke-linejoin="round"/></svg></div></div><div class="pinwrap" id="pw-23.1.2"><span class="pin sub" data-id="23.1.2" title="组件 23.1.2">23.1.2</span><div class="kid-title">设置</div></div><div class="pinwrap" id="pw-23.1.3"><span class="pin sub" data-id="23.1.3" title="组件 23.1.3">23.1.3</span><div class="kid-modal-x">✕</div></div></div></div>
+  <div class="pinwrap" id="pw-23.2"><span class="pin sub" data-id="23.2" title="组件 23.2">23.2</span><div class="kid-drawer-body">
+    <div class="pinwrap" id="pw-23.2.1"><span class="pin sub" data-id="23.2.1" title="组件 23.2.1">23.2.1</span><div class="kid-drawer-row"><div><div class="k-dr-label">我的昵称</div><div class="k-dr-sub">显示在顶部与等级旁</div></div><input type="text" value="小宇" style="width:130px;padding:8px 10px" maxlength="12"></div></div>
+    <div class="pinwrap" id="pw-23.2.2"><span class="pin sub" data-id="23.2.2" title="组件 23.2.2">23.2.2</span><div class="kid-sec-gap kid-drawer-row"><div><div class="k-dr-label">主题模式</div><div class="k-dr-sub">「跟随项目」与应用外观自动一致</div></div><select style="width:138px;padding:8px 10px"><option>跟随项目</option><option>儿童亮色</option><option>糖果乐园 🍬</option><option>星际探险 🚀</option><option>深色</option></select></div></div>
+    <div class="pinwrap" id="pw-23.2.3"><span class="pin sub" data-id="23.2.3" title="组件 23.2.3">23.2.3</span><div class="kid-sec-gap kid-drawer-row"><div><div class="k-dr-label">奖励倍数</div><div class="k-dr-sub">金币/经验按此倍数发放</div></div><select style="width:110px;padding:8px 10px"><option>×1 标准</option><option>×1.5 加量</option><option>×2 翻倍</option></select></div></div>
+    <div class="pinwrap" id="pw-23.2.4"><span class="pin sub" data-id="23.2.4" title="组件 23.2.4">23.2.4</span><div class="kid-sec-gap kid-drawer-row"><div><div class="k-dr-label">家长模式</div><div class="k-dr-sub">开启后解锁家长专属操作</div></div><div class="pinwrap" id="pw-23.2.4.1"><span class="pin sub" data-id="23.2.4.1" title="组件 23.2.4.1">23.2.4.1</span><div class="kid-switch on"></div></div></div></div>
+    <div class="pinwrap" id="pw-23.2.5"><span class="pin sub" data-id="23.2.5" title="组件 23.2.5">23.2.5</span><div class="kid-drawer-row"><div><div class="k-dr-label">修改家长密码</div><div class="k-dr-sub">重新设置 4 位数字密码</div></div><button class="kid-btn sm">修改</button></div></div>
+    <div class="pinwrap" id="pw-23.2.6"><span class="pin sub" data-id="23.2.6" title="组件 23.2.6">23.2.6</span><div class="kid-sec-gap kid-drawer-row"><div><div class="k-dr-label">清空示例数据</div><div class="k-dr-sub">删除示例任务,重置为全新开始</div></div><button class="kid-btn sm">清空</button></div></div>
+    <div class="pinwrap" id="pw-23.2.7"><span class="pin sub" data-id="23.2.7" title="组件 23.2.7">23.2.7</span><div class="kid-drawer-row"><div><div class="k-dr-label" style="color:#ef4444">清空全部数据</div><div class="k-dr-sub">删除所有任务/金币/等级/计划</div></div><button class="kid-btn sm red">清空</button></div></div>
+    <div class="pinwrap" id="pw-23.2.8"><span class="pin sub" data-id="23.2.8" title="组件 23.2.8">23.2.8</span><div class="kid-sec-gap">当前:小宇 · 记忆小博士 Lv.5 · 金币 120 · 钻石 3 · 皇冠 1 · 累计 42 关</div></div>
+  </div></div>
+</div></div></div></div></div></div>
   </div>
-  <div class="kid-card">
-    <div class="kid-card-title">😀 我的头像</div>
-    <div class="kid-avatars">
-      <div class="kid-avatar-item on" title="头像1"><div style="font-size:30px">😀</div><span class="k-a-name">开心</span></div><div class="kid-avatar-item" title="头像2"><div style="font-size:30px">😎</div><span class="k-a-name">酷酷</span></div><div class="kid-avatar-item" title="头像3"><div style="font-size:30px">😉</div><span class="k-a-name">眨眼</span></div><div class="kid-avatar-item" title="头像4"><div style="font-size:30px">😜</div><span class="k-a-name">淘气</span></div><div class="kid-avatar-item" title="头像5"><div style="font-size:30px">😲</div><span class="k-a-name">惊讶</span></div><div class="kid-avatar-item" title="头像6"><div style="font-size:30px">😏</div><span class="k-a-name">得意</span></div><div class="kid-avatar-item locked" title="头像7"><div style="font-size:30px">🤩</div><span class="k-a-name">🔒 Lv.5</span></div><div class="kid-avatar-item locked" title="头像8"><div style="font-size:30px">🤴</div><span class="k-a-name">🔒 Lv.8</span></div>
-    </div>
-    <div style="font-size:11px;color:var(--ktext3);margin-top:8px">数字人会随等级换装进化:帽子(3级)→ 眼镜披风(5级)→ 皇冠(7级)→ 星光(9级)→ 光环(10级)→ 钻石王冠(11级)</div>
-  </div></div>
-<div class="kid-card pinwrap" id="pw-14"><span class="pin" data-id="14" title="组件 14">14</span>
-  <div class="kid-card-title">🎁 道具商城<button class="kid-btn sm" style="margin-left:auto">＋ 管理道具</button><button class="kid-btn sm" style="margin-left:8px">兑换记录</button></div>
-  <div class="kid-shop-grid">
-    <div class="kid-shop-item"><div class="k-s-head"><div class="k-s-ico" style="background:#fffbeb">🎁</div><div><div class="k-s-name">冰淇淋券</div><div style="font-size:11px;color:var(--ktext3)">金币道具</div></div></div><div class="k-s-note">夏日清凉奖励</div><div class="k-s-foot"><span class="k-s-price"><svg viewBox="0 0 24 24" width="15" height="15"><circle cx="12" cy="12" r="10.5" fill="#fbbf24" stroke="#d97706" stroke-width="1.4"/><circle cx="12" cy="12" r="7" fill="#f59e0b"/><path d="M12 7.5l1.3 2.9 3.2.3-2.4 2.1.7 3.1L12 14.3l-2.8 1.6.7-3.1-2.4-2.1 3.2-.3z" fill="#fff7ed"/></svg> 30</span><button class="kid-btn sm gold">兑换</button></div></div><div class="kid-shop-item"><div class="k-s-head"><div class="k-s-ico" style="background:#fffbeb">🎁</div><div><div class="k-s-name">周末多玩30分</div><div style="font-size:11px;color:var(--ktext3)">金币道具</div></div></div><div class="k-s-note">游戏时间+30分钟</div><div class="k-s-foot"><span class="k-s-price"><svg viewBox="0 0 24 24" width="15" height="15"><circle cx="12" cy="12" r="10.5" fill="#fbbf24" stroke="#d97706" stroke-width="1.4"/><circle cx="12" cy="12" r="7" fill="#f59e0b"/><path d="M12 7.5l1.3 2.9 3.2.3-2.4 2.1.7 3.1L12 14.3l-2.8 1.6.7-3.1-2.4-2.1 3.2-.3z" fill="#fff7ed"/></svg> 50</span><button class="kid-btn sm gold">兑换</button></div></div><div class="kid-shop-item"><div class="k-s-head"><div class="k-s-ico" style="background:#ecfeff">🎁</div><div><div class="k-s-name">星空投影灯</div><div style="font-size:11px;color:var(--ktext3)">钻石道具</div></div></div><div class="k-s-note">钻石专属好物</div><div class="k-s-foot"><span class="k-s-price d"><svg viewBox="0 0 24 24" width="15" height="15"><path d="M7 4h10l4 5-9 11L3 9z" fill="#22d3ee" stroke="#0891b2" stroke-width="1.3" stroke-linejoin="round"/></svg> 3</span><button class="kid-btn sm primary">兑换</button></div></div>
-  </div></div>
-<div class="kid-card pinwrap" id="pw-15"><span class="pin" data-id="15" title="组件 15">15</span>
-  <div class="kid-card-title">🏅 奖章墙</div>
-  <div class="kid-medal-grid">
-    <div class="kid-medal got"><div style="font-size:30px;filter:none">🏅</div><div class="k-m-name">连胜3天</div><div class="k-m-desc">连续打卡3天</div><div style="font-size:10px;font-weight:700;color:#b45309">✅ 已获得</div></div><div class="kid-medal got"><div style="font-size:30px;filter:none">🏅</div><div class="k-m-name">连胜7天</div><div class="k-m-desc">连续打卡7天</div><div style="font-size:10px;font-weight:700;color:#b45309">✅ 已获得</div></div><div class="kid-medal got"><div style="font-size:30px;filter:none">🏅</div><div class="k-m-name">周计划全勤</div><div class="k-m-desc">一周计划全完成</div><div style="font-size:10px;font-weight:700;color:#b45309">✅ 已获得</div></div><div class="kid-medal locked"><div style="font-size:30px;filter:grayscale(1)">🏅</div><div class="k-m-name">累计30关</div><div class="k-m-desc">累计挑战30关</div><div style="font-size:10px;font-weight:700;color:#9aa0b3">未解锁</div></div><div class="kid-medal locked"><div style="font-size:30px;filter:grayscale(1)">🏅</div><div class="k-m-name">集齐头像</div><div class="k-m-desc">解锁全部头像</div><div style="font-size:10px;font-weight:700;color:#9aa0b3">未解锁</div></div><div class="kid-medal got"><div style="font-size:30px;filter:none">🏅</div><div class="k-m-name">首次挑战</div><div class="k-m-desc">完成第一个任务</div><div style="font-size:10px;font-weight:700;color:#b45309">✅ 已获得</div></div>
-  </div></div>
-<div class="kid-today-banner pinwrap" id="pw-16"><span class="pin" data-id="16" title="组件 16">16</span>💰 奖励规则:基础完成 +10 金币/经验(家长可在设置调整倍数);星级加成 ⭐×5;金币可兑换道具,钻石由连胜里程碑获得,皇冠由周计划全勤获得。</div>
-</div></div>
-    </div>
-
-    <div class="panel" id="scr-E">
-      <h2>⑤ 弹窗与密码键盘</h2>
-      <p class="hint">openStarModal() · openTaskModal() · openPwdModal()</p>
-      <div class="device"><div class="kid-wb">
-<div class="kid-overlay pinwrap" id="pw-17"><span class="pin" data-id="17" title="组件 17">17</span><div class="kid-modal" style="position:relative;max-width:420px;width:100%">
-  <div class="kid-modal-head"><div class="kid-modal-title">🎉 挑战成功!</div><button class="kid-modal-x">✕</button></div>
-  <div style="display:flex;align-items:center;gap:10px;background:#fef3c7;border-radius:12px;padding:10px 12px;margin-bottom:12px"><div class="k-task-ico" style="background:#fef3c7">📖</div><div style="font-weight:800;font-size:15px">背诵古诗 2 首<div style="font-size:12px;color:var(--ktext2);font-weight:600">背诵 · 2 首</div></div></div>
-  <div class="kid-label" style="text-align:center">请家长验收,给这次挑战打星 ⭐</div>
-  <div class="kid-stars-pick"><button class="kid-star-btn"><svg viewBox="0 0 24 24" width="15" height="15"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L3.3 9.3l6.1-.7z" fill="34" stroke="#d97706" stroke-width="0.8"/></svg></button><button class="kid-star-btn"><svg viewBox="0 0 24 24" width="15" height="15"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L3.3 9.3l6.1-.7z" fill="34" stroke="#d97706" stroke-width="0.8"/></svg></button><button class="kid-star-btn on"><svg viewBox="0 0 24 24" width="15" height="15"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L3.3 9.3l6.1-.7z" fill="34" stroke="#d97706" stroke-width="0.8"/></svg></button></div>
-  <div id="kid-star-preview" style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap"><span class="k-reward-chip c"><svg viewBox="0 0 24 24" width="14" height="14"><circle cx="12" cy="12" r="10.5" fill="#fbbf24" stroke="#d97706" stroke-width="1.4"/><circle cx="12" cy="12" r="7" fill="#f59e0b"/><path d="M12 7.5l1.3 2.9 3.2.3-2.4 2.1.7 3.1L12 14.3l-2.8 1.6.7-3.1-2.4-2.1 3.2-.3z" fill="#fff7ed"/></svg> +15 金币</span><span class="k-reward-chip e"><svg viewBox="0 0 24 24" width="14" height="14"><path d="M13 2L4.5 13.5h5L8 22l8.5-11.5h-5L13 2z" fill="#a78bfa" stroke="#7c3aed" stroke-width="1"/></svg> +15 经验</span></div>
-  <div class="kid-modal-actions"><button class="kid-btn">稍后</button><button class="kid-btn gold">确认领取 🎁</button></div>
-</div></div>
-<div class="kid-overlay pinwrap" id="pw-18"><span class="pin" data-id="18" title="组件 18">18</span><div class="kid-modal" style="position:relative;max-width:420px;width:100%">
-  <div class="kid-modal-head"><div class="kid-modal-title">＋ 添加今日任务</div><button class="kid-modal-x">✕</button></div>
-  <div class="kid-field"><label class="kid-label">任务类型</label><div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px"><button class="kid-btn" style="justify-content:flex-start;border-color:#0ea5e944;background:#e0f2fe;color:#3a4056"><span style="width:20px;height:20px;border-radius:6px;background:#0ea5e9;display:flex;align-items:center;justify-content:center">🏃</span>身体锻炼</button><button class="kid-btn" style="justify-content:flex-start;border-color:#f59e0b44;background:#fef3c7;color:#3a4056"><span style="width:20px;height:20px;border-radius:6px;background:#f59e0b;display:flex;align-items:center;justify-content:center">📖</span>背诵</button><button class="kid-btn" style="justify-content:flex-start;border-color:#6366f144;background:#e0e7ff;color:#3a4056"><span style="width:20px;height:20px;border-radius:6px;background:#6366f1;display:flex;align-items:center;justify-content:center">✍️</span>听写默写书法</button><button class="kid-btn" style="justify-content:flex-start;border-color:#22c55e44;background:#dcfce7;color:#3a4056"><span style="width:20px;height:20px;border-radius:6px;background:#22c55e;display:flex;align-items:center;justify-content:center">🔢</span>数学口算</button></div></div>
-  <div class="kid-field"><label class="kid-label">任务名称</label><input type="text" placeholder="例如:跳绳 200 个" maxlength="30"></div>
-  <div class="kid-field"><label class="kid-label">目标数量</label><input type="number" value="1" min="1" max="999"></div>
-  <div class="kid-modal-actions"><button class="kid-btn">取消</button><button class="kid-btn primary">添加任务</button></div>
-</div></div>
-<div class="kid-overlay pinwrap" id="pw-22"><span class="pin" data-id="22" title="组件 22">22</span><div class="kid-modal" style="position:relative;max-width:300px;width:100%">
-  <div class="kid-modal-head"><div class="kid-modal-title">输入家长密码</div><button class="kid-modal-x">✕</button></div>
-  <div class="kid-pwd-dots"><span class="kid-pwd-dot fill"></span><span class="kid-pwd-dot fill"></span><span class="kid-pwd-dot"></span><span class="kid-pwd-dot"></span></div>
-  <div class="kid-pwd-pad"><button class="kid-pwd-key">1</button><button class="kid-pwd-key">2</button><button class="kid-pwd-key">3</button><button class="kid-pwd-key">4</button><button class="kid-pwd-key">5</button><button class="kid-pwd-key">6</button><button class="kid-pwd-key">7</button><button class="kid-pwd-key">8</button><button class="kid-pwd-key">9</button><button class="kid-pwd-key del">清空</button><button class="kid-pwd-key">0</button><button class="kid-pwd-key del">⌫</button></div>
-</div></div>
-</div></div>
-    </div>
-
-    <div class="panel" id="scr-E2">
-      <h2>⑥ 设置抽屉</h2>
-      <p class="hint">openSettings()</p>
-      <div class="device"><div class="kid-wb">
-<div class="kid-drawer pinwrap" id="pw-23"><span class="pin" data-id="23" title="组件 23">23</span>
-  <div class="kid-drawer-head"><div class="kid-logo" style="width:38px;height:38px"><svg viewBox="0 0 24 24" width="15" height="15"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L3.3 9.3l6.1-.7z" fill="20" stroke="#d97706" stroke-width="0.8"/></svg></div><div class="kid-title" style="font-size:16px">设置</div><button class="kid-modal-x" style="margin-left:auto">✕</button></div>
-  <div class="kid-drawer-body">
-    <div class="kid-drawer-row"><div><div class="k-dr-label">我的昵称</div><div class="k-dr-sub">显示在顶部与等级旁</div></div><input type="text" value="小宇" style="width:130px;padding:8px 10px" maxlength="12"></div>
-    <div class="kid-sec-gap kid-drawer-row"><div><div class="k-dr-label">主题模式</div><div class="k-dr-sub">「跟随项目」与应用外观自动一致</div></div><select style="width:138px;padding:8px 10px"><option>跟随项目</option><option>儿童亮色</option><option>糖果乐园 🍬</option><option>星际探险 🚀</option><option>深色</option></select></div>
-    <div class="kid-sec-gap kid-drawer-row"><div><div class="k-dr-label">奖励倍数</div><div class="k-dr-sub">金币/经验按此倍数发放</div></div><select style="width:110px;padding:8px 10px"><option>×1 标准</option><option>×1.5 加量</option><option>×2 翻倍</option></select></div>
-    <div class="kid-sec-gap kid-drawer-row"><div><div class="k-dr-label">家长模式</div><div class="k-dr-sub">开启后解锁家长专属操作</div></div><span class="kid-switch on"></span></div>
-    <div class="kid-drawer-row"><div><div class="k-dr-label" style="color:#ef4444">清空全部数据</div><div class="k-dr-sub">删除所有任务/金币/等级/计划</div></div><button class="kid-btn sm red">清空</button></div>
-  </div></div>
-</div></div>
-    </div>
-
-    <div class="panel" id="scr-Z">
-      <h2>⑦ 部件细节放大（任务卡内部 & 奖励页部件）</h2>
-      <p class="hint">renderTaskCard() 子块 · renderRewardTab() 子块</p>
-      <div class="device"><div class="kid-wb">
-<div class="zoom-grid">
-<div class="kid-task started pinwrap" id="pw-A"><span class="pin" data-id="A" title="组件 A">A</span><div class="k-task-head"><div class="k-task-ico" style="background:#e0f2fe">🏃</div><div class="k-task-titles"><div class="k-task-name">跳绳 200 个</div><div class="k-task-cat">身体锻炼</div></div><div class="k-task-badges"><span class="k-badge doing">⏳ 挑战中</span></div></div></div>
-<div class="kid-task pinwrap" id="pw-B"><span class="pin" data-id="B" title="组件 B">B</span><div class="k-task-target">目标:<span class="k-unit-chip">200 个</span></div></div>
-<div class="kid-task pinwrap" id="pw-C"><span class="pin" data-id="C" title="组件 C">C</span><div class="k-task-reward"><span class="k-reward-chip c"><svg viewBox="0 0 24 24" width="14" height="14"><circle cx="12" cy="12" r="10.5" fill="#fbbf24" stroke="#d97706" stroke-width="1.4"/><circle cx="12" cy="12" r="7" fill="#f59e0b"/><path d="M12 7.5l1.3 2.9 3.2.3-2.4 2.1.7 3.1L12 14.3l-2.8 1.6.7-3.1-2.4-2.1 3.2-.3z" fill="#fff7ed"/></svg> +15 金币</span><span class="k-reward-chip e"><svg viewBox="0 0 24 24" width="14" height="14"><path d="M13 2L4.5 13.5h5L8 22l8.5-11.5h-5L13 2z" fill="#a78bfa" stroke="#7c3aed" stroke-width="1"/></svg> +15 经验</span><span class="k-reward-chip">⭐ 3 星</span></div></div>
-<div class="kid-task pinwrap" id="pw-D"><span class="pin" data-id="D" title="组件 D">D</span><div class="k-task-actions"><button class="kid-btn green">🚀 挑战成功!</button><button class="kid-btn">↺ 重来</button></div></div>
-<div class="kid-task pinwrap" id="pw-E"><span class="pin" data-id="E" title="组件 E">E</span><div class="k-task-tips">💡 每天进步一点点,坚持就是胜利!</div></div>
-<div class="kid-task pinwrap" id="pw-F"><span class="pin" data-id="F" title="组件 F">F</span><div class="k-task-foot">集中注意力,一鼓作气挑战到底!</div></div>
-</div>
-<div class="zoom-grid" style="margin-top:14px">
-<div class="kid-hero-box pinwrap" id="pw-G"><span class="pin" data-id="G" title="组件 G">G</span><div style="font-size:54px">🧒</div></div>
-<div class="kid-level-info pinwrap" id="pw-H"><span class="pin" data-id="H" title="组件 H">H</span><div class="kid-lv-title">初级学者<span class="kid-lv-tag" style="background:#4f7cff">Lv.3</span></div><div class="kid-lv-desc">稳步前进的小学霸</div><div class="kid-ring-row"><span class="kid-ring-label">经验</span><div class="kid-ring-bar"><div class="kid-ring-fill" style="width:60%"></div></div><span class="kid-ring-val">180/300</span></div></div>
-<div class="kid-avatar-item on pinwrap" id="pw-I"><span class="pin" data-id="I" title="组件 I">I</span><div style="font-size:30px">😀</div><span class="k-a-name">开心</span></div>
-<div class="kid-shop-item pinwrap" id="pw-J"><span class="pin" data-id="J" title="组件 J">J</span><div class="k-s-head"><div class="k-s-ico" style="background:#fffbeb">🎁</div><div><div class="k-s-name">冰淇淋券</div><div style="font-size:11px;color:var(--ktext3)">金币道具</div></div></div><div class="k-s-note">夏日清凉奖励</div><div class="k-s-foot"><span class="k-s-price"><svg viewBox="0 0 24 24" width="15" height="15"><circle cx="12" cy="12" r="10.5" fill="#fbbf24" stroke="#d97706" stroke-width="1.4"/><circle cx="12" cy="12" r="7" fill="#f59e0b"/><path d="M12 7.5l1.3 2.9 3.2.3-2.4 2.1.7 3.1L12 14.3l-2.8 1.6.7-3.1-2.4-2.1 3.2-.3z" fill="#fff7ed"/></svg> 30</span><button class="kid-btn sm gold">兑换</button></div></div>
-<div class="kid-medal got pinwrap" id="pw-K"><span class="pin" data-id="K" title="组件 K">K</span><div style="font-size:30px">🏅</div><div class="k-m-name">连胜7天</div><div class="k-m-desc">连续打卡7天</div><div style="font-size:10px;font-weight:700;color:#b45309">✅ 已获得</div></div>
-<div class="kid-wallet-card pinwrap" id="pw-L"><span class="pin" data-id="L" title="组件 L">L</span><div class="k-w-ico" style="background:#fffbeb"><svg viewBox="0 0 24 24" width="22" height="22"><circle cx="12" cy="12" r="10.5" fill="#fbbf24" stroke="#d97706" stroke-width="1.4"/><circle cx="12" cy="12" r="7" fill="#f59e0b"/><path d="M12 7.5l1.3 2.9 3.2.3-2.4 2.1.7 3.1L12 14.3l-2.8 1.6.7-3.1-2.4-2.1 3.2-.3z" fill="#fff7ed"/></svg></div><div><div class="k-w-num">120</div><div class="k-w-name">金币</div></div></div>
-</div>
-</div></div>
-    </div>
-  </div>
-
   <div class="col-side">
-    <div class="panel" id="legend-top">
-      <h2>📑 组件清单总表</h2>
-      <p class="hint">点击任意行 → 左侧对应组件高亮并滚动到视图</p>
-      <table class="legend"><thead><tr><th>#</th><th>组件</th><th>代码位置</th><th>作用</th></tr></thead><tbody><tr class="leg" data-id="1"><td class="cnum">1</td><td class="cname">顶部栏 kid-topbar</td><td class="ccode">renderTopbar() · L860</td><td class="crole">整页头部：品牌 Logo、标题+昵称/等级、等级胶囊、日期、以及导出/导入/家长/设置四个操作入口。修改 L864-876 的 innerHTML 与点击事件。</td></tr><tr class="leg" data-id="2"><td class="cnum">2</td><td class="cname">「今天要处理」置顶区 kid-today</td><td class="ccode">renderToday() · L890</td><td class="crole">页面置顶展示当天任务、完成进度环、逾期标红、一键「去完成」、累计完成后的备份提醒。L922-936 控制结构与文案。</td></tr><tr class="leg" data-id="3"><td class="cnum">3</td><td class="cname">Tab 切换栏 kid-tabs</td><td class="ccode">renderTabs() · L955</td><td class="crole">在「今日挑战 / 学习计划 / 成长奖励」三个主视图间切换；点击改变 activeTab 后整体重渲染。L958-963 定义三 tab。</td></tr><tr class="leg" data-id="4"><td class="cnum">4</td><td class="cname">今日任务区标题 kid-sec-head</td><td class="ccode">renderTodayTab() · L973</td><td class="crole">显示「⚔️ 今日任务(已完成/总数)」与验收说明副标题。L977-979。</td></tr><tr class="leg" data-id="5"><td class="cnum">5</td><td class="cname">任务卡 kid-task</td><td class="ccode">renderTaskCard() · L1011</td><td class="crole">单条任务卡片整体（含头部/目标/奖励/操作/提示/底部六块，见细节屏）。状态类：done/started/carry 对应不同边框色。L1013-1062。</td></tr><tr class="leg" data-id="6"><td class="cnum">6</td><td class="cname">添加自定义任务按钮 kid-addtask</td><td class="ccode">renderTodayTab() · L990</td><td class="crole">点击打开「添加任务」弹窗(openTaskModal)。L990-994。</td></tr><tr class="leg" data-id="7"><td class="cnum">7</td><td class="cname">今日已挑战汇总区 doneSec</td><td class="ccode">renderTodayTab() · L998</td><td class="crole">已完成任务的汇总区，展示奖励与（家长模式下）撤销按钮。L997-1007。</td></tr><tr class="leg" data-id="8"><td class="cnum">8</td><td class="cname">计划工具条 kid-plan-tools</td><td class="ccode">renderPlanTab() · L1188</td><td class="crole">「套用均衡模板 / 清空计划 / 计划生成今日任务」开关。L1188-1208。</td></tr><tr class="leg" data-id="9"><td class="cnum">9</td><td class="cname">周计划网格 kid-plan-days</td><td class="ccode">renderPlanTab() · L1212</td><td class="crole">周一到周日七列，每日含完成计数、计划项列表、删除(✕)、当日加「＋添加」。今天列高亮。L1215-1230。</td></tr><tr class="leg" data-id="10"><td class="cnum">10</td><td class="cname">计划奖励提示横幅</td><td class="ccode">renderPlanTab() · L1233</td><td class="crole">底部奖励规则说明横幅(kid-today-banner 复用样式)。L1233-1237。</td></tr><tr class="leg" data-id="11"><td class="cnum">11</td><td class="cname">钱包四宫格 kid-wallet</td><td class="ccode">renderRewardTab() · L1301</td><td class="crole">金币 / 钻石 / 皇冠 / 奖章 四项余额卡片。L1303-1308。</td></tr><tr class="leg" data-id="12"><td class="cnum">12</td><td class="cname">等级称号卡(左) kid-card</td><td class="ccode">renderRewardTab() · L1314</td><td class="crole">数字人舞台 + 等级称号 + 经验进度条 + 连胜/累计信息。L1314-1330。</td></tr><tr class="leg" data-id="13"><td class="cnum">13</td><td class="cname">我的头像墙(右) kid-card</td><td class="ccode">renderRewardTab() · L1331</td><td class="crole">8 个头像，按等级解锁(Lv.5/8 解锁 a7/a8)，点击切换当前头像。L1333-1341。</td></tr><tr class="leg" data-id="14"><td class="cnum">14</td><td class="cname">道具商城 kid-card</td><td class="ccode">renderRewardTab() · L1347</td><td class="crole">金币/钻石道具列表，含「管理道具(家长) / 兑换记录」按钮与「兑换」操作。L1349-1379。</td></tr><tr class="leg" data-id="15"><td class="cnum">15</td><td class="cname">奖章墙 kid-card</td><td class="ccode">renderRewardTab() · L1382</td><td class="crole">里程碑奖章网格，已获得高亮、未解锁灰度。L1384-1399。</td></tr><tr class="leg" data-id="16"><td class="cnum">16</td><td class="cname">奖励规则说明</td><td class="ccode">renderRewardTab() · L1402</td><td class="crole">成长奖励页底部全局奖励规则横幅。L1402-1406。</td></tr><tr class="leg" data-id="17"><td class="cnum">17</td><td class="cname">星级验收弹窗 kid-modal</td><td class="ccode">openStarModal() · L1066</td><td class="crole">任务完成后家长打 1~3 星并预览/领取奖励；确认后撒花(confetti)并重渲染。L1076-1116。</td></tr><tr class="leg" data-id="18"><td class="cnum">18</td><td class="cname">添加任务弹窗 kid-modal</td><td class="ccode">openTaskModal() · L1145</td><td class="crole">选择任务类型/名称/目标数量，写入今日任务。L1150-1179。</td></tr><tr class="leg" data-id="19"><td class="cnum">19</td><td class="cname">添加计划项弹窗</td><td class="ccode">openPlanItemModal() · L1254</td><td class="crole">给某一天添加计划项(分类/名称/目标)，用于生成每日任务。</td></tr><tr class="leg" data-id="20"><td class="cnum">20</td><td class="cname">兑换记录弹窗</td><td class="ccode">openClaimLog() · L1441</td><td class="crole">展示已兑换道具历史列表。L1446-1455。</td></tr><tr class="leg" data-id="21"><td class="cnum">21</td><td class="cname">管理道具弹窗(家长)</td><td class="ccode">openShopManageModal() · L1459</td><td class="crole">家长增删商城道具(名称/价格/金币或钻石)。L1466-1514。</td></tr><tr class="leg" data-id="22"><td class="cnum">22</td><td class="cname">家长密码键盘 kid-pwd-pad</td><td class="ccode">openPwdModal() · L1543</td><td class="crole">4 位数字密码输入键盘 + 圆点指示，用于进入/退出家长模式与修改密码。L1550-1573。</td></tr><tr class="leg" data-id="23"><td class="cnum">23</td><td class="cname">设置抽屉 kid-drawer</td><td class="ccode">openSettings() · L1577</td><td class="crole">右侧抽屉：昵称/主题模式/奖励倍数/家长模式/修改密码/清空示例/清空全部数据。L1586-1661。</td></tr><tr class="leg" data-id="A"><td class="cnum">A</td><td class="cname">任务头部 k-task-head</td><td class="ccode">renderTaskCard() · L1038</td><td class="crole">图标(k-task-ico) + 标题/分类(k-task-titles) + 状态徽章(k-task-badges)。</td></tr><tr class="leg" data-id="B"><td class="cnum">B</td><td class="cname">目标芯片 k-task-target</td><td class="ccode">renderTaskCard() · L1046</td><td class="crole">展示「目标: <数量 单位>」与完成时间。</td></tr><tr class="leg" data-id="C"><td class="cnum">C</td><td class="cname">奖励信息 k-task-reward</td><td class="ccode">renderTaskCard() · L1047</td><td class="crole">完成后显示金币/经验/星级奖励芯片。</td></tr><tr class="leg" data-id="D"><td class="cnum">D</td><td class="cname">操作按钮 k-task-actions</td><td class="ccode">renderTaskCard() · L1048</td><td class="crole">开启挑战 / 挑战成功 / 重来 / 移除(家长) / 撤销(家长)。</td></tr><tr class="leg" data-id="E"><td class="cnum">E</td><td class="cname">提示语 k-task-tips</td><td class="ccode">renderTaskCard() · L1049</td><td class="crole">按分类随机展示一句鼓励/方法提示。</td></tr><tr class="leg" data-id="F"><td class="cnum">F</td><td class="cname">底部说明 k-task-foot</td><td class="ccode">renderTaskCard() · L1050</td><td class="crole">顺延/挑战中/待开始等状态说明文字。</td></tr><tr class="leg" data-id="G"><td class="cnum">G</td><td class="cname">数字人舞台 kid-hero-box</td><td class="ccode">renderRewardTab() · L1317</td><td class="crole">手绘 SVG 数字人，随等级换装进化(帽子/眼镜披风/皇冠/星光/光环/钻石王冠)。</td></tr><tr class="leg" data-id="H"><td class="cnum">H</td><td class="cname">等级信息 kid-level-info</td><td class="ccode">renderRewardTab() · L1318</td><td class="crole">等级称号 + 标签 + 描述 + 经验进度条 + 晋级提示。</td></tr><tr class="leg" data-id="I"><td class="cnum">I</td><td class="cname">头像项 kid-avatar-item</td><td class="ccode">renderRewardTab() · L1338</td><td class="crole">单个头像(手绘 SVG)，选中(on)/锁定(locked)状态，点选切换。</td></tr><tr class="leg" data-id="J"><td class="cnum">J</td><td class="cname">商城项 kid-shop-item</td><td class="ccode">renderRewardTab() · L1359</td><td class="crole">单个道具：图标/名称/说明/价格/兑换按钮。</td></tr><tr class="leg" data-id="K"><td class="cnum">K</td><td class="cname">奖章格 kid-medal</td><td class="ccode">renderRewardTab() · L1390</td><td class="crole">单个奖章：图标/名称/描述/获得状态。</td></tr><tr class="leg" data-id="L"><td class="cnum">L</td><td class="cname">钱包卡片 kid-wallet-card</td><td class="ccode">renderRewardTab() · L1304</td><td class="crole">单个余额卡片：圆形图标 + 数值 + 名称。</td></tr></tbody></table>
+    <div id="legend-top" class="panel" style="padding:12px">
+      <h2 style="margin:0 0 8px;font-size:15px">📑 组件总表（层级）</h2>
+      <table class="legend"><thead><tr><th>编号</th><th>组件</th><th>代码位置</th><th>作用</th></tr></thead><tbody><tr class="clevel0" data-id="1"><td class="cnum">1</td><td class="cname">顶栏 kid-topbar</td><td class="ccode">renderTopbar() · L860</td><td class="crole">顶部品牌区 + 等级胶囊 + 日期 + 操作按钮入口</td></tr><tr class="clevel1" data-id="1.1"><td class="cnum">1.1</td><td class="cname">&nbsp;&nbsp;&nbsp;品牌区 kid-brand</td><td class="ccode">L865</td><td class="crole">Logo 与标题容器</td></tr><tr class="clevel2" data-id="1.1.1"><td class="cnum">1.1.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Logo kid-logo</td><td class="ccode">L866</td><td class="crole">星形 Logo 图标</td></tr><tr class="clevel2" data-id="1.1.2"><td class="cnum">1.1.2</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;标题文本 kid-title</td><td class="ccode">L867</td><td class="crole">「得乐学苑」+ 昵称/等级副标题</td></tr><tr class="clevel1" data-id="1.2"><td class="cnum">1.2</td><td class="cname">&nbsp;&nbsp;&nbsp;等级胶囊 kid-lv-pill</td><td class="ccode">L869</td><td class="crole">★ Lv.N 当前等级徽章(背景随等级变色)</td></tr><tr class="clevel1" data-id="1.3"><td class="cnum">1.3</td><td class="cname">&nbsp;&nbsp;&nbsp;日期标签 kid-date</td><td class="ccode">L870</td><td class="crole">今日日期 📅</td></tr><tr class="clevel1" data-id="1.4"><td class="cnum">1.4</td><td class="cname">&nbsp;&nbsp;&nbsp;操作区 kid-top-actions</td><td class="ccode">L871</td><td class="crole">导出/导入/家长/设置 按钮组</td></tr><tr class="clevel2" data-id="1.4.1"><td class="cnum">1.4.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;导出按钮</td><td class="ccode">L872</td><td class="crole">导出 JSON 备份(data-act=export)</td></tr><tr class="clevel2" data-id="1.4.2"><td class="cnum">1.4.2</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;导入按钮</td><td class="ccode">L873</td><td class="crole">从 JSON 恢复(data-act=import)</td></tr><tr class="clevel2" data-id="1.4.3"><td class="cnum">1.4.3</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;家长按钮</td><td class="ccode">L874</td><td class="crole">进入/退出家长模式(data-act=parent)</td></tr><tr class="clevel2" data-id="1.4.4"><td class="cnum">1.4.4</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;设置按钮</td><td class="ccode">L875</td><td class="crole">打开设置抽屉(data-act=settings)</td></tr><tr class="clevel0" data-id="2"><td class="cnum">2</td><td class="cname">今天要处理 kid-today</td><td class="ccode">renderToday() · L890</td><td class="crole">置顶区:逾期/今日任务列表 + 完成率</td></tr><tr class="clevel1" data-id="2.1"><td class="cnum">2.1</td><td class="cname">&nbsp;&nbsp;&nbsp;头部 kid-today-head</td><td class="ccode">L922</td><td class="crole">标题 + 完成率进度环 + 去完成</td></tr><tr class="clevel2" data-id="2.1.1"><td class="cnum">2.1.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;标题 kid-today-title</td><td class="ccode">L923</td><td class="crole">「🎯 今天要处理」</td></tr><tr class="clevel2" data-id="2.1.2"><td class="cnum">2.1.2</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;副标题 kid-today-sub</td><td class="ccode">L924</td><td class="crole">完成计数 / 连续打卡天数</td></tr><tr class="clevel2" data-id="2.1.3"><td class="cnum">2.1.3</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;完成率进度环 kid-progress</td><td class="ccode">L925</td><td class="crole">SVG 圆环显示今日完成百分比</td></tr><tr class="clevel2" data-id="2.1.4"><td class="cnum">2.1.4</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;去完成按钮(挑战)</td><td class="ccode">L933</td><td class="crole">跳转今日挑战(lv<12 才显示)</td></tr><tr class="clevel1" data-id="2.2"><td class="cnum">2.2</td><td class="cname">&nbsp;&nbsp;&nbsp;列表 kid-today-list</td><td class="ccode">L935</td><td class="crole">今日任务项容器</td></tr><tr class="clevel2" data-id="2.2.1"><td class="cnum">2.2.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;任务项 kid-today-item</td><td class="ccode">L907</td><td class="crole">单条(图标/标题/逾期标/去完成);以逾期条为例</td></tr><tr class="clevel3" data-id="2.2.1.1"><td class="cnum">2.2.1.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;图标 k-ti-ico</td><td class="ccode">L908</td><td class="crole">分类色块图标</td></tr><tr class="clevel3" data-id="2.2.1.2"><td class="cnum">2.2.1.2</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;标题 k-ti-title</td><td class="ccode">L910</td><td class="crole">任务标题(逾期加 ⚠)</td></tr><tr class="clevel3" data-id="2.2.1.3"><td class="cnum">2.2.1.3</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;副标题 k-ti-sub</td><td class="ccode">L911</td><td class="crole">分类 · 目标</td></tr><tr class="clevel3" data-id="2.2.1.4"><td class="cnum">2.2.1.4</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;逾期标签 k-ti-tag</td><td class="ccode">L913</td><td class="crole">「逾期 N 天」(逾期时显示)</td></tr><tr class="clevel3" data-id="2.2.1.5"><td class="cnum">2.2.1.5</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;去完成按钮</td><td class="ccode">L914</td><td class="crole">跳转并滚动到对应任务卡</td></tr><tr class="clevel1" data-id="2.3"><td class="cnum">2.3</td><td class="cname">&nbsp;&nbsp;&nbsp;备份提示 banner</td><td class="ccode">L936</td><td class="crole">累计≥30 提示导出备份</td></tr><tr class="clevel0" data-id="3"><td class="cnum">3</td><td class="cname">Tab 栏 kid-tabs</td><td class="ccode">renderTabs() · L955</td><td class="crole">三 Tab 切换:今日挑战/学习计划/成长奖励</td></tr><tr class="clevel1" data-id="3.1"><td class="cnum">3.1</td><td class="cname">&nbsp;&nbsp;&nbsp;今日挑战 Tab</td><td class="ccode">L963</td><td class="crole">🚀 今日挑战(data-tab=today)</td></tr><tr class="clevel1" data-id="3.2"><td class="cnum">3.2</td><td class="cname">&nbsp;&nbsp;&nbsp;学习计划 Tab</td><td class="ccode">L963</td><td class="crole">🗓️ 学习计划(data-tab=plan)</td></tr><tr class="clevel1" data-id="3.3"><td class="cnum">3.3</td><td class="cname">&nbsp;&nbsp;&nbsp;成长奖励 Tab</td><td class="ccode">L963</td><td class="crole">👑 成长奖励(data-tab=reward)</td></tr><tr class="clevel0" data-id="4"><td class="cnum">4</td><td class="cname">区标题 kid-sec-head</td><td class="ccode">renderTodayTab() · L977</td><td class="crole">「⚔️ 今日任务(n/n)」区标题</td></tr><tr class="clevel1" data-id="4.1"><td class="cnum">4.1</td><td class="cname">&nbsp;&nbsp;&nbsp;区标题文本</td><td class="ccode">L978</td><td class="crole">标题 + 副标题(验收说明)</td></tr><tr class="clevel0" data-id="5"><td class="cnum">5</td><td class="cname">任务卡 kid-task</td><td class="ccode">renderTaskCard() · L1011</td><td class="crole">单项任务卡片(以未开始态为例)</td></tr><tr class="clevel1" data-id="5.1"><td class="cnum">5.1</td><td class="cname">&nbsp;&nbsp;&nbsp;头部 k-task-head</td><td class="ccode">L1038</td><td class="crole">图标 + 标题 + 状态徽章</td></tr><tr class="clevel2" data-id="5.1.1"><td class="cnum">5.1.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;图标 k-task-ico</td><td class="ccode">L1039</td><td class="crole">分类图标</td></tr><tr class="clevel2" data-id="5.1.2"><td class="cnum">5.1.2</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;标题区 k-task-titles</td><td class="ccode">L1040</td><td class="crole">名称 + 分类</td></tr><tr class="clevel3" data-id="5.1.2.1"><td class="cnum">5.1.2.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;名称 k-task-name</td><td class="ccode">L1041</td><td class="crole">任务名称</td></tr><tr class="clevel3" data-id="5.1.2.2"><td class="cnum">5.1.2.2</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;分类 k-task-cat</td><td class="ccode">L1042</td><td class="crole">分类名</td></tr><tr class="clevel2" data-id="5.1.3"><td class="cnum">5.1.3</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;徽章区 k-task-badges</td><td class="ccode">L1044</td><td class="crole">状态徽章(已完成/逾期/挑战中)</td></tr><tr class="clevel1" data-id="5.2"><td class="cnum">5.2</td><td class="cname">&nbsp;&nbsp;&nbsp;目标行 k-task-target</td><td class="ccode">L1046</td><td class="crole">目标数量 + 单位 chip</td></tr><tr class="clevel2" data-id="5.2.1"><td class="cnum">5.2.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;目标 chip k-unit-chip</td><td class="ccode">L1046</td><td class="crole">「目标 单位」胶囊</td></tr><tr class="clevel1" data-id="5.3"><td class="cnum">5.3</td><td class="cname">&nbsp;&nbsp;&nbsp;操作区 k-task-actions</td><td class="ccode">L1048</td><td class="crole">开启挑战 / 移除 按钮(未开始态)</td></tr><tr class="clevel2" data-id="5.3.1"><td class="cnum">5.3.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;开启挑战按钮</td><td class="ccode">L1031</td><td class="crole">图片按钮(未开始态,居中)</td></tr><tr class="clevel2" data-id="5.3.2"><td class="cnum">5.3.2</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;移除按钮</td><td class="ccode">L1031</td><td class="crole">删除任务(仅家长模式显示)</td></tr><tr class="clevel1" data-id="5.4"><td class="cnum">5.4</td><td class="cname">&nbsp;&nbsp;&nbsp;提示 k-task-tips</td><td class="ccode">L1049</td><td class="crole">分类小贴士</td></tr><tr class="clevel1" data-id="5.5"><td class="cnum">5.5</td><td class="cname">&nbsp;&nbsp;&nbsp;底部 k-task-foot</td><td class="ccode">L1050</td><td class="crole">引导文案</td></tr><tr class="clevel0" data-id="6"><td class="cnum">6</td><td class="cname">添加自定义任务按钮 kid-addtask</td><td class="ccode">renderTodayTab() · L990</td><td class="crole">＋ 添加自定义任务</td></tr><tr class="clevel0" data-id="7"><td class="cnum">7</td><td class="cname">今日已挑战汇总</td><td class="ccode">renderTodayTab() · L999</td><td class="crole">🏆 今日已挑战 区(已完成任务)</td></tr><tr class="clevel0" data-id="8"><td class="cnum">8</td><td class="cname">工具条 kid-plan-tools</td><td class="ccode">renderPlanTab() · L1186</td><td class="crole">套用模板 / 清空 / 计划开关</td></tr><tr class="clevel1" data-id="8.1"><td class="cnum">8.1</td><td class="cname">&nbsp;&nbsp;&nbsp;套用模板按钮</td><td class="ccode">L1189</td><td class="crole">套用四科均衡模板(data-plan=template)</td></tr><tr class="clevel1" data-id="8.2"><td class="cnum">8.2</td><td class="cname">&nbsp;&nbsp;&nbsp;清空计划按钮</td><td class="ccode">L1190</td><td class="crole">清空每周计划(data-plan=clear)</td></tr><tr class="clevel1" data-id="8.3"><td class="cnum">8.3</td><td class="cname">&nbsp;&nbsp;&nbsp;计划开关标签 kid-plan-enable</td><td class="ccode">L1191</td><td class="crole">计划生成今日任务 开关</td></tr><tr class="clevel2" data-id="8.3.1"><td class="cnum">8.3.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;开关 kid-switch</td><td class="ccode">L1193</td><td class="crole">开/关切换(data-plan=toggle)</td></tr><tr class="clevel0" data-id="9"><td class="cnum">9</td><td class="cname">周计划网格 kid-plan-days</td><td class="ccode">renderPlanTab() · L1212</td><td class="crole">周一~周日 7 列计划</td></tr><tr class="clevel1" data-id="9.1"><td class="cnum">9.1</td><td class="cname">&nbsp;&nbsp;&nbsp;今日列 kid-plan-day.today</td><td class="ccode">L1217</td><td class="crole">以今天列为例(高亮 today)</td></tr><tr class="clevel2" data-id="9.1.1"><td class="cnum">9.1.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;列头 kid-plan-day-head</td><td class="ccode">L1223</td><td class="crole">星期名 + 完成计数</td></tr><tr class="clevel2" data-id="9.1.2"><td class="cnum">9.1.2</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;计划项 kid-plan-item</td><td class="ccode">L1227</td><td class="crole">单条(圆点/文本/删除)</td></tr><tr class="clevel3" data-id="9.1.2.1"><td class="cnum">9.1.2.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;圆点 k-pi-dot</td><td class="ccode">L1227</td><td class="crole">分类色点</td></tr><tr class="clevel3" data-id="9.1.2.2"><td class="cnum">9.1.2.2</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;文本 k-pi-text</td><td class="ccode">L1227</td><td class="crole">任务 · 目标</td></tr><tr class="clevel3" data-id="9.1.2.3"><td class="cnum">9.1.2.3</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;删除按钮 k-pi-x</td><td class="ccode">L1227</td><td class="crole">删除计划项(data-del)</td></tr><tr class="clevel2" data-id="9.1.3"><td class="cnum">9.1.3</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;添加按钮</td><td class="ccode">L1228</td><td class="crole">＋ 添加计划项(data-add)</td></tr><tr class="clevel0" data-id="10"><td class="cnum">10</td><td class="cname">计划规则提示</td><td class="ccode">renderPlanTab() · L1233</td><td class="crole">奖励规则说明 banner</td></tr><tr class="clevel0" data-id="11"><td class="cnum">11</td><td class="cname">钱包 kid-wallet</td><td class="ccode">renderRewardTab() · L1301</td><td class="crole">金币/钻石/皇冠/奖章 四卡</td></tr><tr class="clevel1" data-id="11.1"><td class="cnum">11.1</td><td class="cname">&nbsp;&nbsp;&nbsp;金币卡 kid-wallet-card</td><td class="ccode">L1304</td><td class="crole">金币数量</td></tr><tr class="clevel1" data-id="11.2"><td class="cnum">11.2</td><td class="cname">&nbsp;&nbsp;&nbsp;钻石卡 kid-wallet-card</td><td class="ccode">L1305</td><td class="crole">钻石数量</td></tr><tr class="clevel1" data-id="11.3"><td class="cnum">11.3</td><td class="cname">&nbsp;&nbsp;&nbsp;皇冠卡 kid-wallet-card</td><td class="ccode">L1306</td><td class="crole">皇冠数量</td></tr><tr class="clevel1" data-id="11.4"><td class="cnum">11.4</td><td class="cname">&nbsp;&nbsp;&nbsp;奖章卡 kid-wallet-card</td><td class="ccode">L1307</td><td class="crole">奖章 x/y</td></tr><tr class="clevel0" data-id="12"><td class="cnum">12</td><td class="cname">等级+数字人卡 kid-card</td><td class="ccode">renderRewardTab() · L1311</td><td class="crole">等级称号 + 手绘数字人</td></tr><tr class="clevel1" data-id="12.1"><td class="cnum">12.1</td><td class="cname">&nbsp;&nbsp;&nbsp;标题</td><td class="ccode">L1315</td><td class="crole">🏅 等级称号</td></tr><tr class="clevel1" data-id="12.2"><td class="cnum">12.2</td><td class="cname">&nbsp;&nbsp;&nbsp;等级行 kid-level-row</td><td class="ccode">L1316</td><td class="crole">数字人 + 等级信息</td></tr><tr class="clevel2" data-id="12.2.1"><td class="cnum">12.2.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;数字人 kid-hero-box</td><td class="ccode">L1317</td><td class="crole">手绘 SVG,随等级换装进化</td></tr><tr class="clevel2" data-id="12.2.2"><td class="cnum">12.2.2</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;等级信息 kid-level-info</td><td class="ccode">L1318</td><td class="crole">称号/描述/经验进度</td></tr><tr class="clevel3" data-id="12.2.2.1"><td class="cnum">12.2.2.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;等级标题 kid-lv-title</td><td class="ccode">L1319</td><td class="crole">称号 + Lv.N 标签</td></tr><tr class="clevel3" data-id="12.2.2.2"><td class="cnum">12.2.2.2</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;等级描述 kid-lv-desc</td><td class="ccode">L1320</td><td class="crole">等级描述文案</td></tr><tr class="clevel3" data-id="12.2.2.3"><td class="cnum">12.2.2.3</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;经验进度条 kid-ring-row</td><td class="ccode">L1321</td><td class="crole">经验进度</td></tr><tr class="clevel4" data-id="12.2.2.3.1"><td class="cnum">12.2.2.3.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;标签 kid-ring-label</td><td class="ccode">L1322</td><td class="crole">「经验」</td></tr><tr class="clevel4" data-id="12.2.2.3.2"><td class="cnum">12.2.2.3.2</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;进度条 kid-ring-bar</td><td class="ccode">L1323</td><td class="crole">进度填充(width=%)</td></tr><tr class="clevel4" data-id="12.2.2.3.3"><td class="cnum">12.2.2.3.3</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;数值 kid-ring-val</td><td class="ccode">L1324</td><td class="crole">当前/下一级经验</td></tr><tr class="clevel1" data-id="12.3"><td class="cnum">12.3</td><td class="cname">&nbsp;&nbsp;&nbsp;连胜说明</td><td class="ccode">L1329</td><td class="crole">连续打卡 / 累计挑战</td></tr><tr class="clevel0" data-id="13"><td class="cnum">13</td><td class="cname">头像墙 kid-card</td><td class="ccode">renderRewardTab() · L1331</td><td class="crole">8 个头像,按等级解锁</td></tr><tr class="clevel1" data-id="13.1"><td class="cnum">13.1</td><td class="cname">&nbsp;&nbsp;&nbsp;标题</td><td class="ccode">L1332</td><td class="crole">😀 我的头像</td></tr><tr class="clevel1" data-id="13.2"><td class="cnum">13.2</td><td class="cname">&nbsp;&nbsp;&nbsp;头像网格 kid-avatars</td><td class="ccode">L1333</td><td class="crole">头像项容器</td></tr><tr class="clevel2" data-id="13.2.1"><td class="cnum">13.2.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;头像项 kid-avatar-item</td><td class="ccode">L1338</td><td class="crole">单个(以第 1 个为例)</td></tr><tr class="clevel1" data-id="13.3"><td class="cnum">13.3</td><td class="cname">&nbsp;&nbsp;&nbsp;说明文字</td><td class="ccode">L1342</td><td class="crole">进化说明</td></tr><tr class="clevel0" data-id="14"><td class="cnum">14</td><td class="cname">道具商城 kid-card</td><td class="ccode">renderRewardTab() · L1347</td><td class="crole">道具列表 + 管理/记录入口</td></tr><tr class="clevel1" data-id="14.1"><td class="cnum">14.1</td><td class="cname">&nbsp;&nbsp;&nbsp;标题+按钮 kid-card-title</td><td class="ccode">L1350</td><td class="crole">管理道具 / 兑换记录 按钮</td></tr><tr class="clevel2" data-id="14.1.1"><td class="cnum">14.1.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;管理道具按钮</td><td class="ccode">L1351</td><td class="crole">家长模式显示,打开管理弹窗</td></tr><tr class="clevel2" data-id="14.1.2"><td class="cnum">14.1.2</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;兑换记录按钮</td><td class="ccode">L1351</td><td class="crole">打开兑换记录弹窗</td></tr><tr class="clevel1" data-id="14.2"><td class="cnum">14.2</td><td class="cname">&nbsp;&nbsp;&nbsp;商城网格 kid-shop-grid</td><td class="ccode">L1353</td><td class="crole">道具项容器</td></tr><tr class="clevel2" data-id="14.2.1"><td class="cnum">14.2.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;商城项 kid-shop-item</td><td class="ccode">L1359</td><td class="crole">单个(以第 1 个为例)</td></tr><tr class="clevel3" data-id="14.2.1.1"><td class="cnum">14.2.1.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;头部 k-s-head</td><td class="ccode">L1361</td><td class="crole">图标 + 名称</td></tr><tr class="clevel3" data-id="14.2.1.2"><td class="cnum">14.2.1.2</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;名称 k-s-name</td><td class="ccode">L1362</td><td class="crole">道具名</td></tr><tr class="clevel3" data-id="14.2.1.3"><td class="cnum">14.2.1.3</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;说明 k-s-note</td><td class="ccode">L1363</td><td class="crole">道具说明</td></tr><tr class="clevel3" data-id="14.2.1.4"><td class="cnum">14.2.1.4</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;底部 k-s-foot</td><td class="ccode">L1364</td><td class="crole">价格 + 兑换按钮</td></tr><tr class="clevel4" data-id="14.2.1.4.1"><td class="cnum">14.2.1.4.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;价格 k-s-price</td><td class="ccode">L1365</td><td class="crole">金币/钻石价格</td></tr><tr class="clevel4" data-id="14.2.1.4.2"><td class="cnum">14.2.1.4.2</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;兑换按钮</td><td class="ccode">L1366</td><td class="crole">兑换(data-claim)</td></tr><tr class="clevel0" data-id="15"><td class="cnum">15</td><td class="cname">奖章墙 kid-card</td><td class="ccode">renderRewardTab() · L1382</td><td class="crole">11 枚成就奖章</td></tr><tr class="clevel1" data-id="15.1"><td class="cnum">15.1</td><td class="cname">&nbsp;&nbsp;&nbsp;标题</td><td class="ccode">L1384</td><td class="crole">🏅 奖章墙</td></tr><tr class="clevel1" data-id="15.2"><td class="cnum">15.2</td><td class="cname">&nbsp;&nbsp;&nbsp;奖章网格 kid-medal-grid</td><td class="ccode">L1386</td><td class="crole">奖章格容器</td></tr><tr class="clevel2" data-id="15.2.1"><td class="cnum">15.2.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;奖章格 kid-medal</td><td class="ccode">L1390</td><td class="crole">单个(以第 1 个为例)</td></tr><tr class="clevel0" data-id="16"><td class="cnum">16</td><td class="cname">奖励规则</td><td class="ccode">renderRewardTab() · L1402</td><td class="crole">奖励规则说明 banner</td></tr><tr class="clevel0" data-id="17"><td class="cnum">17</td><td class="cname">星级验收弹窗 kid-overlay</td><td class="ccode">openStarModal() · L1066</td><td class="crole">挑战成功 → 家长打星领取</td></tr><tr class="clevel1" data-id="17.1"><td class="cnum">17.1</td><td class="cname">&nbsp;&nbsp;&nbsp;弹窗头 kid-modal-head</td><td class="ccode">L1077</td><td class="crole">标题 + 关闭</td></tr><tr class="clevel2" data-id="17.1.1"><td class="cnum">17.1.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;标题</td><td class="ccode">L1078</td><td class="crole">🎉 挑战成功!</td></tr><tr class="clevel2" data-id="17.1.2"><td class="cnum">17.1.2</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;关闭按钮 kid-modal-x</td><td class="ccode">L1079</td><td class="crole">✕ 关闭(data-close)</td></tr><tr class="clevel1" data-id="17.2"><td class="cnum">17.2</td><td class="cname">&nbsp;&nbsp;&nbsp;任务信息条</td><td class="ccode">L1081</td><td class="crole">图标 + 任务名 + 目标</td></tr><tr class="clevel2" data-id="17.2.1"><td class="cnum">17.2.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;图标 k-task-ico</td><td class="ccode">L1082</td><td class="crole">分类图标</td></tr><tr class="clevel2" data-id="17.2.2"><td class="cnum">17.2.2</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;标题文本</td><td class="ccode">L1083</td><td class="crole">任务名 + 分类·目标</td></tr><tr class="clevel1" data-id="17.3"><td class="cnum">17.3</td><td class="cname">&nbsp;&nbsp;&nbsp;验收提示 kid-label</td><td class="ccode">L1085</td><td class="crole">请家长验收打星</td></tr><tr class="clevel1" data-id="17.4"><td class="cnum">17.4</td><td class="cname">&nbsp;&nbsp;&nbsp;星级选择 kid-stars-pick</td><td class="ccode">L1086</td><td class="crole">1/2/3 星按钮组</td></tr><tr class="clevel2" data-id="17.4.1"><td class="cnum">17.4.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;星按钮 kid-star-btn</td><td class="ccode">L1087</td><td class="crole">第 1 星(data-star=1)</td></tr><tr class="clevel2" data-id="17.4.2"><td class="cnum">17.4.2</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;星按钮 kid-star-btn</td><td class="ccode">L1087</td><td class="crole">第 2 星(data-star=2)</td></tr><tr class="clevel2" data-id="17.4.3"><td class="cnum">17.4.3</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;星按钮 kid-star-btn</td><td class="ccode">L1087</td><td class="crole">第 3 星(data-star=3)</td></tr><tr class="clevel1" data-id="17.5"><td class="cnum">17.5</td><td class="cname">&nbsp;&nbsp;&nbsp;奖励预览 kid-star-preview</td><td class="ccode">L1089</td><td class="crole">金币/经验预览</td></tr><tr class="clevel1" data-id="17.6"><td class="cnum">17.6</td><td class="cname">&nbsp;&nbsp;&nbsp;操作区 kid-modal-actions</td><td class="ccode">L1090</td><td class="crole">稍后 / 确认领取</td></tr><tr class="clevel2" data-id="17.6.1"><td class="cnum">17.6.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;稍后按钮</td><td class="ccode">L1091</td><td class="crole">稍后(data-close)</td></tr><tr class="clevel2" data-id="17.6.2"><td class="cnum">17.6.2</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;确认领取按钮</td><td class="ccode">L1092</td><td class="crole">确认领取 🎁(data-confirm)</td></tr><tr class="clevel0" data-id="18"><td class="cnum">18</td><td class="cname">添加任务弹窗 kid-overlay</td><td class="ccode">openTaskModal() · L1145</td><td class="crole">添加今日自定义任务</td></tr><tr class="clevel1" data-id="18.1"><td class="cnum">18.1</td><td class="cname">&nbsp;&nbsp;&nbsp;弹窗头</td><td class="ccode">L1151</td><td class="crole">标题 + 关闭</td></tr><tr class="clevel1" data-id="18.2"><td class="cnum">18.2</td><td class="cname">&nbsp;&nbsp;&nbsp;类型选择区 data-cats</td><td class="ccode">L1153</td><td class="crole">4 分类按钮组</td></tr><tr class="clevel2" data-id="18.2.1"><td class="cnum">18.2.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;类型按钮 kid-btn</td><td class="ccode">L1154</td><td class="crole">分类(以第 1 个为例,data-cat)</td></tr><tr class="clevel1" data-id="18.3"><td class="cnum">18.3</td><td class="cname">&nbsp;&nbsp;&nbsp;名称输入 kid-field</td><td class="ccode">L1156</td><td class="crole">任务名称 input</td></tr><tr class="clevel1" data-id="18.4"><td class="cnum">18.4</td><td class="cname">&nbsp;&nbsp;&nbsp;目标数量输入 kid-field</td><td class="ccode">L1157</td><td class="crole">目标数量 number</td></tr><tr class="clevel1" data-id="18.5"><td class="cnum">18.5</td><td class="cname">&nbsp;&nbsp;&nbsp;操作区</td><td class="ccode">L1158</td><td class="crole">取消 / 添加任务</td></tr><tr class="clevel2" data-id="18.5.1"><td class="cnum">18.5.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;取消按钮</td><td class="ccode">L1158</td><td class="crole">取消(data-close)</td></tr><tr class="clevel2" data-id="18.5.2"><td class="cnum">18.5.2</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;添加任务按钮</td><td class="ccode">L1158</td><td class="crole">添加任务(data-save)</td></tr><tr class="clevel0" data-id="19"><td class="cnum">19</td><td class="cname">添加计划项弹窗 kid-overlay</td><td class="ccode">openPlanItemModal() · L1254</td><td class="crole">周计划加项(结构同 18)</td></tr><tr class="clevel1" data-id="19.1"><td class="cnum">19.1</td><td class="cname">&nbsp;&nbsp;&nbsp;弹窗头</td><td class="ccode">L1261</td><td class="crole">标题 + 关闭</td></tr><tr class="clevel1" data-id="19.2"><td class="cnum">19.2</td><td class="cname">&nbsp;&nbsp;&nbsp;类型选择区</td><td class="ccode">L1263</td><td class="crole">4 分类按钮组</td></tr><tr class="clevel2" data-id="19.2.1"><td class="cnum">19.2.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;类型按钮 kid-btn</td><td class="ccode">L1264</td><td class="crole">分类(以第 1 个为例)</td></tr><tr class="clevel1" data-id="19.3"><td class="cnum">19.3</td><td class="cname">&nbsp;&nbsp;&nbsp;名称输入</td><td class="ccode">L1266</td><td class="crole">任务名称</td></tr><tr class="clevel1" data-id="19.4"><td class="cnum">19.4</td><td class="cname">&nbsp;&nbsp;&nbsp;目标数量输入</td><td class="ccode">L1267</td><td class="crole">目标数量</td></tr><tr class="clevel1" data-id="19.5"><td class="cnum">19.5</td><td class="cname">&nbsp;&nbsp;&nbsp;操作区</td><td class="ccode">L1268</td><td class="crole">取消 / 加入计划</td></tr><tr class="clevel2" data-id="19.5.1"><td class="cnum">19.5.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;取消按钮</td><td class="ccode">L1268</td><td class="crole">取消</td></tr><tr class="clevel2" data-id="19.5.2"><td class="cnum">19.5.2</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;加入计划按钮</td><td class="ccode">L1268</td><td class="crole">加入计划(data-save)</td></tr><tr class="clevel0" data-id="20"><td class="cnum">20</td><td class="cname">兑换记录弹窗 kid-overlay</td><td class="ccode">openClaimLog() · L1441</td><td class="crole">兑换历史列表</td></tr><tr class="clevel1" data-id="20.1"><td class="cnum">20.1</td><td class="cname">&nbsp;&nbsp;&nbsp;弹窗头</td><td class="ccode">L1447</td><td class="crole">标题 + 关闭</td></tr><tr class="clevel1" data-id="20.2"><td class="cnum">20.2</td><td class="cname">&nbsp;&nbsp;&nbsp;记录列表</td><td class="ccode">L1448</td><td class="crole">记录行容器</td></tr><tr class="clevel2" data-id="20.2.1"><td class="cnum">20.2.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;记录行</td><td class="ccode">L1449</td><td class="crole">单条(图标/名称/时间/价格)</td></tr><tr class="clevel0" data-id="21"><td class="cnum">21</td><td class="cname">管理道具弹窗 kid-overlay</td><td class="ccode">openShopManageModal() · L1459</td><td class="crole">家长管理道具</td></tr><tr class="clevel1" data-id="21.1"><td class="cnum">21.1</td><td class="cname">&nbsp;&nbsp;&nbsp;弹窗头</td><td class="ccode">L1467</td><td class="crole">标题 + 关闭</td></tr><tr class="clevel1" data-id="21.2"><td class="cnum">21.2</td><td class="cname">&nbsp;&nbsp;&nbsp;新增输入区</td><td class="ccode">L1468</td><td class="crole">名称/价格/金币/钻石</td></tr><tr class="clevel2" data-id="21.2.1"><td class="cnum">21.2.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;名称输入</td><td class="ccode">L1469</td><td class="crole">道具名称</td></tr><tr class="clevel2" data-id="21.2.2"><td class="cnum">21.2.2</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;价格输入</td><td class="ccode">L1470</td><td class="crole">价格 number</td></tr><tr class="clevel2" data-id="21.2.3"><td class="cnum">21.2.3</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;金币按钮</td><td class="ccode">L1471</td><td class="crole">金币道具(data-new-cur=coin)</td></tr><tr class="clevel2" data-id="21.2.4"><td class="cnum">21.2.4</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;钻石按钮</td><td class="ccode">L1472</td><td class="crole">钻石道具(data-new-cur=diamond)</td></tr><tr class="clevel1" data-id="21.3"><td class="cnum">21.3</td><td class="cname">&nbsp;&nbsp;&nbsp;道具列表</td><td class="ccode">L1474</td><td class="crole">道具行容器</td></tr><tr class="clevel2" data-id="21.3.1"><td class="cnum">21.3.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;道具行</td><td class="ccode">L1477</td><td class="crole">单条(图标/名称/价格/删除)</td></tr><tr class="clevel0" data-id="22"><td class="cnum">22</td><td class="cname">家长密码弹窗 kid-overlay</td><td class="ccode">openPwdModal() · L1543</td><td class="crole">4 位数字密码键盘</td></tr><tr class="clevel1" data-id="22.1"><td class="cnum">22.1</td><td class="cname">&nbsp;&nbsp;&nbsp;弹窗头</td><td class="ccode">L1551</td><td class="crole">标题 + 关闭</td></tr><tr class="clevel1" data-id="22.2"><td class="cnum">22.2</td><td class="cname">&nbsp;&nbsp;&nbsp;密码点 kid-pwd-dots</td><td class="ccode">L1552</td><td class="crole">4 个密码点</td></tr><tr class="clevel1" data-id="22.3"><td class="cnum">22.3</td><td class="cname">&nbsp;&nbsp;&nbsp;键盘 kid-pwd-pad</td><td class="ccode">L1553</td><td class="crole">0-9 / 清空 / ⌫</td></tr><tr class="clevel2" data-id="22.3.1"><td class="cnum">22.3.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;按键 kid-pwd-key</td><td class="ccode">L1554</td><td class="crole">单键(以 1 为例,data-key)</td></tr><tr class="clevel0" data-id="23"><td class="cnum">23</td><td class="cname">设置抽屉 kid-drawer</td><td class="ccode">openSettings() · L1577</td><td class="crole">设置:昵称/主题/倍数/家长/密码/清空</td></tr><tr class="clevel1" data-id="23.1"><td class="cnum">23.1</td><td class="cname">&nbsp;&nbsp;&nbsp;抽屉头 kid-drawer-head</td><td class="ccode">L1587</td><td class="crole">Logo + 标题 + 关闭</td></tr><tr class="clevel2" data-id="23.1.1"><td class="cnum">23.1.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Logo</td><td class="ccode">L1588</td><td class="crole">星形 Logo</td></tr><tr class="clevel2" data-id="23.1.2"><td class="cnum">23.1.2</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;标题</td><td class="ccode">L1589</td><td class="crole">设置</td></tr><tr class="clevel2" data-id="23.1.3"><td class="cnum">23.1.3</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;关闭按钮</td><td class="ccode">L1590</td><td class="crole">✕ 关闭(data-close)</td></tr><tr class="clevel1" data-id="23.2"><td class="cnum">23.2</td><td class="cname">&nbsp;&nbsp;&nbsp;抽屉体 kid-drawer-body</td><td class="ccode">L1592</td><td class="crole">各设置行容器</td></tr><tr class="clevel2" data-id="23.2.1"><td class="cnum">23.2.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;昵称行</td><td class="ccode">L1593</td><td class="crole">昵称 input(data-set=name)</td></tr><tr class="clevel2" data-id="23.2.2"><td class="cnum">23.2.2</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;主题模式行</td><td class="ccode">L1596</td><td class="crole">主题 select(data-set=theme)</td></tr><tr class="clevel2" data-id="23.2.3"><td class="cnum">23.2.3</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;奖励倍数行</td><td class="ccode">L1605</td><td class="crole">倍数 select(data-set=mult)</td></tr><tr class="clevel2" data-id="23.2.4"><td class="cnum">23.2.4</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;家长模式行</td><td class="ccode">L1612</td><td class="crole">家长模式 + 开关</td></tr><tr class="clevel3" data-id="23.2.4.1"><td class="cnum">23.2.4.1</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;开关 kid-switch</td><td class="ccode">L1613</td><td class="crole">开/关(data-set=parent)</td></tr><tr class="clevel2" data-id="23.2.5"><td class="cnum">23.2.5</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;修改密码行</td><td class="ccode">L1615</td><td class="crole">修改家长密码(有密码时)</td></tr><tr class="clevel2" data-id="23.2.6"><td class="cnum">23.2.6</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;清空示例行</td><td class="ccode">L1618</td><td class="crole">清空示例数据(data-set=sample)</td></tr><tr class="clevel2" data-id="23.2.7"><td class="cnum">23.2.7</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;清空全部数据行</td><td class="ccode">L1621</td><td class="crole">清空全部(data-set=wipe)</td></tr><tr class="clevel2" data-id="23.2.8"><td class="cnum">23.2.8</td><td class="cname">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;说明文字</td><td class="ccode">L1624</td><td class="crole">当前状态/数据保存说明</td></tr></tbody></table>
     </div>
   </div>
 </div>
-<footer>得乐学苑组件标注报告 · 由模块真实 CSS 自动还原 · 共 35 个标注组件</footer>
-
+<footer>得乐学苑组件标注报告 · 由 gen-kid-annotation-report.js 生成（抽取真实 CSS，可重跑刷新）</footer>
 <script>
-  function focusId(id){
-    document.querySelectorAll('.pin').forEach(p=>p.classList.toggle('hot',p.dataset.id===id));
-    document.querySelectorAll('.leg').forEach(r=>r.classList.toggle('hot',r.dataset.id===id));
-    const w=document.getElementById('pw-'+id); if(w) w.scrollIntoView({behavior:'smooth',block:'center'});
-    const r=document.querySelector('.leg[data-id="'+id+'"]'); if(r) r.scrollIntoView({behavior:'smooth',block:'center'});
-  }
-  document.querySelectorAll('.pin').forEach(p=>p.addEventListener('click',e=>{e.stopPropagation();focusId(p.dataset.id);}));
-  document.querySelectorAll('.leg').forEach(r=>r.addEventListener('click',()=>focusId(r.dataset.id)));
+document.querySelectorAll('.pin').forEach(p=>{
+  p.addEventListener('click',()=>focusId(p.dataset.id));
+});
+document.querySelectorAll('.legend tr[data-id]').forEach(tr=>{
+  tr.addEventListener('click',()=>focusId(tr.dataset.id));
+});
+function focusId(id){
+  document.querySelectorAll('.pin.hot,.legend tr.hot').forEach(e=>e.classList.remove('hot'));
+  const pin=document.querySelector('.pin[data-id="'+id+'"]');
+  const tr=document.querySelector('.legend tr[data-id="'+id+'"]');
+  if(pin){pin.classList.add('hot');const box=document.getElementById('pw-'+id);if(box){box.scrollIntoView({behavior:'smooth',block:'center'});}}
+  if(tr){tr.classList.add('hot');tr.scrollIntoView({behavior:'smooth',block:'nearest'});}
+}
 </script>
 </body>
 </html>

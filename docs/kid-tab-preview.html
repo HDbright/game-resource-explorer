@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>得乐学苑 · Tab 激活态配色对比</title>
+<style>
+  body{margin:0;background:#eef1f6;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,sans-serif;color:#23262f;padding:28px 18px 60px}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:#8a90a3;font-size:13px;margin-bottom:22px}
+  .panel{background:#fff;border-radius:16px;padding:18px;margin:0 auto 22px;max-width:860px;box-shadow:0 6px 20px rgba(20,30,60,.07)}
+  .panel h2{font-size:15px;margin:0 0 14px;display:flex;align-items:center;gap:8px}
+  .tag{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px}
+  .tag.old{background:#fee2e2;color:#dc2626}
+  .tag.new{background:#dcfce7;color:#16a34a}
+
+  /* ===== 取自 kidWorkspacePage.js 的真实变量与基础样式 ===== */
+  .kid-wb{--kaccent:#4f7cff;--kaccent2:#6a5cff;--kcard:#ffffff;--kcard2:#f7f8fc;
+    --kborder:#e3e6f0;--kborder2:#c9cfe0;--ktext:#23262f;--ktext2:#5b6172;--ktext3:#8a90a3;
+    font-family:inherit;padding:14px}
+  .kid-wb *{box-sizing:border-box;margin:0;padding:0}
+  .kid-tabs{display:flex;gap:8px;margin-bottom:6px;flex-wrap:wrap}
+  .kid-tab{flex:1;min-width:120px;min-height:48px;border-radius:14px;background:var(--kcard);
+    border:2px solid var(--kborder);font-size:15px;font-weight:800;color:var(--ktext2);
+    display:flex;align-items:center;justify-content:center;gap:8px}
+  .kid-tab .kid-tab-dot{font-size:16px}
+
+  /* ===== 旧方案(修改前):蓝紫渐变填充 + 白字 + 蓝色光晕 ===== */
+  .old .kid-tab.on{background:linear-gradient(135deg,var(--kaccent),var(--kaccent2));color:#fff;
+    border-color:transparent;box-shadow:0 4px 14px rgba(79,124,255,.35)}
+
+  /* ===== 新方案(修改后):浅底(--kcard2) + 强调色边框 + 强调色文字,无渐变/无白字/无光晕 ===== */
+  .new .kid-tab.on{background:var(--kcard2);color:var(--kaccent);border-color:var(--kaccent);
+    box-shadow:0 2px 8px color-mix(in srgb,var(--kaccent) 16%,transparent)}
+
+  .note{font-size:12px;color:#5b6172;line-height:1.6;margin-top:12px}
+  .note b{color:#23262f}
+</style>
+</head>
+<body>
+  <h1>得乐学苑 · Tab 激活态配色对比</h1>
+  <div class="sub">非激活标签为「白底 + 浅灰边框 + 灰字」；修改目标是让激活标签配色与其相近，不再用突兀的蓝紫渐变填充。</div>
+
+  <div class="panel">
+    <h2>修改前 <span class="tag old">突兀</span></h2>
+    <div class="kid-wb old">
+      <div class="kid-tabs">
+        <button class="kid-tab on"><span class="kid-tab-dot">🏃</span>今日挑战</button>
+        <button class="kid-tab"><span class="kid-tab-dot">📅</span>学习计划</button>
+        <button class="kid-tab"><span class="kid-tab-dot">🏆</span>成长奖励</button>
+      </div>
+    </div>
+    <div class="note">激活标签：<b>蓝紫渐变整块填充 + 纯白文字 + 蓝色投影光晕</b>，与非激活标签的浅底配色反差极大。</div>
+  </div>
+
+  <div class="panel">
+    <h2>修改后 <span class="tag new">贴近非激活</span></h2>
+    <div class="kid-wb new">
+      <div class="kid-tabs">
+        <button class="kid-tab on"><span class="kid-tab-dot">🏃</span>今日挑战</button>
+        <button class="kid-tab"><span class="kid-tab-dot">📅</span>学习计划</button>
+        <button class="kid-tab"><span class="kid-tab-dot">🏆</span>成长奖励</button>
+      </div>
+    </div>
+    <div class="note">激活标签：<b>浅底（--kcard2，与非激活白底几乎一致）+ 强调色细边框 + 强调色文字</b>，仅以边框/文字着色区分选中，去掉渐变、白字与光晕，整体观感与非激活标签统一。</div>
+  </div>
+</body>
+</html>

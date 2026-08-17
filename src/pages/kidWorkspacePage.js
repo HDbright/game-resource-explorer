@@ -68,7 +68,7 @@ const CSS = `.kid-wb{--kblue:#4f7cff;--kgold:#f59e0b;--kdiamond:#22d3ee;--kred:#
 .kid-tabs{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
 .kid-tab{flex:1;min-width:120px;min-height:48px;border-radius:14px;background:var(--kcard);border:2px solid var(--kborder);
   font-size:15px;font-weight:800;color:var(--ktext2);display:flex;align-items:center;justify-content:center;gap:8px}
-.kid-tab.on{background:linear-gradient(135deg,var(--kaccent),var(--kaccent2));color:#fff;border-color:transparent;box-shadow:0 4px 14px rgba(79,124,255,.35)}
+.kid-tab.on{background:var(--kcard2);color:var(--kaccent);border-color:var(--kaccent);box-shadow:0 2px 8px color-mix(in srgb,var(--kaccent) 16%,transparent)}
 .kid-tab.on .kid-tab-dot{background:none}
 .kid-sec-head{display:flex;align-items:center;gap:8px;margin:4px 0 10px}
 .kid-sec-head .kid-sec-title{font-size:16px;font-weight:800;color:var(--ktext)}
@@ -264,7 +264,7 @@ const CSS = `.kid-wb{--kblue:#4f7cff;--kgold:#f59e0b;--kdiamond:#22d3ee;--kred:#
 /* 虚线边框 */
 .kid-wb .kid-today-empty,.kid-wb .kid-addtask{border-color:var(--kborder2)}
 /* 强调色 */
-.kid-wb .kid-btn.primary,.kid-wb .kid-tab.on{background:linear-gradient(135deg,var(--kaccent),var(--kaccent2))}
+.kid-wb .kid-btn.primary{background:linear-gradient(135deg,var(--kaccent),var(--kaccent2))}
 .kid-wb .kid-task.started,.kid-wb .kid-plan-day.today,.kid-wb .kid-avatar-item.on,.kid-wb .kid-addtask:hover{border-color:var(--kaccent)}
 .kid-wb .kid-switch.on,.kid-wb .kid-pwd-dot.fill{background:var(--kaccent);border-color:var(--kaccent)}
 .kid-wb .kid-ring-fill{background:linear-gradient(90deg,var(--kaccent),#8b5cf6)}
@@ -321,7 +321,7 @@ const CSS = `.kid-wb{--kblue:#4f7cff;--kgold:#f59e0b;--kdiamond:#22d3ee;--kred:#
 .kid-wb .kid-tabs{gap:10px}
 .kid-wb .kid-tab{border-radius:var(--kr-lg);transition:transform .16s cubic-bezier(.22,1,.36,1),box-shadow .16s}
 .kid-wb .kid-tab:hover:not(.on){transform:translateY(-1px);box-shadow:var(--ks-1)}
-.kid-wb .kid-tab.on{box-shadow:var(--kglow)}
+.kid-wb .kid-tab.on{box-shadow:0 2px 8px color-mix(in srgb,var(--kaccent) 14%,transparent)}
 .kid-wb .kid-tab .kid-tab-dot{font-size:16px}
 /* —— 任务卡:渐变顶条 + 悬停上浮 —— */
 .kid-wb .kid-task{position:relative;border-radius:var(--kr-lg);overflow:hidden;transition:transform .18s cubic-bezier(.22,1,.36,1),box-shadow .18s,border-color .18s}
@@ -380,8 +380,8 @@ const CSS = `.kid-wb{--kblue:#4f7cff;--kgold:#f59e0b;--kdiamond:#22d3ee;--kred:#
 .kid-wb .kid-lv-pill{text-shadow:0 1px 2px rgba(0,0,0,.5),0 0 4px rgba(0,0,0,.28)}
 /* 今日列表「去完成」与任务卡按钮同主按钮规则(默认按钮统一) */
 .kid-wb .kid-today-item .kid-btn.primary{color:#fff}
-/* Tab 激活态同问题:白字固定(次文字规则曾覆盖成灰) */
-.kid-wb .kid-tab.on{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.18)}
+/* Tab 激活态:不再用白字+渐变填充,改主题强调色文字(贴近非激活标签的浅底配色) */
+.kid-wb .kid-tab.on{color:var(--kaccent)}
 
 /* ============ 开启挑战按钮(直接使用背景图片) ============
    来源:E:\backup\asset\btn\btn_start_challenge256.png (256×96 橙黄渐变胶囊+紫描边+紫火箭+紫文字)
