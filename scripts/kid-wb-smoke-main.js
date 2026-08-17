@@ -1,5 +1,5 @@
 'use strict';
-/** 得乐学苑模块冒烟: 进入工具 → 今日任务/逾期顺延/开始闯关/星级奖励/成长奖励/学习计划/兑换道具/家长模式/导出 → 持久化验证 */
+/** 得乐学苑模块冒烟: 进入工具 → 今日任务/逾期顺延/开始挑战/星级奖励/成长奖励/学习计划/兑换道具/家长模式/导出 → 持久化验证 */
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -67,14 +67,14 @@ app.whenReady().then(async () => {
           coins0: (document.querySelector('.kid-wallet-card .k-w-num') || { textContent: 'n/a' }).textContent };
       })()`);
       if (o && o.__err) { check('进入工具', false, o.__err); throw new Error('abort'); }
-      check('侧栏找到闯关台节点', o.found === true);
+      check('侧栏找到得乐学苑节点', o.found === true);
       check('页面渲染 .kid-wb', o.wb === true);
       check('今日任务卡片(示例逾期+计划)≥4', o.taskCards >= 4, 'cards=' + o.taskCards);
       check('今天要处理列表', o.todayItems >= 4, 'items=' + o.todayItems);
       check('逾期任务标红(≥1)', o.overdue >= 1, 'overdue=' + o.overdue);
       check('标题含得乐学苑', (o.title || '').includes('得乐学苑'), o.title);
 
-      // 2) 开始闯关 + 星级奖励
+      // 2) 开始挑战 + 星级奖励
       o = await js(`(async () => {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         const startBtn = document.querySelector('.kid-task:not(.done) [data-act="start"]');
@@ -91,7 +91,7 @@ app.whenReady().then(async () => {
         const doneText = (document.querySelector('.kid-task.done') || {}).textContent || '';
         return { started, starModal, doneCards, hasCoin: doneText.includes('金币'), hasExp: doneText.includes('经验') };
       })()`);
-      check('开始闯关 → started', o.started === true, o.err || '');
+      check('开始挑战 → started', o.started === true, o.err || '');
       check('星级验收弹窗', o.starModal === true, o.err2 || '');
       check('确认后任务完成', o.doneCards >= 1, 'done=' + o.doneCards);
       check('完成卡片显示金币+经验奖励', o.hasCoin === true && o.hasExp === true);
@@ -167,7 +167,7 @@ app.whenReady().then(async () => {
       // 7) 撤销任务(家长模式)
       o = await js(`(async () => {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-        [...document.querySelectorAll('.kid-tab')].find((t) => (t.textContent || '').includes('今日闯关')).click(); await sleep(400);
+        [...document.querySelectorAll('.kid-tab')].find((t) => (t.textContent || '').includes('今日挑战')).click(); await sleep(400);
         const undoBtn = document.querySelector('[data-act="undo"]');
         const hasUndo = !!undoBtn;
         if (undoBtn) { undoBtn.click(); await sleep(300); }

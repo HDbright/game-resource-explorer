@@ -3,7 +3,24 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.0`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.1`）。
+
+---
+
+## 2026-08-17（补丁）
+
+### [修复] 发布 v2.2.1：得乐学苑「开启挑战」按钮改用参考图作背景图片
+
+- **需求**(用户:之前把「开启挑战/开始挑战」按钮重绘成橙黄渐变胶囊+紫描边+紫火箭+紫文字效果,但与参考图 `btn_start_challenge256.png` 相差甚远;要求直接使用该图片作按钮背景)。
+- **实现**(`src/pages/kidWorkspacePage.js` + `src/assets/kid/btn-start-challenge.png`):
+  - 图片资源落地:把 `E:\backup\asset\btn\btn_start_challenge256.png`(256×96,约29KB 橙黄渐变胶囊+紫描边+紫火箭+紫文字)复制到 `src/assets/kid/btn-start-challenge.png` 作为项目内资源;
+  - 以 **base64 内联**嵌入 CSS(`.kid-btn.challenge{background-image:url(data:image/png;base64,…);background-size:100% 100%;background-repeat:no-repeat;background-color:transparent;border:none;box-shadow:none}`),零外部依赖——渲染端/预览页/独立 HTML 均可显示,无需额外加载逻辑;
+  - 按钮模板去掉文字与 SVG 图标(图片内已含火箭与「开启挑战」文字),保留 `title` 属性供可访问性;sm/默认两种尺寸自适应拉伸(`min-height:44px/60px`);
+  - hover 提亮 + 轻微上浮 + 橙光投影,active 暗化,与原图交互一致;
+  - 「开启挑战」(顶栏右上角)与任务卡「开始挑战」(5 张)共 6 个按钮全部启用该背景图;
+- **CSS specificity 大坑**:①默认按钮段原为 `.kid-wb .kid-btn:not(.primary):not(.gold):not(.green):not(.red)`(0,6,0) 的 `background:var(--kcard2)` shorthand 会清空 challenge 的 `background-image`;②同项目另两条组合选择器 `.kid-wb .kid-btn:not(...)` 同样覆盖;修复:把默认按钮兜底重构为 `.kid-wb .kid-btn` 直接基础式(0,2,0)+ 从组合选择器移除 `.kid-btn:not(...)` 部分,使 challenge(0,3,0) 自然胜出,图片正确显示;
+- **验证**:`npm run build` 通过;`scripts/kid-wb-smoke-main.js` 37/37 全过;Electron 软件渲染 4 主题(跟随项目/深色/糖果乐园/星际探险)截图确认按钮 PNG 正确显示,与参考图一致。
+- 发布:版本 2.2.0 → 2.2.1;产物 `release/游戏资源管理器-v2.2.1-便携版.zip`;已推送 gitee + github。
 
 ---
 
