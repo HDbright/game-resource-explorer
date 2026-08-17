@@ -36,7 +36,7 @@ const LANGS = {
     // 日历
     week0: '周一', week1: '周二', week2: '周三', week3: '周四', week4: '周五', week5: '周六', week6: '周日',
     more: '+{0} 更多', prevMonth: '上个月', nextMonth: '下个月',
-    viewYear: '点击查看全年', clickToMonth: '点击月份返回', viewMonth: '查看 {0} 日程', yearStat: '事件 {0} · 任务 {1}',
+    viewYear: '点击查看全年', clickToMonth: '点击返回当月', viewMonth: '查看 {0} 日程', yearStat: '事件 {0} · 任务 {1}',
     // 日历事件
     evBirthday: '生日', evAnniversary: '纪念日', evTodo: '待办事件', evImportant: '重要事件',
     newEvent: '新建事件', editEvent: '编辑事件', deleteEvent: '删除事件', addEventMenu: '新建事件…',
@@ -108,7 +108,7 @@ const LANGS = {
     dropHere: 'Drop tasks here',
     week0: 'Mon', week1: 'Tue', week2: 'Wed', week3: 'Thu', week4: 'Fri', week5: 'Sat', week6: 'Sun',
     more: '+{0} more', prevMonth: 'Previous month', nextMonth: 'Next month',
-    viewYear: 'View whole year', clickToMonth: 'Click a month to view days', viewMonth: 'View {0}', yearStat: '{0} events · {1} tasks',
+    viewYear: 'View whole year', clickToMonth: 'Back to current month', viewMonth: 'View {0}', yearStat: '{0} events · {1} tasks',
     evBirthday: 'Birthday', evAnniversary: 'Anniversary', evTodo: 'Todo Event', evImportant: 'Important Event',
     newEvent: 'New Event', editEvent: 'Edit Event', deleteEvent: 'Delete Event', addEventMenu: 'New event…',
     evTypeLabel: 'Type', evTitleLabel: 'Title *', evNoteLabel: 'Note', evDateLabel: 'Date',
@@ -716,7 +716,7 @@ function renderCalendar() {
     topRow.className = 'todo-cal-top';
     const dayNum = document.createElement('span');
     dayNum.className = 'todo-cal-day';
-    dayNum.textContent = d.getDate();
+    dayNum.textContent = `${d.getMonth() + 1}.${d.getDate()}`;
     topRow.appendChild(dayNum);
     // 农历(带缓存):只显示「日」(2 字,初一/廿五/三十)
     const cacheKey = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
@@ -726,7 +726,7 @@ function renderCalendar() {
     const fullLunarTitle = '农历' + formatLunarMonth(info.lunarMonth, info.isLeapMonth) + lunarDay + (info.term ? ' · ' + info.term : '') + (info.holiday ? ' · ' + info.holiday : '');
     const lunarEl = document.createElement('span');
     lunarEl.className = 'todo-cal-lunar';
-    lunarEl.textContent = lunarDay;
+    lunarEl.textContent = formatLunarMonth(info.lunarMonth, info.isLeapMonth) + lunarDay;
     lunarEl.title = fullLunarTitle;
     topRow.appendChild(lunarEl);
     // 节日/24节气:第一行尾部(右对齐到格子右上角)
@@ -825,12 +825,13 @@ function renderYearCalendar() {
   head.className = 'todo-cal-head';
   head.innerHTML = `
     <button class="btn" data-cal="prev" title="${T('prevMonth')}">←</button>
-    <span class="todo-cal-title">${lang === 'zh' ? `${y}年` : String(y)}<small class="todo-cal-yr-hint">${T('clickToMonth')}</small></span>
+    <button class="todo-cal-title" data-cal="today" title="${T('clickToMonth')}">${lang === 'zh' ? `${y}年` : String(y)}<small class="todo-cal-yr-hint">${T('clickToMonth')}</small></button>
     <button class="btn" data-cal="next" title="${T('nextMonth')}">→</button>`;
   head.addEventListener('click', (e) => {
     const b = e.target.closest('[data-cal]');
     if (!b) return;
-    calCursor = new Date(y + (b.dataset.cal === 'prev' ? -1 : 1), 0, 1);
+    if (b.dataset.cal === 'today') { calCursor = new Date(); calView = 'month'; }
+    else { calCursor = new Date(y + (b.dataset.cal === 'prev' ? -1 : 1), 0, 1); }
     const content = rootEl.querySelector('.todo-content');
     if (content) { content.innerHTML = ''; content.appendChild(renderCalendar()); }
   });
@@ -930,7 +931,7 @@ function renderEventModal() {
   const dateInput = box.querySelector('[data-ev-date]');
   const lunarEl = box.querySelector('[data-ev-lunar]');
   const isLunarMode = () => draft.type === 'birthday' && draft.calendar === 'lunar';
-  // 农历提示:与日历格子风格统一只显示「日」(2 字:初五/廿五/三十),title 显示完整月+日与节气/节日
+  // 农历提示:与日历格子风格一致显示「农历月+日」(如「农历七月初五」),title 附节气/节日
   const paintLunar = () => {
     const v = dateInput.value;
     if (!v) { lunarEl.textContent = ''; lunarEl.title = ''; return; }
@@ -938,11 +939,11 @@ function renderEventModal() {
     if (p.length !== 3 || !p[0] || !p[1] || !p[2]) { lunarEl.textContent = ''; lunarEl.title = ''; return; }
     try {
       if (isLunarMode()) {
-        lunarEl.textContent = '农历' + formatLunarDay(p[2]);
+        lunarEl.textContent = '农历' + formatLunarMonth(p[1], false) + formatLunarDay(p[2]);
         lunarEl.title = '农历' + formatLunarMonth(p[1], false) + formatLunarDay(p[2]);
       } else {
         const li = getLunarInfo(p[0], p[1], p[2]);
-        lunarEl.textContent = '农历' + formatLunarDay(li.lunarDay);
+        lunarEl.textContent = '农历' + formatLunarMonth(li.lunarMonth, li.isLeapMonth) + formatLunarDay(li.lunarDay);
         lunarEl.title = '农历' + formatLunarMonth(li.lunarMonth, li.isLeapMonth) + formatLunarDay(li.lunarDay)
           + (li.term ? ' · ' + li.term : '') + (li.holiday ? ' · ' + li.holiday : '');
       }

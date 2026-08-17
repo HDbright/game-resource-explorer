@@ -290,6 +290,15 @@ app.whenReady().then(async () => {
         if (curCell) { curCell.click(); await sleep(300); }
         out.backMonth = !!document.querySelector('.todo-cal-grid');
         out.backTitle = (document.querySelector('.todo-cal-title') || {}).textContent || '';
+        // 再次进入年视图,点击年份标题 → 快捷返回当月月视图
+        document.querySelector('[data-cal="year"]').click(); await sleep(300);
+        const todayBtn = document.querySelector('[data-cal="today"]');
+        out.todayBtnFound = !!todayBtn;
+        if (todayBtn) { todayBtn.click(); await sleep(300); }
+        out.backTodayGrid = !!document.querySelector('.todo-cal-grid');
+        const t2 = new Date();
+        out.expToday = t2.getFullYear() + '年' + (t2.getMonth() + 1) + '月';
+        out.backTodayTitle = (document.querySelector('.todo-cal-title') || {}).textContent || '';
         document.querySelector('[data-view="list"]').click(); await sleep(250);
         return out;
       })()`);
@@ -298,6 +307,7 @@ app.whenReady().then(async () => {
       check('年视图:年份标题', /2026/.test(o.yearTitle || ''), o.yearTitle);
       check('年视图:当前月格子高亮', o.currentCellFound === true);
       check('年视图:点击月份返回月视图', o.backMonth === true && /2026年\d{1,2}月/.test(o.backTitle || ''), o.backTitle);
+      check('年视图:点击年份标题返回当月', o.todayBtnFound === true && o.backTodayGrid === true && o.backTodayTitle === o.expToday, o.backTodayTitle + ' vs ' + o.expToday);
 
       // 5.6) 日历事件:右键单元格新建 → 事件 chip → 点击编辑 → 关闭
       o = await js('event', `(async () => {
