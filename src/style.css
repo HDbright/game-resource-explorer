@@ -2858,7 +2858,7 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .todo-pri-opt.on { border-color: var(--accent); }
 /* 事件弹窗:日期 + 农历提示;生日类型下拉 */
 .todo-date-wrap { display: flex; align-items: center; gap: 8px; }
-.todo-date-wrap .todo-input { flex: 1; min-width: 0; }
+.todo-date-wrap .todo-input { flex: 0 0 auto; width: 150px; min-width: 0; }
 .todo-date-lunar { font-size: 12px; color: var(--text2); white-space: nowrap; padding-right: 2px; }
 .todo-ev-bday { width: auto; flex: 0 0 auto; min-width: 148px; margin-right: 6px; cursor: pointer; font-weight: 600; font-size: 12px; }
 .todo-ev-bday.on { border-color: var(--accent); color: var(--accent); }
