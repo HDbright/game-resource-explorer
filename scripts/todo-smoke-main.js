@@ -184,10 +184,13 @@ app.whenReady().then(async () => {
         const subChips = document.querySelectorAll('.todo-card .todo-sub-chip').length;
         const projFilter = !![...document.querySelectorAll('.todo-select')].find((s) => [...s.options].some((x) => x.textContent === '游戏开发'));
         const cardA = document.querySelector('.todo-card[data-task-id="t_smoke_a"]');
-        return { projChip, subChips, projFilter, cardAhtml: cardA ? cardA.innerHTML.slice(0, 700) : 'NO CARD' };
+        const subIconDone = (document.querySelector('.todo-sub-chip.done span:first-child') || {}).textContent || '';
+        const subIconTodo = (document.querySelector('.todo-sub-chip:not(.done) span:first-child') || {}).textContent || '';
+        return { projChip, subChips, projFilter, subIconDone, subIconTodo, cardAhtml: cardA ? cardA.innerHTML.slice(0, 700) : 'NO CARD' };
       })()`);
       check('项目徽章', o.projChip === true);
       check('子任务 chips', o.subChips >= 2, 'chips=' + o.subChips);
+      check('子任务图标:完成✅/未完成⬜', o.subIconDone === '✅' && o.subIconTodo === '⬜', o.subIconDone + ' / ' + o.subIconTodo);
       check('项目筛选下拉', o.projFilter === true);
       if (!o.projChip) console.log('  [debug] cardA html:', o.cardAhtml);
 

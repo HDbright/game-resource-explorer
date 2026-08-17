@@ -1240,7 +1240,7 @@ function renderTaskCard(task, compact = false) {
           <div class="todo-card-sub-chips">
             ${subs.slice(0, 8).map((s) => `
               <button class="todo-sub-chip${s.done ? ' done' : ''}" data-t="sub" data-sub="${s.id}" title="${escHtml(s.title)}">
-                <span>${s.done ? '●' : '○'}</span><span class="todo-sub-chip-text">${escHtml(s.title)}</span>
+                <span>${s.done ? '✅' : '⬜'}</span><span class="todo-sub-chip-text">${escHtml(s.title)}</span>
               </button>`).join('')}
           </div>
           <div class="todo-card-sub-bar">
@@ -1471,7 +1471,7 @@ function renderTaskModal() {
               <button data-sub-up="${idx}" title="${T('moveUp')}" ${idx === 0 ? 'disabled' : ''}>▲</button>
               <button data-sub-down="${idx}" title="${T('moveDown')}" ${idx === subs.length - 1 ? 'disabled' : ''}>▼</button>
             </div>
-            <button class="todo-status-btn" data-sub-toggle="${s.id}" style="border-color:${s.done ? '#22c55e' : 'var(--border)'};color:${s.done ? '#22c55e' : 'var(--text2)'}">${s.done ? '●' : '○'}</button>
+            <button class="todo-status-btn" data-sub-toggle="${s.id}" style="border-color:${s.done ? '#22c55e' : 'var(--border)'};color:${s.done ? '#22c55e' : 'var(--text2)'}">${s.done ? '✅' : '⬜'}</button>
             <span class="todo-sub-title${s.done ? ' done' : ''}" data-sub-rename="${s.id}" title="${T('doubleClickRename')}">${escHtml(s.title)}</span>
             <button class="todo-icon-btn" data-sub-del="${s.id}" title="${T('del')}">✕</button>`;
           row.addEventListener('dragstart', (e) => {
@@ -1657,7 +1657,7 @@ function renderDetailPanel() {
           <div class="todo-card-sub-track" style="margin:6px 0 8px"><div class="todo-card-sub-fill" style="width:${(doneSubs / subs.length) * 100}%"></div></div>
           ${subs.map((s) => `
             <div class="todo-detail-sub">
-              <button class="todo-status-btn" data-act="sub" data-sub="${s.id}" style="border-color:${s.done ? '#22c55e' : 'var(--border)'};color:${s.done ? '#22c55e' : 'var(--text2)'}">${s.done ? '●' : '○'}</button>
+              <button class="todo-status-btn" data-act="sub" data-sub="${s.id}" style="border-color:${s.done ? '#22c55e' : 'var(--border)'};color:${s.done ? '#22c55e' : 'var(--text2)'}">${s.done ? '✅' : '⬜'}</button>
               <span class="${s.done ? 'done' : ''}">${escHtml(s.title)}</span>
             </div>`).join('')}
         </div>` : ''}
