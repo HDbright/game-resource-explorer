@@ -180,9 +180,9 @@ const PRIORITY_CONFIG = {
 function priLabel(p) { return T('pri_' + p); }
 const PRIORITY_CYCLE = { urgent: 'high', high: 'medium', medium: 'low', low: 'urgent' };
 const STATUS_CONFIG = {
-  todo: { icon: '○' },
-  in_progress: { icon: '◑' },
-  done: { icon: '●' },
+  todo: { icon: '⬜' },
+  in_progress: { icon: '🔄' },
+  done: { icon: '✅' },
 };
 function stLabel(s) { return T('st_' + s); }
 const STATUS_CYCLE = { todo: 'in_progress', in_progress: 'done', done: 'todo' };

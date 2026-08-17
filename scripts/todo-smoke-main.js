@@ -208,7 +208,7 @@ app.whenReady().then(async () => {
         const p1 = (document.querySelector('.todo-card[data-task-id="${TASK_A}"] .todo-pri-btn') || {}).textContent || '';
         return { i0, i1, p0: p0.trim(), p1: p1.trim() };
       })()`);
-      check('状态循环 todo→in_progress', o.i0 === '○' && o.i1 === '◑', o.i0 + '→' + o.i1);
+      check('状态循环 todo→in_progress', o.i0 === '⬜' && o.i1 === '🔄', o.i0 + '→' + o.i1);
       check('优先级循环 high→medium', o.p0 === '高' && o.p1 === '中', o.p0 + '→' + o.p1);
 
       // 4) 新建任务
