@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>开始挑战按钮 · 修改前/后对比</title>
+<style>
+  body{margin:0;font-family:system-ui,"PingFang SC","Microsoft YaHei",sans-serif;background:#f1f5f9;color:#1f2937;padding:28px}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:#64748b;font-size:13px;margin:0 0 22px}
+  .row{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+  .card{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:18px;min-width:300px;box-shadow:0 6px 20px rgba(20,30,60,.06)}
+  .card h2{font-size:14px;margin:0 0 14px;color:#475569;font-weight:700}
+  .tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;margin-bottom:12px}
+  .tag.old{background:#fee2e2;color:#b91c1c}
+  .tag.new{background:#dcfce7;color:#15803d}
+  /* ---- 真实主题变量(跟随项目模式) ---- */
+  .kid-wb.theme-project{
+    --border:#e3e8f0;--text:#1f2937;--text2:#5b6472;--accent:#4f8cff;--accent2:#6a5cff;
+    --kbg:#f6f8fc;--kbg-top:#eef3fb;--kcard:#ffffff;--kcard2:#f7f8fc;--kcard3:#eef1f7;
+    --kborder:#e3e8f0;--kborder2:#d7deea;--ktext:#1f2937;--ktext2:#5b6472;--ktext3:#94a3b8;
+    --kaccent:var(--accent);--kaccent2:var(--accent2);--kblue:var(--accent)
+  }
+  .wrap{display:flex;flex-direction:column;gap:18px}
+  .k-sec-head{display:flex;align-items:baseline;gap:10px;margin-bottom:10px}
+  .k-sec-title{font-size:16px;font-weight:800}
+  .kid-grid{display:flex;flex-direction:column;gap:12px}
+  .kid-task{background:var(--kcard);border:2px solid var(--kborder);border-radius:16px;padding:14px 14px 12px}
+  .k-task-head{display:flex;align-items:center;gap:10px}
+  .k-task-ico{width:38px;height:38px;border-radius:10px;background:#eef6ff;display:flex;align-items:center;justify-content:center;font-size:20px}
+  .k-task-titles{display:flex;flex-direction:column;line-height:1.2}
+  .k-task-name{font-weight:800;font-size:15px;color:var(--ktext)}
+  .k-task-cat{font-size:12px;color:var(--ktext3)}
+  .k-task-badges{margin-left:auto}
+  .k-badge{font-size:11px;padding:2px 8px;border-radius:999px;background:#eef1f7;color:var(--ktext2)}
+  .k-task-target{font-size:13px;color:var(--ktext2);margin:8px 0}
+  .k-unit-chip{background:var(--kcard2);padding:2px 8px;border-radius:8px}
+  /* 操作区(真实) */
+  .k-task-actions{display:flex;gap:8px;flex-wrap:wrap}
+  .k-task-actions .kid-btn{flex:1;min-width:110px}
+  /* 基础按钮(非高亮默认态,来自源码 L41 + :where(.kid-wb) .kid-btn L376) */
+  :where(.kid-wb) .kid-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;padding:0 16px;border-radius:12px;font-size:15px;font-weight:700;color:var(--ktext);background:var(--kcard2);border:2px solid var(--kborder);transition:transform .08s,box-shadow .15s;user-select:none}
+  :where(.kid-wb) .kid-btn:hover:not(:disabled){border-color:var(--kaccent);color:var(--ktext)}
+  .kid-btn:active{transform:scale(.96)}
+  /* 旧的图片按钮(已被替换) */
+  .kid-wb .kid-btn.challenge{
+    background-image:url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAABgCAYAAADy8ayIAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAgAElEQVR4nOy9ebAl1Xng+fvOybzb22ovagWqSuxQiF0IEEhCoB2t9shjrXb04mi77e6OjunuCJo/pid6psceq+3uxu1Nslaw0C4ZhITEJoEAgYCqAhVUUUUVtb5Xb71LZp5v/jgn8+7vVSHZnojhRLz37ruZedZv3xJea6+119pr7bXWnutvdZea6+119pr7bXWnut/f+hyT/2BAY1feyx+NjogUp1pjmSxWYsc1SdcxXRLBJnDSKCVfU3W/9XMr8WEUkzJ5EaJTqZwcLzeX8AWSbkD0dAmvq/mfgxVH3fKe3bRCRV30fUNXBK8Uz+n4j4x1MQkd5bAaII0qRjTlHXn/ZzVpU06X28a/xiPmLEP5oJxMymdSL82qJ8H0iKjtKO9aFWVZ3GESQpEMWQJkjoEzGCumK+xfoAVaP9C+yco9PIWi2udi4kIpyH6YBVo1EUjsWqpmnYr7TzfgAjksMFsV/bsP2JgMxJvp4oNgIiYDXVlkZRmIwYiRBpn38ESeYSFadpkjh1DRtLM02yhchG87Pzcf2hF+9tfvjDd2YDBv9Hb/+fIAD6zB2lBTO+Upv1tWWS1Wljdo0krTWqrHEuOw11y1UZU3EVAQsqgHocUIcIKIKIUVUBRFScGHD+GEXVH2fnsAAIihgQdf5fQVUFye9QwRg0c+IvoiK4ohejEraxeEJEVJ3vVlFwzo8TRhWrEuYJiKAqGhYFoTvV8CvgjjrFGHCKGDGqiAiqZIoI6sI2KOGCAxEyFCuCQcUaERQciHqCBWRYQcWikRSjkTmnYMKdoqqqIjhPxzyu+/UZyXfRzwfEaLguoE798x3bLqD4DVAUEaPhhLrPBgQcKhiK/QIxOBw5Tcj3NT9Pwang1yoeAgyCCogqWdgnRQyiuDCqAlhVFSOCGBUREdSoopqvR0SwNjJOnb9PInWQaZqkCA2QGTHMCkwa5Iiz8TGV2jGV2tF6q3r4+AKH/vprn5i57bYOGPpHbP9oBOCZO+4ord/CaVGabjbpwlZr3bmxk/Otui3q0jUKo6iJ0NSoZqLSPmMCtC3WPDQGGO5AKjFtJAElo81Mi2doX9eTPaeB88lhut2HBnrV/l8D+Siwt/jOA2dbCEA66JJ/GETDvuTPA0gxRorzBCCAf5gVKuIpmSZExq83RwS/ZkugiB370Z5z//LbwpFIjth0QZh/ykF+DVAJs8/X3fdXu8bsPfeu2nvW+eI3Y+op1I5xRLXtR4x7c/GmL619o2PDeelYbz8B8WIQ2iCmcHEB5R4F1R/roztqMuyvU89uX/fNe/9t7N9m/kP2P7BCcALj90xsRK3tdycO9+67DIDl4lkZ6M6LmosDsEoOCeoISMHcEVzYCgOun24/cibt05i2X+YrmcHegHdDnhO0Y7xpOPZ7rsAXMGgXEf/BZCQ87CCK3kho6OfrKANnWvJgR5xFNPofCzMxQXEzwVaIZAjLwzgcOGaFmzcBekh3+WliG0v4npa5PxgEkYsDqxzP9tMv32WvQthwP+9BEdyjp5vVLGHXh7MBSnt2lvBE0HEIbRhpCBehKmH/VfpJwAAJn8uEGQRLeYlBjCKYlXEqCBNFdmfSu1n1ix72JkVT0xOzv/iv/3tbx/9x5AK/sEIwP6H71gxIXquSeeuiiR7s9XkUqOy0mDaYnuYTqYOCkQwdCJM79RzopDf03lAbWRrP6LqZfj29cGH6r/PAakfACFHWOMBrK/1nqUrniEgHIDpelQ7OI6fk+vqu6NPcV1Er3feeR+5SF70mCNOh+QsAqaXyHVsyWIEwA1Yu3ZKPRJmId3EMtw5YM7d33eQrAFNComjm7DkxJaCwPdz8kFjdTY3EDtk4Fl3jtEJj+LvNzmcCHg1QtWIgp1...);
+    background-size:contain;background-repeat:no-repeat;background-position:center;background-color:transparent;border:none;color:transparent;aspect-ratio:256/96;height:44px;width:auto;padding:0;border-radius:0
+  }
+  /* 修复后的新按钮(图标+文字,非高亮) */
+  .kid-wb .kid-btn.start2{color:var(--kaccent)}
+  .note{font-size:12px;color:#64748b;margin-top:10px;line-height:1.5}
+  code{background:#f1f5f9;padding:1px 5px;border-radius:5px;font-size:12px}
+</style>
+</head>
+<body>
+<h1>单项任务卡片「开启挑战」按钮 · 修改前 / 后对比</h1>
+<p class="sub">真实还原 跟随项目主题(theme-project) 下的按钮观感 · 修改位置 <code>src/pages/kidWorkspacePage.js</code> 任务卡渲染 <code>L1031</code></p>
+<div class="row">
+  <div class="card">
+    <span class="tag old">修改前</span>
+    <h2>图片按钮(透明底 + 背景图)</h2>
+    <div class="kid-wb theme-project">
+      <div class="kid-grid">
+        <div class="kid-task">
+          <div class="k-task-head">
+            <div class="k-task-ico">🏃</div>
+            <div class="k-task-titles"><span class="k-task-name">跳绳 200 个</span><span class="k-task-cat">身体锻炼</span></div>
+            <div class="k-task-badges"><span class="k-badge">未开始</span></div>
+          </div>
+          <div class="k-task-target">目标:<span class="k-unit-chip">200 分钟</span></div>
+          <div class="k-task-actions"><button class="kid-btn challenge"></button></div>
+        </div>
+      </div>
+    </div>
+    <div class="note">原 <code>.kid-btn.challenge</code>：直接铺一张 256×96 橙黄渐变胶囊背景图，无文字(文字在图里)，属于高亮视觉。</div>
+  </div>
+
+  <div class="card">
+    <span class="tag new">修改后 ✓</span>
+    <h2>图标 + 文字 · 非高亮按钮</h2>
+    <div class="kid-wb theme-project">
+      <div class="kid-grid">
+        <div class="kid-task">
+          <div class="k-task-head">
+            <div class="k-task-ico">🏃</div>
+            <div class="k-task-titles"><span class="k-task-name">跳绳 200 个</span><span class="k-task-cat">身体锻炼</span></div>
+            <div class="k-task-badges"><span class="k-badge">未开始</span></div>
+          </div>
+          <div class="k-task-target">目标:<span class="k-unit-chip">200 分钟</span></div>
+          <div class="k-task-actions"><button class="kid-btn start2"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 L16 8 H8 Z"/><path d="M8 8 H16 V18 H8 Z"/><path d="M8 12 H16"/><circle cx="12" cy="14" r="1.4"/><path d="M8 14 L5 18 V21 H8 Z"/><path d="M16 14 L19 18 V21 H16 Z"/><path d="M10 19 L9 22 M12 19 L12 23 M14 19 L15 22" stroke-width="1.4"/></svg> 开始挑战</button></div>
+        </div>
+      </div>
+    </div>
+    <div class="note">新按钮：普通 <code>.kid-btn</code>(浅底 <code>--kcard2</code> + 主文字 + 细边框，非高亮)，内置 <code>rocketSvg</code> 图标(随文字色) + 文字「开始挑战」。与「挑战成功」绿色按钮等高、同布局(flex:1 拉伸)。</div>
+  </div>
+</div>
+</body>
+</html>

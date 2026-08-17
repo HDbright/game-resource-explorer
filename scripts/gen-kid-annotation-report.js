@@ -54,6 +54,7 @@ function diamondSvg(s = 16) { return `<svg viewBox="0 0 24 24" width="${s}" heig
 function crownSvg(s = 16) { return `<svg viewBox="0 0 24 24" width="${s}" height="${s}"><path d="M3 8l4 4 5-6 5 6 4-4-2 10H5z" fill="#fbbf24" stroke="#d97706" stroke-width="1.3" stroke-linejoin="round"/><circle cx="8" cy="6.5" r="1.6" fill="#ec4899"/><circle cx="16" cy="6.5" r="1.6" fill="#22d3ee"/></svg>`; }
 function medalSvg(s = 16) { return `<svg viewBox="0 0 24 24" width="${s}" height="${s}"><circle cx="12" cy="14" r="7" fill="#fb923c" stroke="#ea580c" stroke-width="1.3"/><circle cx="12" cy="14" r="4.5" fill="#fff7ed"/><path d="M9 3l3 5 3-5-2 8h-2z" fill="#fbbf24" stroke="#d97706" stroke-width="1"/><path d="M8.5 2l2 4-1.5 1.5L6 5.5zM15.5 2l-2 4 1.5 1.5 3.5-2z" fill="#f59e0b"/></svg>`; }
 function starSvg(s = 16, fill = '#fbbf24') { return `<svg viewBox="0 0 24 24" width="${s}" height="${s}"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L3.3 9.3l6.1-.7z" fill="${fill}" stroke="#d97706" stroke-width="0.8" stroke-linejoin="round"/></svg>`; }
+function rocketSvg(s = 16) { return `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 L16 8 H8 Z"/><path d="M8 8 H16 V18 H8 Z"/><path d="M8 12 H16"/><circle cx="12" cy="14" r="1.4"/><path d="M8 14 L5 18 V21 H8 Z"/><path d="M16 14 L19 18 V21 H16 Z"/><path d="M10 19 L9 22 M12 19 L12 23 M14 19 L15 22" stroke-width="1.4"/></svg>`; }
 function expSvg(s = 16) { return `<svg viewBox="0 0 24 24" width="${s}" height="${s}"><path d="M13 2L4.5 13.5h5L8 22l8.5-11.5h-5L13 2z" fill="#a78bfa" stroke="#7c3aed" stroke-width="1" stroke-linejoin="round"/></svg>`; }
 function lockSvg(s = 14) { return `<svg viewBox="0 0 24 24" width="${s}" height="${s}"><rect x="5" y="10" width="14" height="10" rx="2.5" fill="var(--ktext3)"/><path d="M8 10V7a4 4 0 0 1 8 0v3" fill="none" stroke="var(--ktext3)" stroke-width="2.4"/></svg>`; }
 function rocketSvg(s = 16) { return `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 L16 8 H8 Z"/><path d="M8 8 H16 V18 H8 Z"/><line x1="8" y1="12" x2="16" y2="12"/><circle cx="12" cy="14" r="1.4"/><path d="M8 14 L5 18 V21 H8 Z"/><path d="M16 14 L19 18 V21 H16 Z"/><path d="M10 19 L9 22 M12 19 L12 23 M14 19 L15 22" stroke-width="1.4"/></svg>`; }
@@ -179,8 +180,8 @@ const COMP = [
   { id: '5.1.3', name: '徽章区 k-task-badges', code: 'L1044', role: '状态徽章(已完成/逾期/挑战中)' },
   { id: '5.2', name: '目标行 k-task-target', code: 'L1046', role: '目标数量 + 单位 chip' },
   { id: '5.2.1', name: '目标 chip k-unit-chip', code: 'L1046', role: '「目标 单位」胶囊' },
-  { id: '5.3', name: '操作区 k-task-actions', code: 'L1048', role: '开启挑战 / 移除 按钮(未开始态)' },
-  { id: '5.3.1', name: '开启挑战按钮', code: 'L1031', role: '图片按钮(未开始态,居中)' },
+  { id: '5.3', name: '操作区 k-task-actions', code: 'L1048', role: '开始挑战 / 移除 按钮(未开始态)' },
+  { id: '5.3.1', name: '开始挑战按钮', code: 'L1031', role: '图标+文字非高亮按钮(未开始态,rocket 图标 + 蓝色文字「开始挑战」)' },
   { id: '5.3.2', name: '移除按钮', code: 'L1031', role: '删除任务(仅家长模式显示)' },
   { id: '5.4', name: '提示 k-task-tips', code: 'L1049', role: '分类小贴士' },
   { id: '5.5', name: '底部 k-task-foot', code: 'L1050', role: '引导文案' },
@@ -373,9 +374,9 @@ const taskCardHtml = wrap('5', 'kid-task', `
     ${wrap('5.1.3', 'k-task-badges', `<span class="k-badge">未开始</span>`)}
   `)}
   ${wrap('5.2', 'k-task-target', `目标:${wrap('5.2.1', 'k-unit-chip', '200 分钟')}`)}
-  ${wrap('5.3', 'k-task-actions', `${wrap('5.3.1', 'kid-btn challenge', '')}${wrap('5.3.2', 'kid-btn', '✕ 移除')}`)}
+  ${wrap('5.3', 'k-task-actions', `${wrap('5.3.1', 'kid-btn', rocketSvg(14) + ' 开始挑战')}${wrap('5.3.2', 'kid-btn', '✕ 移除')}`)}
   ${wrap('5.4', 'k-task-tips', '💡 跳绳 200 个')}
-  ${wrap('5.5', 'k-task-foot', '点击「开启挑战」开始挑战')}
+  ${wrap('5.5', 'k-task-foot', '点击「开始挑战」按钮开始挑战')}
 `);
 const SCREEN2 = `<div class="device"><div class="kid-wb theme-project">
   ${wrap('4', 'kid-sec-head', `${wrap('4.1', 'kid-sec-title', '⚔️ 今日任务(1/2)')}<span class="kid-sec-sub">完成后请家长验收打星,获得金币和经验</span>`)}

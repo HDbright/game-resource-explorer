@@ -864,7 +864,7 @@ function renderTopbar() {
   bar.innerHTML = `
     <div class="kid-brand">
       <div class="kid-logo">${starSvg(24, '#fff')}</div>
-      <div class="kid-title">得乐学苑<small>${esc(S.name)} · ${lv.title}</small></div>
+      <div class="kid-title">${esc(S.name)}<small> . ${lv.title}</small></div>
     </div>
     <span class="kid-lv-pill" style="background:${lv.color}" title="当前等级:${esc(lv.title)}">★ Lv.${lv.lv}</span>
     <span class="kid-date">📅 ${fmtCn(Date.now())}</span>
@@ -1028,7 +1028,7 @@ function renderTaskCard(t) {
   if (!t.done) {
     actions = t.started
       ? `<div class="k-task-actions"><button class="kid-btn green" data-act="finish" data-id="${t.id}">${rocketSvg(14)} 挑战成功!</button><button class="kid-btn" data-act="reset" data-id="${t.id}">↺ 重来</button></div>`
-      : `<div class="k-task-actions"><button class="kid-btn challenge" data-act="start" data-id="${t.id}"></button>${S.parentMode ? `<button class="kid-btn" data-act="del" data-id="${t.id}">✕ 移除</button>` : ''}</div>`;
+      : `<div class="k-task-actions"><button class="kid-btn" data-act="start" data-id="${t.id}">${rocketSvg(14)} 开始挑战</button>${S.parentMode ? `<button class="kid-btn" data-act="del" data-id="${t.id}">✕ 移除</button>` : ''}</div>`;
   } else if (S.parentMode) {
     actions = `<div class="k-task-actions"><button class="kid-btn" data-act="undo" data-id="${t.id}" title="撤销完成并退回奖励(家长)">↺ 撤销(家长)</button></div>`;
   }
@@ -1047,7 +1047,7 @@ function renderTaskCard(t) {
     ${t.done ? rewardHtml : ''}
     ${actions}
     <div class="k-task-tips">💡 ${esc(tip)}</div>
-    <div class="k-task-foot">${carry ? `从昨天自动顺延到今天,坚持就是胜利!` : t.started ? '集中注意力,一鼓作气挑战到底!' : '点击「开启挑战」开始挑战'}</div>`;
+    <div class="k-task-foot">${carry ? `从昨天自动顺延到今天,坚持就是胜利!` : t.started ? '集中注意力,一鼓作气挑战到底!' : '点击「开始挑战」按钮开始挑战'}</div>`;
 
   card.addEventListener('click', (e) => {
     const b = e.target.closest('[data-act]');
