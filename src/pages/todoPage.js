@@ -710,21 +710,17 @@ function renderCalendar() {
     dayNum.className = 'todo-cal-day';
     dayNum.textContent = d.getDate();
     cell.appendChild(dayNum);
-    // 农历(带缓存) + 节气/节日
+    // 农历(带缓存):只显示「日」(2 字,初一/廿五/三十),节日或节气时改显节日/节气名(同区域 1 行,悬停 title 看完整月日)
     const cacheKey = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
     let info = calDateCache.get(cacheKey);
     if (!info) { info = getLunarInfo(d.getFullYear(), d.getMonth() + 1, d.getDate()); calDateCache.set(cacheKey, info); }
+    const lunarDay = formatLunarDay(info.lunarDay);
+    const festTxt = info.holiday || info.term || '';
     const lunarEl = document.createElement('div');
-    lunarEl.className = 'todo-cal-lunar';
-    lunarEl.textContent = info.lunarText;
-    lunarEl.title = T('evLunarTip');
+    lunarEl.className = 'todo-cal-lunar' + (festTxt ? ' todo-cal-lunar-fest' : '');
+    lunarEl.textContent = festTxt || lunarDay;
+    lunarEl.title = '农历' + formatLunarMonth(info.lunarMonth, info.isLeapMonth) + lunarDay + (info.term ? ' · ' + info.term : '') + (info.holiday ? ' · ' + info.holiday : '');
     cell.appendChild(lunarEl);
-    if (info.holiday || info.term) {
-      const festEl = document.createElement('div');
-      festEl.className = 'todo-cal-fest';
-      festEl.textContent = info.holiday || info.term;
-      cell.appendChild(festEl);
-    }
     // 日历事件 chips(类型图标+标题;点击查看/编辑,右键菜单)
     const dayEvents = eventMap.get(dayKey) || [];
     dayEvents.slice(0, 3).forEach((ev) => {
@@ -859,7 +855,7 @@ function renderEventModal() {
   const dateInput = box.querySelector('[data-ev-date]');
   const lunarEl = box.querySelector('[data-ev-lunar]');
   const isLunarMode = () => draft.type === 'birthday' && draft.calendar === 'lunar';
-  // 农历提示:公历模式 = 所选公历日对应的农历;农历生日模式 = 输入框 MM-DD 即农历月日,直接格式化
+  // 农历提示:与日历格子风格统一只显示「日」(2 字:初五/廿五/三十),title 显示完整月+日与节气/节日
   const paintLunar = () => {
     const v = dateInput.value;
     if (!v) { lunarEl.textContent = ''; lunarEl.title = ''; return; }
@@ -867,12 +863,13 @@ function renderEventModal() {
     if (p.length !== 3 || !p[0] || !p[1] || !p[2]) { lunarEl.textContent = ''; lunarEl.title = ''; return; }
     try {
       if (isLunarMode()) {
-        lunarEl.textContent = '农历' + formatLunarMonth(p[1], false) + formatLunarDay(p[2]);
-        lunarEl.title = '';
+        lunarEl.textContent = '农历' + formatLunarDay(p[2]);
+        lunarEl.title = '农历' + formatLunarMonth(p[1], false) + formatLunarDay(p[2]);
       } else {
         const li = getLunarInfo(p[0], p[1], p[2]);
-        lunarEl.textContent = '农历' + li.lunarText;
-        lunarEl.title = [li.term, li.holiday].filter(Boolean).join(' ');
+        lunarEl.textContent = '农历' + formatLunarDay(li.lunarDay);
+        lunarEl.title = '农历' + formatLunarMonth(li.lunarMonth, li.isLeapMonth) + formatLunarDay(li.lunarDay)
+          + (li.term ? ' · ' + li.term : '') + (li.holiday ? ' · ' + li.holiday : '');
       }
     } catch (e) { lunarEl.textContent = ''; lunarEl.title = ''; }
   };
