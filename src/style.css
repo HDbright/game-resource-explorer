@@ -2794,6 +2794,7 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .todo-sub-chip.done { background: rgba(34,197,94,.12); border-color: rgba(34,197,94,.3); color: #22c55e; }
 .todo-sub-chip-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
 .todo-sub-chip.done .todo-sub-chip-text { text-decoration: line-through; }
+.todo-sub-chip-date { font-size: 9px; color: #22c55e; opacity: .85; margin-left: 2px; flex-shrink: 0; }
 .todo-card-sub-bar { display: flex; align-items: center; gap: 6px; }
 .todo-card-sub-track { flex: 1; height: 2px; background: var(--border); border-radius: 2px; max-width: 80px; }
 .todo-card-sub-fill { height: 100%; background: #22c55e; border-radius: 2px; transition: width .3s; }
@@ -2803,8 +2804,15 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .todo-deadline { font-size: 11px; color: var(--text2); font-weight: 400; }
 .todo-deadline.overdue { color: #ef4444; font-weight: 600; }
 .todo-deadline.warn { color: #f59e0b; font-weight: 600; }
+.todo-done-at { font-size: 11px; color: #22c55e; font-weight: 500; }
 .todo-card-actions { display: flex; align-items: center; gap: 3px; opacity: 0; transition: opacity .15s; flex-shrink: 0; }
 .todo-card:hover .todo-card-actions { opacity: 1; }
+.todo-sub-notes { flex: 1; min-width: 80px; font-size: 11px; height: 24px; padding: 2px 6px; }
+.todo-events { display: flex; flex-direction: column; gap: 10px; }
+.todo-events-list { display: flex; flex-direction: column; gap: 8px; }
+.todo-event-row { display: flex; align-items: center; gap: 8px; }
+.todo-event-at { flex: 0 0 190px; max-width: 190px; }
+.todo-event-text { flex: 1; }
 .todo-icon-btn { width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; font-size: 13px; cursor: pointer; background: var(--bg4); border: 1px solid var(--border); color: var(--text2); padding: 0; }
 .todo-icon-btn:hover { background: var(--bg); color: var(--text); }
 .todo-icon-btn.danger { color: #ef4444; }
@@ -2900,9 +2908,15 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .todo-detail-value { font-size: 13px; font-weight: 600; }
 .todo-detail-section { margin-bottom: 14px; }
 .todo-detail-notes { font-size: 13px; color: var(--text2); line-height: 1.7; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; white-space: pre-wrap; word-break: break-word; }
-.todo-detail-sub { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.todo-detail-sub { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; flex-wrap: wrap; }
 .todo-detail-sub span { flex: 1; overflow-wrap: break-word; }
 .todo-detail-sub span.done { color: var(--text2); text-decoration: line-through; }
+.todo-detail-sub-notes { flex-basis: 100% !important; font-size: 11px; color: var(--text2); }
+.todo-detail-sub-date { flex-basis: 100% !important; font-size: 10px; color: #22c55e; opacity: .85; }
+.todo-detail-events { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.todo-detail-event { display: flex; gap: 10px; font-size: 12px; padding: 4px 8px; background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; }
+.todo-detail-event-time { color: var(--accent); font-weight: 600; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.todo-detail-event-text { color: var(--text2); overflow-wrap: break-word; }
 .todo-detail-foot { font-size: 11px; color: var(--text2); margin-top: 14px; }
 
 /* 项目面板 */

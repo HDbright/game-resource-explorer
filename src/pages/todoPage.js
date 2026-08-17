@@ -61,6 +61,11 @@ const LANGS = {
     progress: '进度', addStepPh: '添加一个步骤…', dragToReorder: '拖拽排序',
     moveUp: '上移', moveDown: '下移', doubleClickRename: '双击重命名', del: '删除',
     toggleSubtasks: '折叠/展开子任务',
+    // 开始/完成时间 + 子任务备注 + 事件日志
+    startAtLabel: '开始时间', completeAtLabel: '完成时间',
+    subNotesLabel: '子任务备注', subNotesPh: '子任务补充说明…',
+    eventsTab: '任务事件', addEvent: '添加事件', eventTextPh: '事件内容…', noEvents: '暂无任务事件',
+    subDoneAt: '完成于', eventsSection: '任务事件',
     // 详情
     copy: '复制', copyTitle: '复制任务摘要', copied: '已复制到剪贴板', copyFailed: '复制失败',
     overduePrefix: '已逾期 · ', descLabel: '描述', createdOn: '创建于 {0}', updatedOn: '更新于 {0}',
@@ -91,7 +96,7 @@ const LANGS = {
     unknownError: '未知错误',
     // CSV 表头
     csvId: 'ID', csvTitle: '标题', csvNotes: '备注', csvPriority: '优先级', csvStatus: '状态',
-    csvDeadline: '截止日期', csvTags: '标签', csvProject: '项目', csvSubtasks: '子任务', csvCreated: '创建日期',
+    csvDeadline: '截止日期', csvStartAt: '开始时间', csvCompleteAt: '完成时间', csvTags: '标签', csvProject: '项目', csvSubtasks: '子任务', csvCreated: '创建日期',
   },
   en: {
     title: 'Todo-List Task Manager', completed: 'Completed {0}/{1}',
@@ -136,6 +141,10 @@ const LANGS = {
     progress: 'Progress', addStepPh: 'Add a step…', dragToReorder: 'Drag to reorder',
     moveUp: 'Move up', moveDown: 'Move down', doubleClickRename: 'Double-click to edit', del: 'Delete',
     toggleSubtasks: 'Toggle subtasks',
+    startAtLabel: 'Start time', completeAtLabel: 'Complete time',
+    subNotesLabel: 'Subtask notes', subNotesPh: 'Subtask details…',
+    eventsTab: 'Task Events', addEvent: 'Add Event', eventTextPh: 'Event content…', noEvents: 'No task events yet',
+    subDoneAt: 'Done on', eventsSection: 'Task Events',
     copy: 'Copy', copyTitle: 'Copy task summary', copied: 'Copied to clipboard', copyFailed: 'Copy failed',
     overduePrefix: 'Overdue · ', descLabel: 'Description', createdOn: 'Created {0}', updatedOn: 'Updated {0}',
     taskNotFound: 'Task not found', priPrefix: 'Priority:{0} | Status:{1}', projectPrefix: 'Project:{0}',
@@ -161,7 +170,7 @@ const LANGS = {
     noImportable: 'No importable tasks', untitledTask: 'Untitled Task', untitledStep: 'Untitled step',
     unknownError: 'Unknown error',
     csvId: 'ID', csvTitle: 'Title', csvNotes: 'Notes', csvPriority: 'Priority', csvStatus: 'Status',
-    csvDeadline: 'Deadline', csvTags: 'Tags', csvProject: 'Project', csvSubtasks: 'Subtasks', csvCreated: 'Created',
+    csvDeadline: 'Deadline', csvStartAt: 'Start Time', csvCompleteAt: 'Complete Time', csvTags: 'Tags', csvProject: 'Project', csvSubtasks: 'Subtasks', csvCreated: 'Created',
   },
 };
 function T(key, ...args) {
@@ -238,6 +247,27 @@ function dateInputToTs(s) {
   if (!s) return null;
   const [y, m, d] = s.split('-').map(Number);
   return Math.floor(new Date(y, m - 1, d).getTime() / 1000);
+}
+/** 秒时间戳 → datetime-local 输入值(YYYY-MM-DDTHH:MM,本地时区) */
+function tsToDateTimeLocal(ts) {
+  if (!ts) return '';
+  const d = new Date(ts * 1000);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+/** datetime-local 值 → 秒时间戳(本地时区) */
+function dateTimeLocalToTs(s) {
+  if (!s) return null;
+  const t = new Date(s).getTime();
+  return isNaN(t) ? null : Math.floor(t / 1000);
+}
+/** 秒时间戳 → 完整日期时间(YYYY-MM-DD HH:MM) */
+function fmtDateTime(ts) {
+  if (!ts) return '';
+  const d = new Date(ts * 1000);
+  const p = (n) => String(n).padStart(2, '0');
+  if (lang === 'zh') return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  return `${MONTHS_EN[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 function fmtShortDate(ts) {
   const d = new Date(ts * 1000);
@@ -1213,6 +1243,8 @@ function renderTaskCard(task, compact = false) {
   const proj = task.projectId ? projectById(task.projectId) : null;
   const subs = task.subtasks || [];
   const doneSubs = subs.filter((s) => s.done).length;
+  // 未完成在前、已完成置灰排在后面
+  const orderedSubs = [...subs].sort((a, b) => (a.done ? 1 : 0) - (b.done ? 1 : 0));
   const dl = deadlineInfo(task);
 
   let html = `
@@ -1238,9 +1270,9 @@ function renderTaskCard(task, compact = false) {
         </button>
         <div class="todo-card-sub-body">
           <div class="todo-card-sub-chips">
-            ${subs.slice(0, 8).map((s) => `
-              <button class="todo-sub-chip${s.done ? ' done' : ''}" data-t="sub" data-sub="${s.id}" title="${escHtml(s.title)}">
-                <span>${s.done ? '✅' : '⬜'}</span><span class="todo-sub-chip-text">${escHtml(s.title)}</span>
+            ${orderedSubs.slice(0, 8).map((s) => `
+              <button class="todo-sub-chip${s.done ? ' done' : ''}" data-t="sub" data-sub="${s.id}" title="${escHtml(s.title)}${s.doneAt ? ' · ' + T('subDoneAt') + ' ' + fmtDateTime(s.doneAt) : ''}">
+                <span>${s.done ? '✅' : '⬜'}</span><span class="todo-sub-chip-text">${escHtml(s.title)}</span>${s.done && s.doneAt ? `<span class="todo-sub-chip-date">${fmtShortDate(s.doneAt)}</span>` : ''}
               </button>`).join('')}
           </div>
           <div class="todo-card-sub-bar">
@@ -1255,6 +1287,7 @@ function renderTaskCard(task, compact = false) {
         <div class="todo-card-meta">
           ${task.tags.slice(0, 3).map((tag) => `<span class="todo-tag-chip">${escHtml(tag)}</span>`).join('')}
           ${dl ? `<span class="todo-deadline${dl.overdue ? ' overdue' : ''}${dl.warn ? ' warn' : ''}">${dl.overdue ? '⚠ ' : '📅 '}${dl.text}</span>` : ''}
+          ${task.status === 'done' && task.completeAt ? `<span class="todo-done-at">🏁 ${T('subDoneAt')} ${fmtDateTime(task.completeAt)}</span>` : ''}
         </div>
       </div>
       <div class="todo-card-actions">
@@ -1306,6 +1339,7 @@ function openDetail(id) { detailTaskId = id; render(); }
 function cycleStatus(task) {
   const next = STATUS_CYCLE[task.status];
   task.status = next;
+  if (next === 'done' && !task.completeAt) task.completeAt = now();
   task.updatedAt = now();
   saveState();
   render();
@@ -1321,6 +1355,8 @@ async function toggleSubtask(task, subId) {
   const s = (task.subtasks || []).find((x) => x.id === subId);
   if (!s) return;
   s.done = !s.done;
+  if (s.done && !s.doneAt) s.doneAt = now();
+  if (!s.done) s.doneAt = null;
   saveState();
   render();
 }
@@ -1360,6 +1396,7 @@ function renderTaskModal() {
       <div class="todo-modal-tabs">
         <button class="todo-tab-btn on" data-tab="details">${T('tabDetails')}</button>
         <button class="todo-tab-btn" data-tab="subtasks">${T('tabSubtasks')}${task && task.subtasks.length ? ` (${task.subtasks.filter((s) => s.done).length}/${task.subtasks.length})` : ''}</button>
+        <button class="todo-tab-btn" data-tab="events">${T('eventsTab')}${task && (task.events || []).length ? ` (${task.events.length})` : ''}</button>
       </div>
       <button class="todo-icon-btn" data-close title="${T('close')}">✕</button>
     </div>
@@ -1377,11 +1414,14 @@ function renderTaskModal() {
     priority: task ? task.priority : 'medium',
     status: task ? task.status : 'todo',
     deadline: task && task.deadline ? tsToDateInput(task.deadline) : '',
+    startAt: task && task.startAt ? tsToDateTimeLocal(task.startAt) : '',
+    completeAt: task && task.completeAt ? tsToDateTimeLocal(task.completeAt) : '',
     projectId: task ? task.projectId : '',
     tags: task ? [...task.tags] : [],
     tagInput: '',
     subtaskInput: '',
     subtasks: task ? task.subtasks.map((s) => ({ ...s })) : [],
+    events: task ? (task.events || []).map((e) => ({ ...e })) : [],
   };
 
   const bodyEl = box.querySelector('[data-body]');
@@ -1412,6 +1452,12 @@ function renderTaskModal() {
         </div>
         <div class="todo-field"><label class="todo-label">${T('deadlineLabel')}</label>
           <input class="todo-input" type="date" data-d="deadline" value="${draft.deadline}"></div>
+        <div class="todo-field-row">
+          <div class="todo-field" style="flex:1"><label class="todo-label">${T('startAtLabel')}</label>
+            <input class="todo-input" type="datetime-local" data-d="startAt" value="${draft.startAt}"></div>
+          <div class="todo-field" style="flex:1"><label class="todo-label">${T('completeAtLabel')}</label>
+            <input class="todo-input" type="datetime-local" data-d="completeAt" value="${draft.completeAt}"></div>
+        </div>
         <div class="todo-field"><label class="todo-label">${T('tagsLabel')}</label>
           <div class="todo-tags-edit">${draft.tags.map((tag) => `
             <span class="todo-tag-chip removable">${escHtml(tag)}<button class="todo-tag-x" data-del-tag="${escHtml(tag)}">✕</button></span>`).join('')}</div>
@@ -1425,6 +1471,8 @@ function renderTaskModal() {
       bodyEl.querySelector('[data-d="status"]').addEventListener('change', (e) => { draft.status = e.target.value; });
       bodyEl.querySelector('[data-d="projectId"]').addEventListener('change', (e) => { draft.projectId = e.target.value; });
       bodyEl.querySelector('[data-d="deadline"]').addEventListener('change', (e) => { draft.deadline = e.target.value; });
+      bodyEl.querySelector('[data-d="startAt"]').addEventListener('change', (e) => { draft.startAt = e.target.value; });
+      bodyEl.querySelector('[data-d="completeAt"]').addEventListener('change', (e) => { draft.completeAt = e.target.value; });
       bodyEl.querySelector('[data-d="tagInput"]').addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addDraftTag(); }
       });
@@ -1443,7 +1491,7 @@ function renderTaskModal() {
         if (v && !draft.tags.includes(v)) draft.tags.push(v);
         inp.value = '';
       }
-    } else {
+    } else if (tab === 'subtasks') {
       // 子任务 tab
       const subs = draft.subtasks;
       bodyEl.innerHTML = `
@@ -1473,6 +1521,7 @@ function renderTaskModal() {
             </div>
             <button class="todo-status-btn" data-sub-toggle="${s.id}" style="border-color:${s.done ? '#22c55e' : 'var(--border)'};color:${s.done ? '#22c55e' : 'var(--text2)'}">${s.done ? '✅' : '⬜'}</button>
             <span class="todo-sub-title${s.done ? ' done' : ''}" data-sub-rename="${s.id}" title="${T('doubleClickRename')}">${escHtml(s.title)}</span>
+            <input class="todo-input todo-sub-notes" data-sub-notes="${s.id}" placeholder="${T('subNotesPh')}" value="${escHtml(s.notes || '')}">
             <button class="todo-icon-btn" data-sub-del="${s.id}" title="${T('del')}">✕</button>`;
           row.addEventListener('dragstart', (e) => {
             e.dataTransfer.effectAllowed = 'move';
@@ -1496,8 +1545,14 @@ function renderTaskModal() {
           const del = e.target.closest('[data-sub-del]');
           if (up) moveSubtask(Number(up.dataset.subUp), -1);
           else if (down) moveSubtask(Number(down.dataset.subDown), 1);
-          else if (tog) { const s = subs.find((x) => x.id === tog.dataset.subToggle); if (s) { s.done = !s.done; renderBody(); } }
+          else if (tog) { const s = subs.find((x) => x.id === tog.dataset.subToggle); if (s) { s.done = !s.done; if (s.done && !s.doneAt) s.doneAt = now(); if (!s.done) s.doneAt = null; renderBody(); } }
           else if (del) { const id = del.dataset.subDel; draft.subtasks = subs.filter((x) => x.id !== id); renderBody(); }
+        });
+        listEl.addEventListener('input', (e) => {
+          const ne = e.target.closest('[data-sub-notes]');
+          if (!ne) return;
+          const s = subs.find((x) => x.id === ne.dataset.subNotes);
+          if (s) s.notes = ne.value;
         });
         listEl.addEventListener('dblclick', (e) => {
           const sp = e.target.closest('[data-sub-rename]');
@@ -1529,10 +1584,48 @@ function renderTaskModal() {
         const inp = bodyEl.querySelector('[data-sub-input]');
         const v = inp.value.trim();
         if (!v) return;
-        draft.subtasks.push({ id: uid('s'), title: v, done: false, sort: draft.subtasks.length, createdAt: now() });
+        draft.subtasks.push({ id: uid('s'), title: v, done: false, sort: draft.subtasks.length, notes: '', doneAt: null, createdAt: now() });
         inp.value = '';
         renderBody();
       }
+    } else if (tab === 'events') {
+      // 任务事件(时间戳日志)
+      const evs = draft.events;
+      const sorted = [...evs].sort((a, b) => (b.at || 0) - (a.at || 0));
+      bodyEl.innerHTML = `
+        <div class="todo-events">
+          ${sorted.length ? `
+            <div class="todo-events-list">
+              ${sorted.map((ev) => `
+                <div class="todo-event-row" data-ev="${ev.id}">
+                  <input type="datetime-local" class="todo-input todo-event-at" data-ev-at="${ev.id}" value="${tsToDateTimeLocal(ev.at)}" title="${T('startAtLabel')}">
+                  <input class="todo-input todo-event-text" data-ev-text="${ev.id}" placeholder="${T('eventTextPh')}" value="${escHtml(ev.text || '')}">
+                  <button class="todo-icon-btn" data-ev-del="${ev.id}" title="${T('del')}">✕</button>
+                </div>`).join('')}
+            </div>` : `<div class="todo-empty-desc">${T('noEvents')}</div>`}
+          <button class="btn" data-add-event>+ ${T('addEvent')}</button>
+        </div>`;
+      bodyEl.querySelectorAll('[data-ev-at]').forEach((el) => el.addEventListener('change', (e) => {
+        const ev = draft.events.find((x) => x.id === e.target.dataset.evAt);
+        if (ev) ev.at = dateTimeLocalToTs(e.target.value) || now();
+      }));
+      bodyEl.querySelectorAll('[data-ev-text]').forEach((el) => el.addEventListener('input', (e) => {
+        const ev = draft.events.find((x) => x.id === e.target.dataset.evText);
+        if (ev) ev.text = e.target.value;
+      }));
+      bodyEl.querySelectorAll('[data-ev-del]').forEach((el) => el.addEventListener('click', (e) => {
+        const id = e.target.dataset.evDel;
+        draft.events = draft.events.filter((x) => x.id !== id);
+        renderBody();
+      }));
+      const addBtn = bodyEl.querySelector('[data-add-event]');
+      if (addBtn) addBtn.addEventListener('click', () => {
+        const ev = { id: uid('e'), at: now(), text: '', createdAt: now() };
+        draft.events.push(ev);
+        renderBody();
+        const inp = bodyEl.querySelector(`[data-ev-text="${ev.id}"]`);
+        if (inp) { inp.focus(); }
+      });
     }
   }
   function reorderSubtasks(dragId, targetId) {
@@ -1561,12 +1654,15 @@ function renderTaskModal() {
   function save() {
     const title = draft.title.trim();
     if (!title) { toast(T('titleRequired'), 'warn'); return; }
+    const startAt = dateTimeLocalToTs(draft.startAt);
+    let completeAt = dateTimeLocalToTs(draft.completeAt);
+    if (draft.status === 'done' && !completeAt) completeAt = now();
     if (isNew) {
       const t = {
         id: uid('t'), title,
         notes: draft.notes, notesHtml: draft.notes,
         priority: draft.priority, status: draft.status,
-        deadline: dateInputToTs(draft.deadline), reminderAt: null,
+        deadline: dateInputToTs(draft.deadline), startAt, completeAt, events: draft.events, reminderAt: null,
         sort: liveTasks().length, tags: draft.tags,
         projectId: draft.projectId, recurRule: '',
         archived: false, subtasks: draft.subtasks, createdAt: now(), updatedAt: now(),
@@ -1576,7 +1672,7 @@ function renderTaskModal() {
       Object.assign(task, {
         title, notes: draft.notes, notesHtml: draft.notes,
         priority: draft.priority, status: draft.status,
-        deadline: dateInputToTs(draft.deadline),
+        deadline: dateInputToTs(draft.deadline), startAt, completeAt, events: draft.events,
         tags: draft.tags, projectId: draft.projectId,
         subtasks: draft.subtasks, updatedAt: now(),
       });
@@ -1641,6 +1737,18 @@ function renderDetailPanel() {
           <div><div class="todo-detail-label">${T('deadlineLabel')}</div>
           <div class="todo-detail-value" style="color:${dl.overdue ? '#ef4444' : dl.warn ? '#f59e0b' : 'var(--text2)'}">${dl.overdue ? T('overduePrefix') : ''}${fmtFullDate(task.deadline)}</div></div>
         </div>` : ''}
+      ${task.startAt ? `
+        <div class="todo-detail-deadline">
+          <span>🚀</span>
+          <div><div class="todo-detail-label">${T('startAtLabel')}</div>
+          <div class="todo-detail-value">${fmtDateTime(task.startAt)}</div></div>
+        </div>` : ''}
+      ${task.completeAt ? `
+        <div class="todo-detail-deadline">
+          <span>🏁</span>
+          <div><div class="todo-detail-label">${T('completeAtLabel')}</div>
+          <div class="todo-detail-value">${fmtDateTime(task.completeAt)}</div></div>
+        </div>` : ''}
       ${task.tags.length ? `
         <div class="todo-detail-section">
           <div class="todo-detail-label">${T('tagsLabel')}</div>
@@ -1659,7 +1767,20 @@ function renderDetailPanel() {
             <div class="todo-detail-sub">
               <button class="todo-status-btn" data-act="sub" data-sub="${s.id}" style="border-color:${s.done ? '#22c55e' : 'var(--border)'};color:${s.done ? '#22c55e' : 'var(--text2)'}">${s.done ? '✅' : '⬜'}</button>
               <span class="${s.done ? 'done' : ''}">${escHtml(s.title)}</span>
+              ${s.notes ? `<span class="todo-detail-sub-notes">📝 ${escHtml(s.notes)}</span>` : ''}
+              ${s.doneAt ? `<span class="todo-detail-sub-date">${T('subDoneAt')} ${fmtDateTime(s.doneAt)}</span>` : ''}
             </div>`).join('')}
+        </div>` : ''}
+      ${(task.events || []).length ? `
+        <div class="todo-detail-section">
+          <div class="todo-detail-label">${T('eventsSection')}</div>
+          <div class="todo-detail-events">
+            ${[...task.events].sort((a, b) => (b.at || 0) - (a.at || 0)).map((ev) => `
+              <div class="todo-detail-event">
+                <span class="todo-detail-event-time">${fmtDateTime(ev.at)}</span>
+                <span class="todo-detail-event-text">${escHtml(ev.text || '')}</span>
+              </div>`).join('')}
+          </div>
         </div>` : ''}
       <div class="todo-detail-foot">${T('createdOn', fmtFullDate(task.createdAt))}${task.updatedAt !== task.createdAt ? ` · ${T('updatedOn', fmtFullDate(task.updatedAt))}` : ''}</div>
     </div>`;
@@ -1677,9 +1798,12 @@ function renderDetailPanel() {
       const lines = [`📋 ${task.title}`, T('priPrefix', priLabel(task.priority), stLabel(task.status)),
         proj ? T('projectPrefix', proj.name) : null,
         dl ? T('deadlinePrefix', fmtFullDate(task.deadline)) : null,
+        task.startAt ? `🚀 ${T('startAtLabel')}: ${fmtDateTime(task.startAt)}` : null,
+        task.completeAt ? `🏁 ${T('completeAtLabel')}: ${fmtDateTime(task.completeAt)}` : null,
         task.tags.length ? T('tagsPrefix', task.tags.join(', ')) : null,
         task.notes ? `\n${task.notes}` : null,
-        subs.length ? `\n${T('subtasksPrefix', doneSubs, subs.length)}\n${subs.map((s) => `  ${s.done ? '✓' : '○'} ${s.title}`).join('\n')}` : null,
+        subs.length ? `\n${T('subtasksPrefix', doneSubs, subs.length)}\n${subs.map((s) => `  ${s.done ? '✓' : '○'} ${s.title}${s.doneAt ? ` (${fmtDateTime(s.doneAt)})` : ''}`).join('\n')}` : null,
+        (task.events || []).length ? `\n${T('eventsSection')}:\n${[...task.events].sort((a, b) => (a.at || 0) - (b.at || 0)).map((ev) => `  ${fmtDateTime(ev.at)} ${ev.text || ''}`).join('\n')}` : null,
       ].filter(Boolean).join('\n');
       navigator.clipboard.writeText(lines).then(() => toast(T('copied'), 'ok')).catch(() => toast(T('copyFailed'), 'warn'));
     }
@@ -1829,15 +1953,17 @@ async function exportTasks(type) {
   let defaultName = '';
   let filtersArr = [];
   if (type === 'csv') {
-    const headers = [T('csvId'), T('csvTitle'), T('csvNotes'), T('csvPriority'), T('csvStatus'), T('csvDeadline'), T('csvTags'), T('csvProject'), T('csvSubtasks'), T('csvCreated')];
+    const headers = [T('csvId'), T('csvTitle'), T('csvNotes'), T('csvPriority'), T('csvStatus'), T('csvDeadline'), T('csvStartAt'), T('csvCompleteAt'), T('csvTags'), T('csvProject'), T('csvSubtasks'), T('csvCreated')];
     const rows = tasks.map((t) => {
       const proj = t.projectId ? (projectById(t.projectId)?.name || '') : '';
       const csv = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
       return [
         t.id, csv(t.title), csv(t.notes), t.priority, t.status,
         t.deadline ? tsToDateInput(t.deadline) : '',
+        t.startAt ? tsToDateTimeLocal(t.startAt) : '',
+        t.completeAt ? tsToDateTimeLocal(t.completeAt) : '',
         csv(t.tags.join(', ')), csv(proj),
-        csv((t.subtasks || []).map((s) => `${s.done ? '[x]' : '[ ]'} ${s.title}`).join('; ')),
+        csv((t.subtasks || []).map((s) => `${s.done ? '[x]' : '[ ]'} ${s.title}${s.doneAt ? ` @${fmtDateTime(s.doneAt)}` : ''}`).join('; ')),
         t.createdAt ? tsToDateInput(t.createdAt) : '',
       ].join(',');
     });
@@ -1925,16 +2051,24 @@ async function importTasks() {
     const rawPid = t.projectId != null ? t.projectId : t.project_id;
     if (rawPid != null && projMap.has(String(rawPid))) projectId = projMap.get(String(rawPid));
     const rawSubs = Array.isArray(t.subtasks) ? t.subtasks.filter((s) => s && typeof s === 'object') : [];
+    const startAt = typeof t.startAt === 'number' ? t.startAt : (t.start_at != null ? parseDeadline(t.start_at) : null);
+    const completeAt = typeof t.completeAt === 'number' ? t.completeAt : (t.complete_at != null ? parseDeadline(t.complete_at) : null);
+    const events = Array.isArray(t.events) ? t.events.filter((e) => e && typeof e === 'object').map((e) => ({
+      id: uid('e'), at: typeof e.at === 'number' ? e.at : (e.at != null ? parseDeadline(e.at) : now()),
+      text: typeof e.text === 'string' ? e.text : '', createdAt: now(),
+    })) : [];
     const taskId = uid('t');
     state.todoTasks.push({
       id: taskId, title,
       notes: typeof t.notes === 'string' ? t.notes : '',
       notesHtml: typeof t.notesHtml === 'string' ? t.notesHtml : (typeof t.notes_html === 'string' ? t.notes_html : (typeof t.notes === 'string' ? t.notes : '')),
-      priority, status, deadline, reminderAt: null,
+      priority, status, deadline, startAt, completeAt, events, reminderAt: null,
       sort: baseSort + i, tags, projectId, recurRule: '', archived: false,
       subtasks: rawSubs.map((s, j) => ({
         id: uid('s'), taskId, title: (typeof s.title === 'string' && s.title.trim()) ? s.title.trim() : T('untitledStep'),
         done: !!s.done, sort: j, createdAt: now(),
+        notes: typeof s.notes === 'string' ? s.notes : '',
+        doneAt: typeof s.doneAt === 'number' ? s.doneAt : (s.done ? now() : null),
       })),
       createdAt: now(), updatedAt: now(),
     });

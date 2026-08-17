@@ -231,6 +231,24 @@ app.whenReady().then(async () => {
       check('新建后卡片=3', o.cardCount === 3, 'count=' + o.cardCount);
       check('新任务可见', o.newVisible === true);
 
+      // 4.1) 编辑模态框含开始/完成时间 + 事件 tab(打开任一任务)
+      o = await js('edittimefields', `(async () => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const card = document.querySelector('.todo-card[data-task-id="${TASK_A}"]');
+        if (!card) return { err: 'card missing' };
+        const editBtn = card.querySelector('[data-t="edit"]');
+        if (editBtn) { editBtn.click(); await sleep(300); }
+        const hasStart = !!document.querySelector('.todo-modal [data-d="startAt"]');
+        const hasComplete = !!document.querySelector('.todo-modal [data-d="completeAt"]');
+        const hasEventsTab = !!document.querySelector('.todo-modal [data-tab="events"]');
+        const closeBtn = document.querySelector('.todo-modal [data-close]');
+        if (closeBtn) { closeBtn.click(); await sleep(200); }
+        return { hasStart, hasComplete, hasEventsTab };
+      })()`);
+      check('编辑框含开始时间', o.hasStart === true, o.err || '');
+      check('编辑框含完成时间', o.hasComplete === true, o.err || '');
+      check('编辑框含事件tab', o.hasEventsTab === true, o.err || '');
+
       // 5) 看板视图
       o = await js('kanban', `(async () => {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
