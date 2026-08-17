@@ -1041,7 +1041,7 @@ function renderEventModal() {
   const ov = document.createElement('div');
   ov.className = 'todo-overlay';
   const box = document.createElement('div');
-  box.className = 'todo-modal';
+  box.className = 'todo-modal todo-modal-ev';
   const dateStr = existing ? existing.date : (eventModal && eventModal.date ? eventModal.date : '');
   const close = () => { eventModal = null; render(); };
   box.innerHTML = `
@@ -1076,7 +1076,7 @@ function renderDayEventsModal() {
   const ov = document.createElement('div');
   ov.className = 'todo-overlay';
   const box = document.createElement('div');
-  box.className = 'todo-modal';
+  box.className = 'todo-modal todo-modal-ev';
   const close = () => { dayEventsModal = null; dayEvTab = 'list'; render(); };
   const head = document.createElement('div');
   head.className = 'todo-modal-head';
