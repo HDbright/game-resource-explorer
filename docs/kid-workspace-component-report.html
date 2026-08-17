@@ -1,0 +1,721 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>得乐学苑 · 组件标注报告</title>
+<style>
+  :root{--bg:#f4f6fb;--panel:#ffffff;--ink:#1f2330;--sub:#5b6172;--line:#e3e6f0;--accent:#4f7cff;--hot:#ff4d4f}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,sans-serif;background:var(--bg);color:var(--ink);line-height:1.55}
+  header.top{background:linear-gradient(135deg,#4f7cff,#8b5cf6);color:#fff;padding:22px 26px}
+  header.top h1{margin:0 0 6px;font-size:22px;letter-spacing:.5px}
+  header.top p{margin:0;opacity:.92;font-size:13px}
+  .wrap{max-width:1180px;margin:0 auto;padding:18px;display:grid;grid-template-columns:1fr 360px;gap:18px}
+  @media(max-width:1000px){.wrap{grid-template-columns:1fr}}
+  .col-main{min-width:0}
+  .col-side{position:sticky;top:14px;align-self:start;max-height:calc(100vh - 28px);overflow:auto}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:16px;box-shadow:0 4px 16px rgba(20,30,60,.05)}
+  .panel h2{margin:0 0 4px;font-size:17px}
+  .panel .hint{margin:0 0 12px;font-size:12px;color:var(--sub)}
+  .device{border:1px solid #d0d5e0;border-radius:14px;padding:10px;background:#fff;box-shadow:0 6px 20px rgba(20,30,60,.07);overflow:hidden}
+  .device .kid-wb{max-height:none}
+  /* pin */
+  .pinwrap{position:relative}
+  .pin{position:absolute;top:-13px;left:-13px;width:26px;height:26px;border-radius:50%;background:var(--hot);color:#fff;font:800 13px/26px system-ui;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.28);cursor:pointer;z-index:30;border:2px solid #fff;transition:transform .12s}
+  .pin:hover{transform:scale(1.12)}
+  .pin.hot{background:#111;transform:scale(1.28);box-shadow:0 0 0 4px rgba(255,77,79,.35)}
+  /* 侧栏图例 */
+  .legend{width:100%;border-collapse:collapse;font-size:12px}
+  .legend th{text-align:left;color:var(--sub);font-weight:700;padding:6px 8px;border-bottom:2px solid var(--line);position:sticky;top:0;background:#fff;font-size:11px}
+  .legend td{border-bottom:1px solid var(--line);padding:8px;border-top:1px solid #f0f2f7;vertical-align:top}
+  .legend tr{cursor:pointer}
+  .legend tr:hover td{background:#f7f9ff}
+  .legend tr.hot td{background:#fff3f3;box-shadow:inset 3px 0 0 var(--hot)}
+  .legend .cnum{font-weight:800;color:var(--accent);width:26px;text-align:center}
+  .legend .cname{font-weight:700;width:120px}
+  .legend .ccode{color:#2563eb;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;width:150px}
+  .legend .crole{color:var(--sub)}
+  .zoom-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  @media(max-width:640px){.zoom-grid{grid-template-columns:1fr 1fr}}
+  .note{font-size:12px;color:var(--sub);background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 12px;margin-bottom:14px}
+  .toc{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:6px}
+  .toc a{font-size:12px;text-decoration:none;background:#eef2ff;color:#3742b0;padding:5px 10px;border-radius:20px;font-weight:700}
+  .toc a:hover{background:#dfe6ff}
+  .src{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:#2563eb}
+  footer{color:var(--sub);font-size:12px;text-align:center;padding:18px}
+  .kid-wb{--kaccent:#4f7cff;--kaccent2:#6a5cff}
+</style>
+<style>.kid-wb{--kblue:#4f7cff;--kgold:#f59e0b;--kdiamond:#22d3ee;--kred:#ef4444;--kgreen:#22c55e;
+  --kpurple:#8b5cf6;--kpink:#ec4899;--korange:#f97316;
+  --kbg:#f6f7fb;--kbg-top:#eef2ff;--kcard:#ffffff;--kcard2:#f7f8fc;--kcard3:#f1f3fa;
+  --kborder:#e3e6f0;--kborder2:#c9cfe0;--ktext:#23262f;--ktext2:#5b6172;--ktext3:#8a90a3;
+  --kaccent:var(--accent,#4f7cff);--kaccent2:var(--accent2,#6a5cff);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,sans-serif;
+  background:linear-gradient(180deg,var(--kbg-top) 0%,var(--kbg) 220px);min-height:100%;color:var(--ktext);padding:14px 16px 40px;box-sizing:border-box}
+.kid-wb *{box-sizing:border-box;margin:0;padding:0}
+.kid-wb button{font-family:inherit;cursor:pointer;border:none;background:none;-webkit-tap-highlight-color:transparent}
+.kid-wb input,.kid-wb select,.kid-wb textarea{font-family:inherit;font-size:16px}
+.kid-wb input[type=text],.kid-wb input[type=number],.kid-wb input[type=password],.kid-wb select,.kid-wb textarea{
+  width:100%;padding:11px 12px;border:2px solid var(--kborder);border-radius:12px;background:var(--kcard);color:var(--ktext);outline:none}
+.kid-wb input:focus,.kid-wb select:focus,.kid-wb textarea:focus{border-color:var(--kaccent)}
+/* 主题模式:跟随项目(默认,映射应用外观变量) / 儿童亮色(默认值) / 深色 */
+.kid-wb.theme-project{--kbg:var(--bg);--kbg-top:var(--bg);--kcard:var(--bg2);--kcard2:var(--bg3);--kcard3:var(--bg4);
+  --kborder:var(--border);--kborder2:var(--border);--ktext:var(--text);--ktext2:var(--text2);--ktext3:var(--text2);
+  --kaccent:var(--accent);--kaccent2:var(--accent2);--kblue:var(--accent)}
+.kid-wb.theme-dark{--kbg:#1b1d23;--kbg-top:#1b1d23;--kcard:#22242b;--kcard2:#2a2d36;--kcard3:#333642;
+  --kborder:#343845;--kborder2:#3d424f;--ktext:#e6e8ee;--ktext2:#9aa1b2;--ktext3:#9aa1b2;
+  --kaccent:var(--accent,#4f8cff);--kaccent2:var(--accent2,#6a5cff);--kblue:var(--accent,#4f8cff)}
+.kid-topbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.kid-brand{display:flex;align-items:center;gap:10px;min-width:0}
+.kid-logo{width:44px;height:44px;border-radius:14px;background:linear-gradient(135deg,#4f7cff,#8b5cf6);display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 4px 12px rgba(79,124,255,.35)}
+.kid-title{font-size:19px;font-weight:800;letter-spacing:.5px;line-height:1.2;color:var(--ktext)}
+.kid-title small{display:block;font-size:11px;font-weight:600;color:var(--ktext3);letter-spacing:1px}
+.kid-date{font-size:12px;color:var(--ktext2);background:var(--kcard);border:1px solid var(--kborder);padding:5px 10px;border-radius:20px;font-weight:600}
+.kid-top-actions{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.kid-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;padding:0 16px;
+  border-radius:12px;font-size:15px;font-weight:700;color:var(--ktext);background:var(--kcard);border:2px solid var(--kborder);transition:transform .08s,box-shadow .15s;user-select:none}
+.kid-btn:active{transform:scale(.96)}
+.kid-btn.primary{background:linear-gradient(135deg,var(--kaccent),var(--kaccent2));color:#fff;border:none;box-shadow:0 4px 12px rgba(79,124,255,.35)}
+.kid-btn.gold{background:linear-gradient(135deg,#fbbf24,#f59e0b);color:#fff;border:none;box-shadow:0 4px 12px rgba(245,158,11,.35)}
+.kid-btn.green{background:linear-gradient(135deg,#4ade80,#22c55e);color:#fff;border:none;box-shadow:0 4px 12px rgba(34,197,94,.35)}
+.kid-btn.red{background:linear-gradient(135deg,#f87171,#ef4444);color:#fff;border:none;box-shadow:0 4px 12px rgba(239,68,68,.3)}
+.kid-btn.sm{min-height:34px;padding:0 12px;font-size:13px;border-radius:10px}
+.kid-btn:disabled{opacity:.5;cursor:not-allowed}
+.kid-today{margin-bottom:14px}
+.kid-today-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.kid-today-head .kid-today-title{font-size:16px;font-weight:800;color:var(--ktext)}
+.kid-today-head .kid-today-sub{font-size:12px;color:var(--ktext3)}
+.kid-today-list{display:flex;flex-direction:column;gap:6px}
+.kid-today-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:var(--kcard);
+  border:1.5px solid var(--kborder);box-shadow:0 2px 6px rgba(30,41,59,.05)}
+.kid-today-item.overdue{border-color:#f87171;background:var(--kcard)}
+.kid-today-item .k-ti-ico{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.kid-today-item .k-ti-main{flex:1;min-width:0}
+.kid-today-item .k-ti-title{font-size:14px;font-weight:700;color:var(--ktext);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kid-today-item .k-ti-sub{font-size:11px;color:var(--ktext3)}
+.kid-today-item.overdue .k-ti-title{color:#f87171}
+.kid-today-item .k-ti-tag{font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:#fee2e2;color:#dc2626;flex-shrink:0}
+.kid-today-empty{font-size:13px;color:var(--ktext3);background:var(--kcard);border:1.5px dashed var(--kborder2);border-radius:12px;padding:14px;text-align:center}
+.kid-today-banner{display:flex;align-items:center;gap:8px;margin-top:8px;padding:9px 12px;border-radius:10px;
+  background:#fffbeb;border:1px solid #fde68a;font-size:12px;color:#92400e}
+.kid-today-banner b{color:#b45309}
+.kid-tabs{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.kid-tab{flex:1;min-width:120px;min-height:48px;border-radius:14px;background:var(--kcard);border:2px solid var(--kborder);
+  font-size:15px;font-weight:800;color:var(--ktext2);display:flex;align-items:center;justify-content:center;gap:8px}
+.kid-tab.on{background:linear-gradient(135deg,var(--kaccent),var(--kaccent2));color:#fff;border-color:transparent;box-shadow:0 4px 14px rgba(79,124,255,.35)}
+.kid-tab.on .kid-tab-dot{background:none}
+.kid-sec-head{display:flex;align-items:center;gap:8px;margin:4px 0 10px}
+.kid-sec-head .kid-sec-title{font-size:16px;font-weight:800;color:var(--ktext)}
+.kid-sec-head .kid-sec-sub{font-size:12px;color:var(--ktext3);margin-left:auto}
+.kid-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.kid-task{background:var(--kcard);border-radius:16px;border:2px solid var(--kborder);padding:14px;display:flex;flex-direction:column;gap:10px;
+  box-shadow:0 2px 8px rgba(30,41,59,.06);transition:box-shadow .15s}
+.kid-task.carry{border-color:#f87171;box-shadow:0 2px 10px rgba(239,68,68,.15)}
+.kid-task.started{border-color:var(--kaccent)}
+.kid-task.done{background:var(--kcard);border-color:#4ade80}
+.kid-task.done .k-task-main{opacity:.75}
+.k-task-head{display:flex;align-items:center;gap:10px}
+.k-task-ico{width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.k-task-titles{flex:1;min-width:0}
+.k-task-name{font-size:15px;font-weight:800;color:var(--ktext)}
+.k-task-cat{font-size:11px;font-weight:700;color:var(--ktext3)}
+.k-task-badges{display:flex;gap:5px;flex-shrink:0}
+.k-badge{font-size:10px;font-weight:800;padding:3px 8px;border-radius:9px}
+.k-badge.overdue{background:#fee2e2;color:#dc2626}
+.k-badge.carry{background:#fef3c7;color:#b45309}
+.k-badge.doing{background:#dbeafe;color:#2563eb}
+.k-badge.done{background:#dcfce7;color:#15803d}
+.k-task-target{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ktext2);flex-wrap:wrap}
+.k-task-target .k-unit-chip{background:var(--kcard3);border-radius:8px;padding:3px 9px;font-weight:700}
+.k-task-actions{display:flex;gap:8px;flex-wrap:wrap}
+.k-task-actions .kid-btn{flex:1;min-width:110px}
+.k-task-reward{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.k-reward-chip{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:800;color:var(--ktext2);
+  background:var(--kcard2);border-radius:20px;padding:4px 10px}
+.k-task-stars{display:flex;gap:2px;align-items:center}
+.k-task-tips{font-size:12px;color:var(--ktext2);background:var(--kcard2);border-radius:10px;padding:8px 10px;line-height:1.5}
+.k-task-foot{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ktext3)}
+.k-addtask{min-height:52px;border:2px dashed var(--kborder2);border-radius:16px;background:var(--kcard);
+  display:flex;align-items:center;justify-content:center;gap:8px;font-size:14px;font-weight:700;color:var(--ktext2);width:100%}
+.k-addtask:hover{border-color:var(--kaccent);color:var(--kaccent)}
+.kid-plan-wrap{display:flex;flex-direction:column;gap:12px}
+.kid-plan-tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.kid-plan-days{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
+.kid-plan-day{background:var(--kcard);border:2px solid var(--kborder);border-radius:14px;padding:10px;min-height:150px;display:flex;flex-direction:column;gap:6px}
+.kid-plan-day.today{border-color:var(--kaccent);box-shadow:0 0 0 1px var(--kaccent) inset}
+.kid-plan-day.off{opacity:.5}
+.kid-plan-day-head{display:flex;align-items:center;justify-content:space-between;gap:4px}
+.kid-plan-day-name{font-size:13px;font-weight:800;color:var(--ktext)}
+.kid-plan-day-head .kid-btn{padding:0 8px;min-height:30px;font-size:12px}
+.kid-plan-item{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;background:var(--kcard2);border-radius:9px;padding:6px 8px}
+.kid-plan-item .k-pi-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.kid-plan-item .k-pi-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kid-plan-item .k-pi-x{color:var(--kborder2);font-size:13px;padding:0 2px;flex-shrink:0}
+.kid-plan-item .k-pi-x:hover{color:#ef4444}
+.kid-plan-empty{font-size:11px;color:var(--ktext3);text-align:center;padding:8px 0}
+.kid-wallet{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+.kid-wallet-card{background:var(--kcard);border-radius:14px;border:2px solid var(--kborder);padding:10px 12px;display:flex;align-items:center;gap:10px;box-shadow:0 2px 6px rgba(30,41,59,.05)}
+.kid-wallet-card .k-w-ico{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.kid-wallet-card .k-w-num{font-size:19px;font-weight:800;line-height:1.1;color:var(--ktext)}
+.kid-wallet-card .k-w-name{font-size:11px;color:var(--ktext3);font-weight:600}
+.kid-row2{display:grid;grid-template-columns:1.1fr 1fr;gap:12px;margin-bottom:12px}
+.kid-card{background:var(--kcard);border-radius:16px;border:2px solid var(--kborder);padding:14px;box-shadow:0 2px 8px rgba(30,41,59,.06)}
+.kid-card-title{font-size:15px;font-weight:800;margin-bottom:10px;display:flex;align-items:center;gap:8px;color:var(--ktext)}
+.kid-level-row{display:flex;align-items:center;gap:14px}
+.kid-hero-box{flex-shrink:0;width:120px;height:150px;border-radius:16px;background:var(--kcard2);
+  border:2px solid var(--kborder);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+.kid-level-info{flex:1;min-width:0}
+.kid-lv-title{font-size:17px;font-weight:800;display:flex;align-items:center;gap:8px;color:var(--ktext)}
+.kid-lv-tag{font-size:11px;font-weight:800;color:#fff;border-radius:9px;padding:3px 8px}
+.kid-lv-desc{font-size:12px;color:var(--ktext2);margin:6px 0 10px;line-height:1.5}
+.kid-ring-row{display:flex;align-items:center;gap:12px}
+.kid-ring-label{font-size:12px;color:var(--ktext3)}
+.kid-ring-val{font-size:13px;font-weight:800;color:var(--ktext)}
+.kid-ring-bar{flex:1;height:10px;border-radius:6px;background:var(--kcard3);overflow:hidden}
+.kid-ring-fill{height:100%;border-radius:6px;background:linear-gradient(90deg,var(--kaccent),#8b5cf6);transition:width .4s}
+.kid-avatars{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.kid-avatar-item{display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;padding:6px;border-radius:12px;border:2px solid transparent}
+.kid-avatar-item.on{border-color:var(--kaccent);background:var(--kcard2)}
+.kid-avatar-item.locked{opacity:.45}
+.kid-avatar-item .k-a-name{font-size:10px;color:var(--ktext3);font-weight:600}
+.kid-shop-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+.kid-shop-item{background:var(--kcard);border-radius:14px;border:2px solid var(--kborder);padding:12px;display:flex;flex-direction:column;gap:8px}
+.kid-shop-item .k-s-head{display:flex;align-items:center;gap:10px}
+.kid-shop-item .k-s-ico{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--kcard3)}
+.kid-shop-item .k-s-name{font-size:14px;font-weight:800;color:var(--ktext)}
+.kid-shop-item .k-s-note{font-size:12px;color:var(--ktext2);line-height:1.4}
+.kid-shop-item .k-s-foot{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.kid-shop-item .k-s-price{font-size:13px;font-weight:800;color:var(--ktext);display:flex;align-items:center;gap:4px}
+.kid-medal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
+.kid-medal{display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 8px;border-radius:14px;background:var(--kcard);
+  border:2px solid var(--kborder);text-align:center}
+.kid-medal.got{border-color:#fde68a;background:#fffbeb}
+.kid-medal .k-m-name{font-size:12px;font-weight:800;color:var(--ktext)}
+.kid-medal .k-m-desc{font-size:10px;color:var(--ktext3);line-height:1.4}
+.kid-medal.locked .k-m-name{color:var(--ktext3)}
+.kid-medal.locked{opacity:.65}
+.kid-hint-strip{font-size:12px;color:#7c6a12;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:8px 12px;margin-bottom:12px}
+.kid-overlay{position:fixed;inset:0;z-index:9990;background:rgba(20,24,40,.45);display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(2px)}
+.kid-modal{background:var(--kcard);border-radius:20px;max-width:420px;width:100%;max-height:88vh;overflow:auto;padding:18px;box-shadow:0 20px 60px rgba(20,24,40,.3);animation:kidPop .18s ease}
+@keyframes kidPop{from{transform:scale(.94);opacity:0}to{transform:scale(1);opacity:1}}
+.kid-modal-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:14px}
+.kid-modal-title{font-size:17px;font-weight:800;color:var(--ktext)}
+.kid-modal-x{width:38px;height:38px;border-radius:10px;background:var(--kcard3);font-size:16px;color:var(--ktext2);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.kid-modal-x:hover{background:var(--kcard2)}
+.kid-field{margin-bottom:12px}
+.kid-label{display:block;font-size:12px;font-weight:700;color:var(--ktext2);margin-bottom:6px}
+.kid-stars-pick{display:flex;justify-content:center;gap:14px;padding:8px 0 14px}
+.kid-star-btn{width:64px;height:64px;border-radius:16px;background:var(--kcard3);display:flex;align-items:center;justify-content:center;transition:transform .1s}
+.kid-star-btn.on{background:#fef3c7;transform:scale(1.08);box-shadow:0 0 0 2px #f59e0b}
+.kid-star-btn:hover{transform:scale(1.06)}
+.kid-modal-actions{display:flex;gap:10px;margin-top:14px}
+.kid-modal-actions .kid-btn{flex:1}
+.kid-drawer{position:fixed;top:0;right:0;bottom:0;z-index:9990;width:min(420px,94vw);background:var(--kcard);
+  box-shadow:-12px 0 40px rgba(20,24,40,.25);display:flex;flex-direction:column;animation:kidSlide .18s ease}
+@keyframes kidSlide{from{transform:translateX(40px);opacity:0}to{transform:none;opacity:1}}
+.kid-drawer-head{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--kborder)}
+.kid-drawer-body{flex:1;overflow:auto;padding:16px 18px;padding-bottom:calc(16px + env(safe-area-inset-bottom))}
+.kid-drawer-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0;border-bottom:1px solid var(--kborder)}
+.kid-drawer-row .k-dr-label{font-size:14px;font-weight:700;color:var(--ktext)}
+.kid-drawer-row .k-dr-sub{font-size:11px;color:var(--ktext3)}
+.kid-switch{width:50px;height:28px;border-radius:16px;background:var(--kborder2);position:relative;transition:background .15s;flex-shrink:0}
+.kid-switch::after{content:'';position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:var(--kcard);transition:left .15s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.kid-switch.on{background:var(--kaccent)}
+.kid-switch.on::after{left:25px}
+.kid-sec-gap{margin-top:16px}
+.kid-pwd-dots{display:flex;gap:10px;justify-content:center;padding:6px 0 12px}
+.kid-pwd-dot{width:18px;height:18px;border-radius:50%;border:2px solid var(--kborder2);background:var(--kcard2)}
+.kid-pwd-dot.fill{background:var(--kaccent);border-color:var(--kaccent)}
+.kid-pwd-pad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.kid-pwd-key{min-height:56px;border-radius:14px;background:var(--kcard3);font-size:20px;font-weight:800;color:var(--ktext);display:flex;align-items:center;justify-content:center}
+.kid-pwd-key:hover{background:var(--kcard2)}
+.kid-pwd-key.del{font-size:15px;color:#ef4444}
+.kid-confetti{position:absolute;pointer-events:none}
+.kid-toast-ok{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:9999;background:#22c55e;color:#fff;
+  padding:12px 22px;border-radius:30px;font-size:14px;font-weight:700;box-shadow:0 8px 24px rgba(34,197,94,.4);animation:kidPop .2s ease}
+.kid-hl{animation:kidHl 1s ease 2}
+@keyframes kidHl{0%,100%{box-shadow:0 0 0 0 rgba(79,124,255,0)}40%{box-shadow:0 0 0 6px rgba(79,124,255,.45)}}
+@media (max-width:768px){
+  .kid-wb{padding:10px 10px 30px}
+  .kid-title{font-size:17px}
+  .kid-grid{grid-template-columns:1fr}
+  .kid-plan-days{grid-template-columns:1fr}
+  .kid-wallet{grid-template-columns:repeat(2,1fr)}
+  .kid-row2{grid-template-columns:1fr}
+  .kid-tab{min-width:100px;min-height:46px;font-size:14px}
+  .kid-avatars{grid-template-columns:repeat(4,1fr)}
+  .kid-modal{max-height:90vh}
+}
+@media (max-width:420px){
+  .kid-avatars{grid-template-columns:repeat(4,1fr)}
+  .kid-wallet-card{padding:8px 10px}
+  .kid-wallet-card .k-w-num{font-size:16px}
+}
+
+/* ============ 主题模式支持(深色/浅色/跟随项目,追加覆盖,优先级高于基础样式) ============ */
+.kid-wb{--kbg:#f6f7fb;--kbg-top:#eef2ff;--kcard:#ffffff;--kcard2:#f7f8fc;--kcard3:#f1f3fa;
+  --kborder:#e3e6f0;--kborder2:#c9cfe0;--ktext:#23262f;--ktext2:#5b6172;--ktext3:#8a90a3;
+  --kaccent:var(--accent,#4f7cff);--kaccent2:var(--accent2,#6a5cff);--kblue:var(--accent,#4f7cff);
+  background:linear-gradient(180deg,var(--kbg-top) 0%,var(--kbg) 220px);color:var(--ktext)}
+/* 跟随项目:映射应用外观变量(深色/浅色/自定义/系统主题自动同步) */
+.kid-wb.theme-project{--kbg:var(--bg);--kbg-top:var(--bg);--kcard:var(--bg2);--kcard2:var(--bg3);--kcard3:var(--bg4);
+  --kborder:var(--border);--kborder2:var(--border);--ktext:var(--text);--ktext2:var(--text2);--ktext3:var(--text2);
+  --kaccent:var(--accent);--kaccent2:var(--accent2);--kblue:var(--accent)}
+/* 固定深色 */
+.kid-wb.theme-dark{--kbg:#1b1d23;--kbg-top:#1b1d23;--kcard:#22242b;--kcard2:#2a2d36;--kcard3:#333642;
+  --kborder:#343845;--kborder2:#3d424f;--ktext:#e6e8ee;--ktext2:#9aa1b2;--ktext3:#9aa1b2;
+  --kaccent:var(--accent,#4f8cff);--kaccent2:var(--accent2,#6a5cff);--kblue:var(--accent,#4f8cff)}
+/* 卡片/面板/输入框:背景 + 边框 + 主文字 */
+/* 注:.kid-btn 默认背景由下方 :where(.kid-wb) .kid-btn 段(0,1,0) 接管,变体 .primary/.gold/.green/.red/.challenge 自有样式胜出 */
+.kid-wb .kid-card,.kid-wb .kid-task:not(.carry):not(.started):not(.done),.kid-wb .kid-wallet-card,
+.kid-wb .kid-shop-item,.kid-wb .kid-medal:not(.got),.kid-wb .kid-today-item:not(.overdue),
+.kid-wb .kid-today-empty,.kid-wb .kid-plan-day,.kid-wb .kid-tab:not(.on),.kid-wb .kid-date,
+.kid-wb .kid-addtask,.kid-wb .kid-modal,.kid-wb .kid-drawer,
+.kid-wb input[type=text],.kid-wb input[type=number],.kid-wb input[type=password],.kid-wb select,.kid-wb textarea{background:var(--kcard)}
+.kid-wb .kid-task:not(.carry):not(.started):not(.done),.kid-wb .kid-wallet-card,.kid-wb .kid-shop-item,
+.kid-wb .kid-medal:not(.got),.kid-wb .kid-today-item:not(.overdue),.kid-wb .kid-today-empty,
+.kid-wb .kid-plan-day,.kid-wb .kid-tab:not(.on),.kid-wb .kid-date,.kid-wb .kid-card,
+.kid-wb .kid-addtask,.kid-wb .kid-modal,.kid-wb .kid-drawer,
+.kid-wb input[type=text],.kid-wb input[type=number],.kid-wb input[type=password],.kid-wb select,.kid-wb textarea{border-color:var(--kborder)}
+/* 次级背景(内嵌 chip/工具条) */
+.kid-wb .kid-plan-item,.kid-wb .k-unit-chip,.kid-wb .k-reward-chip,.kid-wb .kid-avatar-item.on,
+.kid-wb .kid-hero-box,.kid-wb .k-s-ico,.kid-wb .kid-modal-x,.kid-wb .kid-pwd-key,.kid-wb .kid-star-btn,
+.kid-wb .kid-ring-bar,.kid-wb .kid-pwd-dot,.kid-wb .kid-switch{background:var(--kcard2)}
+/* 第三级背景 */
+.kid-wb .kid-modal-x,.kid-wb .kid-pwd-key,.kid-wb .kid-star-btn,.kid-wb .kid-ring-bar,.kid-wb .kid-pwd-dot{background:var(--kcard3)}
+/* 主文字 */
+.kid-wb .kid-title,.kid-wb .kid-today-title,.kid-wb .kid-sec-title,.kid-wb .kid-card-title,.kid-wb .kid-modal-title,
+.kid-wb .kid-lv-title,.kid-wb .kid-plan-day-name,.kid-wb .kid-task-name,.kid-wb .k-s-name,.kid-wb .k-dr-label,
+.kid-wb .k-m-name,.kid-wb .kid-wallet-card .k-w-num,.kid-wb .kid-pwd-key,.kid-wb .k-ti-title{color:var(--ktext)}
+.kid-wb .kid-today-item.overdue .k-ti-title{color:#f87171}
+/* 弱文字 */
+.kid-wb .kid-title small,.kid-wb .kid-date,.kid-wb .kid-today-sub,.kid-wb .kid-sec-sub,.kid-wb .k-task-cat,
+.kid-wb .k-task-foot,.kid-wb .kid-plan-empty,.kid-wb .kid-today-empty,.kid-wb .k-w-name,.kid-wb .k-a-name,
+.kid-wb .k-m-desc,.kid-wb .k-dr-sub,.kid-wb .kid-ring-label,.kid-wb .kid-lv-desc{color:var(--ktext3)}
+/* 次文字 */
+.kid-wb .kid-tab,.kid-wb .kid-label,.kid-wb .kid-btn,.kid-wb .kid-addtask,.kid-wb .kid-modal-x,
+.kid-wb .k-task-target,.kid-wb .k-task-tips,.kid-wb .k-s-note,.kid-wb .k-reward-chip,.kid-wb .k-s-price{color:var(--ktext2)}
+/* 虚线边框 */
+.kid-wb .kid-today-empty,.kid-wb .kid-addtask{border-color:var(--kborder2)}
+/* 强调色 */
+.kid-wb .kid-btn.primary,.kid-wb .kid-tab.on{background:linear-gradient(135deg,var(--kaccent),var(--kaccent2))}
+.kid-wb .kid-task.started,.kid-wb .kid-plan-day.today,.kid-wb .kid-avatar-item.on,.kid-wb .kid-addtask:hover{border-color:var(--kaccent)}
+.kid-wb .kid-switch.on,.kid-wb .kid-pwd-dot.fill{background:var(--kaccent);border-color:var(--kaccent)}
+.kid-wb .kid-ring-fill{background:linear-gradient(90deg,var(--kaccent),#8b5cf6)}
+.kid-wb .kid-addtask:hover{color:var(--kaccent)}
+.kid-wb input:focus,.kid-wb select:focus,.kid-wb textarea:focus{border-color:var(--kaccent)}
+
+/* ============ v2.1.9 UI 设计系统升级:设计 token + 糖果乐园/星际探险主题 + 组件精修 ============ */
+/* —— 设计 Token(圆角/阴影/进度环底色) —— */
+.kid-wb{
+  --kr-sm:10px;--kr:14px;--kr-lg:18px;--kr-xl:22px;--kr-pill:999px;
+  --ks-1:0 2px 8px rgba(20,30,60,.07);
+  --ks-2:0 10px 28px rgba(20,30,60,.13);
+  --ks-3:0 18px 48px rgba(20,30,60,.20);
+  --kring-bg:color-mix(in srgb,var(--kaccent) 22%,var(--kcard));
+  --kglow:0 6px 18px color-mix(in srgb,var(--kaccent) 38%,transparent);
+}
+/* —— 主题皮肤:糖果乐园(柔和粉彩马卡龙) —— */
+.kid-wb.theme-candy{
+  --kbg:#fff2f7;--kbg-top:#ffeaf3;--kcard:#fffdfe;--kcard2:#fff5fa;--kcard3:#ffe9f3;
+  --kborder:#f6d5e4;--kborder2:#f0bcd5;--ktext:#4a1d5f;--ktext2:#8a5a94;--ktext3:#b48ab8;
+  --kaccent:var(--accent,#f472b6);--kaccent2:var(--accent2,#c084fc);--kblue:var(--accent,#f472b6);
+}
+/* —— 主题皮肤:星际探险(深蓝星空霓虹) —— */
+.kid-wb.theme-space{
+  --kbg:#0b1026;--kbg-top:#0d1230;--kcard:#1a2340;--kcard2:#212c52;--kcard3:#2a3763;
+  --kborder:#2b3a6b;--kborder2:#3a4c85;--ktext:#e2e8ff;--ktext2:#9fb0e8;--ktext3:#7d90c8;
+  --kaccent:var(--accent,#38bdf8);--kaccent2:var(--accent2,#8b5cf6);--kblue:var(--accent,#38bdf8);
+  background:
+    radial-gradient(1.5px 1.5px at 12% 20%,rgba(255,255,255,.55) 50%,transparent 51%),
+    radial-gradient(1.5px 1.5px at 80% 10%,rgba(255,255,255,.45) 50%,transparent 51%),
+    radial-gradient(1px 1px at 30% 65%,rgba(255,255,255,.4) 50%,transparent 51%),
+    radial-gradient(1.5px 1.5px at 90% 55%,rgba(255,255,255,.5) 50%,transparent 51%),
+    radial-gradient(1px 1px at 55% 88%,rgba(255,255,255,.35) 50%,transparent 51%),
+    radial-gradient(2px 2px at 66% 32%,rgba(255,255,255,.3) 50%,transparent 51%),
+    linear-gradient(180deg,var(--kbg-top) 0%,var(--kbg) 260px);
+}
+/* —— 品牌区:Logo 光晕 + 等级徽章胶囊 —— */
+.kid-wb .kid-logo{border-radius:16px;box-shadow:0 6px 18px color-mix(in srgb,var(--kaccent) 45%,transparent)}
+.kid-wb .kid-title{font-size:20px}
+.kid-wb .kid-lv-pill{display:inline-flex;align-items:center;gap:4px;min-height:26px;padding:0 12px;border-radius:var(--kr-pill);
+  color:#fff;font-size:12px;font-weight:800;letter-spacing:.5px;box-shadow:0 4px 12px rgba(0,0,0,.18)}
+.kid-wb .kid-date{border-radius:var(--kr-pill)}
+/* —— 今日仪表盘:进度环 + 列表 —— */
+.kid-wb .kid-today-head{flex-wrap:wrap}
+.kid-wb .kid-progress{display:inline-flex;align-items:center;gap:6px}
+.kid-wb .kid-progress svg{filter:drop-shadow(0 2px 6px color-mix(in srgb,var(--kaccent) 40%,transparent))}
+.kid-wb .kid-progress circle:last-child{transition:stroke-dashoffset .6s cubic-bezier(.22,1,.36,1)}
+.kid-wb .kid-progress-txt{font-size:12px;font-weight:800;color:var(--kaccent);min-width:32px}
+.kid-wb .kid-today-item{border-radius:var(--kr-lg);transition:transform .18s cubic-bezier(.22,1,.36,1),box-shadow .18s}
+.kid-wb .kid-today-item:hover{transform:translateY(-1px);box-shadow:var(--ks-2)}
+.kid-wb .kid-today-item .k-ti-ico{border-radius:10px}
+.kid-wb .kid-today-item.overdue{background:linear-gradient(90deg,color-mix(in srgb,#f87171 12%,var(--kcard)),var(--kcard))}
+/* —— Tab 胶囊 + 激活光效 —— */
+.kid-wb .kid-tabs{gap:10px}
+.kid-wb .kid-tab{border-radius:var(--kr-lg);transition:transform .16s cubic-bezier(.22,1,.36,1),box-shadow .16s}
+.kid-wb .kid-tab:hover:not(.on){transform:translateY(-1px);box-shadow:var(--ks-1)}
+.kid-wb .kid-tab.on{box-shadow:var(--kglow)}
+.kid-wb .kid-tab .kid-tab-dot{font-size:16px}
+/* —— 任务卡:渐变顶条 + 悬停上浮 —— */
+.kid-wb .kid-task{position:relative;border-radius:var(--kr-lg);overflow:hidden;transition:transform .18s cubic-bezier(.22,1,.36,1),box-shadow .18s,border-color .18s}
+.kid-wb .kid-task:hover{transform:translateY(-2px);box-shadow:var(--ks-2)}
+.kid-wb .kid-task::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;
+  background:linear-gradient(90deg,var(--kaccent),var(--kaccent2));opacity:.9}
+.kid-wb .kid-task.done::before{background:linear-gradient(90deg,#4ade80,#22c55e)}
+.kid-wb .kid-task.carry::before{background:linear-gradient(90deg,#f87171,#ef4444)}
+.kid-wb .k-task-ico{border-radius:14px;box-shadow:0 4px 10px color-mix(in srgb,var(--kaccent) 22%,transparent)}
+.kid-wb .k-badge,.kid-wb .k-unit-chip,.kid-wb .k-reward-chip{border-radius:var(--kr-pill)}
+.kid-wb .kid-task .kid-btn{min-height:40px;border-radius:var(--kr)}
+/* —— 按钮质感 —— */
+.kid-wb .kid-btn{font-weight:700;transition:transform .12s cubic-bezier(.22,1,.36,1),box-shadow .18s,background .18s}
+.kid-wb .kid-btn:hover:not(:disabled){transform:translateY(-1px)}
+.kid-wb .kid-btn.primary,.kid-wb .kid-btn.gold,.kid-wb .kid-btn.green,.kid-wb .kid-btn.red{box-shadow:0 5px 14px color-mix(in srgb,currentColor 20%,transparent)}
+/* —— 钱包:圆形徽章 + 悬停 —— */
+.kid-wb .kid-wallet-card{border-radius:var(--kr-lg);transition:transform .18s cubic-bezier(.22,1,.36,1),box-shadow .18s}
+.kid-wb .kid-wallet-card:hover{transform:translateY(-2px);box-shadow:var(--ks-2)}
+.kid-wb .kid-wallet-card .k-w-ico{border-radius:50%;width:40px;height:40px}
+/* —— 数字人舞台:主题光晕 —— */
+.kid-wb .kid-hero-box{border-radius:var(--kr-lg);background:
+  radial-gradient(circle at 50% 28%,color-mix(in srgb,var(--kaccent) 34%,var(--kcard2)),var(--kcard2) 72%)}
+/* —— 计划/商城/奖章 —— */
+.kid-wb .kid-plan-day{border-radius:var(--kr-lg)}
+.kid-wb .kid-plan-item{border-radius:10px}
+.kid-wb .kid-shop-item{border-radius:var(--kr-lg)}
+.kid-wb .kid-medal{border-radius:var(--kr-lg);transition:transform .18s,box-shadow .18s}
+.kid-wb .kid-medal:hover{transform:translateY(-2px);box-shadow:var(--ks-2)}
+/* —— 弹窗/抽屉/密码键盘 —— */
+.kid-wb .kid-modal{border-radius:var(--kr-xl)}
+.kid-wb .kid-modal-x,.kid-wb .kid-pwd-key{border-radius:var(--kr)}
+/* —— 可访问性:焦点可见 + 减少动效 —— */
+.kid-wb :focus-visible{outline:2px solid var(--kaccent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){
+  .kid-wb *,.kid-wb *::before,.kid-wb *::after{animation-duration:.001s!important;transition-duration:.001s!important}
+}
+
+/* ============ v2.1.9 配色优化:按钮/图标对比度全面修正 ============ */
+/* 主因修复:主题覆盖段「次文字」规则曾把主按钮 color 覆盖成灰/深 → 彩色按钮统一高对比文字 */
+.kid-wb .kid-btn.primary,.kid-wb .kid-btn.green,.kid-wb .kid-btn.red{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.18)}
+.kid-wb .kid-btn.gold{color:#7c2d12;text-shadow:none}
+/* 主按钮底色加深,保证白字对比(≥3:1 大字标准,接近 AA) */
+.kid-wb .kid-btn.primary{background:linear-gradient(135deg,var(--kaccent),color-mix(in srgb,var(--kaccent2) 72%,#000))}
+.kid-wb .kid-btn.green{background:linear-gradient(135deg,#4ade80,#15803d)}
+.kid-wb .kid-btn.red{background:linear-gradient(135deg,#f87171,#dc2626)}
+.kid-wb .kid-btn.gold{background:linear-gradient(135deg,#fbbf24,#d97706)}
+/* 糖果乐园/星际探险:强调色偏亮,主按钮单独加深(白字对比≥3:1) */
+.kid-wb.theme-candy .kid-btn.primary{background:linear-gradient(135deg,var(--kaccent),color-mix(in srgb,var(--kaccent2) 72%,#000))}
+.kid-wb.theme-space .kid-btn.primary{background:linear-gradient(135deg,var(--kaccent),color-mix(in srgb,var(--kaccent2) 72%,#000))}
+/* 默认按钮基础(非彩色):次级亮底 + 主文字,深浅主题下对比充足(原暗底灰字不可读) */
+/* 用 :where() 把基础段 specificity 压到 0,1,0,让 .kid-btn.challenge (0,3,0) 等变体自然胜出 */
+:where(.kid-wb) .kid-btn{background:var(--kcard2);color:var(--ktext);border-color:var(--kborder)}
+:where(.kid-wb) .kid-btn:hover:not(:disabled){border-color:var(--kaccent);color:var(--ktext)}
+/* 分类徽章(浅色分类底上的白线条图标)与锁定头像可读性 */
+.kid-wb .kid-avatar-item.locked{opacity:.62}
+.kid-wb .kid-lv-pill{text-shadow:0 1px 2px rgba(0,0,0,.5),0 0 4px rgba(0,0,0,.28)}
+/* 今日列表「去完成」与任务卡按钮同主按钮规则(默认按钮统一) */
+.kid-wb .kid-today-item .kid-btn.primary{color:#fff}
+/* Tab 激活态同问题:白字固定(次文字规则曾覆盖成灰) */
+.kid-wb .kid-tab.on{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.18)}
+
+/* ============ 开启挑战按钮(直接使用背景图片) ============
+   来源:E:\backup\asset\btn\btn_start_challenge256.png (256×96 橙黄渐变胶囊+紫描边+紫火箭+紫文字)
+   嵌入 base64,零外部资源;渲染端/预览页/独立 HTML 均可用 */
+.kid-wb .kid-btn.challenge{
+  background-image:url(data:image/png;base64,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);
+  background-size:contain;
+  background-repeat:no-repeat;
+  background-position:center;
+  background-color:transparent;
+  border:none;
+  box-shadow:none;
+  text-shadow:none;
+  color:transparent;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  aspect-ratio:256 / 96;
+  height:44px;
+  width:auto;
+  padding:0;
+  border-radius:0;
+  font-weight:800;
+  gap:0;
+  flex:0 0 auto;
+  max-width:100%;
+}
+.kid-wb .kid-btn.sm.challenge{
+  width:160px;
+  aspect-ratio:256 / 96;
+  flex:0 0 auto;
+}
+.kid-wb .k-task-actions .kid-btn.challenge{margin:0 auto}
+.kid-wb .kid-btn.challenge:hover:not(:disabled){
+  transform:translateY(-1px);
+  filter:brightness(1.05) drop-shadow(0 6px 16px rgba(245,158,11,.35));
+}
+.kid-wb .kid-btn.challenge:active:not(:disabled){transform:translateY(0);filter:brightness(.98)}
+.kid-wb .kid-btn.challenge svg{display:none}
+
+/* ============ 跟随项目模式:变量兜底(应用内取应用主题变量;独立/预览环境回退系统深浅色) ============ */
+/* 关键修复:此前 var(--accent) 等无兜底,在无应用变量的环境(预览页/独立部署)下渐变全部失效 → 按钮透明底+白字 */
+.kid-wb.theme-project{
+  --kbg: var(--bg, #1b1d23); --kbg-top: var(--bg, #1b1d23);
+  --kcard: var(--bg2, #22242b); --kcard2: var(--bg3, #2a2d36); --kcard3: var(--bg4, #333642);
+  --kborder: var(--border, #343845); --kborder2: var(--border, #343845);
+  --ktext: var(--text, #e6e8ee); --ktext2: var(--text2, #9aa1b2); --ktext3: var(--text2, #9aa1b2);
+  --kaccent: var(--accent, #4f8cff); --kaccent2: var(--accent2, #6a5cff); --kblue: var(--accent, #4f8cff);
+}
+/* 系统浅色时(仅无应用变量的环境生效,应用内取应用变量值不受影响) */
+@media (prefers-color-scheme: light){
+  .kid-wb.theme-project{
+    --kbg: var(--bg, #f3f4f7); --kbg-top: var(--bg, #f3f4f7);
+    --kcard: var(--bg2, #ffffff); --kcard2: var(--bg3, #e8eaef); --kcard3: var(--bg4, #dce0e7);
+    --kborder: var(--border, #d2d6df); --kborder2: var(--border, #d2d6df);
+    --ktext: var(--text, #1f2329); --ktext2: var(--text2, #6b7280); --ktext3: var(--text2, #6b7280);
+    --kaccent: var(--accent, #2f6fe0); --kaccent2: var(--accent2, #1f5fd0); --kblue: var(--accent, #2f6fe0);
+  }
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>得乐学苑 · 页面组件可视化标注报告</h1>
+  <p>模块文件：src/pages/kidWorkspacePage.js（小学生成长闯关台 / 定制版）。下方每个可视组件均标注编号，点击编号或右侧图例可联动高亮，方便精准描述与手动修改布局与功能。</p>
+</header>
+<div class="wrap">
+  <div class="col-main">
+    <div class="note">说明：本报告使用模块<strong>真实 CSS</strong> 还原各组件外观（示例数据为演示用），编号所对应的<strong>代码位置</strong>指向 <span class="src">src/pages/kidWorkspacePage.js</span> 中的渲染函数与行号。修改 UI 时，按编号定位函数即可。</div>
+    <div class="toc"><a href="#scr-A">主框架(顶栏/今天要处理/Tab)</a><a href="#scr-B">今日挑战</a><a href="#scr-C">学习计划</a><a href="#scr-D">成长奖励</a><a href="#scr-E">弹窗与键盘</a><a href="#scr-E2">设置抽屉</a><a href="#scr-Z">部件细节放大</a><a href="#legend-top">📑 组件总表</a></div>
+
+    <div class="panel" id="scr-A">
+      <h2>① 主框架：顶栏 / 今天要处理 / Tab 栏</h2>
+      <p class="hint">renderTopbar() · renderToday() · renderTabs()</p>
+      <div class="device"><div class="kid-wb">
+<div class="kid-topbar pinwrap" id="pw-1"><span class="pin" data-id="1" title="组件 1">1</span>
+  <div class="kid-brand">
+    <div class="kid-logo"><svg viewBox="0 0 24 24" width="15" height="15"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L3.3 9.3l6.1-.7z" fill="22" stroke="#d97706" stroke-width="0.8"/></svg></div>
+    <div class="kid-title">得乐学苑<small>小宇 · 初级学者</small></div>
+  </div>
+  <span class="kid-lv-pill" style="background:#4f7cff">★ Lv.3</span>
+  <span class="kid-date">📅 2026年8月17日 周一</span>
+  <div class="kid-top-actions">
+    <button class="kid-btn sm">⬇ 导出</button>
+    <button class="kid-btn sm">⬆ 导入</button>
+    <button class="kid-btn sm">🔒 家长</button>
+    <button class="kid-btn sm">⚙ 设置</button>
+  </div></div>
+<div class="kid-today pinwrap" id="pw-2"><span class="pin" data-id="2" title="组件 2">2</span>
+  <div class="kid-today-head">
+    <span class="kid-today-title">🎯 今天要处理</span>
+    <span class="kid-today-sub">已完成 1/3 · 已连续打卡 5 天 🔥</span>
+    <span class="kid-progress"><svg viewBox="0 0 44 44" width="40" height="40"><circle cx="22" cy="22" r="17" fill="none" stroke="var(--kring-bg)" stroke-width="5"/><circle cx="22" cy="22" r="17" fill="none" stroke="var(--kaccent)" stroke-width="5" stroke-linecap="round" stroke-dasharray="106.8" stroke-dashoffset="71" transform="rotate(-90 22 22)"/></svg><span class="kid-progress-txt">33%</span></span>
+  </div>
+  <div class="kid-today-list">
+    <div class="kid-today-item overdue" data-today="x">
+      <div class="k-ti-ico" style="background:#dcfce7">🔢</div>
+      <div class="k-ti-main"><div class="k-ti-title">⚠ 口算 50 道</div><div class="k-ti-sub">数学口算 · 50 道</div></div>
+      <span class="k-ti-tag">逾期 1 天</span>
+      <button class="kid-btn sm">去完成 →</button>
+    </div>
+    <div class="kid-today-item" data-today="y">
+      <div class="k-ti-ico" style="background:#e0f2fe">🏃</div>
+      <div class="k-ti-main"><div class="k-ti-title">跳绳 200 个</div><div class="k-ti-sub">身体锻炼 · 200 个</div></div>
+      <button class="kid-btn sm">去完成 →</button>
+    </div>
+  </div>
+  <div class="kid-today-banner">📌 <span>已累计完成 <b>32</b> 个任务,建议在顶部点「⬇ 导出」做一次数据备份</span></div></div>
+<div class="kid-tabs pinwrap" id="pw-3"><span class="pin" data-id="3" title="组件 3">3</span>
+  <button class="kid-tab on"><span class="kid-tab-dot">🚀</span>今日挑战</button>
+  <button class="kid-tab"><span class="kid-tab-dot">🗓️</span>学习计划</button>
+  <button class="kid-tab"><span class="kid-tab-dot">👑</span>成长奖励</button></div>
+</div></div>
+    </div>
+
+    <div class="panel" id="scr-B">
+      <h2>② 今日挑战 Tab</h2>
+      <p class="hint">renderTodayTab() · renderTaskCard()</p>
+      <div class="device"><div class="kid-wb">
+<div class="kid-sec-head pinwrap" id="pw-4"><span class="pin" data-id="4" title="组件 4">4</span><span class="kid-sec-title">⚔️ 今日任务(1/3)</span><span class="kid-sec-sub">完成后请家长验收打星,获得金币和经验</span></div>
+<div class="kid-grid pinwrap" id="pw-5"><span class="pin" data-id="5" title="组件 5">5</span><div class="kid-task carry" data-task-id="x">
+    <div class="k-task-head">
+      <div class="k-task-ico" style="background:#dcfce7">🔢</div>
+      <div class="k-task-titles"><div class="k-task-name">口算 50 道</div><div class="k-task-cat">数学口算</div></div>
+      <div class="k-task-badges"><span class="k-badge carry">⚠ 昨日未完成</span></div>
+    </div>
+    <div class="k-task-target">目标:<span class="k-unit-chip">50 道</span></div>
+    <div class="k-task-actions"><button class="kid-btn challenge"></button><button class="kid-btn">✕ 移除</button></div>
+    <div class="k-task-tips">💡 每天进步一点点,坚持就是胜利!</div>
+    <div class="k-task-foot">从昨天自动顺延到今天,坚持就是胜利!</div>
+  </div><div class="kid-task started" data-task-id="x">
+    <div class="k-task-head">
+      <div class="k-task-ico" style="background:#e0f2fe">🏃</div>
+      <div class="k-task-titles"><div class="k-task-name">跳绳 200 个</div><div class="k-task-cat">身体锻炼</div></div>
+      <div class="k-task-badges"><span class="k-badge doing">⏳ 挑战中</span></div>
+    </div>
+    <div class="k-task-target">目标:<span class="k-unit-chip">200 个</span></div>
+    <div class="k-task-actions"><button class="kid-btn green">🚀 挑战成功!</button><button class="kid-btn">↺ 重来</button></div>
+    <div class="k-task-tips">💡 每天进步一点点,坚持就是胜利!</div>
+    <div class="k-task-foot">集中注意力,一鼓作气挑战到底!</div>
+  </div><div class="kid-task done" data-task-id="x">
+    <div class="k-task-head">
+      <div class="k-task-ico" style="background:#fef3c7">📖</div>
+      <div class="k-task-titles"><div class="k-task-name">背诵古诗 2 首</div><div class="k-task-cat">背诵</div></div>
+      <div class="k-task-badges"><span class="k-badge done">✅ 已完成</span></div>
+    </div>
+    <div class="k-task-target">目标:<span class="k-unit-chip">2 首</span></div>
+    <div class="k-task-reward"><span class="k-reward-chip c"><svg viewBox="0 0 24 24" width="14" height="14"><circle cx="12" cy="12" r="10.5" fill="#fbbf24" stroke="#d97706" stroke-width="1.4"/><circle cx="12" cy="12" r="7" fill="#f59e0b"/><path d="M12 7.5l1.3 2.9 3.2.3-2.4 2.1.7 3.1L12 14.3l-2.8 1.6.7-3.1-2.4-2.1 3.2-.3z" fill="#fff7ed"/></svg> +15 金币</span><span class="k-reward-chip e"><svg viewBox="0 0 24 24" width="14" height="14"><path d="M13 2L4.5 13.5h5L8 22l8.5-11.5h-5L13 2z" fill="#a78bfa" stroke="#7c3aed" stroke-width="1"/></svg> +15 经验</span><span class="k-reward-chip">⭐ 3 星</span></div><div class="k-task-actions"><button class="kid-btn">↺ 撤销(家长)</button></div>
+    <div class="k-task-tips">💡 每天进步一点点,坚持就是胜利!</div>
+    <div class="k-task-foot">点击「开启挑战」开始挑战</div>
+  </div></div>
+<div class="kid-addtask pinwrap" id="pw-6"><span class="pin" data-id="6" title="组件 6">6</span>＋ 添加自定义任务</div>
+<div class="kid-sec-head pinwrap" id="pw-7"><span class="pin" data-id="7" title="组件 7">7</span><span class="kid-sec-title">🏆 今日已挑战</span></div>
+</div></div>
+    </div>
+
+    <div class="panel" id="scr-C">
+      <h2>③ 学习计划 Tab</h2>
+      <p class="hint">renderPlanTab()</p>
+      <div class="device"><div class="kid-wb">
+<div class="kid-plan-tools pinwrap" id="pw-8"><span class="pin" data-id="8" title="组件 8">8</span>
+  <button class="kid-btn primary">📋 套用均衡模板</button>
+  <button class="kid-btn">🗑 清空计划</button>
+  <label style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700;margin-left:auto;cursor:pointer"><span>计划生成今日任务</span><span class="kid-switch on"></span></label></div>
+<div class="kid-plan-days pinwrap" id="pw-9"><span class="pin" data-id="9" title="组件 9">9</span><div class="kid-plan-day"><div class="kid-plan-day-head"><span class="kid-plan-day-name">周日</span></div><div class="kid-plan-empty">空,点「＋」添加</div><button class="kid-addtask" style="min-height:40px;font-size:12px">＋ 添加</button></div><div class="kid-plan-day today"><div class="kid-plan-day-head"><span class="kid-plan-day-name">周一 · 今天</span><span style="font-size:10px;color:var(--ktext3);font-weight:700">1/2</span></div><div class="kid-plan-item"><span class="k-pi-dot" style="background:#22c55e"></span><span class="k-pi-text">口算 50 道 · 道</span><button class="k-pi-x">✕</button></div><div class="kid-plan-item"><span class="k-pi-dot" style="background:#22c55e"></span><span class="k-pi-text">跳绳 200 个 · 个</span><button class="k-pi-x">✕</button></div><button class="kid-addtask" style="min-height:40px;font-size:12px">＋ 添加</button></div><div class="kid-plan-day"><div class="kid-plan-day-head"><span class="kid-plan-day-name">周二</span></div><div class="kid-plan-empty">空,点「＋」添加</div><button class="kid-addtask" style="min-height:40px;font-size:12px">＋ 添加</button></div><div class="kid-plan-day"><div class="kid-plan-day-head"><span class="kid-plan-day-name">周三</span><span style="font-size:10px;color:var(--ktext3);font-weight:700">1/2</span></div><div class="kid-plan-item"><span class="k-pi-dot" style="background:#22c55e"></span><span class="k-pi-text">undefined · undefined</span><button class="k-pi-x">✕</button></div><button class="kid-addtask" style="min-height:40px;font-size:12px">＋ 添加</button></div><div class="kid-plan-day"><div class="kid-plan-day-head"><span class="kid-plan-day-name">周四</span></div><div class="kid-plan-empty">空,点「＋」添加</div><button class="kid-addtask" style="min-height:40px;font-size:12px">＋ 添加</button></div><div class="kid-plan-day"><div class="kid-plan-day-head"><span class="kid-plan-day-name">周五</span></div><div class="kid-plan-empty">空,点「＋」添加</div><button class="kid-addtask" style="min-height:40px;font-size:12px">＋ 添加</button></div><div class="kid-plan-day"><div class="kid-plan-day-head"><span class="kid-plan-day-name">周六</span></div><div class="kid-plan-empty">空,点「＋」添加</div><button class="kid-addtask" style="min-height:40px;font-size:12px">＋ 添加</button></div></div>
+<div class="kid-today-banner pinwrap" id="pw-10"><span class="pin" data-id="10" title="组件 10">10</span>💡 每个任务都有固定奖励:完成 +10 金币/经验,星级越高奖励越多;连续打卡 3/7/14/30 天额外送钻石,一周计划全完成送 1 皇冠。</div>
+</div></div>
+    </div>
+
+    <div class="panel" id="scr-D">
+      <h2>④ 成长奖励 Tab</h2>
+      <p class="hint">renderRewardTab()</p>
+      <div class="device"><div class="kid-wb">
+<div class="kid-wallet pinwrap" id="pw-11"><span class="pin" data-id="11" title="组件 11">11</span>
+  <div class="kid-wallet-card"><div class="k-w-ico" style="background:#fffbeb"><svg viewBox="0 0 24 24" width="22" height="22"><circle cx="12" cy="12" r="10.5" fill="#fbbf24" stroke="#d97706" stroke-width="1.4"/><circle cx="12" cy="12" r="7" fill="#f59e0b"/><path d="M12 7.5l1.3 2.9 3.2.3-2.4 2.1.7 3.1L12 14.3l-2.8 1.6.7-3.1-2.4-2.1 3.2-.3z" fill="#fff7ed"/></svg></div><div><div class="k-w-num">120</div><div class="k-w-name">金币</div></div></div>
+  <div class="kid-wallet-card"><div class="k-w-ico" style="background:#ecfeff"><svg viewBox="0 0 24 24" width="22" height="22"><path d="M7 4h10l4 5-9 11L3 9z" fill="#22d3ee" stroke="#0891b2" stroke-width="1.3" stroke-linejoin="round"/></svg></div><div><div class="k-w-num">4</div><div class="k-w-name">钻石</div></div></div>
+  <div class="kid-wallet-card"><div class="k-w-ico" style="background:#fffbeb"><svg viewBox="0 0 24 24" width="22" height="22"><path d="M3 8l4 4 5-6 5 6 4-4-2 10H5z" fill="#fbbf24" stroke="#d97706" stroke-width="1.3" stroke-linejoin="round"/></svg></div><div><div class="k-w-num">2</div><div class="k-w-name">皇冠</div></div></div>
+  <div class="kid-wallet-card"><div class="k-w-ico" style="background:var(--kcard)"><svg viewBox="0 0 24 24" width="22" height="22"><circle cx="12" cy="14" r="7" fill="#fb923c" stroke="#ea580c" stroke-width="1.3"/><circle cx="12" cy="14" r="4.5" fill="#fff7ed"/></svg></div><div><div class="k-w-num">3/6</div><div class="k-w-name">奖章</div></div></div></div>
+<div class="kid-row2 pinwrap" id="pw-12"><span class="pin" data-id="12" title="组件 12">12</span>
+  <div class="kid-card">
+    <div class="kid-card-title">🏅 等级称号</div>
+    <div class="kid-level-row">
+      <div class="kid-hero-box"><div style="font-size:54px">🧒</div></div>
+      <div class="kid-level-info">
+        <div class="kid-lv-title">初级学者<span class="kid-lv-tag" style="background:#4f7cff">Lv.3</span></div>
+        <div class="kid-lv-desc">稳步前进的小学霸,继续加油!</div>
+        <div class="kid-ring-row"><span class="kid-ring-label">经验</span><div class="kid-ring-bar"><div class="kid-ring-fill" style="width:60%"></div></div><span class="kid-ring-val">180/300</span></div>
+        <div style="font-size:11px;color:var(--ktext3);margin-top:6px">再攒 120 经验晋级「中级学者」</div>
+      </div>
+    </div>
+    <div style="font-size:12px;color:var(--ktext2);margin-top:10px;line-height:1.6">🔥 已连续打卡 <b>5</b> 天(历史最长 12 天) · 累计挑战 <b>32</b> 关</div>
+  </div>
+  <div class="kid-card">
+    <div class="kid-card-title">😀 我的头像</div>
+    <div class="kid-avatars">
+      <div class="kid-avatar-item on" title="头像1"><div style="font-size:30px">😀</div><span class="k-a-name">开心</span></div><div class="kid-avatar-item" title="头像2"><div style="font-size:30px">😎</div><span class="k-a-name">酷酷</span></div><div class="kid-avatar-item" title="头像3"><div style="font-size:30px">😉</div><span class="k-a-name">眨眼</span></div><div class="kid-avatar-item" title="头像4"><div style="font-size:30px">😜</div><span class="k-a-name">淘气</span></div><div class="kid-avatar-item" title="头像5"><div style="font-size:30px">😲</div><span class="k-a-name">惊讶</span></div><div class="kid-avatar-item" title="头像6"><div style="font-size:30px">😏</div><span class="k-a-name">得意</span></div><div class="kid-avatar-item locked" title="头像7"><div style="font-size:30px">🤩</div><span class="k-a-name">🔒 Lv.5</span></div><div class="kid-avatar-item locked" title="头像8"><div style="font-size:30px">🤴</div><span class="k-a-name">🔒 Lv.8</span></div>
+    </div>
+    <div style="font-size:11px;color:var(--ktext3);margin-top:8px">数字人会随等级换装进化:帽子(3级)→ 眼镜披风(5级)→ 皇冠(7级)→ 星光(9级)→ 光环(10级)→ 钻石王冠(11级)</div>
+  </div></div>
+<div class="kid-card pinwrap" id="pw-14"><span class="pin" data-id="14" title="组件 14">14</span>
+  <div class="kid-card-title">🎁 道具商城<button class="kid-btn sm" style="margin-left:auto">＋ 管理道具</button><button class="kid-btn sm" style="margin-left:8px">兑换记录</button></div>
+  <div class="kid-shop-grid">
+    <div class="kid-shop-item"><div class="k-s-head"><div class="k-s-ico" style="background:#fffbeb">🎁</div><div><div class="k-s-name">冰淇淋券</div><div style="font-size:11px;color:var(--ktext3)">金币道具</div></div></div><div class="k-s-note">夏日清凉奖励</div><div class="k-s-foot"><span class="k-s-price"><svg viewBox="0 0 24 24" width="15" height="15"><circle cx="12" cy="12" r="10.5" fill="#fbbf24" stroke="#d97706" stroke-width="1.4"/><circle cx="12" cy="12" r="7" fill="#f59e0b"/><path d="M12 7.5l1.3 2.9 3.2.3-2.4 2.1.7 3.1L12 14.3l-2.8 1.6.7-3.1-2.4-2.1 3.2-.3z" fill="#fff7ed"/></svg> 30</span><button class="kid-btn sm gold">兑换</button></div></div><div class="kid-shop-item"><div class="k-s-head"><div class="k-s-ico" style="background:#fffbeb">🎁</div><div><div class="k-s-name">周末多玩30分</div><div style="font-size:11px;color:var(--ktext3)">金币道具</div></div></div><div class="k-s-note">游戏时间+30分钟</div><div class="k-s-foot"><span class="k-s-price"><svg viewBox="0 0 24 24" width="15" height="15"><circle cx="12" cy="12" r="10.5" fill="#fbbf24" stroke="#d97706" stroke-width="1.4"/><circle cx="12" cy="12" r="7" fill="#f59e0b"/><path d="M12 7.5l1.3 2.9 3.2.3-2.4 2.1.7 3.1L12 14.3l-2.8 1.6.7-3.1-2.4-2.1 3.2-.3z" fill="#fff7ed"/></svg> 50</span><button class="kid-btn sm gold">兑换</button></div></div><div class="kid-shop-item"><div class="k-s-head"><div class="k-s-ico" style="background:#ecfeff">🎁</div><div><div class="k-s-name">星空投影灯</div><div style="font-size:11px;color:var(--ktext3)">钻石道具</div></div></div><div class="k-s-note">钻石专属好物</div><div class="k-s-foot"><span class="k-s-price d"><svg viewBox="0 0 24 24" width="15" height="15"><path d="M7 4h10l4 5-9 11L3 9z" fill="#22d3ee" stroke="#0891b2" stroke-width="1.3" stroke-linejoin="round"/></svg> 3</span><button class="kid-btn sm primary">兑换</button></div></div>
+  </div></div>
+<div class="kid-card pinwrap" id="pw-15"><span class="pin" data-id="15" title="组件 15">15</span>
+  <div class="kid-card-title">🏅 奖章墙</div>
+  <div class="kid-medal-grid">
+    <div class="kid-medal got"><div style="font-size:30px;filter:none">🏅</div><div class="k-m-name">连胜3天</div><div class="k-m-desc">连续打卡3天</div><div style="font-size:10px;font-weight:700;color:#b45309">✅ 已获得</div></div><div class="kid-medal got"><div style="font-size:30px;filter:none">🏅</div><div class="k-m-name">连胜7天</div><div class="k-m-desc">连续打卡7天</div><div style="font-size:10px;font-weight:700;color:#b45309">✅ 已获得</div></div><div class="kid-medal got"><div style="font-size:30px;filter:none">🏅</div><div class="k-m-name">周计划全勤</div><div class="k-m-desc">一周计划全完成</div><div style="font-size:10px;font-weight:700;color:#b45309">✅ 已获得</div></div><div class="kid-medal locked"><div style="font-size:30px;filter:grayscale(1)">🏅</div><div class="k-m-name">累计30关</div><div class="k-m-desc">累计挑战30关</div><div style="font-size:10px;font-weight:700;color:#9aa0b3">未解锁</div></div><div class="kid-medal locked"><div style="font-size:30px;filter:grayscale(1)">🏅</div><div class="k-m-name">集齐头像</div><div class="k-m-desc">解锁全部头像</div><div style="font-size:10px;font-weight:700;color:#9aa0b3">未解锁</div></div><div class="kid-medal got"><div style="font-size:30px;filter:none">🏅</div><div class="k-m-name">首次挑战</div><div class="k-m-desc">完成第一个任务</div><div style="font-size:10px;font-weight:700;color:#b45309">✅ 已获得</div></div>
+  </div></div>
+<div class="kid-today-banner pinwrap" id="pw-16"><span class="pin" data-id="16" title="组件 16">16</span>💰 奖励规则:基础完成 +10 金币/经验(家长可在设置调整倍数);星级加成 ⭐×5;金币可兑换道具,钻石由连胜里程碑获得,皇冠由周计划全勤获得。</div>
+</div></div>
+    </div>
+
+    <div class="panel" id="scr-E">
+      <h2>⑤ 弹窗与密码键盘</h2>
+      <p class="hint">openStarModal() · openTaskModal() · openPwdModal()</p>
+      <div class="device"><div class="kid-wb">
+<div class="kid-overlay pinwrap" id="pw-17"><span class="pin" data-id="17" title="组件 17">17</span><div class="kid-modal" style="position:relative;max-width:420px;width:100%">
+  <div class="kid-modal-head"><div class="kid-modal-title">🎉 挑战成功!</div><button class="kid-modal-x">✕</button></div>
+  <div style="display:flex;align-items:center;gap:10px;background:#fef3c7;border-radius:12px;padding:10px 12px;margin-bottom:12px"><div class="k-task-ico" style="background:#fef3c7">📖</div><div style="font-weight:800;font-size:15px">背诵古诗 2 首<div style="font-size:12px;color:var(--ktext2);font-weight:600">背诵 · 2 首</div></div></div>
+  <div class="kid-label" style="text-align:center">请家长验收,给这次挑战打星 ⭐</div>
+  <div class="kid-stars-pick"><button class="kid-star-btn"><svg viewBox="0 0 24 24" width="15" height="15"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L3.3 9.3l6.1-.7z" fill="34" stroke="#d97706" stroke-width="0.8"/></svg></button><button class="kid-star-btn"><svg viewBox="0 0 24 24" width="15" height="15"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L3.3 9.3l6.1-.7z" fill="34" stroke="#d97706" stroke-width="0.8"/></svg></button><button class="kid-star-btn on"><svg viewBox="0 0 24 24" width="15" height="15"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L3.3 9.3l6.1-.7z" fill="34" stroke="#d97706" stroke-width="0.8"/></svg></button></div>
+  <div id="kid-star-preview" style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap"><span class="k-reward-chip c"><svg viewBox="0 0 24 24" width="14" height="14"><circle cx="12" cy="12" r="10.5" fill="#fbbf24" stroke="#d97706" stroke-width="1.4"/><circle cx="12" cy="12" r="7" fill="#f59e0b"/><path d="M12 7.5l1.3 2.9 3.2.3-2.4 2.1.7 3.1L12 14.3l-2.8 1.6.7-3.1-2.4-2.1 3.2-.3z" fill="#fff7ed"/></svg> +15 金币</span><span class="k-reward-chip e"><svg viewBox="0 0 24 24" width="14" height="14"><path d="M13 2L4.5 13.5h5L8 22l8.5-11.5h-5L13 2z" fill="#a78bfa" stroke="#7c3aed" stroke-width="1"/></svg> +15 经验</span></div>
+  <div class="kid-modal-actions"><button class="kid-btn">稍后</button><button class="kid-btn gold">确认领取 🎁</button></div>
+</div></div>
+<div class="kid-overlay pinwrap" id="pw-18"><span class="pin" data-id="18" title="组件 18">18</span><div class="kid-modal" style="position:relative;max-width:420px;width:100%">
+  <div class="kid-modal-head"><div class="kid-modal-title">＋ 添加今日任务</div><button class="kid-modal-x">✕</button></div>
+  <div class="kid-field"><label class="kid-label">任务类型</label><div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px"><button class="kid-btn" style="justify-content:flex-start;border-color:#0ea5e944;background:#e0f2fe;color:#3a4056"><span style="width:20px;height:20px;border-radius:6px;background:#0ea5e9;display:flex;align-items:center;justify-content:center">🏃</span>身体锻炼</button><button class="kid-btn" style="justify-content:flex-start;border-color:#f59e0b44;background:#fef3c7;color:#3a4056"><span style="width:20px;height:20px;border-radius:6px;background:#f59e0b;display:flex;align-items:center;justify-content:center">📖</span>背诵</button><button class="kid-btn" style="justify-content:flex-start;border-color:#6366f144;background:#e0e7ff;color:#3a4056"><span style="width:20px;height:20px;border-radius:6px;background:#6366f1;display:flex;align-items:center;justify-content:center">✍️</span>听写默写书法</button><button class="kid-btn" style="justify-content:flex-start;border-color:#22c55e44;background:#dcfce7;color:#3a4056"><span style="width:20px;height:20px;border-radius:6px;background:#22c55e;display:flex;align-items:center;justify-content:center">🔢</span>数学口算</button></div></div>
+  <div class="kid-field"><label class="kid-label">任务名称</label><input type="text" placeholder="例如:跳绳 200 个" maxlength="30"></div>
+  <div class="kid-field"><label class="kid-label">目标数量</label><input type="number" value="1" min="1" max="999"></div>
+  <div class="kid-modal-actions"><button class="kid-btn">取消</button><button class="kid-btn primary">添加任务</button></div>
+</div></div>
+<div class="kid-overlay pinwrap" id="pw-22"><span class="pin" data-id="22" title="组件 22">22</span><div class="kid-modal" style="position:relative;max-width:300px;width:100%">
+  <div class="kid-modal-head"><div class="kid-modal-title">输入家长密码</div><button class="kid-modal-x">✕</button></div>
+  <div class="kid-pwd-dots"><span class="kid-pwd-dot fill"></span><span class="kid-pwd-dot fill"></span><span class="kid-pwd-dot"></span><span class="kid-pwd-dot"></span></div>
+  <div class="kid-pwd-pad"><button class="kid-pwd-key">1</button><button class="kid-pwd-key">2</button><button class="kid-pwd-key">3</button><button class="kid-pwd-key">4</button><button class="kid-pwd-key">5</button><button class="kid-pwd-key">6</button><button class="kid-pwd-key">7</button><button class="kid-pwd-key">8</button><button class="kid-pwd-key">9</button><button class="kid-pwd-key del">清空</button><button class="kid-pwd-key">0</button><button class="kid-pwd-key del">⌫</button></div>
+</div></div>
+</div></div>
+    </div>
+
+    <div class="panel" id="scr-E2">
+      <h2>⑥ 设置抽屉</h2>
+      <p class="hint">openSettings()</p>
+      <div class="device"><div class="kid-wb">
+<div class="kid-drawer pinwrap" id="pw-23"><span class="pin" data-id="23" title="组件 23">23</span>
+  <div class="kid-drawer-head"><div class="kid-logo" style="width:38px;height:38px"><svg viewBox="0 0 24 24" width="15" height="15"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L3.3 9.3l6.1-.7z" fill="20" stroke="#d97706" stroke-width="0.8"/></svg></div><div class="kid-title" style="font-size:16px">设置</div><button class="kid-modal-x" style="margin-left:auto">✕</button></div>
+  <div class="kid-drawer-body">
+    <div class="kid-drawer-row"><div><div class="k-dr-label">我的昵称</div><div class="k-dr-sub">显示在顶部与等级旁</div></div><input type="text" value="小宇" style="width:130px;padding:8px 10px" maxlength="12"></div>
+    <div class="kid-sec-gap kid-drawer-row"><div><div class="k-dr-label">主题模式</div><div class="k-dr-sub">「跟随项目」与应用外观自动一致</div></div><select style="width:138px;padding:8px 10px"><option>跟随项目</option><option>儿童亮色</option><option>糖果乐园 🍬</option><option>星际探险 🚀</option><option>深色</option></select></div>
+    <div class="kid-sec-gap kid-drawer-row"><div><div class="k-dr-label">奖励倍数</div><div class="k-dr-sub">金币/经验按此倍数发放</div></div><select style="width:110px;padding:8px 10px"><option>×1 标准</option><option>×1.5 加量</option><option>×2 翻倍</option></select></div>
+    <div class="kid-sec-gap kid-drawer-row"><div><div class="k-dr-label">家长模式</div><div class="k-dr-sub">开启后解锁家长专属操作</div></div><span class="kid-switch on"></span></div>
+    <div class="kid-drawer-row"><div><div class="k-dr-label" style="color:#ef4444">清空全部数据</div><div class="k-dr-sub">删除所有任务/金币/等级/计划</div></div><button class="kid-btn sm red">清空</button></div>
+  </div></div>
+</div></div>
+    </div>
+
+    <div class="panel" id="scr-Z">
+      <h2>⑦ 部件细节放大（任务卡内部 & 奖励页部件）</h2>
+      <p class="hint">renderTaskCard() 子块 · renderRewardTab() 子块</p>
+      <div class="device"><div class="kid-wb">
+<div class="zoom-grid">
+<div class="kid-task started pinwrap" id="pw-A"><span class="pin" data-id="A" title="组件 A">A</span><div class="k-task-head"><div class="k-task-ico" style="background:#e0f2fe">🏃</div><div class="k-task-titles"><div class="k-task-name">跳绳 200 个</div><div class="k-task-cat">身体锻炼</div></div><div class="k-task-badges"><span class="k-badge doing">⏳ 挑战中</span></div></div></div>
+<div class="kid-task pinwrap" id="pw-B"><span class="pin" data-id="B" title="组件 B">B</span><div class="k-task-target">目标:<span class="k-unit-chip">200 个</span></div></div>
+<div class="kid-task pinwrap" id="pw-C"><span class="pin" data-id="C" title="组件 C">C</span><div class="k-task-reward"><span class="k-reward-chip c"><svg viewBox="0 0 24 24" width="14" height="14"><circle cx="12" cy="12" r="10.5" fill="#fbbf24" stroke="#d97706" stroke-width="1.4"/><circle cx="12" cy="12" r="7" fill="#f59e0b"/><path d="M12 7.5l1.3 2.9 3.2.3-2.4 2.1.7 3.1L12 14.3l-2.8 1.6.7-3.1-2.4-2.1 3.2-.3z" fill="#fff7ed"/></svg> +15 金币</span><span class="k-reward-chip e"><svg viewBox="0 0 24 24" width="14" height="14"><path d="M13 2L4.5 13.5h5L8 22l8.5-11.5h-5L13 2z" fill="#a78bfa" stroke="#7c3aed" stroke-width="1"/></svg> +15 经验</span><span class="k-reward-chip">⭐ 3 星</span></div></div>
+<div class="kid-task pinwrap" id="pw-D"><span class="pin" data-id="D" title="组件 D">D</span><div class="k-task-actions"><button class="kid-btn green">🚀 挑战成功!</button><button class="kid-btn">↺ 重来</button></div></div>
+<div class="kid-task pinwrap" id="pw-E"><span class="pin" data-id="E" title="组件 E">E</span><div class="k-task-tips">💡 每天进步一点点,坚持就是胜利!</div></div>
+<div class="kid-task pinwrap" id="pw-F"><span class="pin" data-id="F" title="组件 F">F</span><div class="k-task-foot">集中注意力,一鼓作气挑战到底!</div></div>
+</div>
+<div class="zoom-grid" style="margin-top:14px">
+<div class="kid-hero-box pinwrap" id="pw-G"><span class="pin" data-id="G" title="组件 G">G</span><div style="font-size:54px">🧒</div></div>
+<div class="kid-level-info pinwrap" id="pw-H"><span class="pin" data-id="H" title="组件 H">H</span><div class="kid-lv-title">初级学者<span class="kid-lv-tag" style="background:#4f7cff">Lv.3</span></div><div class="kid-lv-desc">稳步前进的小学霸</div><div class="kid-ring-row"><span class="kid-ring-label">经验</span><div class="kid-ring-bar"><div class="kid-ring-fill" style="width:60%"></div></div><span class="kid-ring-val">180/300</span></div></div>
+<div class="kid-avatar-item on pinwrap" id="pw-I"><span class="pin" data-id="I" title="组件 I">I</span><div style="font-size:30px">😀</div><span class="k-a-name">开心</span></div>
+<div class="kid-shop-item pinwrap" id="pw-J"><span class="pin" data-id="J" title="组件 J">J</span><div class="k-s-head"><div class="k-s-ico" style="background:#fffbeb">🎁</div><div><div class="k-s-name">冰淇淋券</div><div style="font-size:11px;color:var(--ktext3)">金币道具</div></div></div><div class="k-s-note">夏日清凉奖励</div><div class="k-s-foot"><span class="k-s-price"><svg viewBox="0 0 24 24" width="15" height="15"><circle cx="12" cy="12" r="10.5" fill="#fbbf24" stroke="#d97706" stroke-width="1.4"/><circle cx="12" cy="12" r="7" fill="#f59e0b"/><path d="M12 7.5l1.3 2.9 3.2.3-2.4 2.1.7 3.1L12 14.3l-2.8 1.6.7-3.1-2.4-2.1 3.2-.3z" fill="#fff7ed"/></svg> 30</span><button class="kid-btn sm gold">兑换</button></div></div>
+<div class="kid-medal got pinwrap" id="pw-K"><span class="pin" data-id="K" title="组件 K">K</span><div style="font-size:30px">🏅</div><div class="k-m-name">连胜7天</div><div class="k-m-desc">连续打卡7天</div><div style="font-size:10px;font-weight:700;color:#b45309">✅ 已获得</div></div>
+<div class="kid-wallet-card pinwrap" id="pw-L"><span class="pin" data-id="L" title="组件 L">L</span><div class="k-w-ico" style="background:#fffbeb"><svg viewBox="0 0 24 24" width="22" height="22"><circle cx="12" cy="12" r="10.5" fill="#fbbf24" stroke="#d97706" stroke-width="1.4"/><circle cx="12" cy="12" r="7" fill="#f59e0b"/><path d="M12 7.5l1.3 2.9 3.2.3-2.4 2.1.7 3.1L12 14.3l-2.8 1.6.7-3.1-2.4-2.1 3.2-.3z" fill="#fff7ed"/></svg></div><div><div class="k-w-num">120</div><div class="k-w-name">金币</div></div></div>
+</div>
+</div></div>
+    </div>
+  </div>
+
+  <div class="col-side">
+    <div class="panel" id="legend-top">
+      <h2>📑 组件清单总表</h2>
+      <p class="hint">点击任意行 → 左侧对应组件高亮并滚动到视图</p>
+      <table class="legend"><thead><tr><th>#</th><th>组件</th><th>代码位置</th><th>作用</th></tr></thead><tbody><tr class="leg" data-id="1"><td class="cnum">1</td><td class="cname">顶部栏 kid-topbar</td><td class="ccode">renderTopbar() · L860</td><td class="crole">整页头部：品牌 Logo、标题+昵称/等级、等级胶囊、日期、以及导出/导入/家长/设置四个操作入口。修改 L864-876 的 innerHTML 与点击事件。</td></tr><tr class="leg" data-id="2"><td class="cnum">2</td><td class="cname">「今天要处理」置顶区 kid-today</td><td class="ccode">renderToday() · L890</td><td class="crole">页面置顶展示当天任务、完成进度环、逾期标红、一键「去完成」、累计完成后的备份提醒。L922-936 控制结构与文案。</td></tr><tr class="leg" data-id="3"><td class="cnum">3</td><td class="cname">Tab 切换栏 kid-tabs</td><td class="ccode">renderTabs() · L955</td><td class="crole">在「今日挑战 / 学习计划 / 成长奖励」三个主视图间切换；点击改变 activeTab 后整体重渲染。L958-963 定义三 tab。</td></tr><tr class="leg" data-id="4"><td class="cnum">4</td><td class="cname">今日任务区标题 kid-sec-head</td><td class="ccode">renderTodayTab() · L973</td><td class="crole">显示「⚔️ 今日任务(已完成/总数)」与验收说明副标题。L977-979。</td></tr><tr class="leg" data-id="5"><td class="cnum">5</td><td class="cname">任务卡 kid-task</td><td class="ccode">renderTaskCard() · L1011</td><td class="crole">单条任务卡片整体（含头部/目标/奖励/操作/提示/底部六块，见细节屏）。状态类：done/started/carry 对应不同边框色。L1013-1062。</td></tr><tr class="leg" data-id="6"><td class="cnum">6</td><td class="cname">添加自定义任务按钮 kid-addtask</td><td class="ccode">renderTodayTab() · L990</td><td class="crole">点击打开「添加任务」弹窗(openTaskModal)。L990-994。</td></tr><tr class="leg" data-id="7"><td class="cnum">7</td><td class="cname">今日已挑战汇总区 doneSec</td><td class="ccode">renderTodayTab() · L998</td><td class="crole">已完成任务的汇总区，展示奖励与（家长模式下）撤销按钮。L997-1007。</td></tr><tr class="leg" data-id="8"><td class="cnum">8</td><td class="cname">计划工具条 kid-plan-tools</td><td class="ccode">renderPlanTab() · L1188</td><td class="crole">「套用均衡模板 / 清空计划 / 计划生成今日任务」开关。L1188-1208。</td></tr><tr class="leg" data-id="9"><td class="cnum">9</td><td class="cname">周计划网格 kid-plan-days</td><td class="ccode">renderPlanTab() · L1212</td><td class="crole">周一到周日七列，每日含完成计数、计划项列表、删除(✕)、当日加「＋添加」。今天列高亮。L1215-1230。</td></tr><tr class="leg" data-id="10"><td class="cnum">10</td><td class="cname">计划奖励提示横幅</td><td class="ccode">renderPlanTab() · L1233</td><td class="crole">底部奖励规则说明横幅(kid-today-banner 复用样式)。L1233-1237。</td></tr><tr class="leg" data-id="11"><td class="cnum">11</td><td class="cname">钱包四宫格 kid-wallet</td><td class="ccode">renderRewardTab() · L1301</td><td class="crole">金币 / 钻石 / 皇冠 / 奖章 四项余额卡片。L1303-1308。</td></tr><tr class="leg" data-id="12"><td class="cnum">12</td><td class="cname">等级称号卡(左) kid-card</td><td class="ccode">renderRewardTab() · L1314</td><td class="crole">数字人舞台 + 等级称号 + 经验进度条 + 连胜/累计信息。L1314-1330。</td></tr><tr class="leg" data-id="13"><td class="cnum">13</td><td class="cname">我的头像墙(右) kid-card</td><td class="ccode">renderRewardTab() · L1331</td><td class="crole">8 个头像，按等级解锁(Lv.5/8 解锁 a7/a8)，点击切换当前头像。L1333-1341。</td></tr><tr class="leg" data-id="14"><td class="cnum">14</td><td class="cname">道具商城 kid-card</td><td class="ccode">renderRewardTab() · L1347</td><td class="crole">金币/钻石道具列表，含「管理道具(家长) / 兑换记录」按钮与「兑换」操作。L1349-1379。</td></tr><tr class="leg" data-id="15"><td class="cnum">15</td><td class="cname">奖章墙 kid-card</td><td class="ccode">renderRewardTab() · L1382</td><td class="crole">里程碑奖章网格，已获得高亮、未解锁灰度。L1384-1399。</td></tr><tr class="leg" data-id="16"><td class="cnum">16</td><td class="cname">奖励规则说明</td><td class="ccode">renderRewardTab() · L1402</td><td class="crole">成长奖励页底部全局奖励规则横幅。L1402-1406。</td></tr><tr class="leg" data-id="17"><td class="cnum">17</td><td class="cname">星级验收弹窗 kid-modal</td><td class="ccode">openStarModal() · L1066</td><td class="crole">任务完成后家长打 1~3 星并预览/领取奖励；确认后撒花(confetti)并重渲染。L1076-1116。</td></tr><tr class="leg" data-id="18"><td class="cnum">18</td><td class="cname">添加任务弹窗 kid-modal</td><td class="ccode">openTaskModal() · L1145</td><td class="crole">选择任务类型/名称/目标数量，写入今日任务。L1150-1179。</td></tr><tr class="leg" data-id="19"><td class="cnum">19</td><td class="cname">添加计划项弹窗</td><td class="ccode">openPlanItemModal() · L1254</td><td class="crole">给某一天添加计划项(分类/名称/目标)，用于生成每日任务。</td></tr><tr class="leg" data-id="20"><td class="cnum">20</td><td class="cname">兑换记录弹窗</td><td class="ccode">openClaimLog() · L1441</td><td class="crole">展示已兑换道具历史列表。L1446-1455。</td></tr><tr class="leg" data-id="21"><td class="cnum">21</td><td class="cname">管理道具弹窗(家长)</td><td class="ccode">openShopManageModal() · L1459</td><td class="crole">家长增删商城道具(名称/价格/金币或钻石)。L1466-1514。</td></tr><tr class="leg" data-id="22"><td class="cnum">22</td><td class="cname">家长密码键盘 kid-pwd-pad</td><td class="ccode">openPwdModal() · L1543</td><td class="crole">4 位数字密码输入键盘 + 圆点指示，用于进入/退出家长模式与修改密码。L1550-1573。</td></tr><tr class="leg" data-id="23"><td class="cnum">23</td><td class="cname">设置抽屉 kid-drawer</td><td class="ccode">openSettings() · L1577</td><td class="crole">右侧抽屉：昵称/主题模式/奖励倍数/家长模式/修改密码/清空示例/清空全部数据。L1586-1661。</td></tr><tr class="leg" data-id="A"><td class="cnum">A</td><td class="cname">任务头部 k-task-head</td><td class="ccode">renderTaskCard() · L1038</td><td class="crole">图标(k-task-ico) + 标题/分类(k-task-titles) + 状态徽章(k-task-badges)。</td></tr><tr class="leg" data-id="B"><td class="cnum">B</td><td class="cname">目标芯片 k-task-target</td><td class="ccode">renderTaskCard() · L1046</td><td class="crole">展示「目标: <数量 单位>」与完成时间。</td></tr><tr class="leg" data-id="C"><td class="cnum">C</td><td class="cname">奖励信息 k-task-reward</td><td class="ccode">renderTaskCard() · L1047</td><td class="crole">完成后显示金币/经验/星级奖励芯片。</td></tr><tr class="leg" data-id="D"><td class="cnum">D</td><td class="cname">操作按钮 k-task-actions</td><td class="ccode">renderTaskCard() · L1048</td><td class="crole">开启挑战 / 挑战成功 / 重来 / 移除(家长) / 撤销(家长)。</td></tr><tr class="leg" data-id="E"><td class="cnum">E</td><td class="cname">提示语 k-task-tips</td><td class="ccode">renderTaskCard() · L1049</td><td class="crole">按分类随机展示一句鼓励/方法提示。</td></tr><tr class="leg" data-id="F"><td class="cnum">F</td><td class="cname">底部说明 k-task-foot</td><td class="ccode">renderTaskCard() · L1050</td><td class="crole">顺延/挑战中/待开始等状态说明文字。</td></tr><tr class="leg" data-id="G"><td class="cnum">G</td><td class="cname">数字人舞台 kid-hero-box</td><td class="ccode">renderRewardTab() · L1317</td><td class="crole">手绘 SVG 数字人，随等级换装进化(帽子/眼镜披风/皇冠/星光/光环/钻石王冠)。</td></tr><tr class="leg" data-id="H"><td class="cnum">H</td><td class="cname">等级信息 kid-level-info</td><td class="ccode">renderRewardTab() · L1318</td><td class="crole">等级称号 + 标签 + 描述 + 经验进度条 + 晋级提示。</td></tr><tr class="leg" data-id="I"><td class="cnum">I</td><td class="cname">头像项 kid-avatar-item</td><td class="ccode">renderRewardTab() · L1338</td><td class="crole">单个头像(手绘 SVG)，选中(on)/锁定(locked)状态，点选切换。</td></tr><tr class="leg" data-id="J"><td class="cnum">J</td><td class="cname">商城项 kid-shop-item</td><td class="ccode">renderRewardTab() · L1359</td><td class="crole">单个道具：图标/名称/说明/价格/兑换按钮。</td></tr><tr class="leg" data-id="K"><td class="cnum">K</td><td class="cname">奖章格 kid-medal</td><td class="ccode">renderRewardTab() · L1390</td><td class="crole">单个奖章：图标/名称/描述/获得状态。</td></tr><tr class="leg" data-id="L"><td class="cnum">L</td><td class="cname">钱包卡片 kid-wallet-card</td><td class="ccode">renderRewardTab() · L1304</td><td class="crole">单个余额卡片：圆形图标 + 数值 + 名称。</td></tr></tbody></table>
+    </div>
+  </div>
+</div>
+<footer>得乐学苑组件标注报告 · 由模块真实 CSS 自动还原 · 共 35 个标注组件</footer>
+
+<script>
+  function focusId(id){
+    document.querySelectorAll('.pin').forEach(p=>p.classList.toggle('hot',p.dataset.id===id));
+    document.querySelectorAll('.leg').forEach(r=>r.classList.toggle('hot',r.dataset.id===id));
+    const w=document.getElementById('pw-'+id); if(w) w.scrollIntoView({behavior:'smooth',block:'center'});
+    const r=document.querySelector('.leg[data-id="'+id+'"]'); if(r) r.scrollIntoView({behavior:'smooth',block:'center'});
+  }
+  document.querySelectorAll('.pin').forEach(p=>p.addEventListener('click',e=>{e.stopPropagation();focusId(p.dataset.id);}));
+  document.querySelectorAll('.leg').forEach(r=>r.addEventListener('click',()=>focusId(r.dataset.id)));
+</script>
+</body>
+</html>

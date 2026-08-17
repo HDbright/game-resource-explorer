@@ -399,8 +399,9 @@ const CSS = `.kid-wb{--kblue:#4f7cff;--kgold:#f59e0b;--kdiamond:#22d3ee;--kred:#
   display:inline-flex;
   align-items:center;
   justify-content:center;
-  width:220px;
   aspect-ratio:256 / 96;
+  height:44px;
+  width:auto;
   padding:0;
   border-radius:0;
   font-weight:800;
@@ -413,6 +414,7 @@ const CSS = `.kid-wb{--kblue:#4f7cff;--kgold:#f59e0b;--kdiamond:#22d3ee;--kred:#
   aspect-ratio:256 / 96;
   flex:0 0 auto;
 }
+.kid-wb .k-task-actions .kid-btn.challenge{margin:0 auto}
 .kid-wb .kid-btn.challenge:hover:not(:disabled){
   transform:translateY(-1px);
   filter:brightness(1.05) drop-shadow(0 6px 16px rgba(245,158,11,.35));
@@ -870,7 +872,7 @@ function renderTopbar() {
       <button class="kid-btn sm" data-act="export" title="导出 JSON 备份">⬇ 导出</button>
       <button class="kid-btn sm" data-act="import" title="从 JSON 恢复">⬆ 导入</button>
       <button class="kid-btn sm ${S.parentMode ? 'gold' : ''}" data-act="parent" title="家长模式(编辑计划/管理道具/撤销)">${S.parentMode ? '👨‍👩‍👦 家长' : '🔒 家长'}</button>
-      <button class="kid-btn sm primary" data-act="settings" title="设置">⚙ 设置</button>
+      <button class="kid-btn sm" data-act="settings" title="设置">⚙ 设置</button>
     </div>`;
   bar.addEventListener('click', (e) => {
     const b = e.target.closest('[data-act]');
@@ -909,7 +911,7 @@ function renderToday() {
             <div class="k-ti-sub">${c.name} · ${esc(t.target)}${esc(t.unit)}${t.done ? ' · 已挑战 ✅' : ''}</div>
           </div>
           ${isOv ? `<span class="k-ti-tag">逾期 ${t.carryover} 天</span>` : ''}
-          ${!t.done ? `<button class="kid-btn sm primary" data-go="${t.id}">去完成 →</button>` : `<span style="font-size:18px">✅</span>`}
+          ${!t.done ? `<button class="kid-btn sm" data-go="${t.id}">去完成 →</button>` : `<span style="font-size:18px">✅</span>`}
         </div>`;
     }
   }

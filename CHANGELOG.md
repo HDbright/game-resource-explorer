@@ -3,7 +3,20 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.3`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.4`）。
+
+---
+
+## 2026-08-17（补丁·4）
+
+### [修复] 发布 v2.2.4：得乐学苑「设置/去完成」按钮去高亮 + 卡片「开启挑战」按钮缩小居中
+
+- **需求**(用户:①「设置」和「去完成 →」按钮都不要高亮;②单项任务卡片中「开启挑战」按钮缩小到「挑战成功」按钮高度、宽度等比例缩小(长宽比不变)、卡片内水平居中)。
+- **改动**(`src/pages/kidWorkspacePage.js`):
+  - **去高亮**:顶栏「⚙ 设置」按钮(`data-act="settings"`)与「今日」列表「去完成 →」按钮(`data-go`)均由 `kid-btn sm primary` 改为 `kid-btn sm`,去掉 `primary` 类,恢复默认次级样式(不再高亮渐变);全文件 `kid-btn sm primary` 0 命中。
+  - **开启挑战按钮缩小居中**:任务卡内「开启挑战」图片按钮(`.kid-btn.challenge` 非 sm 变体)尺寸由 `width:220px; aspect-ratio:256/96`(高82.5)改为 `aspect-ratio:256/96; height:44px; width:auto; padding:0`(高度锁 44px = 普通 `.kid-btn` 的 `min-height:44px`,即与绿色「挑战成功」按钮同高;宽度按图片 8:3 自动算≈117px,严格保持原始长宽比不变形);新增 `.kid-wb .k-task-actions .kid-btn.challenge{margin:0 auto}` 使其在卡片 `.k-task-actions`(display:flex)容器内水平居中;顶栏 sm 变体(`.kid-btn.sm.challenge`, 高60px)与 base64 图片资源保持不变。
+- **验证**:`scripts/kid-wb-smoke-main.js` 37/37 全过;独立回归(QA)确认 `kid-btn sm primary` 0 命中、`width:220px` 0 命中、challenge 尺寸锁 44px+宽自动、居中规则存在、`:not(.challenge)` 0 命中(特异性无回归)、base64 完整、预览页静态核验一致。
+- 发布:版本 2.2.3 → 2.2.4;产物 `release/游戏资源管理器-v2.2.4-便携版.zip`;推送 gitee + github。
 
 ---
 
