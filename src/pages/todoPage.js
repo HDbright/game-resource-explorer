@@ -181,10 +181,17 @@ function priLabel(p) { return T('pri_' + p); }
 const PRIORITY_CYCLE = { urgent: 'high', high: 'medium', medium: 'low', low: 'urgent' };
 const STATUS_CONFIG = {
   todo: { icon: '⬜' },
-  in_progress: { icon: '🔄' },
+  in_progress: { icon: '🔄', iconImg: 'tasking64.png' },
   done: { icon: '✅' },
 };
 function stLabel(s) { return T('st_' + s); }
+/** 任务状态图标:进行中(🔄)用图片,其余用 emoji */
+function statusIconHTML(status) {
+  const st = STATUS_CONFIG[status];
+  if (!st) return '';
+  if (st.iconImg) return `<img src="${st.iconImg}" class="todo-status-img" alt="${st.icon}" />`;
+  return st.icon;
+}
 const STATUS_CYCLE = { todo: 'in_progress', in_progress: 'done', done: 'todo' };
 const PROJECT_COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f97316', '#f59e0b', '#22c55e', '#06b6d4', '#3b82f6'];
 const KANBAN_COLS = [
@@ -1217,7 +1224,7 @@ function renderTaskCard(task, compact = false) {
 
   let html = `
     <div class="todo-card-row">
-      <button class="todo-status-btn" data-t="status" title="${stLabel(task.status)} · ${T('clickToggle')}" style="border-color:${task.status === 'done' ? '#22c55e' : task.status === 'in_progress' ? 'var(--accent)' : 'var(--border)'};color:${task.status === 'done' ? '#22c55e' : task.status === 'in_progress' ? 'var(--accent)' : 'var(--text2)'}">${st.icon}</button>
+      <button class="todo-status-btn" data-t="status" title="${stLabel(task.status)} · ${T('clickToggle')}" style="border-color:${task.status === 'done' ? '#22c55e' : task.status === 'in_progress' ? 'var(--accent)' : 'var(--border)'};color:${task.status === 'done' ? '#22c55e' : task.status === 'in_progress' ? 'var(--accent)' : 'var(--text2)'}">${statusIconHTML(task.status)}</button>
       <div class="todo-card-main">
         <div class="todo-card-title-row">
           <span class="todo-card-title">${escHtml(task.title)}</span>
@@ -1617,7 +1624,7 @@ function renderDetailPanel() {
   box.innerHTML = `
     <div class="todo-modal-head">
       <div class="todo-detail-title-wrap">
-        <button class="todo-status-btn" data-act="status" title="${T('clickToggleStatus')}" style="border-color:${task.status === 'done' ? '#22c55e' : task.status === 'in_progress' ? 'var(--accent)' : 'var(--border)'};color:${task.status === 'done' ? '#22c55e' : task.status === 'in_progress' ? 'var(--accent)' : 'var(--text2)'}">${st.icon}</button>
+        <button class="todo-status-btn" data-act="status" title="${T('clickToggleStatus')}" style="border-color:${task.status === 'done' ? '#22c55e' : task.status === 'in_progress' ? 'var(--accent)' : 'var(--border)'};color:${task.status === 'done' ? '#22c55e' : task.status === 'in_progress' ? 'var(--accent)' : 'var(--text2)'}">${statusIconHTML(task.status)}</button>
         <h2 class="todo-detail-title${task.status === 'done' ? ' done' : ''}">${escHtml(task.title)}</h2>
       </div>
       <div style="display:flex;align-items:center;gap:6px">
@@ -1632,7 +1639,7 @@ function renderDetailPanel() {
         <button class="todo-badge" data-act="priority" style="color:${pri.color};background:${pri.color}18;border-color:${pri.color}44" title="${T('clickTogglePriority')}">
           <span class="todo-pri-dot" style="background:${pri.color}"></span>${priLabel(task.priority)}
         </button>
-        <span class="todo-badge">${st.icon} ${stLabel(task.status)}</span>
+        <span class="todo-badge">${statusIconHTML(task.status)} ${stLabel(task.status)}</span>
         ${proj ? `<span class="todo-badge" style="color:${proj.color};background:${proj.color}18;border-color:${proj.color}44">◆ ${escHtml(proj.name)}</span>` : ''}
       </div>
       ${dl ? `

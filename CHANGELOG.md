@@ -3,9 +3,22 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.23`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.24`）。
 
 ---
+
+## 2026-08-17（补丁·24）
+
+### [改进] 进行中任务状态图标改用图片(tasking64.png)
+
+- **需求**(用户:将「进行中」任务的图标改成 `E:\backup\logo\ico\tasking64.png` 沙漏图标)。
+- **改动**:
+  - 资源:复制 `E:\backup\logo\ico\tasking64.png` → `public/tasking64.png`(Vite 打包时随 dist 一起发布)。
+  - `src/pages/todoPage.js`:新增 `statusIconHTML(status)`,当状态为 `in_progress` 且有 `iconImg` 时输出 `<img class="todo-status-img">`,否则回退 emoji;三处状态按钮(列表卡片、详情面板、详情徽标)统一改用该函数。
+  - `STATUS_CONFIG.in_progress` 增 `iconImg: 'tasking64.png'`(仍保留 `icon:'🔄'` 作为 alt)。
+  - `src/style.css`:新增 `.todo-status-img`(按钮内 14×14,徽标内 13×13,`object-fit:contain`)。
+- **验证**:`scripts/todo-smoke-main.js` 状态循环断言由文本 `🔄` 改为检测 `img.todo-status-img` 的 `src` 含 `tasking64.png`;Todo 冒烟其余用例无回归(8 项 FAIL 为用户真实库任务数,与本次无关)。
+- 发布:版本 2.2.23 → 2.2.24;产物 `release/游戏资源管理器-v2.2.24-便携版.zip`;推送 gitee + github。
 
 ## 2026-08-17（补丁·23）
 
