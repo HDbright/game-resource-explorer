@@ -3,7 +3,20 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.2`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.3`）。
+
+---
+
+## 2026-08-17（补丁·3）
+
+### [修复] 发布 v2.2.3：得乐学苑「开启挑战」按钮保持图片原始比例 + 非家长模式隐藏「移除」按钮
+
+- **需求**(用户:①「开启挑战」按钮变形了,要保持图片本身的比例只能同比例缩放不能改变长宽比;②非家长模式不要显示「移除」按钮)。
+- **改动**(`src/pages/kidWorkspacePage.js`):
+  - **按钮比例修复**:`.kid-btn.challenge` 样式由 `background-size:100% 100%` + 独立 `min-height/min-width`(被 flex 容器拉宽成扁椭圆)改为 `aspect-ratio:256 / 96` + `background-size:contain` + `flex:0 0 auto`,严格锁死图片 256×96(8:3)原始比例,任何容器下均同比例缩放不变形;`.kid-btn.sm.challenge` 同步加 `aspect-ratio:256 / 96`;`border-radius` 改 0(图片自带圆角描边)。
+  - **移除按钮条件化**:任务卡未开始分支的「✕ 移除」按钮(`data-act="del"`)由始终渲染改为仅在 `S.parentMode` 时渲染(`${S.parentMode ? ... : ''}`),非家长模式(儿童)不再能删除任务,移除为家长专属操作。
+- **验证**:`scripts/kid-wb-smoke-main.js` 37/37 全过;独立回归(QA)确认 `aspect-ratio` 比例锁死、`background-size:contain`、base64 完整、`:not(.challenge)` 0 命中(特异性无回归)、预览页静态核验无 `100% 100%` 残留;冒烟家长模式路径覆盖 `S.parentMode` 真值分支。
+- 发布:版本 2.2.2 → 2.2.3;产物 `release/游戏资源管理器-v2.2.3-便携版.zip`;推送 gitee + github。
 
 ---
 
