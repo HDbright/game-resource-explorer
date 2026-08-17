@@ -2781,6 +2781,13 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .todo-card-proj span { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 3px; font-weight: 600; border: 1px solid; }
 .todo-card-notes { font-size: 12px; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 2px 0 4px; }
 .todo-card-subs { margin: 4px 0; }
+.todo-sub-toggle { display: flex; align-items: center; gap: 5px; width: 100%; background: none; border: none; padding: 2px 0; cursor: pointer; font-family: var(--font); }
+.todo-sub-toggle:hover .todo-sub-toggle-text { color: var(--accent); }
+.todo-sub-toggle-arrow { font-size: 10px; color: var(--text2); transition: transform .15s; }
+.todo-card-subs.collapsed .todo-sub-toggle-arrow { transform: rotate(-90deg); }
+.todo-sub-toggle-text { font-size: 11px; font-weight: 600; color: var(--text2); }
+.todo-sub-toggle-pct { margin-left: auto; font-size: 10px; color: var(--text3); }
+.todo-card-subs.collapsed .todo-card-sub-body { display: none; }
 .todo-card-sub-chips { display: flex; gap: 5px; margin-bottom: 4px; flex-wrap: wrap; }
 .todo-sub-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 4px; cursor: pointer; font-size: 11px; background: var(--bg4); border: 1px solid var(--border); color: var(--text2); max-width: 160px; transition: all .15s; }
 .todo-sub-chip.done { background: rgba(34,197,94,.12); border-color: rgba(34,197,94,.3); color: #22c55e; }

@@ -60,6 +60,7 @@ const LANGS = {
     titleRequired: '标题不能为空', saved: '已保存', close: '关闭',
     progress: '进度', addStepPh: '添加一个步骤…', dragToReorder: '拖拽排序',
     moveUp: '上移', moveDown: '下移', doubleClickRename: '双击重命名', del: '删除',
+    toggleSubtasks: '折叠/展开子任务',
     // 详情
     copy: '复制', copyTitle: '复制任务摘要', copied: '已复制到剪贴板', copyFailed: '复制失败',
     overduePrefix: '已逾期 · ', descLabel: '描述', createdOn: '创建于 {0}', updatedOn: '更新于 {0}',
@@ -134,6 +135,7 @@ const LANGS = {
     titleRequired: 'Title is required', saved: 'Saved', close: 'Close',
     progress: 'Progress', addStepPh: 'Add a step…', dragToReorder: 'Drag to reorder',
     moveUp: 'Move up', moveDown: 'Move down', doubleClickRename: 'Double-click to edit', del: 'Delete',
+    toggleSubtasks: 'Toggle subtasks',
     copy: 'Copy', copyTitle: 'Copy task summary', copied: 'Copied to clipboard', copyFailed: 'Copy failed',
     overduePrefix: 'Overdue · ', descLabel: 'Description', createdOn: 'Created {0}', updatedOn: 'Updated {0}',
     taskNotFound: 'Task not found', priPrefix: 'Priority:{0} | Status:{1}', projectPrefix: 'Project:{0}',
@@ -1229,15 +1231,22 @@ function renderTaskCard(task, compact = false) {
   if (subs.length) {
     html += `
       <div class="todo-card-subs">
-        <div class="todo-card-sub-chips">
-          ${subs.slice(0, 8).map((s) => `
-            <button class="todo-sub-chip${s.done ? ' done' : ''}" data-t="sub" data-sub="${s.id}" title="${escHtml(s.title)}">
-              <span>${s.done ? '●' : '○'}</span><span class="todo-sub-chip-text">${escHtml(s.title)}</span>
-            </button>`).join('')}
-        </div>
-        <div class="todo-card-sub-bar">
-          <div class="todo-card-sub-track"><div class="todo-card-sub-fill" style="width:${subs.length ? (doneSubs / subs.length) * 100 : 0}%"></div></div>
-          <span>${doneSubs}/${subs.length}</span>
+        <button class="todo-sub-toggle" data-t="subtoggle" title="${T('toggleSubtasks')}">
+          <span class="todo-sub-toggle-arrow">▾</span>
+          <span class="todo-sub-toggle-text">${T('subtasksPrefix', doneSubs, subs.length)}</span>
+          <span class="todo-sub-toggle-pct">${Math.round(doneSubs / subs.length * 100)}%</span>
+        </button>
+        <div class="todo-card-sub-body">
+          <div class="todo-card-sub-chips">
+            ${subs.slice(0, 8).map((s) => `
+              <button class="todo-sub-chip${s.done ? ' done' : ''}" data-t="sub" data-sub="${s.id}" title="${escHtml(s.title)}">
+                <span>${s.done ? '●' : '○'}</span><span class="todo-sub-chip-text">${escHtml(s.title)}</span>
+              </button>`).join('')}
+          </div>
+          <div class="todo-card-sub-bar">
+            <div class="todo-card-sub-track"><div class="todo-card-sub-fill" style="width:${subs.length ? (doneSubs / subs.length) * 100 : 0}%"></div></div>
+            <span>${doneSubs}/${subs.length}</span>
+          </div>
         </div>
       </div>`;
   }
@@ -1265,6 +1274,7 @@ function renderTaskCard(task, compact = false) {
     if (t === 'status') { cycleStatus(task); }
     else if (t === 'priority') { cyclePriority(task); }
     else if (t === 'sub') { toggleSubtask(task, b.dataset.sub); }
+    else if (t === 'subtoggle') { toggleSubtasksCollapse(task, b); }
     else if (t === 'edit') { taskModalOpen = true; modalTaskId = task.id; render(); }
     else if (t === 'menu') {
       if (menuEl) { menuEl.remove(); menuEl = null; return; }
@@ -1313,6 +1323,14 @@ async function toggleSubtask(task, subId) {
   s.done = !s.done;
   saveState();
   render();
+}
+// 折叠/展开卡片子任务区(chips + 进度条)
+function toggleSubtasksCollapse(task, btn) {
+  const wrap = btn.closest('.todo-card-subs');
+  if (!wrap) return;
+  wrap.classList.toggle('collapsed');
+  const arrow = btn.querySelector('.todo-sub-toggle-arrow');
+  if (arrow) arrow.textContent = wrap.classList.contains('collapsed') ? '▸' : '▾';
 }
 
 // ---------------- 进度条 ----------------

@@ -232,11 +232,20 @@ app.whenReady().then(async () => {
       o = await js('kanban', `(async () => {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         document.querySelector('[data-view="kanban"]').click(); await sleep(300);
-        return { cols: document.querySelectorAll('.todo-kanban-col').length,
+        const out = { cols: document.querySelectorAll('.todo-kanban-col').length,
           counts: [...document.querySelectorAll('.todo-kanban-count')].map((c) => c.textContent) };
+        // 子任务折叠:点折叠头 → collapsed 隐藏 chips;再点展开
+        const subToggle = document.querySelector('.todo-card[data-task-id="${TASK_A}"] .todo-sub-toggle');
+        out.subToggleFound = !!subToggle;
+        if (subToggle) { subToggle.click(); await sleep(150); }
+        out.subCollapsed = !!document.querySelector('.todo-card[data-task-id="${TASK_A}"] .todo-card-subs.collapsed');
+        if (subToggle) { subToggle.click(); await sleep(150); }
+        out.subExpanded = !document.querySelector('.todo-card[data-task-id="${TASK_A}"] .todo-card-subs.collapsed');
+        return out;
       })()`);
       check('看板 3 列', o.cols === 3, 'cols=' + o.cols);
       check('看板计数', Array.isArray(o.counts) && o.counts.length === 3, JSON.stringify(o.counts));
+      check('看板子任务可折叠', o.subToggleFound === true && o.subCollapsed === true && o.subExpanded === true, 'toggle=' + o.subToggleFound + ' collapsed=' + o.subCollapsed + ' expanded=' + o.subExpanded);
 
       // 5.5) 日历视图
       o = await js('calendar', `(async () => {
