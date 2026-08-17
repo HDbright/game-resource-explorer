@@ -465,9 +465,15 @@ app.whenReady().then(async () => {
         if (firstRow) { firstRow.click(); await sleep(300); }
         out.editOpen = !!document.querySelector('.todo-modal-title');
         out.hEdit = (document.querySelector('.todo-modal') || {}).offsetHeight || 0;
-        const editClose = document.querySelector('.todo-modal-head [data-close]');
-        if (editClose) { editClose.click(); await sleep(250); }
-        out.editClosed = !document.querySelector('.todo-modal-title');
+        // 点「取消」→ 应返回当日事件弹窗(事件列表标签),而非日历页
+        const cancelBtn = [...document.querySelectorAll('.todo-modal-foot .btn')].find((b) => (b.textContent || '').includes('取消'));
+        out.cancelFound = !!cancelBtn;
+        if (cancelBtn) { cancelBtn.click(); await sleep(300); }
+        out.backToDay = !!document.querySelector('.todo-day-ev');
+        out.backToListTab = !![...document.querySelectorAll('.todo-tab-btn')].find((b) => b.classList.contains('on') && (b.textContent || '').includes('事件列表'));
+        const closeBtn = document.querySelector('.todo-modal-head [data-close]');
+        if (closeBtn) { closeBtn.click(); await sleep(250); }
+        out.closed = !document.querySelector('.todo-modal-title');
         document.querySelector('[data-view="list"]').click(); await sleep(250);
         return out;
       })()`);
@@ -479,7 +485,9 @@ app.whenReady().then(async () => {
       check('当日弹窗:列表含当天农历生日', o.listHasLunarBday === true, JSON.stringify(o.listRows));
       check('当日弹窗:新建标签表单且日期=今天公历', o.newTabFound === true && o.newForm === true && o.newDate === o.expDate, o.newDate + ' vs ' + o.expDate);
       check('当日弹窗:保存后回列表且含新事件', o.hasNewEv === true && o.listTabOn === true, JSON.stringify(o.backListRows));
-      check('当日弹窗:列表/新建/编辑三态高度一致', o.rowFound === true && o.editOpen === true && o.editClosed === true && Math.abs(o.hList - o.hNew) <= 2 && Math.abs(o.hList - o.hList2) <= 2 && Math.abs(o.hList - o.hEdit) <= 2, 'list=' + o.hList + ' new=' + o.hNew + ' list2=' + o.hList2 + ' edit=' + o.hEdit);
+      check('当日弹窗:列表/新建/编辑三态高度一致', o.rowFound === true && o.editOpen === true && Math.abs(o.hList - o.hNew) <= 2 && Math.abs(o.hList - o.hList2) <= 2 && Math.abs(o.hList - o.hEdit) <= 2, 'list=' + o.hList + ' new=' + o.hNew + ' list2=' + o.hList2 + ' edit=' + o.hEdit);
+      check('当日弹窗:编辑取消返回当日弹窗', o.cancelFound === true && o.backToDay === true && o.backToListTab === true, 'cancel=' + o.cancelFound + ' backDay=' + o.backToDay + ' listTab=' + o.backToListTab);
+      check('当日弹窗:关闭', o.closed === true);
       check('当日弹窗:新事件落库', !!evDay && evDay.type === 'todo' && evDay.date === o.expDate, JSON.stringify(evDay));
 
       // 6) 详情面板

@@ -209,6 +209,7 @@ let dragTaskId = null;
 let eventModal = null;    // 日历事件弹窗:{id} 编辑 / {date:'YYYY-MM-DD'} 新建
 let dayEventsModal = null; // 当日事件列表弹窗:{date:'YYYY-MM-DD'}
 let dayEvTab = 'list';    // 当日事件弹窗标签:'list'(事件列表) | 'new'(新建事件)
+let pendingDayReturn = null; // 从当日事件弹窗进入编辑弹窗的返回状态:{date:'YYYY-MM-DD'},编辑关闭时还原当日弹窗
 let calDateCache = new Map(); // 农历计算缓存 y-m-d -> info
 
 function escHtml(s) {
@@ -315,6 +316,7 @@ export function renderTodoTool(container) {
   if (view !== 'list' && view !== 'kanban' && view !== 'calendar') view = 'list';
   calCursor = new Date(); // 每次进入重置日历到当月
   calView = 'month';      // 每次进入回到月视图
+  pendingDayReturn = null; // 清掉可能残留的「当日弹窗→编辑」返回状态
   try { lang = localStorage.getItem('todoLang') || 'zh'; } catch (e) { lang = 'zh'; }
   if (lang !== 'zh' && lang !== 'en') lang = 'zh';
   container.innerHTML = '';
@@ -1043,7 +1045,12 @@ function renderEventModal() {
   const box = document.createElement('div');
   box.className = 'todo-modal todo-modal-ev';
   const dateStr = existing ? existing.date : (eventModal && eventModal.date ? eventModal.date : '');
-  const close = () => { eventModal = null; render(); };
+  const close = () => {
+    eventModal = null;
+    // 从当日事件弹窗进入的编辑:关闭时还原当日事件弹窗(事件列表),否则返回日历页
+    if (pendingDayReturn) { dayEventsModal = pendingDayReturn; dayEvTab = 'list'; pendingDayReturn = null; }
+    render();
+  };
   box.innerHTML = `
     <div class="todo-modal-head">
       <h2 class="todo-modal-title">${isNew ? T('newEvent') : T('editEvent')}</h2>
@@ -1114,7 +1121,11 @@ function renderDayEventsModal() {
         <button class="todo-icon-btn" data-ev-del title="${T('deleteEvent')}">🗑</button>`;
       row.addEventListener('click', (e) => {
         if (e.target.closest('[data-ev-del]')) return;
-        close(); eventModal = { id: ev.id }; render();
+        // 进入编辑弹窗:记录返回状态,关闭当日弹窗后打开编辑
+        pendingDayReturn = { date: dateKey };
+        dayEventsModal = null;
+        eventModal = { id: ev.id };
+        render();
       });
       row.querySelector('[data-ev-del]').addEventListener('click', (e) => {
         e.stopPropagation();
