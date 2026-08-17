@@ -37,6 +37,7 @@ const LANGS = {
     week0: '周一', week1: '周二', week2: '周三', week3: '周四', week4: '周五', week5: '周六', week6: '周日',
     more: '+{0} 更多', prevMonth: '上个月', nextMonth: '下个月',
     viewYear: '点击查看全年', clickToMonth: '点击返回当月', viewMonth: '查看 {0} 日程', yearStat: '事件 {0} · 任务 {1}',
+    dayEvList: '事件列表 ({0})', dayEvEmpty: '当天没有事件',
     // 日历事件
     evBirthday: '生日', evAnniversary: '纪念日', evTodo: '待办事件', evImportant: '重要事件',
     newEvent: '新建事件', editEvent: '编辑事件', deleteEvent: '删除事件', addEventMenu: '新建事件…',
@@ -109,6 +110,7 @@ const LANGS = {
     week0: 'Mon', week1: 'Tue', week2: 'Wed', week3: 'Thu', week4: 'Fri', week5: 'Sat', week6: 'Sun',
     more: '+{0} more', prevMonth: 'Previous month', nextMonth: 'Next month',
     viewYear: 'View whole year', clickToMonth: 'Back to current month', viewMonth: 'View {0}', yearStat: '{0} events · {1} tasks',
+    dayEvList: 'Events ({0})', dayEvEmpty: 'No events on this day',
     evBirthday: 'Birthday', evAnniversary: 'Anniversary', evTodo: 'Todo Event', evImportant: 'Important Event',
     newEvent: 'New Event', editEvent: 'Edit Event', deleteEvent: 'Delete Event', addEventMenu: 'New event…',
     evTypeLabel: 'Type', evTitleLabel: 'Title *', evNoteLabel: 'Note', evDateLabel: 'Date',
@@ -205,6 +207,8 @@ let archiveOpen = false;
 let exportOpen = false;
 let dragTaskId = null;
 let eventModal = null;    // 日历事件弹窗:{id} 编辑 / {date:'YYYY-MM-DD'} 新建
+let dayEventsModal = null; // 当日事件列表弹窗:{date:'YYYY-MM-DD'}
+let dayEvTab = 'list';    // 当日事件弹窗标签:'list'(事件列表) | 'new'(新建事件)
 let calDateCache = new Map(); // 农历计算缓存 y-m-d -> info
 
 function escHtml(s) {
@@ -337,6 +341,7 @@ function render() {
   if (projectsOpen) rootEl.appendChild(renderProjectsModal());
   if (archiveOpen) rootEl.appendChild(renderArchiveModal());
   if (eventModal) rootEl.appendChild(renderEventModal());
+  if (dayEventsModal) rootEl.appendChild(renderDayEventsModal());
 }
 
 // ---------------- 年度事件提醒(生日每年提醒;公历/农历) ----------------
@@ -738,6 +743,13 @@ function renderCalendar() {
       topRow.appendChild(festEl);
     }
     cell.appendChild(topRow);
+    // 点击第一行日期文字 → 打开当日事件列表弹窗
+    topRow.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dayEventsModal = { date: dayKey };
+      dayEvTab = 'list';
+      render();
+    });
     // 日历事件 chips(类型图标+标题;点击查看/编辑,右键菜单)—— 自第 2 行起
     const dayEvents = eventMap.get(dayKey) || [];
     dayEvents.slice(0, 3).forEach((ev) => {
@@ -871,13 +883,10 @@ function removeEvent(id) {
   saveState();
 }
 
-function renderEventModal() {
-  const existing = eventModal && eventModal.id ? state.todoEvents.find((x) => x.id === eventModal.id) : null;
+// 事件表单(body 内容):新建(existing=null,presetDate 预填公历日期)或编辑;保存成功后回调 onSaved。
+// 供事件编辑弹窗与「当日事件弹窗·新建事件标签」复用。
+function buildEventForm(host, existing, presetDate, onSaved) {
   const isNew = !existing;
-  const ov = document.createElement('div');
-  ov.className = 'todo-overlay';
-  const box = document.createElement('div');
-  box.className = 'todo-modal';
   const draft = { type: existing ? existing.type : 'todo', title: existing ? existing.title : '', note: existing ? existing.note : '', calendar: existing ? (existing.calendar || 'solar') : 'solar', _solarDate: '' };
   // 日期框「所见即所存」:
   // - 公历生日 / 非生日:输入框显示并保存公历日期;旁侧农历提示显示该公历日对应的农历。
@@ -885,7 +894,7 @@ function renderEventModal() {
   //   新建时日历方格传入公历日期(如点击 8-17,当天农历七月初五),切到农历时即时换算为农历月日(07-05)显示,
   //   每年农历七月初五就是这条生日的准确日期。
   // draft._solarDate 始终记录当前输入框对应的公历基准,用于切回公历时还原。
-  const rawDate = existing ? existing.date : (eventModal && eventModal.date ? eventModal.date : '');
+  const rawDate = existing ? existing.date : (presetDate || '');
   let initSolar = rawDate;
   if (existing && existing.type === 'birthday' && existing.calendar === 'lunar') {
     const yy = parseInt(rawDate.slice(0, 4), 10), mm = parseInt(rawDate.slice(5, 7), 10), dd = parseInt(rawDate.slice(8, 10), 10);
@@ -896,40 +905,30 @@ function renderEventModal() {
   }
   draft._solarDate = initSolar;
   const initShown = (draft.type === 'birthday' && draft.calendar === 'lunar') ? rawDate : initSolar;
-  box.innerHTML = `
-    <div class="todo-modal-head">
-      <h2 class="todo-modal-title">${isNew ? T('newEvent') : T('editEvent')}</h2>
-      <button class="todo-icon-btn" data-close>✕</button>
-    </div>
-    <div class="todo-modal-body">
-      <div class="todo-field"><label class="todo-label">${T('evDateLabel')}</label>
-        <div class="todo-date-wrap">
-          <input class="todo-input" type="date" data-ev-date value="${escHtml(initShown)}">
-          <span class="todo-date-lunar" data-ev-lunar></span>
-        </div></div>
-      <div class="todo-field"><label class="todo-label">${T('evTypeLabel')}</label>
-        <div class="todo-pri-row">
-          <select class="todo-input todo-ev-bday" data-ev-bday>
-            <option value="solar">${EVENT_TYPES.birthday.icon} ${T('bdaySolar')}</option>
-            <option value="lunar">${EVENT_TYPES.birthday.icon} ${T('bdayLunar')}</option>
-          </select>
-          ${Object.keys(EVENT_TYPES).filter((tp) => tp !== 'birthday').map((tp) => `
-          <button class="todo-pri-opt${draft.type === tp ? ' on' : ''}" data-ev-type="${tp}" style="${draft.type === tp ? `border-color:${EVENT_TYPES[tp].color};color:${EVENT_TYPES[tp].color};background:${EVENT_TYPES[tp].color}22` : ''}">${EVENT_TYPES[tp].icon} ${T('ev' + tp.charAt(0).toUpperCase() + tp.slice(1))}</button>`).join('')}
-        </div></div>
-      <div class="todo-field"><label class="todo-label">${T('evTitleLabel')}</label>
-        <input class="todo-input" data-ev-title value="${escHtml(draft.title)}" placeholder="${T('evTitlePh')}" autofocus></div>
-      <div class="todo-field"><label class="todo-label">${T('evNoteLabel')}</label>
-        <textarea class="todo-input todo-textarea" data-ev-note rows="3" placeholder="${T('evNotePh')}">${escHtml(draft.note)}</textarea></div>
-    </div>
-    <div class="todo-modal-foot">
-      ${!isNew ? `<button class="btn danger" data-ev-del>${T('deleteEvent')}</button>` : ''}
-      <button class="btn" data-close>${T('cancel')}</button>
-      <button class="btn primary" data-ev-save>${isNew ? T('newEvent') : T('saveChanges')}</button>
-    </div>`;
-  const bdaySel = box.querySelector('[data-ev-bday]');
+  host.innerHTML = `
+    <div class="todo-field"><label class="todo-label">${T('evDateLabel')}</label>
+      <div class="todo-date-wrap">
+        <input class="todo-input" type="date" data-ev-date value="${escHtml(initShown)}">
+        <span class="todo-date-lunar" data-ev-lunar></span>
+      </div></div>
+    <div class="todo-field"><label class="todo-label">${T('evTypeLabel')}</label>
+      <div class="todo-pri-row">
+        <select class="todo-input todo-ev-bday" data-ev-bday>
+          <option value="solar">${EVENT_TYPES.birthday.icon} ${T('bdaySolar')}</option>
+          <option value="lunar">${EVENT_TYPES.birthday.icon} ${T('bdayLunar')}</option>
+        </select>
+        ${Object.keys(EVENT_TYPES).filter((tp) => tp !== 'birthday').map((tp) => `
+        <button class="todo-pri-opt${draft.type === tp ? ' on' : ''}" data-ev-type="${tp}" style="${draft.type === tp ? `border-color:${EVENT_TYPES[tp].color};color:${EVENT_TYPES[tp].color};background:${EVENT_TYPES[tp].color}22` : ''}">${EVENT_TYPES[tp].icon} ${T('ev' + tp.charAt(0).toUpperCase() + tp.slice(1))}</button>`).join('')}
+      </div></div>
+    <div class="todo-field"><label class="todo-label">${T('evTitleLabel')}</label>
+      <input class="todo-input" data-ev-title value="${escHtml(draft.title)}" placeholder="${T('evTitlePh')}" autofocus></div>
+    <div class="todo-field"><label class="todo-label">${T('evNoteLabel')}</label>
+      <textarea class="todo-input todo-textarea" data-ev-note rows="3" placeholder="${T('evNotePh')}">${escHtml(draft.note)}</textarea></div>
+    <div class="todo-form-actions"><button class="btn primary" data-ev-save>${isNew ? T('newEvent') : T('saveChanges')}</button></div>`;
+  const bdaySel = host.querySelector('[data-ev-bday]');
   bdaySel.value = draft.type === 'birthday' ? draft.calendar : 'solar';
-  const dateInput = box.querySelector('[data-ev-date]');
-  const lunarEl = box.querySelector('[data-ev-lunar]');
+  const dateInput = host.querySelector('[data-ev-date]');
+  const lunarEl = host.querySelector('[data-ev-lunar]');
   const isLunarMode = () => draft.type === 'birthday' && draft.calendar === 'lunar';
   // 农历提示:与日历格子风格一致显示「农历月+日」(如「农历七月初五」),title 附节气/节日
   const paintLunar = () => {
@@ -964,7 +963,7 @@ function renderEventModal() {
   };
   // 高亮统一由 paint 函数管理(class + 内联样式),避免 class 切换后旧内联边框残留
   const paintTypeBtns = () => {
-    box.querySelectorAll('[data-ev-type]').forEach((b) => {
+    host.querySelectorAll('[data-ev-type]').forEach((b) => {
       const on = draft.type === b.dataset.evType;
       const c = EVENT_TYPES[b.dataset.evType].color;
       b.classList.toggle('on', on);
@@ -979,7 +978,7 @@ function renderEventModal() {
     bdaySel.style.borderColor = on ? 'var(--accent)' : '';
     bdaySel.style.color = on ? 'var(--accent)' : '';
   };
-  box.querySelectorAll('[data-ev-type]').forEach((b) => b.addEventListener('click', () => {
+  host.querySelectorAll('[data-ev-type]').forEach((b) => b.addEventListener('click', () => {
     draft.type = b.dataset.evType;
     // 非生日强制公历;下拉回到默认「公历生日」
     if (draft.type !== 'birthday') draft.calendar = 'solar';
@@ -1013,13 +1012,11 @@ function renderEventModal() {
   paintTypeBtns();
   paintBdaySel();
   paintLunar();
-  box.querySelector('[data-ev-title]').addEventListener('input', (e) => { draft.title = e.target.value; });
-  box.querySelector('[data-ev-note]').addEventListener('input', (e) => { draft.note = e.target.value; });
-  const close = () => { eventModal = null; render(); };
-  box.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', close));
-  box.querySelector('[data-ev-save]').addEventListener('click', () => {
+  host.querySelector('[data-ev-title]').addEventListener('input', (e) => { draft.title = e.target.value; });
+  host.querySelector('[data-ev-note]').addEventListener('input', (e) => { draft.note = e.target.value; });
+  host.querySelector('[data-ev-save]').addEventListener('click', () => {
     // 输入框即存储值:公历生日/非生日 = 公历日期;农历生日 = 农历月日(切下拉时已即时换算,所见即所存)
-    const date = box.querySelector('[data-ev-date]').value;
+    const date = host.querySelector('[data-ev-date]').value;
     const title = draft.title.trim();
     if (!title) { toast(T('evTitleRequired'), 'warn'); return; }
     if (!date) { toast(T('evTitleRequired'), 'warn'); return; }
@@ -1033,12 +1030,119 @@ function renderEventModal() {
       saveState();
     }
     toast(T('evSaved'), 'ok');
-    close();
+    if (onSaved) onSaved();
   });
+  return host;
+}
+
+function renderEventModal() {
+  const existing = eventModal && eventModal.id ? state.todoEvents.find((x) => x.id === eventModal.id) : null;
+  const isNew = !existing;
+  const ov = document.createElement('div');
+  ov.className = 'todo-overlay';
+  const box = document.createElement('div');
+  box.className = 'todo-modal';
+  const dateStr = existing ? existing.date : (eventModal && eventModal.date ? eventModal.date : '');
+  const close = () => { eventModal = null; render(); };
+  box.innerHTML = `
+    <div class="todo-modal-head">
+      <h2 class="todo-modal-title">${isNew ? T('newEvent') : T('editEvent')}</h2>
+      <button class="todo-icon-btn" data-close>✕</button>
+    </div>
+    <div class="todo-modal-body" data-ev-form></div>
+    <div class="todo-modal-foot">
+      ${!isNew ? `<button class="btn danger" data-ev-del>${T('deleteEvent')}</button>` : ''}
+      <button class="btn" data-close>${T('cancel')}</button>
+    </div>`;
+  buildEventForm(box.querySelector('[data-ev-form]'), existing, dateStr, close);
+  box.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', close));
   const delBtn = box.querySelector('[data-ev-del]');
   if (delBtn) delBtn.addEventListener('click', () => {
     confirmDialog({ title: T('deleteEvent'), message: T('evConfirmDel', existing.title), okText: T('delete'), danger: true, onOk: () => { removeEvent(existing.id); close(); } });
   });
+  ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+  ov.appendChild(box);
+  return ov;
+}
+
+// ---------------- 当日事件弹窗(点击日期格第一行;标签页:事件列表 / 新建事件) ----------------
+function renderDayEventsModal() {
+  const dateKey = dayEventsModal.date;
+  const p = dateKey.split('-').map(Number);
+  const info = getLunarInfo(p[0], p[1], p[2]);
+  const dateLabel = lang === 'zh'
+    ? `${p[0]}年${p[1]}月${p[2]}日 · ${formatLunarMonth(info.lunarMonth, info.isLeapMonth)}${formatLunarDay(info.lunarDay)}${info.term ? ' ' + info.term : ''}${info.holiday ? ' ' + info.holiday : ''}`
+    : `${MONTHS_EN[p[1] - 1]} ${p[2]}, ${p[0]}`;
+  const ov = document.createElement('div');
+  ov.className = 'todo-overlay';
+  const box = document.createElement('div');
+  box.className = 'todo-modal';
+  const close = () => { dayEventsModal = null; dayEvTab = 'list'; render(); };
+  const head = document.createElement('div');
+  head.className = 'todo-modal-head';
+  head.innerHTML = `<h2 class="todo-modal-title">${escHtml(dateLabel)}</h2><button class="todo-icon-btn" data-close>✕</button>`;
+  box.appendChild(head);
+  const tabs = document.createElement('div');
+  tabs.className = 'todo-modal-tabs';
+  box.appendChild(tabs);
+  const body = document.createElement('div');
+  body.className = 'todo-modal-body';
+  box.appendChild(body);
+  const evsOf = () => (state.todoEvents || []).filter((ev) => (ev.type === 'birthday' ? eventRemindDate(ev) : (ev.date || null)) === dateKey);
+  const renderList = () => {
+    body.innerHTML = '';
+    const evs = evsOf();
+    if (!evs.length) {
+      const empty = document.createElement('div');
+      empty.className = 'todo-day-empty';
+      empty.textContent = T('dayEvEmpty');
+      body.appendChild(empty);
+      return;
+    }
+    evs.forEach((ev) => {
+      const et = EVENT_TYPES[ev.type] || EVENT_TYPES.todo;
+      const row = document.createElement('div');
+      row.className = 'todo-day-ev';
+      row.style.borderColor = et.color + '44';
+      row.style.background = et.color + '1a';
+      row.innerHTML = `
+        <span class="todo-day-ev-icon">${et.icon}</span>
+        <span class="todo-day-ev-main">
+          <span class="todo-day-ev-title">${escHtml(ev.title)}${ev.type === 'birthday' ? (ev.calendar === 'lunar' ? ` <span class="todo-day-ev-cal">(${T('lunar')})</span>` : ` <span class="todo-day-ev-cal">(${T('solar')})</span>`) : ''}</span>
+          ${ev.note ? `<span class="todo-day-ev-note">${escHtml(ev.note)}</span>` : ''}
+        </span>
+        <button class="todo-icon-btn" data-ev-del title="${T('deleteEvent')}">🗑</button>`;
+      row.addEventListener('click', (e) => {
+        if (e.target.closest('[data-ev-del]')) return;
+        close(); eventModal = { id: ev.id }; render();
+      });
+      row.querySelector('[data-ev-del]').addEventListener('click', (e) => {
+        e.stopPropagation();
+        confirmDialog({ title: T('deleteEvent'), message: T('evConfirmDel', ev.title), okText: T('delete'), danger: true, onOk: () => { removeEvent(ev.id); renderList(); } });
+      });
+      body.appendChild(row);
+    });
+  };
+  const paintTabs = () => {
+    const evs = evsOf();
+    tabs.innerHTML = `
+      <button class="todo-tab-btn${dayEvTab === 'list' ? ' on' : ''}" data-evtab="list">${T('dayEvList', evs.length)}</button>
+      <button class="todo-tab-btn${dayEvTab === 'new' ? ' on' : ''}" data-evtab="new">${T('newEvent')}</button>`;
+    tabs.querySelectorAll('[data-evtab]').forEach((b) => b.addEventListener('click', () => {
+      dayEvTab = b.dataset.evtab;
+      renderBody();
+    }));
+  };
+  const renderBody = () => {
+    paintTabs();
+    if (dayEvTab === 'new') {
+      buildEventForm(body, null, dateKey, () => { dayEvTab = 'list'; render(); });
+    } else {
+      renderList();
+    }
+  };
+  renderBody();
+  box.querySelector('[data-close]').addEventListener('click', close);
   ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
   ov.appendChild(box);
   return ov;

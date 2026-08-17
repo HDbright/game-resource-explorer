@@ -2833,6 +2833,17 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .todo-tab-btn { padding: 8px 14px; font-size: 13px; color: var(--text2); border-bottom: 2px solid transparent; background: none; cursor: pointer; border-top: none; border-left: none; border-right: none; }
 .todo-tab-btn.on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
 
+/* 当日事件弹窗 */
+.todo-day-ev { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid; border-radius: var(--radius); margin-bottom: 6px; cursor: pointer; transition: filter .12s; }
+.todo-day-ev:hover { filter: brightness(1.15); }
+.todo-day-ev-icon { font-size: 16px; flex-shrink: 0; }
+.todo-day-ev-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.todo-day-ev-title { font-size: 13px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.todo-day-ev-cal { font-size: 10px; font-weight: 400; color: var(--text2); }
+.todo-day-ev-note { font-size: 11px; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.todo-day-empty { text-align: center; color: var(--text3); padding: 28px 0; font-size: 13px; }
+.todo-form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
 /* 表单 */
 .todo-field { margin-bottom: 13px; }
 .todo-field-row { display: flex; gap: 12px; }

@@ -21,6 +21,7 @@ const SMOKE_EVENT_TITLE = '测试生日';
 const SMOKE_BDAY_SOLAR = '测试公历生日';
 const SMOKE_BDAY_LUNAR = '测试农历生日';
 const SMOKE_BDAY_LUNAR_CONV = '测试农历生日转换';
+const SMOKE_DAYEV_TITLE = '测试当日事件';
 const IMPORT_JSON = path.join(os.tmpdir(), 'todo-import-test.json');
 const nowTs = () => Date.now();
 
@@ -38,7 +39,7 @@ function setup() {
   const d = dbm.readDb();
   d.todoProjects = (d.todoProjects || []).filter((p) => !String(p.id || '').startsWith('p_smoke_') && p.name !== '导入项目');
   d.todoTasks = (d.todoTasks || []).filter((t) => !String(t.id || '').startsWith('t_smoke_') && t.title !== SMOKE_TITLE && !String(t.title || '').startsWith('导入任务'));
-  d.todoEvents = (d.todoEvents || []).filter((e) => e.title !== SMOKE_EVENT_TITLE && e.title !== SMOKE_BDAY_SOLAR && e.title !== SMOKE_BDAY_LUNAR && e.title !== SMOKE_BDAY_LUNAR_CONV);
+  d.todoEvents = (d.todoEvents || []).filter((e) => e.title !== SMOKE_EVENT_TITLE && e.title !== SMOKE_BDAY_SOLAR && e.title !== SMOKE_BDAY_LUNAR && e.title !== SMOKE_BDAY_LUNAR_CONV && e.title !== SMOKE_DAYEV_TITLE);
   // 注入生日事件:公历生日=今天(今日提醒);农历生日=七月初七(2026 七夕 8/19 → 3 日内提醒)
   const td = new Date();
   const todayStr = `${td.getFullYear()}-${String(td.getMonth() + 1).padStart(2, '0')}-${String(td.getDate()).padStart(2, '0')}`;
@@ -73,7 +74,7 @@ function cleanup() {
   const d = dbm.readDb();
   d.todoProjects = (d.todoProjects || []).filter((p) => !String(p.id || '').startsWith('p_smoke_') && p.name !== '导入项目');
   d.todoTasks = (d.todoTasks || []).filter((t) => !String(t.id || '').startsWith('t_smoke_') && t.title !== SMOKE_TITLE && !String(t.title || '').startsWith('导入任务'));
-  d.todoEvents = (d.todoEvents || []).filter((e) => e.title !== SMOKE_EVENT_TITLE && e.title !== SMOKE_BDAY_SOLAR && e.title !== SMOKE_BDAY_LUNAR && e.title !== SMOKE_BDAY_LUNAR_CONV);
+  d.todoEvents = (d.todoEvents || []).filter((e) => e.title !== SMOKE_EVENT_TITLE && e.title !== SMOKE_BDAY_SOLAR && e.title !== SMOKE_BDAY_LUNAR && e.title !== SMOKE_BDAY_LUNAR_CONV && e.title !== SMOKE_DAYEV_TITLE);
   dbm.writeDb(d);
   try { fs.rmSync(IMPORT_JSON, { force: true }); } catch (e) { /* ignore */ }
 }
@@ -425,6 +426,52 @@ app.whenReady().then(async () => {
       check('农历生日:存库日期=输入框所示(所见即所存)', !!evL && evL.calendar === 'lunar' && evL.date === o.lunarDateShown && /^\d{4}-\d{2}-\d{2}$/.test(evL.date || ''), JSON.stringify(evL));
       check('农历生日:chip 落在今天格子(今年提醒=今天)', o.chipToday === true);
       check('农历生日:弹窗保存后关闭', o.modalClosed === true);
+
+      // 5.8) 当日事件弹窗:点击日期格第一行 → 事件列表标签 + 新建事件标签
+      o = await js('dayev', `(async () => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const out = {};
+        document.querySelector('[data-view="calendar"]').click(); await sleep(300);
+        const todayTop = document.querySelector('.todo-cal-cell.today .todo-cal-top');
+        if (!todayTop) return { err: 'no today top row' };
+        todayTop.click(); await sleep(300);
+        out.modalOpen = !!document.querySelector('.todo-modal-title');
+        out.modalTitle = (document.querySelector('.todo-modal-title') || {}).textContent || '';
+        out.tabs = [...document.querySelectorAll('.todo-tab-btn')].map((b) => b.textContent);
+        out.listRows = [...document.querySelectorAll('.todo-day-ev-title')].map((r) => r.textContent);
+        out.listHasLunarBday = (out.listRows || []).some((t) => t.includes('${SMOKE_BDAY_LUNAR_CONV}'));
+        const t = new Date();
+        out.expDate = t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0');
+        // 切「新建事件」标签
+        const newTab = [...document.querySelectorAll('[data-evtab]')].find((b) => (b.textContent || '').includes('新建事件'));
+        out.newTabFound = !!newTab;
+        if (newTab) { newTab.click(); await sleep(250); }
+        out.newForm = !!document.querySelector('[data-ev-title]');
+        out.newDate = (document.querySelector('[data-ev-date]') || {}).value || '';
+        const titleInp = document.querySelector('[data-ev-title]');
+        titleInp.value = '${SMOKE_DAYEV_TITLE}';
+        titleInp.dispatchEvent(new Event('input', { bubbles: true }));
+        document.querySelector('[data-ev-save]').click(); await sleep(400);
+        // 保存后自动切回「事件列表」标签并含新事件
+        out.backListRows = [...document.querySelectorAll('.todo-day-ev-title')].map((r) => r.textContent);
+        out.hasNewEv = (out.backListRows || []).some((t) => t.includes('${SMOKE_DAYEV_TITLE}'));
+        out.listTabOn = [...document.querySelectorAll('.todo-tab-btn')].some((b) => b.classList.contains('on') && (b.textContent || '').includes('事件列表'));
+        const closeBtn = document.querySelector('.todo-modal-head [data-close]');
+        if (closeBtn) { closeBtn.click(); await sleep(250); }
+        out.closed = !document.querySelector('.todo-modal-title');
+        document.querySelector('[data-view="list"]').click(); await sleep(250);
+        return out;
+      })()`);
+      const dE = dbm.readDb();
+      const evDay = dE.todoEvents.find((e) => e.title === SMOKE_DAYEV_TITLE);
+      check('当日弹窗:点击日期文字打开', o.modalOpen === true, o.err || o.modalTitle);
+      check('当日弹窗:标题含公历+农历', /2026年\d{1,2}月\d{1,2}日/.test(o.modalTitle || '') && /初五/.test(o.modalTitle || ''), o.modalTitle);
+      check('当日弹窗:两个标签页', Array.isArray(o.tabs) && o.tabs.length === 2 && o.tabs.some((x) => x.includes('事件列表')) && o.tabs.some((x) => x.includes('新建事件')), JSON.stringify(o.tabs));
+      check('当日弹窗:列表含当天农历生日', o.listHasLunarBday === true, JSON.stringify(o.listRows));
+      check('当日弹窗:新建标签表单且日期=今天公历', o.newTabFound === true && o.newForm === true && o.newDate === o.expDate, o.newDate + ' vs ' + o.expDate);
+      check('当日弹窗:保存后回列表且含新事件', o.hasNewEv === true && o.listTabOn === true, JSON.stringify(o.backListRows));
+      check('当日弹窗:关闭', o.closed === true);
+      check('当日弹窗:新事件落库', !!evDay && evDay.type === 'todo' && evDay.date === o.expDate, JSON.stringify(evDay));
 
       // 6) 详情面板
       o = await js('detail', `(async () => {
