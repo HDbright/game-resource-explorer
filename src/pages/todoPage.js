@@ -43,6 +43,8 @@ const LANGS = {
     newEvent: '新建事件', editEvent: '编辑事件', deleteEvent: '删除事件', addEventMenu: '新建事件…',
     evTypeLabel: '类型', evTitleLabel: '标题 *', evNoteLabel: '备注', evDateLabel: '日期',
     evTitlePh: '事件标题', evNotePh: '补充说明…', evTitleRequired: '标题不能为空', evSaved: '已保存',
+    evTitleLabelBday: '名字 *', evTitlePhBday: '输入生日对象的名字…',
+    evTitleLabelAnni: '名称 *', evTitlePhAnni: '输入纪念日名称…',
     evConfirmDel: '确定删除事件「{0}」吗?', evLunarTip: '农历',
     solar: '公历', lunar: '农历', evCalendarLabel: '历法',
     bdaySolar: '公历生日', bdayLunar: '农历生日',
@@ -115,6 +117,8 @@ const LANGS = {
     newEvent: 'New Event', editEvent: 'Edit Event', deleteEvent: 'Delete Event', addEventMenu: 'New event…',
     evTypeLabel: 'Type', evTitleLabel: 'Title *', evNoteLabel: 'Note', evDateLabel: 'Date',
     evTitlePh: 'Event title', evNotePh: 'Additional details…', evTitleRequired: 'Title is required', evSaved: 'Saved',
+    evTitleLabelBday: 'Name *', evTitlePhBday: 'Who is the birthday about?',
+    evTitleLabelAnni: 'Name *', evTitlePhAnni: 'What anniversary is this?',
     evConfirmDel: 'Delete event "{0}"?', evLunarTip: 'Lunar',
     solar: 'Solar', lunar: 'Lunar', evCalendarLabel: 'Calendar',
     bdaySolar: 'Solar Birthday', bdayLunar: 'Lunar Birthday',
@@ -903,6 +907,9 @@ function buildEventForm(host, existing, presetDate, onSaved, saveInForm = true) 
     }
   }
   draft._solarDate = initSolar;
+  // 标题 label/placeholder 随事件类型变化(生日→名字/纪念日→名称/其它→标题),直观区分类型切换
+  const titleLabelFor = (tp) => (tp === 'birthday' ? T('evTitleLabelBday') : (tp === 'anniversary' ? T('evTitleLabelAnni') : T('evTitleLabel')));
+  const titlePhFor = (tp) => (tp === 'birthday' ? T('evTitlePhBday') : (tp === 'anniversary' ? T('evTitlePhAnni') : T('evTitlePh')));
   host.innerHTML = `
     <div class="todo-field"><label class="todo-label">${T('evDateLabel')}</label>
       <div class="todo-date-wrap">
@@ -918,8 +925,8 @@ function buildEventForm(host, existing, presetDate, onSaved, saveInForm = true) 
         ${Object.keys(EVENT_TYPES).filter((tp) => tp !== 'birthday').map((tp) => `
         <button class="todo-pri-opt${draft.type === tp ? ' on' : ''}" data-ev-type="${tp}" style="${draft.type === tp ? `border-color:${EVENT_TYPES[tp].color};color:${EVENT_TYPES[tp].color};background:${EVENT_TYPES[tp].color}22` : ''}">${EVENT_TYPES[tp].icon} ${T('ev' + tp.charAt(0).toUpperCase() + tp.slice(1))}</button>`).join('')}
       </div></div>
-    <div class="todo-field"><label class="todo-label">${T('evTitleLabel')}</label>
-      <input class="todo-input" data-ev-title value="${escHtml(draft.title)}" placeholder="${T('evTitlePh')}" autofocus></div>
+    <div class="todo-field"><label class="todo-label" data-ev-title-label>${titleLabelFor(draft.type)}</label>
+      <input class="todo-input" data-ev-title value="${escHtml(draft.title)}" placeholder="${titlePhFor(draft.type)}" autofocus></div>
     <div class="todo-field"><label class="todo-label">${T('evNoteLabel')}</label>
       <textarea class="todo-input todo-textarea" data-ev-note rows="5" placeholder="${T('evNotePh')}">${escHtml(draft.note)}</textarea></div>
     ${saveInForm ? `<div class="todo-form-actions"><button class="btn primary" data-ev-save>${isNew ? T('newEvent') : T('saveChanges')}</button></div>` : ''}`;
@@ -957,6 +964,22 @@ function buildEventForm(host, existing, presetDate, onSaved, saveInForm = true) 
     bdaySel.style.borderColor = on ? 'var(--accent)' : '';
     bdaySel.style.color = on ? 'var(--accent)' : '';
   };
+  // 标题 label/placeholder 随类型变化
+  const paintTitle = () => {
+    const lbl = host.querySelector('[data-ev-title-label]');
+    const inp = host.querySelector('[data-ev-title]');
+    lbl.textContent = titleLabelFor(draft.type);
+    inp.placeholder = titlePhFor(draft.type);
+  };
+  // 点击/聚焦「公历生日」下拉(即使选中值不变)也要切到生日模式
+  const onBdaySelActivate = () => {
+    if (draft.type !== 'birthday') {
+      draft.type = 'birthday';
+      paintTypeBtns();
+      paintBdaySel();
+      paintTitle();
+    }
+  };
   host.querySelectorAll('[data-ev-type]').forEach((b) => b.addEventListener('click', () => {
     draft.type = b.dataset.evType;
     // 非生日强制公历;下拉回到默认「公历生日」
@@ -964,12 +987,16 @@ function buildEventForm(host, existing, presetDate, onSaved, saveInForm = true) 
     bdaySel.value = draft.calendar;
     paintTypeBtns();
     paintBdaySel();
+    paintTitle();
   }));
+  bdaySel.addEventListener('focus', onBdaySelActivate);
+  bdaySel.addEventListener('click', onBdaySelActivate);
   bdaySel.addEventListener('change', () => {
     draft.calendar = bdaySel.value;
     draft.type = 'birthday';
     paintTypeBtns();
     paintBdaySel();
+    paintTitle();
   });
   const onDateInput = () => {
     draft._solarDate = dateInput.value;
@@ -980,6 +1007,7 @@ function buildEventForm(host, existing, presetDate, onSaved, saveInForm = true) 
   paintTypeBtns();
   paintBdaySel();
   paintLunar();
+  paintTitle();
   host.querySelector('[data-ev-title]').addEventListener('input', (e) => { draft.title = e.target.value; });
   host.querySelector('[data-ev-note]').addEventListener('input', (e) => { draft.note = e.target.value; });
   const doSave = () => {

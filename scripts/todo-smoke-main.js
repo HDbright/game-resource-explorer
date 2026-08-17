@@ -336,8 +336,20 @@ app.whenReady().then(async () => {
           out.calRowGone = !document.querySelector('[data-ev-cal-row]');
           out.preDate = document.querySelector('[data-ev-date]').value;
           out.hintSolar = (document.querySelector('[data-ev-lunar]') || {}).textContent || '';
-          // 下拉切到「农历生日」:下拉高亮、待办不高亮、日期框保持公历不变(农历显示在右侧提示)
+          out.titleLabel0 = (document.querySelector('[data-ev-title-label]') || {}).textContent || '';
+          out.titlePh0 = (document.querySelector('[data-ev-title]') || {}).placeholder || '';
+          // 点击「公历生日」下拉(选中值不变)→ 立即切生日模式 + 标题 label 变「名字 *」
           const sel = document.querySelector('[data-ev-bday]');
+          sel.click(); await sleep(120);
+          out.bdayOnByFocus = sel.classList.contains('on');
+          out.todoOnFocus = document.querySelector('[data-ev-type="todo"]').classList.contains('on');
+          out.titleLabelBday = (document.querySelector('[data-ev-title-label]') || {}).textContent || '';
+          // 点「纪念日」按钮 → 标题 label 变「名称 *」
+          document.querySelector('[data-ev-type="anniversary"]').click(); await sleep(120);
+          out.anniOn = document.querySelector('[data-ev-type="anniversary"]').classList.contains('on');
+          out.titleLabelAnni = (document.querySelector('[data-ev-title-label]') || {}).textContent || '';
+          // 回到生日(点击下拉)→ 切到「农历生日」:下拉高亮、待办不高亮、日期框保持公历不变(农历显示在右侧提示)
+          sel.click(); await sleep(120);
           sel.value = 'lunar'; sel.dispatchEvent(new Event('change', { bubbles: true })); await sleep(120);
           out.bdayOn = sel.classList.contains('on');
           out.todoOn1 = document.querySelector('[data-ev-type="todo"]').classList.contains('on');
@@ -359,6 +371,7 @@ app.whenReady().then(async () => {
         out.editOpen = !!document.querySelector('[data-ev-title]');
         out.editTitle = (document.querySelector('[data-ev-title]') || {}).value || '';
         out.editBdayVal = (document.querySelector('[data-ev-bday]') || {}).value || '';
+        out.editTitleLabel = (document.querySelector('[data-ev-title-label]') || {}).textContent || '';
         const closeBtn2 = document.querySelector('[data-close]');
         if (closeBtn2) { closeBtn2.click(); await sleep(250); }
         out.closed = !document.querySelector('[data-ev-title]');
@@ -372,12 +385,17 @@ app.whenReady().then(async () => {
       check('生日下拉默认公历生日', o.bdaySel0 === 'solar', 'sel=' + o.bdaySel0);
       check('历法行已移除', o.calRowGone === true);
       check('公历模式日期框有农历提示', /^农历/.test(o.hintSolar || ''), o.hintSolar);
+      check('标题随类型:默认待办=标题 *', o.titleLabel0 === '标题 *' && (o.titlePh0 || '').includes('事件标题'), o.titleLabel0 + ' / ' + o.titlePh0);
+      check('点击生日下拉即切生日模式(值不变)', o.bdayOnByFocus === true && o.todoOnFocus === false, 'bday=' + o.bdayOnByFocus + ' todo=' + o.todoOnFocus);
+      check('标题随类型:生日=名字 *', o.titleLabelBday === '名字 *' && (o.titleLabelBday || '').includes('名字'), o.titleLabelBday);
+      check('标题随类型:纪念日=名称 *', o.anniOn === true && o.titleLabelAnni === '名称 *', o.titleLabelAnni);
       check('选农历:下拉高亮且待办不高亮', o.bdayOn === true && o.todoOn1 === false, 'bday=' + o.bdayOn + ' todo=' + o.todoOn1);
       check('选农历:输入框保持公历(农历显示在右侧提示)', o.lunarDate === o.preDate && o.solarDate === o.preDate && /^农历/.test(o.hintLunar || ''), o.preDate + ' → ' + o.lunarDate + '(' + o.hintLunar + ')');
       check('切回公历:输入框仍公历且下拉保持生日高亮', o.solarOn2 === true && o.solarDate === o.preDate, o.solarDate + ' vs ' + o.preDate + ' on=' + o.solarOn2);
       check('事件 chip 出现', o.chipFound === true, JSON.stringify(o.eventChips));
       check('点击事件打开编辑', o.editOpen === true && o.editTitle === '测试生日', o.editTitle);
       check('编辑时生日下拉=公历生日', o.editBdayVal === 'solar', 'val=' + o.editBdayVal);
+      check('编辑时标题 label=名字 *', o.editTitleLabel === '名字 *', o.editTitleLabel);
       check('事件弹窗关闭', o.closed === true);
 
       // 5.7) 农历生日:右键今天格子新建生日+农历 → 存库日期应为「今天公历对应的农历月日」,chip 落在今天格子(今年提醒日期=今天)
