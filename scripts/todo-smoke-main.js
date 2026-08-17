@@ -273,6 +273,32 @@ app.whenReady().then(async () => {
       check('日历下月导航', o.monthAfter !== o.monthTitle, o.monthTitle + '→' + o.monthAfter);
       check('切回列表视图', o.backList === true);
 
+      // 5.5b) 年视图:点击顶栏标题(年份数字)→ 12 个月格子(3列);点击当前月格子 → 返回月视图
+      o = await js('yearview', `(async () => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        document.querySelector('[data-view="calendar"]').click(); await sleep(300);
+        const out = {};
+        out.titleBefore = (document.querySelector('.todo-cal-title') || {}).textContent || '';
+        const yrBtn = document.querySelector('[data-cal="year"]');
+        out.yearBtnFound = !!yrBtn;
+        if (yrBtn) { yrBtn.click(); await sleep(300); }
+        out.yearGrid = !!document.querySelector('.todo-cal-year-grid');
+        out.yearCells = document.querySelectorAll('.todo-cal-year-cell').length;
+        out.yearTitle = (document.querySelector('.todo-cal-title') || {}).textContent || '';
+        const curCell = document.querySelector('.todo-cal-year-cell.current');
+        out.currentCellFound = !!curCell;
+        if (curCell) { curCell.click(); await sleep(300); }
+        out.backMonth = !!document.querySelector('.todo-cal-grid');
+        out.backTitle = (document.querySelector('.todo-cal-title') || {}).textContent || '';
+        document.querySelector('[data-view="list"]').click(); await sleep(250);
+        return out;
+      })()`);
+      check('年视图:顶栏标题可点击', o.yearBtnFound === true && o.yearGrid === true, o.titleBefore + ' btn=' + o.yearBtnFound);
+      check('年视图:12 个月格子(3列)', o.yearCells === 12, 'cells=' + o.yearCells);
+      check('年视图:年份标题', /2026/.test(o.yearTitle || ''), o.yearTitle);
+      check('年视图:当前月格子高亮', o.currentCellFound === true);
+      check('年视图:点击月份返回月视图', o.backMonth === true && /2026年\d{1,2}月/.test(o.backTitle || ''), o.backTitle);
+
       // 5.6) 日历事件:右键单元格新建 → 事件 chip → 点击编辑 → 关闭
       o = await js('event', `(async () => {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

@@ -2904,7 +2904,17 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 /* 日历视图 */
 .todo-calendar { display: flex; flex-direction: column; height: 100%; gap: 8px; padding-bottom: 4px; }
 .todo-cal-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 2px 0; flex-shrink: 0; }
-.todo-cal-title { font-size: 15px; font-weight: 700; }
+.todo-cal-title { font-size: 15px; font-weight: 700; color: var(--text); background: none; border: none; padding: 2px 10px; border-radius: var(--radius); cursor: pointer; line-height: 1.3; text-align: center; }
+.todo-cal-title:hover { background: var(--bg3); }
+.todo-cal-yr-hint { display: block; font-size: 10px; font-weight: 400; color: var(--text3); }
+/* 年视图:12 个月格子(3 列 × 4 行) */
+.todo-cal-year-grid { flex: 1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; min-height: 0; overflow-y: auto; }
+.todo-cal-year-cell { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; cursor: pointer; transition: border-color .15s, background .15s; }
+.todo-cal-year-cell:hover { border-color: var(--accent); }
+.todo-cal-year-cell.current { background: var(--bg4); border-color: var(--accent); }
+.todo-cal-year-month { font-size: 20px; font-weight: 700; color: var(--text); }
+.todo-cal-year-cell.current .todo-cal-year-month { color: var(--accent); }
+.todo-cal-year-stat { font-size: 10px; color: var(--text3); }
 .todo-cal-week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; flex-shrink: 0; }
 .todo-cal-wd { text-align: center; font-size: 11px; font-weight: 600; color: var(--text2); padding: 4px 0; text-transform: uppercase; letter-spacing: .5px; }
 .todo-cal-grid { flex: 1; display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; min-height: 0; }

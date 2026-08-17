@@ -36,6 +36,7 @@ const LANGS = {
     // 日历
     week0: '周一', week1: '周二', week2: '周三', week3: '周四', week4: '周五', week5: '周六', week6: '周日',
     more: '+{0} 更多', prevMonth: '上个月', nextMonth: '下个月',
+    viewYear: '点击查看全年', clickToMonth: '点击月份返回', viewMonth: '查看 {0} 日程', yearStat: '事件 {0} · 任务 {1}',
     // 日历事件
     evBirthday: '生日', evAnniversary: '纪念日', evTodo: '待办事件', evImportant: '重要事件',
     newEvent: '新建事件', editEvent: '编辑事件', deleteEvent: '删除事件', addEventMenu: '新建事件…',
@@ -107,6 +108,7 @@ const LANGS = {
     dropHere: 'Drop tasks here',
     week0: 'Mon', week1: 'Tue', week2: 'Wed', week3: 'Thu', week4: 'Fri', week5: 'Sat', week6: 'Sun',
     more: '+{0} more', prevMonth: 'Previous month', nextMonth: 'Next month',
+    viewYear: 'View whole year', clickToMonth: 'Click a month to view days', viewMonth: 'View {0}', yearStat: '{0} events · {1} tasks',
     evBirthday: 'Birthday', evAnniversary: 'Anniversary', evTodo: 'Todo Event', evImportant: 'Important Event',
     newEvent: 'New Event', editEvent: 'Edit Event', deleteEvent: 'Delete Event', addEventMenu: 'New event…',
     evTypeLabel: 'Type', evTitleLabel: 'Title *', evNoteLabel: 'Note', evDateLabel: 'Date',
@@ -193,6 +195,7 @@ const MONTHS_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep'
 let rootEl = null;        // .todo-root 容器
 let view = 'list';        // 'list' | 'kanban' | 'calendar'
 let calCursor = null;     // 日历视图当前月份(Date,月初)
+let calView = 'month';    // 日历视图层级:'month'(月历日格子) | 'year'(12 个月格子年面板)
 let filters = { search: '', priority: 'all', status: 'all', projectId: 'all', sortBy: 'sort_order', sortDir: 'asc' };
 let taskModalOpen = false; // 任务模态框开关(null 任务=新建;modalTaskId 非 null=编辑)
 let modalTaskId = null;   // 任务模态框正在编辑的任务 id
@@ -307,6 +310,7 @@ export function renderTodoTool(container) {
   try { view = localStorage.getItem('todoViewMode') || 'list'; } catch (e) { view = 'list'; }
   if (view !== 'list' && view !== 'kanban' && view !== 'calendar') view = 'list';
   calCursor = new Date(); // 每次进入重置日历到当月
+  calView = 'month';      // 每次进入回到月视图
   try { lang = localStorage.getItem('todoLang') || 'zh'; } catch (e) { lang = 'zh'; }
   if (lang !== 'zh' && lang !== 'en') lang = 'zh';
   container.innerHTML = '';
@@ -643,6 +647,7 @@ function monthLabel(y, m) {
 }
 function renderCalendar() {
   if (!calCursor) calCursor = new Date();
+  if (calView === 'year') return renderYearCalendar();
   const y = calCursor.getFullYear(), m = calCursor.getMonth();
   // 网格范围:当月首日所在周的周一 → 当月末日所在周的周日
   const calStart = new Date(y, m, 1);
@@ -677,12 +682,13 @@ function renderCalendar() {
   head.className = 'todo-cal-head';
   head.innerHTML = `
     <button class="btn" data-cal="prev" title="${T('prevMonth')}">←</button>
-    <span class="todo-cal-title">${escHtml(monthLabel(y, m))}</span>
+    <button class="todo-cal-title" data-cal="year" title="${T('viewYear')}">${escHtml(monthLabel(y, m))}</button>
     <button class="btn" data-cal="next" title="${T('nextMonth')}">→</button>`;
   head.addEventListener('click', (e) => {
     const b = e.target.closest('[data-cal]');
     if (!b) return;
-    calCursor = new Date(y, m + (b.dataset.cal === 'prev' ? -1 : 1), 1);
+    if (b.dataset.cal === 'year') { calView = 'year'; }
+    else { calCursor = new Date(y, m + (b.dataset.cal === 'prev' ? -1 : 1), 1); }
     const content = rootEl.querySelector('.todo-content');
     if (content) { content.innerHTML = ''; content.appendChild(renderCalendar()); }
   });
@@ -795,7 +801,65 @@ function renderCalendar() {
   return wrap;
 }
 
-// ---------------- 日历事件(生日/纪念日/待办/重要) ----------------
+// ---------------- 年视图(12 个月格子,3 列 × 4 行;点击月份返回月视图) ----------------
+function renderYearCalendar() {
+  const y = calCursor ? calCursor.getFullYear() : new Date().getFullYear();
+  const now = new Date();
+  const curY = now.getFullYear(), curM = now.getMonth();
+  // 按月统计:事件按今年提醒日期归月(生日换算今年);任务按截止日期归月
+  const evCount = new Array(12).fill(0), taskCount = new Array(12).fill(0);
+  for (const ev of state.todoEvents || []) {
+    const k = ev.type === 'birthday' ? eventRemindDate(ev) : (ev.date || null);
+    if (!k) continue;
+    const yy = parseInt(k.slice(0, 4), 10), mm = parseInt(k.slice(5, 7), 10);
+    if (yy === y && mm >= 1 && mm <= 12) evCount[mm - 1]++;
+  }
+  for (const t of liveTasks()) {
+    if (!t.deadline) continue;
+    const d = new Date(t.deadline * 1000);
+    if (d.getFullYear() === y) taskCount[d.getMonth()]++;
+  }
+  const wrap = document.createElement('div');
+  wrap.className = 'todo-calendar';
+  const head = document.createElement('div');
+  head.className = 'todo-cal-head';
+  head.innerHTML = `
+    <button class="btn" data-cal="prev" title="${T('prevMonth')}">←</button>
+    <span class="todo-cal-title">${lang === 'zh' ? `${y}年` : String(y)}<small class="todo-cal-yr-hint">${T('clickToMonth')}</small></span>
+    <button class="btn" data-cal="next" title="${T('nextMonth')}">→</button>`;
+  head.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-cal]');
+    if (!b) return;
+    calCursor = new Date(y + (b.dataset.cal === 'prev' ? -1 : 1), 0, 1);
+    const content = rootEl.querySelector('.todo-content');
+    if (content) { content.innerHTML = ''; content.appendChild(renderCalendar()); }
+  });
+  wrap.appendChild(head);
+  const grid = document.createElement('div');
+  grid.className = 'todo-cal-year-grid';
+  for (let m = 0; m < 12; m++) {
+    const cell = document.createElement('div');
+    cell.className = 'todo-cal-year-cell' + (y === curY && m === curM ? ' current' : '');
+    cell.title = T('viewMonth', lang === 'zh' ? `${m + 1}月` : MONTHS_EN[m]);
+    const name = document.createElement('div');
+    name.className = 'todo-cal-year-month';
+    name.textContent = lang === 'zh' ? `${m + 1}月` : MONTHS_EN[m];
+    cell.appendChild(name);
+    const stat = document.createElement('div');
+    stat.className = 'todo-cal-year-stat';
+    stat.textContent = T('yearStat', evCount[m], taskCount[m]);
+    cell.appendChild(stat);
+    cell.addEventListener('click', () => {
+      calCursor = new Date(y, m, 1);
+      calView = 'month';
+      const content = rootEl.querySelector('.todo-content');
+      if (content) { content.innerHTML = ''; content.appendChild(renderCalendar()); }
+    });
+    grid.appendChild(cell);
+  }
+  wrap.appendChild(grid);
+  return wrap;
+}
 function upsertEvent(ev) {
   const i = state.todoEvents.findIndex((x) => x.id === ev.id);
   if (i >= 0) state.todoEvents[i] = ev; else state.todoEvents.push(ev);
