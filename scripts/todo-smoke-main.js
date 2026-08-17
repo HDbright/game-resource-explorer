@@ -53,7 +53,7 @@ function setup() {
   const t0 = new Date(); const today = Math.floor(new Date(t0.getFullYear(), t0.getMonth(), t0.getDate()).getTime() / 1000);
   d.todoTasks.push({
     id: TASK_A, title: '完成 Spine 转换工具', notes: '支持 skel↔json 双向', notesHtml: '',
-    priority: 'high', status: 'todo', deadline: today, reminderAt: null, sort: 0,
+    priority: 'high', status: 'todo', deadline: today, startAt: nowTs() - 86400000, reminderAt: null, sort: 0,
     tags: ['工具'], projectId: PROJ_ID, recurRule: '', archived: false,
     subtasks: [
       { id: 's_smoke_1', taskId: TASK_A, title: '写文档', done: true, sort: 0, createdAt: nowTs() },
@@ -267,6 +267,12 @@ app.whenReady().then(async () => {
       check('看板 3 列', o.cols === 3, 'cols=' + o.cols);
       check('看板计数', Array.isArray(o.counts) && o.counts.length === 3, JSON.stringify(o.counts));
       check('看板子任务可折叠', o.subToggleFound === true && o.subCollapsed === true && o.subExpanded === true, 'toggle=' + o.subToggleFound + ' collapsed=' + o.subCollapsed + ' expanded=' + o.subExpanded);
+      // 状态色日期:in_progress 卡片应显示橙色开始日期(.todo-card-date.is-progress)
+      o = await js('statusDate', `(async () => {
+        const el = document.querySelector('.todo-card[data-task-id="${TASK_A}"] .todo-card-date.is-progress');
+        return { found: !!el, text: el ? el.textContent : '' };
+      })()`);
+      check('进行中卡片显示橙色开始日期', o.found === true, 'text=' + o.text);
 
       // 5.5) 日历视图
       o = await js('calendar', `(async () => {

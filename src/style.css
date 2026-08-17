@@ -2789,7 +2789,7 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .todo-sub-toggle-text { font-size: 11px; font-weight: 600; color: var(--text2); }
 .todo-sub-toggle-pct { margin-left: auto; font-size: 10px; color: var(--text3); }
 .todo-card-subs.collapsed .todo-card-sub-body { display: none; }
-.todo-card-sub-chips { display: flex; gap: 5px; margin-bottom: 4px; flex-wrap: wrap; }
+.todo-card-sub-chips { display: flex; gap: 5px; margin-bottom: 4px; flex-wrap: wrap; padding-right: 2px; }
 .todo-sub-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 4px; cursor: pointer; font-size: 11px; background: var(--bg4); border: 1px solid var(--border); color: var(--text2); max-width: 160px; transition: all .15s; }
 .todo-sub-chip.done { background: rgba(34,197,94,.12); border-color: rgba(34,197,94,.3); color: #22c55e; }
 .todo-sub-chip-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
@@ -2800,6 +2800,10 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .todo-card-sub-fill { height: 100%; background: #22c55e; border-radius: 2px; transition: width .3s; }
 .todo-card-sub-bar > span { font-size: 10px; color: var(--text2); }
 .todo-card-meta { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-top: 4px; }
+.todo-card-date { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; flex-shrink: 0; }
+.todo-card-date.is-todo { color: var(--text2); background: var(--bg2); border: 1px solid var(--border); }
+.todo-card-date.is-progress { color: #f59e0b; background: rgba(245,158,11,.14); border: 1px solid rgba(245,158,11,.3); }
+.todo-card-date.is-done { color: #22c55e; background: rgba(34,197,94,.14); border: 1px solid rgba(34,197,94,.3); }
 .todo-tag-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; padding: 1px 6px; border-radius: 20px; background: var(--bg4); border: 1px solid var(--border); color: var(--text2); }
 .todo-deadline { font-size: 11px; color: var(--text2); font-weight: 400; }
 .todo-deadline.overdue { color: #ef4444; font-weight: 600; }

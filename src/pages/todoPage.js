@@ -66,6 +66,7 @@ const LANGS = {
     subNotesLabel: '子任务备注', subNotesPh: '子任务补充说明…',
     eventsTab: '任务事件', addEvent: '添加事件', eventTextPh: '事件内容…', noEvents: '暂无任务事件',
     subDoneAt: '完成于', eventsSection: '任务事件',
+    parentTaskLabel: '父任务', noParent: '无父任务', publishAtLabel: '发布时间',
     // 详情
     copy: '复制', copyTitle: '复制任务摘要', copied: '已复制到剪贴板', copyFailed: '复制失败',
     overduePrefix: '已逾期 · ', descLabel: '描述', createdOn: '创建于 {0}', updatedOn: '更新于 {0}',
@@ -85,6 +86,7 @@ const LANGS = {
     archivedOn: '归档于 {0} · {1}优先级',
     deleteForeverTitle: '永久删除', deleteForeverMsg: '确定永久删除「{0}」吗?此操作不可恢复。',
     deleteTaskTitle: '删除任务', deleteTaskMsg: '确定删除「{0}」吗?此操作不可恢复。',
+    delSubTitle: '删除子任务', delSubMsg: '确定删除子任务「{0}」吗?此操作不可恢复。',
     // 导出 / 导入
     exportCsvName: 'CSV 文件', exportJsonName: 'JSON 文件',
     exportedTo: '已导出到 {0}', exportFailed: '导出失败: {0}',
@@ -145,6 +147,7 @@ const LANGS = {
     subNotesLabel: 'Subtask notes', subNotesPh: 'Subtask details…',
     eventsTab: 'Task Events', addEvent: 'Add Event', eventTextPh: 'Event content…', noEvents: 'No task events yet',
     subDoneAt: 'Done on', eventsSection: 'Task Events',
+    parentTaskLabel: 'Parent task', noParent: 'No parent', publishAtLabel: 'Publish time',
     copy: 'Copy', copyTitle: 'Copy task summary', copied: 'Copied to clipboard', copyFailed: 'Copy failed',
     overduePrefix: 'Overdue · ', descLabel: 'Description', createdOn: 'Created {0}', updatedOn: 'Updated {0}',
     taskNotFound: 'Task not found', priPrefix: 'Priority:{0} | Status:{1}', projectPrefix: 'Project:{0}',
@@ -161,6 +164,7 @@ const LANGS = {
     archivedOn: 'Archived {0} · {1} priority',
     deleteForeverTitle: 'Delete Permanently', deleteForeverMsg: 'Permanently delete "{0}"? This cannot be undone.',
     deleteTaskTitle: 'Delete Task', deleteTaskMsg: 'Delete "{0}"? This cannot be undone.',
+    delSubTitle: 'Delete Subtask', delSubMsg: 'Delete subtask "{0}"? This cannot be undone.',
     exportCsvName: 'CSV File', exportJsonName: 'JSON File',
     exportedTo: 'Exported to {0}', exportFailed: 'Export failed: {0}',
     importJsonTitle: 'Select a JSON file to import',
@@ -218,6 +222,7 @@ let calView = 'month';    // 日历视图层级:'month'(月历日格子) | 'year
 let filters = { search: '', priority: 'all', status: 'all', projectId: 'all', sortBy: 'sort_order', sortDir: 'asc' };
 let taskModalOpen = false; // 任务模态框开关(null 任务=新建;modalTaskId 非 null=编辑)
 let modalTaskId = null;   // 任务模态框正在编辑的任务 id
+let modalInitialTab = 'details'; // 打开任务模态框时定位到的 tab(子任务右键编辑→'subtasks')
 let detailTaskId = null;  // 详情面板任务 id
 let projectsOpen = false;
 let archiveOpen = false;
@@ -1234,6 +1239,18 @@ function renderDayEventsModal() {
 }
 
 // ---------------- 任务卡片 ----------------
+/** 卡片状态色日期:进行中=橙色开始日期;待办=灰色(截止/开始)日期;已完成=绿色完成日期;无数据留空 */
+function cardStatusDate(task) {
+  if (task.status === 'done') {
+    if (task.completeAt) return { text: fmtShortDate(task.completeAt), cls: 'is-done' };
+  } else if (task.status === 'in_progress') {
+    if (task.startAt) return { text: fmtShortDate(task.startAt), cls: 'is-progress' };
+  } else {
+    const t = task.deadline || task.startAt;
+    if (t) return { text: fmtShortDate(t), cls: 'is-todo' };
+  }
+  return null;
+}
 function renderTaskCard(task, compact = false) {
   const card = document.createElement('div');
   card.className = `todo-card${task.status === 'done' ? ' done' : ''}`;
@@ -1246,6 +1263,7 @@ function renderTaskCard(task, compact = false) {
   // 未完成在前、已完成置灰排在后面
   const orderedSubs = [...subs].sort((a, b) => (a.done ? 1 : 0) - (b.done ? 1 : 0));
   const dl = deadlineInfo(task);
+  const dateSuffix = cardStatusDate(task);
 
   let html = `
     <div class="todo-card-row">
@@ -1270,7 +1288,7 @@ function renderTaskCard(task, compact = false) {
         </button>
         <div class="todo-card-sub-body">
           <div class="todo-card-sub-chips">
-            ${orderedSubs.slice(0, 8).map((s) => `
+            ${orderedSubs.map((s) => `
               <button class="todo-sub-chip${s.done ? ' done' : ''}" data-t="sub" data-sub="${s.id}" title="${escHtml(s.title)}${s.doneAt ? ' · ' + T('subDoneAt') + ' ' + fmtDateTime(s.doneAt) : ''}">
                 <span>${s.done ? '✅' : '⬜'}</span><span class="todo-sub-chip-text">${escHtml(s.title)}</span>${s.done && s.doneAt ? `<span class="todo-sub-chip-date">${fmtShortDate(s.doneAt)}</span>` : ''}
               </button>`).join('')}
@@ -1287,7 +1305,7 @@ function renderTaskCard(task, compact = false) {
         <div class="todo-card-meta">
           ${task.tags.slice(0, 3).map((tag) => `<span class="todo-tag-chip">${escHtml(tag)}</span>`).join('')}
           ${dl ? `<span class="todo-deadline${dl.overdue ? ' overdue' : ''}${dl.warn ? ' warn' : ''}">${dl.overdue ? '⚠ ' : '📅 '}${dl.text}</span>` : ''}
-          ${task.status === 'done' && task.completeAt ? `<span class="todo-done-at">🏁 ${T('subDoneAt')} ${fmtDateTime(task.completeAt)}</span>` : ''}
+          ${dateSuffix ? `<span class="todo-card-date ${dateSuffix.cls}">${dateSuffix.text}</span>` : ''}
         </div>
       </div>
       <div class="todo-card-actions">
@@ -1297,8 +1315,84 @@ function renderTaskCard(task, compact = false) {
     </div>`;
   card.innerHTML = html;
 
-  // 右键菜单(编辑/归档/删除)由点击 ⋮ 展开
+  // 子任务右键菜单(编辑/删除)——阻止冒泡,避免触发卡片菜单
+  card.querySelectorAll('.todo-sub-chip').forEach((chip) => {
+    chip.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openSubMenu(chip.dataset.sub, chip);
+    });
+  });
+  function openSubMenu(subId, chipEl) {
+    closeSubMenu();
+    const sub = (task.subtasks || []).find((x) => x.id === subId);
+    if (!sub) return;
+    const menu = document.createElement('div');
+    menu.className = 'todo-card-menu todo-sub-menu';
+    menu.innerHTML = `
+      <button data-sm="edit">${T('edit')}</button>
+      <button data-sm="delete" class="danger">${T('delete')}</button>`;
+    card.appendChild(menu);
+    const r = chipEl.getBoundingClientRect();
+    const cr = card.getBoundingClientRect();
+    menu.style.left = (r.left - cr.left + (card.scrollLeft || 0)) + 'px';
+    menu.style.top = (r.bottom - cr.top + (card.scrollTop || 0) + 2) + 'px';
+    menu.style.right = 'auto';
+    menu.addEventListener('click', (ev) => {
+      const mb = ev.target.closest('[data-sm]');
+      if (!mb) return;
+      const m = mb.dataset.sm;
+      closeSubMenu();
+      document.removeEventListener('click', closeSubMenu, true);
+      if (m === 'edit') { modalInitialTab = 'subtasks'; taskModalOpen = true; modalTaskId = task.id; render(); }
+      else if (m === 'delete') {
+        confirmDialog({ title: T('delSubTitle'), message: T('delSubMsg', sub.title), okText: T('delete'), danger: true, onOk: () => {
+          task.subtasks = (task.subtasks || []).filter((x) => x.id !== subId);
+          saveState(); render();
+        } });
+      }
+    });
+    setTimeout(() => document.addEventListener('click', closeSubMenu, true), 0);
+  }
+  function closeSubMenu() {
+    const existing = card.querySelector('.todo-sub-menu');
+    if (existing) existing.remove();
+    document.removeEventListener('click', closeSubMenu, true);
+  }
+
+  // 右键/⋮ 菜单(编辑/归档/删除)
   let menuEl = null;
+  function openCardMenu() {
+    if (menuEl) { menuEl.remove(); menuEl = null; return; }
+    menuEl = document.createElement('div');
+    menuEl.className = 'todo-card-menu';
+    menuEl.innerHTML = `
+      <button data-m="edit">${T('edit')}</button>
+      <button data-m="archive">${T('archive')}</button>
+      <button data-m="delete" class="danger">${T('delete')}</button>`;
+    menuEl.addEventListener('click', (ev) => {
+      const mb = ev.target.closest('[data-m]');
+      if (!mb) return;
+      menuEl.remove(); menuEl = null;
+      document.removeEventListener('click', closeMenuOutside, true);
+      const m = mb.dataset.m;
+      if (m === 'edit') { taskModalOpen = true; modalTaskId = task.id; render(); }
+      else if (m === 'archive') { task.archived = true; task.updatedAt = now(); saveState(); render(); }
+      else if (m === 'delete') {
+        confirmDialog({ title: T('deleteTaskTitle'), message: T('deleteTaskMsg', task.title), okText: T('delete'), danger: true, onOk: () => { removeTask(task.id); render(); } });
+      }
+    });
+    card.appendChild(menuEl);
+    setTimeout(() => document.addEventListener('click', closeMenuOutside, true), 0);
+  }
+  function closeMenuOutside() {
+    if (menuEl) { menuEl.remove(); menuEl = null; }
+    document.removeEventListener('click', closeMenuOutside, true);
+  }
+  card.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    openCardMenu();
+  });
   card.addEventListener('click', (e) => {
     const b = e.target.closest('[data-t]');
     if (!b) { openDetail(task.id); return; }
@@ -1309,27 +1403,7 @@ function renderTaskCard(task, compact = false) {
     else if (t === 'sub') { toggleSubtask(task, b.dataset.sub); }
     else if (t === 'subtoggle') { toggleSubtasksCollapse(task, b); }
     else if (t === 'edit') { taskModalOpen = true; modalTaskId = task.id; render(); }
-    else if (t === 'menu') {
-      if (menuEl) { menuEl.remove(); menuEl = null; return; }
-      menuEl = document.createElement('div');
-      menuEl.className = 'todo-card-menu';
-      menuEl.innerHTML = `
-        <button data-m="edit">${T('edit')}</button>
-        <button data-m="archive">${T('archive')}</button>
-        <button data-m="delete" class="danger">${T('delete')}</button>`;
-      menuEl.addEventListener('click', (ev) => {
-        const mb = ev.target.closest('[data-m]');
-        if (!mb) return;
-        menuEl.remove(); menuEl = null;
-        const m = mb.dataset.m;
-        if (m === 'edit') { taskModalOpen = true; modalTaskId = task.id; render(); }
-        else if (m === 'archive') { task.archived = true; task.updatedAt = now(); saveState(); render(); }
-        else if (m === 'delete') {
-          confirmDialog({ title: T('deleteTaskTitle'), message: T('deleteTaskMsg', task.title), okText: T('delete'), danger: true, onOk: () => { removeTask(task.id); render(); } });
-        }
-      });
-      card.appendChild(menuEl);
-    }
+    else if (t === 'menu') { openCardMenu(); }
   });
   return card;
 }
@@ -1406,7 +1480,9 @@ function renderTaskModal() {
       <button class="btn primary" data-save>${isNew ? T('createTask') : T('saveChanges')}</button>
     </div>`;
 
-  let tab = 'details';
+  let tab = modalInitialTab || 'details';
+  modalInitialTab = 'details';
+  box.querySelectorAll('.todo-tab-btn').forEach((x) => x.classList.toggle('on', x.dataset.tab === tab));
   // 输入暂存(每次渲染细节 tab 后同步回来)
   const draft = {
     title: task ? task.title : '',
@@ -1503,9 +1579,10 @@ function renderTaskModal() {
           <div class="todo-sub-list"></div>` : ''}
         <div class="todo-field" style="margin-top:8px">
           <div class="todo-tag-add">
-            <input class="todo-input" data-sub-input placeholder="${T('addStepPh')}" style="flex:1" autofocus>
+            <input class="todo-input" data-sub-input placeholder="${T('addStepPh')}" style="flex:1">
             <button class="btn" data-add-sub>${T('add')}</button>
           </div>
+          <input class="todo-input todo-sub-add-notes" data-sub-add-notes placeholder="${T('subNotesPh')}" style="margin-top:6px;width:100%">
         </div>`;
       const listEl = bodyEl.querySelector('.todo-sub-list');
       if (listEl) {
@@ -1584,8 +1661,11 @@ function renderTaskModal() {
         const inp = bodyEl.querySelector('[data-sub-input]');
         const v = inp.value.trim();
         if (!v) return;
-        draft.subtasks.push({ id: uid('s'), title: v, done: false, sort: draft.subtasks.length, notes: '', doneAt: null, createdAt: now() });
+        const nInp = bodyEl.querySelector('[data-sub-add-notes]');
+        const notes = nInp ? nInp.value.trim() : '';
+        draft.subtasks.push({ id: uid('s'), title: v, done: false, sort: draft.subtasks.length, notes, doneAt: null, createdAt: now() });
         inp.value = '';
+        if (nInp) nInp.value = '';
         renderBody();
       }
     } else if (tab === 'events') {
