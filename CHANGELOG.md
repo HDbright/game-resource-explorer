@@ -3,7 +3,21 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.1`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.2`）。
+
+---
+
+## 2026-08-17（补丁·2）
+
+### [修复] 发布 v2.2.2：得乐学苑「今日挑战」Tab 图标改 🚀 且去除图标背景色
+
+- **需求**(用户:「今日挑战」按钮文字前的图标改成 🚀,且图标不要有背景色)。
+- **改动**(`src/pages/kidWorkspacePage.js`):
+  - Tab 定义 `dot` 由 `⚔️` 改为 `🚀`(仅「今日挑战」Tab,其余 Tab 图标 🗓️/👑 不变);
+  - `.kid-tab.on .kid-tab-dot{background:var(--kcard)}` → `background:none`,去掉激活态下图标后方块状的 `--kcard` 背景色(emoji 图标本身即彩色,无需底色衬底),所有 Tab 图标均无背景色;
+  - 渲染模板 `<span class="kid-tab-dot">${it.dot}</span>${it.label}` 不变,仅图标内容随 dot 改变。
+- **验证**:`scripts/kid-wb-smoke-main.js` 37/37 全过;预览页重新生成,静态核验确认 `kid-tab-dot` 图标模板为 🚀、激活态规则为 `background:none`、无 `var(--kcard)` 背景残留。
+- 发布:版本 2.2.1 → 2.2.2;产物 `release/游戏资源管理器-v2.2.2-便携版.zip`;已推送 gitee + github。
 
 ---
 

@@ -69,7 +69,7 @@ const CSS = `.kid-wb{--kblue:#4f7cff;--kgold:#f59e0b;--kdiamond:#22d3ee;--kred:#
 .kid-tab{flex:1;min-width:120px;min-height:48px;border-radius:14px;background:var(--kcard);border:2px solid var(--kborder);
   font-size:15px;font-weight:800;color:var(--ktext2);display:flex;align-items:center;justify-content:center;gap:8px}
 .kid-tab.on{background:linear-gradient(135deg,var(--kaccent),var(--kaccent2));color:#fff;border-color:transparent;box-shadow:0 4px 14px rgba(79,124,255,.35)}
-.kid-tab.on .kid-tab-dot{background:var(--kcard)}
+.kid-tab.on .kid-tab-dot{background:none}
 .kid-sec-head{display:flex;align-items:center;gap:8px;margin:4px 0 10px}
 .kid-sec-head .kid-sec-title{font-size:16px;font-weight:800;color:var(--ktext)}
 .kid-sec-head .kid-sec-sub{font-size:12px;color:var(--ktext3);margin-left:auto}
@@ -949,7 +949,7 @@ function renderTabs() {
   const tabs = document.createElement('div');
   tabs.className = 'kid-tabs';
   const items = [
-    { id: 'today', label: '今日挑战', dot: '⚔️' },
+    { id: 'today', label: '今日挑战', dot: '🚀' },
     { id: 'plan', label: '学习计划', dot: '🗓️' },
     { id: 'reward', label: '成长奖励', dot: '👑' },
   ];
