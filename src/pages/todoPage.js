@@ -705,23 +705,34 @@ function renderCalendar() {
     const dayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     const cell = document.createElement('div');
     cell.className = 'todo-cal-cell' + (d.getMonth() === m ? '' : ' out') + (key === todayKey ? ' today' : '');
-    // 日期号
-    const dayNum = document.createElement('div');
+    // 第一行:公历日期(左上)+ 农历 2 字(紧跟)+ 节日/节气(行尾右对齐,格子右上角)
+    const topRow = document.createElement('div');
+    topRow.className = 'todo-cal-top';
+    const dayNum = document.createElement('span');
     dayNum.className = 'todo-cal-day';
     dayNum.textContent = d.getDate();
-    cell.appendChild(dayNum);
-    // 农历(带缓存):只显示「日」(2 字,初一/廿五/三十),节日或节气时改显节日/节气名(同区域 1 行,悬停 title 看完整月日)
+    topRow.appendChild(dayNum);
+    // 农历(带缓存):只显示「日」(2 字,初一/廿五/三十)
     const cacheKey = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
     let info = calDateCache.get(cacheKey);
     if (!info) { info = getLunarInfo(d.getFullYear(), d.getMonth() + 1, d.getDate()); calDateCache.set(cacheKey, info); }
     const lunarDay = formatLunarDay(info.lunarDay);
-    const festTxt = info.holiday || info.term || '';
-    const lunarEl = document.createElement('div');
-    lunarEl.className = 'todo-cal-lunar' + (festTxt ? ' todo-cal-lunar-fest' : '');
-    lunarEl.textContent = festTxt || lunarDay;
-    lunarEl.title = '农历' + formatLunarMonth(info.lunarMonth, info.isLeapMonth) + lunarDay + (info.term ? ' · ' + info.term : '') + (info.holiday ? ' · ' + info.holiday : '');
-    cell.appendChild(lunarEl);
-    // 日历事件 chips(类型图标+标题;点击查看/编辑,右键菜单)
+    const fullLunarTitle = '农历' + formatLunarMonth(info.lunarMonth, info.isLeapMonth) + lunarDay + (info.term ? ' · ' + info.term : '') + (info.holiday ? ' · ' + info.holiday : '');
+    const lunarEl = document.createElement('span');
+    lunarEl.className = 'todo-cal-lunar';
+    lunarEl.textContent = lunarDay;
+    lunarEl.title = fullLunarTitle;
+    topRow.appendChild(lunarEl);
+    // 节日/24节气:第一行尾部(右对齐到格子右上角)
+    if (info.holiday || info.term) {
+      const festEl = document.createElement('span');
+      festEl.className = 'todo-cal-fest';
+      festEl.textContent = info.holiday || info.term;
+      festEl.title = fullLunarTitle;
+      topRow.appendChild(festEl);
+    }
+    cell.appendChild(topRow);
+    // 日历事件 chips(类型图标+标题;点击查看/编辑,右键菜单)—— 自第 2 行起
     const dayEvents = eventMap.get(dayKey) || [];
     dayEvents.slice(0, 3).forEach((ev) => {
       const et = EVENT_TYPES[ev.type] || EVENT_TYPES.todo;

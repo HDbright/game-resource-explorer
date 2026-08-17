@@ -2911,7 +2911,8 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .todo-cal-cell { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 5px; overflow: hidden; min-height: 58px; display: flex; flex-direction: column; }
 .todo-cal-cell.today { background: var(--bg4); border-color: var(--accent); }
 .todo-cal-cell.out { opacity: .35; }
-.todo-cal-day { font-size: 12px; font-weight: 500; color: var(--text2); text-align: right; margin-bottom: 3px; flex-shrink: 0; }
+.todo-cal-top { display: flex; align-items: baseline; gap: 5px; margin-bottom: 3px; flex-shrink: 0; }
+.todo-cal-day { font-size: 13px; font-weight: 600; color: var(--text); text-align: left; flex-shrink: 0; }
 .todo-cal-cell.today .todo-cal-day { color: var(--accent); font-weight: 700; }
 .todo-cal-task { font-size: 10px; padding: 2px 5px; border-radius: 3px; margin-bottom: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; font-weight: 500; border: 1px solid; flex-shrink: 0; }
 .todo-cal-task:hover { filter: brightness(1.25); }
@@ -2919,10 +2920,10 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 
 /* 日历:农历/节气/节日/事件 */
 .todo-cal-cell { min-height: 72px; }
-.todo-cal-lunar { font-size: 10px; color: var(--text3); text-align: left; margin-bottom: 1px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.2; }
-.todo-cal-lunar-fest { color: #ef4444; font-weight: 600; }
+.todo-cal-lunar { font-size: 10px; color: var(--text3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 0; }
 .todo-cal-cell.today .todo-cal-lunar { color: var(--accent); font-weight: 600; }
-.todo-cal-cell.today .todo-cal-lunar-fest { color: var(--accent); }
+.todo-cal-fest { margin-left: auto; font-size: 10px; color: #ef4444; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 0; }
+.todo-cal-cell.today .todo-cal-fest { color: var(--accent); }
 .todo-cal-event { display: flex; align-items: center; gap: 3px; font-size: 10px; padding: 1px 5px; border-radius: 3px; margin-bottom: 2px; overflow: hidden; cursor: pointer; font-weight: 500; border: 1px solid; flex-shrink: 0; }
 .todo-cal-event:hover { filter: brightness(1.25); }
 .todo-cal-event-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
