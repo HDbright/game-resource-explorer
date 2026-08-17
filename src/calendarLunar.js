@@ -66,6 +66,7 @@ function formatLunarDay(d) {
 function formatLunarMonth(m, isLeap) {
   return (isLeap ? '闰' : '') + CN_MONTH[m - 1] + '月';
 }
+export { formatLunarMonth, formatLunarDay };
 
 /**
  * 公历 y-m-d → 农历信息

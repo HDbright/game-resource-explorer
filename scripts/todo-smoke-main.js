@@ -293,19 +293,23 @@ app.whenReady().then(async () => {
         addItem.click(); await sleep(300);
         out.modalOpen = !!document.querySelector('[data-ev-title]');
         if (out.modalOpen) {
-          // 类型高亮检查:默认待办事件高亮
+          // 类型高亮检查:默认待办事件高亮;生日改为「公历/农历生日」下拉(默认公历生日);历法行已移除
           out.todoOn0 = document.querySelector('[data-ev-type="todo"]').classList.contains('on');
-          // 切到生日:待办按钮高亮必须消失(class + 内联边框都清除)
-          document.querySelector('[data-ev-type="birthday"]').click(); await sleep(120);
-          out.birthdayOn = document.querySelector('[data-ev-type="birthday"]').classList.contains('on');
+          out.bdaySel0 = document.querySelector('[data-ev-bday]').value;
+          out.calRowGone = !document.querySelector('[data-ev-cal-row]');
+          out.preDate = document.querySelector('[data-ev-date]').value;
+          out.hintSolar = (document.querySelector('[data-ev-lunar]') || {}).textContent || '';
+          // 下拉切到「农历生日」:下拉高亮、待办不高亮、日期框即时换算为农历月日
+          const sel = document.querySelector('[data-ev-bday]');
+          sel.value = 'lunar'; sel.dispatchEvent(new Event('change', { bubbles: true })); await sleep(120);
+          out.bdayOn = sel.classList.contains('on');
           out.todoOn1 = document.querySelector('[data-ev-type="todo"]').classList.contains('on');
-          out.todoBorder = document.querySelector('[data-ev-type="todo"]').style.borderColor || '';
-          // 历法行出现,切到农历:农历按钮高亮、公历取消(验证可切换后切回公历保存,chip 落在当前 9 月视图)
-          out.calRowVisible = !document.querySelector('[data-ev-cal-row]').hidden;
-          document.querySelector('[data-ev-cal="lunar"]').click(); await sleep(120);
-          out.lunarOn = document.querySelector('[data-ev-cal="lunar"]').classList.contains('on');
-          out.solarOn = document.querySelector('[data-ev-cal="solar"]').classList.contains('on');
-          document.querySelector('[data-ev-cal="solar"]').click(); await sleep(120);
+          out.lunarDate = document.querySelector('[data-ev-date]').value;
+          out.hintLunar = (document.querySelector('[data-ev-lunar]') || {}).textContent || '';
+          // 切回「公历生日」:日期框恢复公历、下拉不高亮(随后保存,chip 落在当前 9 月视图)
+          sel.value = 'solar'; sel.dispatchEvent(new Event('change', { bubbles: true })); await sleep(120);
+          out.solarOn2 = sel.classList.contains('on');
+          out.solarDate = document.querySelector('[data-ev-date]').value;
           const titleInp = document.querySelector('[data-ev-title]');
           titleInp.value = '测试生日';
           titleInp.dispatchEvent(new Event('input', { bubbles: true }));
@@ -317,6 +321,7 @@ app.whenReady().then(async () => {
         if (chip) { chip.click(); await sleep(300); }
         out.editOpen = !!document.querySelector('[data-ev-title]');
         out.editTitle = (document.querySelector('[data-ev-title]') || {}).value || '';
+        out.editBdayVal = (document.querySelector('[data-ev-bday]') || {}).value || '';
         const closeBtn2 = document.querySelector('[data-close]');
         if (closeBtn2) { closeBtn2.click(); await sleep(250); }
         out.closed = !document.querySelector('[data-ev-title]');
@@ -327,10 +332,15 @@ app.whenReady().then(async () => {
       check('单元格右键菜单', o.menuFound === true, JSON.stringify(o));
       check('新建事件弹窗', o.modalOpen === true);
       check('默认待办事件高亮', o.todoOn0 === true);
-      check('切生日后待办不再高亮', o.birthdayOn === true && o.todoOn1 === false && !o.todoBorder, 'birthday=' + o.birthdayOn + ' todoOn=' + o.todoOn1 + ' border=' + o.todoBorder);
-      check('历法行出现且可切农历', o.calRowVisible === true && o.lunarOn === true && o.solarOn === false, 'lunar=' + o.lunarOn + ' solar=' + o.solarOn);
+      check('生日下拉默认公历生日', o.bdaySel0 === 'solar', 'sel=' + o.bdaySel0);
+      check('历法行已移除', o.calRowGone === true);
+      check('公历模式日期框有农历提示', /^农历/.test(o.hintSolar || ''), o.hintSolar);
+      check('选农历:下拉高亮且待办不高亮', o.bdayOn === true && o.todoOn1 === false, 'bday=' + o.bdayOn + ' todo=' + o.todoOn1);
+      check('选农历:日期框换算为农历月日', /^\d{4}-\d{2}-\d{2}$/.test(o.lunarDate || '') && o.lunarDate !== o.solarDate && /^农历/.test(o.hintLunar || ''), o.preDate + '→' + o.lunarDate + '(' + o.hintLunar + ')');
+      check('切回公历:日期框恢复公历且下拉保持生日高亮', o.solarOn2 === true && o.solarDate === o.preDate, o.solarDate + ' vs ' + o.preDate + ' on=' + o.solarOn2);
       check('事件 chip 出现', o.chipFound === true, JSON.stringify(o.eventChips));
       check('点击事件打开编辑', o.editOpen === true && o.editTitle === '测试生日', o.editTitle);
+      check('编辑时生日下拉=公历生日', o.editBdayVal === 'solar', 'val=' + o.editBdayVal);
       check('事件弹窗关闭', o.closed === true);
 
       // 5.7) 农历生日:右键今天格子新建生日+农历 → 存库日期应为「今天公历对应的农历月日」,chip 落在今天格子(今年提醒日期=今天)
@@ -355,8 +365,12 @@ app.whenReady().then(async () => {
         addItem.click(); await sleep(300);
         const dateInp = document.querySelector('[data-ev-date]');
         out.preDate = dateInp ? dateInp.value : '';
-        document.querySelector('[data-ev-type="birthday"]').click(); await sleep(120);
-        document.querySelector('[data-ev-cal="lunar"]').click(); await sleep(120);
+        out.hintSolar = (document.querySelector('[data-ev-lunar]') || {}).textContent || '';
+        // 下拉选「农历生日」:日期框即时换算为农历月日,提示显示该农历
+        const sel = document.querySelector('[data-ev-bday]');
+        sel.value = 'lunar'; sel.dispatchEvent(new Event('change', { bubbles: true })); await sleep(120);
+        out.lunarDateShown = document.querySelector('[data-ev-date]').value;
+        out.hintLunar = (document.querySelector('[data-ev-lunar]') || {}).textContent || '';
         const titleInp = document.querySelector('[data-ev-title]');
         titleInp.value = '${SMOKE_BDAY_LUNAR_CONV}';
         titleInp.dispatchEvent(new Event('input', { bubbles: true }));
@@ -370,7 +384,9 @@ app.whenReady().then(async () => {
       const evL = dL.todoEvents.find((e) => e.title === SMOKE_BDAY_LUNAR_CONV);
       check('农历生日:今天格子可见且有农历文本', !o.err && (o.todayLunarText || '').length > 0, o.err || o.todayLunarText);
       check('农历生日:弹窗初始日期=今天公历', o.preDate === o.todaySolar, o.preDate + ' vs ' + o.todaySolar);
-      check('农历生日:存库日期为农历月日(≠公历今天月日)', !!evL && evL.calendar === 'lunar' && /^\d{4}-\d{2}-\d{2}$/.test(evL.date || '') && evL.date.slice(5) !== o.todaySolar.slice(5), JSON.stringify(evL));
+      check('农历生日:公历模式农历提示=今天农历', o.hintSolar === '农历' + o.todayLunarText, o.hintSolar + ' vs ' + o.todayLunarText);
+      check('农历生日:切农历后输入框换算为农历月日', /^\d{4}-\d{2}-\d{2}$/.test(o.lunarDateShown || '') && o.lunarDateShown.slice(5) !== o.todaySolar.slice(5) && o.hintLunar === '农历' + o.todayLunarText, o.preDate + '→' + o.lunarDateShown + '(' + o.hintLunar + ')');
+      check('农历生日:存库日期=输入框所示(所见即所存)', !!evL && evL.calendar === 'lunar' && evL.date === o.lunarDateShown && /^\d{4}-\d{2}-\d{2}$/.test(evL.date || ''), JSON.stringify(evL));
       check('农历生日:chip 落在今天格子(今年提醒=今天)', o.chipToday === true);
       check('农历生日:弹窗保存后关闭', o.modalClosed === true);
 

@@ -6,7 +6,7 @@
 
 import { state, saveState, uid, now } from '../state.js';
 import { toast, confirmDialog, showContextMenu } from '../dialogs.js';
-import { getLunarInfo, lunarMonthDayToSolar } from '../calendarLunar.js';
+import { getLunarInfo, lunarMonthDayToSolar, formatLunarMonth, formatLunarDay } from '../calendarLunar.js';
 
 // ---------------- 国际化 ----------------
 let lang = 'zh'; // 'zh' | 'en'
@@ -43,6 +43,7 @@ const LANGS = {
     evTitlePh: '事件标题', evNotePh: '补充说明…', evTitleRequired: '标题不能为空', evSaved: '已保存',
     evConfirmDel: '确定删除事件「{0}」吗?', evLunarTip: '农历',
     solar: '公历', lunar: '农历', evCalendarLabel: '历法',
+    bdaySolar: '公历生日', bdayLunar: '农历生日',
     remindTodoToday: '今日待办 {0} 项', remindBdayToday: '今日 {0} 人生日', remindBday3d: '3 日内 {0} 人生日',
     remindTodoTodayTitle: '今日待办', remindBdayTodayTitle: '今日生日', remindBday3dTitle: '3 日内生日',
     // 模态框
@@ -112,6 +113,7 @@ const LANGS = {
     evTitlePh: 'Event title', evNotePh: 'Additional details…', evTitleRequired: 'Title is required', evSaved: 'Saved',
     evConfirmDel: 'Delete event "{0}"?', evLunarTip: 'Lunar',
     solar: 'Solar', lunar: 'Lunar', evCalendarLabel: 'Calendar',
+    bdaySolar: 'Solar Birthday', bdayLunar: 'Lunar Birthday',
     remindTodoToday: 'Today: {0} to-dos', remindBdayToday: 'Today: {0} birthday', remindBday3d: 'In 3 days: {0} birthday',
     remindTodoTodayTitle: 'Today to-dos', remindBdayTodayTitle: 'Today birthdays', remindBday3dTitle: 'Birthdays in 3 days',
     tabDetails: 'Details', tabSubtasks: 'Subtasks',
@@ -800,12 +802,28 @@ function removeEvent(id) {
 function renderEventModal() {
   const existing = eventModal && eventModal.id ? state.todoEvents.find((x) => x.id === eventModal.id) : null;
   const isNew = !existing;
-  const dateStr = existing ? existing.date : (eventModal && eventModal.date ? eventModal.date : '');
   const ov = document.createElement('div');
   ov.className = 'todo-overlay';
   const box = document.createElement('div');
   box.className = 'todo-modal';
-  const draft = { type: existing ? existing.type : 'todo', title: existing ? existing.title : '', note: existing ? existing.note : '', calendar: existing ? (existing.calendar || 'solar') : 'solar' };
+  const draft = { type: existing ? existing.type : 'todo', title: existing ? existing.title : '', note: existing ? existing.note : '', calendar: existing ? (existing.calendar || 'solar') : 'solar', _solarDate: '' };
+  // 日期框「所见即所存」:
+  // - 公历生日 / 非生日:输入框显示并保存公历日期;旁侧农历提示显示该公历日对应的农历。
+  // - 农历生日:输入框显示并保存「农历月日」(YYYY 仅占位),eventRemindDate 每年按该农历月日换算公历提醒;
+  //   新建时日历方格传入公历日期(如点击 8-17,当天农历七月初五),切到农历时即时换算为农历月日(07-05)显示,
+  //   每年农历七月初五就是这条生日的准确日期。
+  // draft._solarDate 始终记录当前输入框对应的公历基准,用于切回公历时还原。
+  const rawDate = existing ? existing.date : (eventModal && eventModal.date ? eventModal.date : '');
+  let initSolar = rawDate;
+  if (existing && existing.type === 'birthday' && existing.calendar === 'lunar') {
+    const yy = parseInt(rawDate.slice(0, 4), 10), mm = parseInt(rawDate.slice(5, 7), 10), dd = parseInt(rawDate.slice(8, 10), 10);
+    if (yy && mm && dd) {
+      const r = lunarMonthDayToSolar(yy, mm, dd, false);
+      if (r) initSolar = `${r.y}-${String(r.m).padStart(2, '0')}-${String(r.d).padStart(2, '0')}`;
+    }
+  }
+  draft._solarDate = initSolar;
+  const initShown = (draft.type === 'birthday' && draft.calendar === 'lunar') ? rawDate : initSolar;
   box.innerHTML = `
     <div class="todo-modal-head">
       <h2 class="todo-modal-title">${isNew ? T('newEvent') : T('editEvent')}</h2>
@@ -813,16 +831,18 @@ function renderEventModal() {
     </div>
     <div class="todo-modal-body">
       <div class="todo-field"><label class="todo-label">${T('evDateLabel')}</label>
-        <input class="todo-input" type="date" data-ev-date value="${escHtml(dateStr)}"></div>
-      <div class="todo-field"><label class="todo-label">${T('evTypeLabel')}</label>
-        <div class="todo-pri-row">${Object.keys(EVENT_TYPES).map((tp) => `
-          <button class="todo-pri-opt${draft.type === tp ? ' on' : ''}" data-ev-type="${tp}" style="${draft.type === tp ? `border-color:${EVENT_TYPES[tp].color};color:${EVENT_TYPES[tp].color};background:${EVENT_TYPES[tp].color}22` : ''}">${EVENT_TYPES[tp].icon} ${T('ev' + tp.charAt(0).toUpperCase() + tp.slice(1))}</button>`).join('')}
+        <div class="todo-date-wrap">
+          <input class="todo-input" type="date" data-ev-date value="${escHtml(initShown)}">
+          <span class="todo-date-lunar" data-ev-lunar></span>
         </div></div>
-      <div class="todo-field" data-ev-cal-row ${draft.type === 'birthday' ? '' : 'hidden'}>
-        <label class="todo-label">${T('evCalendarLabel')}</label>
+      <div class="todo-field"><label class="todo-label">${T('evTypeLabel')}</label>
         <div class="todo-pri-row">
-          <button class="todo-pri-opt${draft.calendar === 'solar' ? ' on' : ''}" data-ev-cal="solar" style="${draft.calendar === 'solar' ? 'border-color:var(--accent);color:var(--accent);background:var(--accent)22' : ''}">${T('solar')}</button>
-          <button class="todo-pri-opt${draft.calendar === 'lunar' ? ' on' : ''}" data-ev-cal="lunar" style="${draft.calendar === 'lunar' ? 'border-color:var(--accent);color:var(--accent);background:var(--accent)22' : ''}">${T('lunar')}</button>
+          <select class="todo-input todo-ev-bday" data-ev-bday>
+            <option value="solar">${EVENT_TYPES.birthday.icon} ${T('bdaySolar')}</option>
+            <option value="lunar">${EVENT_TYPES.birthday.icon} ${T('bdayLunar')}</option>
+          </select>
+          ${Object.keys(EVENT_TYPES).filter((tp) => tp !== 'birthday').map((tp) => `
+          <button class="todo-pri-opt${draft.type === tp ? ' on' : ''}" data-ev-type="${tp}" style="${draft.type === tp ? `border-color:${EVENT_TYPES[tp].color};color:${EVENT_TYPES[tp].color};background:${EVENT_TYPES[tp].color}22` : ''}">${EVENT_TYPES[tp].icon} ${T('ev' + tp.charAt(0).toUpperCase() + tp.slice(1))}</button>`).join('')}
         </div></div>
       <div class="todo-field"><label class="todo-label">${T('evTitleLabel')}</label>
         <input class="todo-input" data-ev-title value="${escHtml(draft.title)}" placeholder="${T('evTitlePh')}" autofocus></div>
@@ -834,7 +854,41 @@ function renderEventModal() {
       <button class="btn" data-close>${T('cancel')}</button>
       <button class="btn primary" data-ev-save>${isNew ? T('newEvent') : T('saveChanges')}</button>
     </div>`;
-  const calRow = box.querySelector('[data-ev-cal-row]');
+  const bdaySel = box.querySelector('[data-ev-bday]');
+  bdaySel.value = draft.type === 'birthday' ? draft.calendar : 'solar';
+  const dateInput = box.querySelector('[data-ev-date]');
+  const lunarEl = box.querySelector('[data-ev-lunar]');
+  const isLunarMode = () => draft.type === 'birthday' && draft.calendar === 'lunar';
+  // 农历提示:公历模式 = 所选公历日对应的农历;农历生日模式 = 输入框 MM-DD 即农历月日,直接格式化
+  const paintLunar = () => {
+    const v = dateInput.value;
+    if (!v) { lunarEl.textContent = ''; lunarEl.title = ''; return; }
+    const p = v.split('-').map(Number);
+    if (p.length !== 3 || !p[0] || !p[1] || !p[2]) { lunarEl.textContent = ''; lunarEl.title = ''; return; }
+    try {
+      if (isLunarMode()) {
+        lunarEl.textContent = '农历' + formatLunarMonth(p[1], false) + formatLunarDay(p[2]);
+        lunarEl.title = '';
+      } else {
+        const li = getLunarInfo(p[0], p[1], p[2]);
+        lunarEl.textContent = '农历' + li.lunarText;
+        lunarEl.title = [li.term, li.holiday].filter(Boolean).join(' ');
+      }
+    } catch (e) { lunarEl.textContent = ''; lunarEl.title = ''; }
+  };
+  // 按历法换算输入框值(公历↔农历),保证「所见即所存」:农历生日输入框显示的就是将保存的农历月日
+  const applyCalendar = (cal) => {
+    if (cal === 'lunar') {
+      const p = draft._solarDate.split('-').map(Number);
+      if (p.length === 3 && p[0] && p[1] && p[2]) {
+        const li = getLunarInfo(p[0], p[1], p[2]);
+        dateInput.value = `${p[0]}-${String(li.lunarMonth).padStart(2, '0')}-${String(li.lunarDay).padStart(2, '0')}`;
+      }
+    } else {
+      dateInput.value = draft._solarDate;
+    }
+    paintLunar();
+  };
   // 高亮统一由 paint 函数管理(class + 内联样式),避免 class 切换后旧内联边框残留
   const paintTypeBtns = () => {
     box.querySelectorAll('[data-ev-type]').forEach((b) => {
@@ -846,59 +900,56 @@ function renderEventModal() {
       b.style.background = on ? c + '22' : '';
     });
   };
-  const paintCalBtns = () => {
-    box.querySelectorAll('[data-ev-cal]').forEach((b) => {
-      const on = draft.calendar === b.dataset.evCal;
-      b.classList.toggle('on', on);
-      b.style.borderColor = on ? 'var(--accent)' : '';
-      b.style.color = on ? 'var(--accent)' : '';
-      b.style.background = on ? 'var(--accent)22' : '';
-    });
+  const paintBdaySel = () => {
+    const on = draft.type === 'birthday';
+    bdaySel.classList.toggle('on', on);
+    bdaySel.style.borderColor = on ? 'var(--accent)' : '';
+    bdaySel.style.color = on ? 'var(--accent)' : '';
   };
   box.querySelectorAll('[data-ev-type]').forEach((b) => b.addEventListener('click', () => {
     draft.type = b.dataset.evType;
-    // 生日才显示历法选择;非生日强制公历
-    if (draft.type !== 'birthday' && draft.calendar !== 'solar') draft.calendar = 'solar';
-    if (calRow) calRow.hidden = draft.type !== 'birthday';
+    // 非生日强制公历;下拉回到默认「公历生日」
+    if (draft.type !== 'birthday') draft.calendar = 'solar';
+    bdaySel.value = draft.calendar;
+    applyCalendar(draft.calendar);
     paintTypeBtns();
-    paintCalBtns();
+    paintBdaySel();
   }));
-  box.querySelectorAll('[data-ev-cal]').forEach((b) => b.addEventListener('click', () => {
-    draft.calendar = b.dataset.evCal;
-    paintCalBtns();
-  }));
+  bdaySel.addEventListener('change', () => {
+    draft.calendar = bdaySel.value;
+    draft.type = 'birthday';
+    applyCalendar(draft.calendar);
+    paintTypeBtns();
+    paintBdaySel();
+  });
+  const onDateInput = () => {
+    if (isLunarMode()) {
+      // 农历模式:输入框即农历月日,换算回公历基准(闰月等换算失败则保持旧基准)
+      const p = dateInput.value.split('-').map(Number);
+      if (p.length === 3 && p[0] && p[1] && p[2]) {
+        const r = lunarMonthDayToSolar(p[0], p[1], p[2], false);
+        if (r) draft._solarDate = `${r.y}-${String(r.m).padStart(2, '0')}-${String(r.d).padStart(2, '0')}`;
+      }
+    } else {
+      draft._solarDate = dateInput.value;
+    }
+    paintLunar();
+  };
+  dateInput.addEventListener('input', onDateInput);
+  dateInput.addEventListener('change', onDateInput);
   paintTypeBtns();
-  paintCalBtns();
+  paintBdaySel();
+  paintLunar();
   box.querySelector('[data-ev-title]').addEventListener('input', (e) => { draft.title = e.target.value; });
   box.querySelector('[data-ev-note]').addEventListener('input', (e) => { draft.note = e.target.value; });
   const close = () => { eventModal = null; render(); };
   box.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', close));
   box.querySelector('[data-ev-save]').addEventListener('click', () => {
-    let date = box.querySelector('[data-ev-date]').value;
+    // 输入框即存储值:公历生日/非生日 = 公历日期;农历生日 = 农历月日(切下拉时已即时换算,所见即所存)
+    const date = box.querySelector('[data-ev-date]').value;
     const title = draft.title.trim();
     if (!title) { toast(T('evTitleRequired'), 'warn'); return; }
     if (!date) { toast(T('evTitleRequired'), 'warn'); return; }
-    // 生日按历法换算存储:
-    // - 农历生日:date 存「农历月日」(YYYY 仅占位),eventRemindDate 每年按该农历月日换算公历提醒日期。
-    //   新建时日历方格传入的是公历日期(如点击 8-17,当天农历七月初五),需换算为农历月日(07-05)再存,
-    //   这样每年农历七月初五就是这条生日的准确日期。
-    // - 公历生日:date 直接存公历月日。
-    if (draft.type === 'birthday') {
-      const wasLunar = !!(existing && existing.type === 'birthday' && existing.calendar === 'lunar');
-      if (draft.calendar === 'lunar' && !wasLunar) {
-        const [yy, mm, dd] = date.split('-').map(Number);
-        if (yy && mm && dd) {
-          const li = getLunarInfo(yy, mm, dd);
-          date = `${yy}-${String(li.lunarMonth).padStart(2, '0')}-${String(li.lunarDay).padStart(2, '0')}`;
-        }
-      } else if (draft.calendar !== 'lunar' && wasLunar) {
-        const yy = parseInt(date.slice(0, 4), 10), mm = parseInt(date.slice(5, 7), 10), dd = parseInt(date.slice(8, 10), 10);
-        if (yy && mm && dd) {
-          const r = lunarMonthDayToSolar(yy, mm, dd, false);
-          if (r) date = `${r.y}-${String(r.m).padStart(2, '0')}-${String(r.d).padStart(2, '0')}`;
-        }
-      }
-    }
     if (isNew) {
       upsertEvent({ id: uid('e'), date, type: draft.type, title, note: draft.note.trim(), calendar: draft.type === 'birthday' ? draft.calendar : 'solar', createdAt: now(), updatedAt: now() });
     } else {
