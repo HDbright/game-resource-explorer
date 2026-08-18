@@ -3,7 +3,91 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.27`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.33`）。
+
+---
+
+## 2026-08-18（补丁·33）
+
+### [修复] 看板「已完成」列卡片状态图标去圆圈并放大 ✅
+
+- 需求（用户：「看板视图的『已完成』列表的条目前的图标不要加圆圈，要将只要显示图标✅，且要将✅图标放大一些显示」）。
+- 改动（`src/pages/todoPage.js` + `src/style.css`）：看板 `done` 列卡片 `renderTaskCard` 后追加 `todo-card-done-col` 类；新增 `.todo-card-done-col .todo-status-btn` 样式——去掉 `border-radius`/`border`/圆形背景，仅显示放大后的 ✅（`font-size:20px`）。其它视图（列表/看板「进行中」「待办」列）保持原圆形状态按钮不变。
+
+---
+
+## 2026-08-18（补丁·32）
+
+### [修复] 自定义资源分组（UI资源等）根目录下的分类目录勾选后仍不列出资源文件
+
+- **现象**(用户:「UI资源根目录下的分类目录勾选了也无法在菜单树列出资源文件」)。复现:在自定义分组（如 UI资源）根下新建分类并勾选「在菜单树中显示资源文件列表」,分类内条目(类型被识别为内置 `image` 等)展开后不显示。
+- **根因**:`itemsForGroupCat(group, catId)` 对**具体分类**先用 `itemsForGroup(group)`(按 `itemInGroup` → `typeGroup(item.type) === group` 类型归组)过滤,再按 `categoryId` 过滤。自定义分组下的分类,其条目若被识别为内置类型(如 `image`),此时 `typeGroup(item.type)` 为 `'image'` 而非该自定义分组 id,被第一轮过滤剔除,导致勾选后分类内文件仍为空。
+- **改动**(`src/ui.js`):
+  - `itemsForGroupCat` 对**具体分类**改为直接以 `categoryId` 为准列出条目(`state.items.filter((i) => i.categoryId === catId)`)。分类是否在某资源根下可见已由 `catVisibleInGroup`(基于 `typeTags`)门控,故不再对条目做 `item.type` 二次过滤——避免「自定义分组下、分类内条目被误打为其它类型时被剔除」的情况。
+  - `未分类`(`catId === ''`)与 `all` 路径保持原逻辑(按资源类型归属分组,不随全局 tab 变化)。
+- **顺带修复持久化缺陷**(`electron/db.js`):`categories` 与 `menu_nodes` 表此前**缺 `show_items_in_tree` 列**,导致「编辑分类目录 / 编辑资源根目录」中设置的开关在保存时被静默丢弃(始终回落默认 `true`)。现已在 CREATE TABLE 补列、追加迁移 ALTER、并在 `readDb` 的 SELECT 映射与 `writeDb` 的 INSERT 中读写该字段。
+- **验证**:新增无头冒烟 `scripts/uiroot-smoke-main.js`(自定义分组根 + 分类 + `image` 类型条目,勾选开关),执行后 `itemShown: true`(菜单树正确渲染该分类下条目);`npm run build`(含 `check-imports.js`)通过;`pack-manual.js` 产出便携版 exe。
+
+---
+
+## 2026-08-18（补丁·31）
+
+### [新增] 资源根目录也支持「在菜单树中显示资源文件列表」开关（所有资源根 + 子目录全覆盖）
+
+- **需求**(用户:上一版仅在「编辑分类目录」提供了该开关,现要求**所有资源根目录和子目录**都要有此设置)。
+- **改动**(`src/ui.js`):
+  - 新增 `resourceRootNode(group)`:按资源分组(`anim`/`image`/`audio`/`3d`/`video`/`article`/自定义分组)反查对应「资源根目录」菜单节点。
+  - 资源根目录新增 `showItemsInTree` 开关(默认 `true`,兼容旧库),作为**主开关**作用于整棵子树:关闭后该根下「未分类」与全部分类目录均不在菜单树列出资源文件,仅保留目录结构;开启时各分类目录仍以其自身 `showItemsInTree`(从开关)为准。
+  - `renderResTypeChildren`:根关闭时不再渲染「未分类」伪节点。
+  - `renderCatNode`:文件展示条件改为 `rootShow && 分类自身开关`,使根开关对子孙分类生效。
+  - 资源根目录右键菜单新增「编辑资源根目录」项 → 弹窗含「在菜单树中显示资源文件列表」勾选框,经 `updateMenuNode` 持久化。
+  - `promptDialog`(`src/dialogs.js`)扩充 `message` 参数,用于弹窗顶部说明(如根目录名称/id)。
+- **覆盖范围**:动画/图片/音频/3D资源、文档资源、视频资源、以及所有自定义资源分组根目录均具备该设置;子目录(分类)仍走「编辑分类目录」。
+- **验证**:`npm run build`(含 `check-imports.js`)通过;`pack-manual.js` 产出便携版 exe。
+
+---
+
+## 2026-08-18（补丁·30）
+
+### [新增] 编辑分类目录:「在菜单树中显示资源文件列表」开关 + 修复文档/视频资源根不列文件
+
+- **需求**(用户:左侧菜单树「文档资源」根内的分类目录没有列出目录中的资源文件;要求在「编辑分类目录」窗口增加勾选,勾选则在菜单树加载渲染该目录所含资源文件列表,否则不加载显示)。
+- **根因**:侧栏树按资源根节点过滤条目时直接 `typeGroup(i.type) === group`;而文档条目(markdown 等)的 `typeGroup` 为 `image`/回落 `anim`、视频条目 type 通常为自定义分组 id,故在「文档资源」(`article`)/「视频资源」(`video`) 根下 `itemsForGroupCat(group,...)` 永远查不到,展开分类目录后不显示任何文件(主区域因传 `group:'all'` 正常)。
+- **改动**(`src/ui.js`):
+  - 新增 `itemInGroup(item, group)`:`article` → markdown/text/config/web;`video` → 按扩展名(`isVideoItem`);其余沿用 `typeGroup`。`itemsForGroup` 改走该判定。
+  - `renderCatNode` 新增每分类 `showItemsInTree` 开关(默认 `true`,兼容旧分类):勾选才在展开时渲染本目录资源文件列表,取消则不加载(仍保留子分类)。「收藏整个目录」逻辑仍基于全部条目。
+  - `editCategoryDialog` 增加「在菜单树中显示资源文件列表」勾选框,确定时写入 `category.showItemsInTree`。
+- **验证**:`npm run build`(含 `check-imports.js`)通过;`pack-manual.js` 产出便携版 exe。
+
+---
+
+## 2026-08-18（补丁·29）
+
+### [修复] HTML 预览空白(外部 CSS/JS/图片 被 webSecurity 拦截)
+
+- **问题**(用户:文档资源分类组打开 html 文档后预览页面一片空白)。
+- **根因**:渲染端经内部 http 服务加载(`http://127.0.0.1:port`),iframe `srcdoc` 注入的 `<base href="file:///源目录/">` 在 `webSecurity` 下加载 `file://` 子资源被拦截;带 `sandbox` 时更甚。结果内联结构能渲染、但相对引用的 CSS/JS/图片 全部 404,页面破版/白屏。
+- **改动**(`electron/server.js` + `electron/main.js` + `electron/preload.js` + `src/viewers/htmlEditor.js` + `index.html`):
+  - `server.js` 新增 `/html-pv/<token>/<rel>` 同源 http 路由(沿用 `/spine-pv/` 的 token+目录穿越防护模式);`createServer` 增加 `htmlRoots` 参数。
+  - `main.js` 新增 `htmlRoots` Map 与 IPC `html:previewRegister`/`html:previewUnregister`(打开 html 时注册其所在目录)。
+  - `preload.js` 暴露 `htmlPreviewRegister`/`htmlPreviewUnregister`。
+  - `htmlEditor.js`:`load` 时注册目录取得 token,预览 `<base href>` 改为同源 `http://host/html-pv/<token>/`(相对资源经 http 加载,webSecurity 放行);注册失败回退 `file://`。编辑态实时刷新同源预览。
+  - `index.html`:移除 iframe 的 `sandbox` 属性(脚本与同源资源可正常执行/加载)。
+- **验证**:新增冒烟(无头 Electron)确认基础渲染 + 外部 CSS 经 `/html-pv/` 正确套用(computed color 由默认黑变为样式红、背景 #111),修复后 PASS。
+
+---
+
+## 2026-08-18（补丁·28）
+
+### [新增] 文档资源分类组支持 HTML 文档分栏预览/编辑
+
+- **需求**(用户:文档资源分类组中无法打开 html 类型文档,参考 MD 文档功能,实现 html 文档的分栏、预览、编辑)。
+- **改动**(`src/viewers/htmlEditor.js`(新增) + `index.html` + `src/style.css` + `src/ui.js`):
+  - 新增 `HtmlEditorController`(参考 `MarkdownEditorController`):工具栏「分栏 / 预览 / 编辑」三种模式切换,左侧 textarea 编辑源码、右侧 `iframe`(srcdoc)渲染真实网页。
+  - 预览时自动注入 `<base href="file://源文件目录/">`,使 HTML 中相对路径的图片 / CSS 等资源可正确加载(源文件已含 `<base>` 则不注入)。
+  - 支持「打开」本地 html 文件、「保存」回写原文件(Ctrl+S)、「复制源码」、「加入库」(addItem type='web',优先归入「文档资源/网页」分组)。
+  - `ui.js`:新增 `isHtmlFile()`(按扩展名 .html/.htm/.xhtml 判定)与 `showHtmlViewer()`,在 `selectItem` 分发中先于纯文本预览 `isTextType` 拦截,`showPreviewPage` 同步切换 `pv-html-view` 显隐。
+  - `.html` 资源 type 仍为 `web`(扫描器归类不变),但打开时由纯文本 `<pre>` 预览升级为 iframe 渲染的可编辑网页预览。
 
 ---
 

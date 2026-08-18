@@ -309,6 +309,32 @@
               </div>
             </div>
 
+            <!-- HTML 查看/编辑器(分栏编辑+iframe 预览,参考 Markdown 编辑器) -->
+            <div id="pv-html-view" hidden>
+              <div class="html-editor">
+                <div class="html-toolbar">
+                  <span class="html-name" id="html-name">(未打开文件)</span>
+                  <span class="ctrl-spacer"></span>
+                  <button class="html-mode-btn active" data-mode="split" id="html-mode-split" title="分栏:左侧编辑、右侧预览渲染结果">分栏</button>
+                  <button class="html-mode-btn" data-mode="preview" id="html-mode-preview" title="仅预览渲染结果(iframe)">预览</button>
+                  <button class="html-mode-btn" data-mode="edit" id="html-mode-edit" title="仅编辑源码">编辑</button>
+                  <button class="btn sm" id="html-open" title="打开本地 HTML 文件">📂 打开</button>
+                  <button class="btn sm" id="html-add-lib" title="把当前打开的文档加入资源库指定分类(如「文档资源」)">＋ 加入库</button>
+                  <button class="btn sm primary" id="html-save" title="保存回写原文件(Ctrl+S)">💾 保存</button>
+                  <button class="btn sm" id="html-copy" title="复制源码">📋</button>
+                  <span class="status" id="html-status"></span>
+                </div>
+                <div class="html-body">
+                  <div class="html-col html-edit-col" id="html-edit-col">
+                    <textarea id="html-edit" spellcheck="false" placeholder="在此编辑 HTML..."></textarea>
+                  </div>
+                  <div class="html-col html-preview-col" id="html-preview-col">
+                    <iframe id="html-preview" class="html-preview" title="HTML 预览"></iframe>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <!-- FGUI 包查看:🧩 FGUI编辑器(默认) + 🗂 资源清单(逆向查看器) 双标签页 -->
             <div id="pv-fgui-view" hidden>
               <div class="fgui-pv-tabs">

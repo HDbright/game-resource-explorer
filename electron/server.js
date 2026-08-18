@@ -56,9 +56,10 @@ const AUDIO_EXTS = ['.mp3', '.wav', '.ogg', '.flac', '.wma', '.m4a', '.aac', '.o
  * - `/`、`/index.html`、`/assets/*` → 渲染端构建产物(dist)
  * - `/a/<itemId>/<相对路径>` → 某个动画条目根目录下的资源(用于加载骨骼/贴图)
  * - `/spine-pv/<token>/<相对路径>` → Spine 转换工具预览目录(spine-converter 注册)
+ * - `/html-pv/<token>/<相对路径>` → HTML 文档预览目录(渲染端打开 html 时注册;相对 CSS/JS/图片 经同源 http 加载,避免 file:// 被 webSecurity 拦截)
  * - `/afile?p=<绝对路径>` → 任意音频文件(播放列表/后台播放,仅音频扩展名)
  */
-function createServer({ dist, roots, previewRoots }) {
+function createServer({ dist, roots, previewRoots, htmlRoots }) {
   const server = http.createServer(async (req, res) => {
     try {
       const u = new URL(req.url, 'http://localhost');
@@ -111,6 +112,25 @@ function createServer({ dist, roots, previewRoots }) {
         const ext = path.extname(p).toLowerCase();
         if (!AUDIO_EXTS.includes(ext)) return send(res, 403, 'Forbidden');
         return serveFile(req, res, p);
+      }
+
+      // HTML 文档预览目录:token 由渲染端 html:previewRegister 注册(打开 html 文件时)
+      // 相对 CSS/JS/图片 经此同源 http 路由加载,规避 file:// 被 webSecurity 拦截导致预览空白
+      if (pathname.startsWith('/html-pv/')) {
+        const rest = pathname.slice(9); // "<token>/<rel>"
+        const slash = rest.indexOf('/');
+        if (slash < 0) return send(res, 404, 'Not Found');
+        const token = rest.slice(0, slash);
+        const rel = rest.slice(slash + 1);
+        if (!token || !rel) return send(res, 404, 'Not Found');
+        const root = htmlRoots && htmlRoots().get(token);
+        if (!root) return send(res, 404, 'Preview Not Found');
+        const rootNorm = path.resolve(root);
+        const full = path.resolve(rootNorm, rel);
+        if (full !== rootNorm && !full.startsWith(rootNorm + path.sep)) {
+          return send(res, 403, 'Forbidden');
+        }
+        return serveFile(req, res, full);
       }
 
       // 静态资源(dist)

@@ -669,6 +669,7 @@ function renderKanban() {
     });
     for (const task of tasks) {
       const card = renderTaskCard(task, true);
+      if (col.status === 'done') card.classList.add('todo-card-done-col');
       card.draggable = true;
       card.addEventListener('dragstart', (e) => {
         dragTaskId = task.id;

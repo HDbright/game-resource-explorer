@@ -57,6 +57,7 @@ import { ImageViewerController } from './viewers/imageViewer.js';
 import { AudioPlayerController } from './viewers/audioViewer.js';
 import { FguiViewerController } from './viewers/fguiViewer.js';
 import { MarkdownEditorController } from './viewers/markdownEditor.js';
+import { HtmlEditorController } from './viewers/htmlEditor.js';
 import { thumbnailService } from './thumbnails.js';
 import { makeCopyablePath, setCopyablePath } from './clipboard.js';
 import { loadSearchHistory, saveSearchHistory, addSearchHistory, removeSearchHistory } from './searchHistory.js';
@@ -69,6 +70,7 @@ let imageViewer = null;
 let audioPlayer = null;
 let fguiViewer = null;
 let markdownEditor = null;
+let htmlEditor = null;
 let fguiPvTab = 'editor'; // pv-fgui-view 当前标签: 'editor'(FGUI编辑器) | 'list'(资源清单)
 let fguiPvListItem = null; // 资源清单待加载的 item(切到该标签时懒加载)
 let lastFolderTab = 'anim'; // 进入预览前所在 tab,返回时恢复
@@ -404,6 +406,10 @@ export function initUI(pv) {
   markdownEditor = new MarkdownEditorController();
   const mdWrap = document.getElementById('pv-markdown-view');
   if (mdWrap) markdownEditor.init(mdWrap);
+  // HTML 查看/编辑器(预览页 pv-html-view,iframe 渲染真实网页)
+  htmlEditor = new HtmlEditorController();
+  const htmlWrap = document.getElementById('pv-html-view');
+  if (htmlWrap) htmlEditor.init(htmlWrap);
   // 视频播放器:倍速选择 → 播放器 playbackRate
   const videoRateSel = document.getElementById('video-rate');
   if (videoRateSel) {
@@ -656,17 +662,35 @@ function itemsForCat(catId) {
   return all.filter((i) => i.categoryId === catId);
 }
 
-/** 某资源类型分组('anim'/'image'/'audio'/'3d')下的全部条目(不随全局 tab 变化,供 4 个类型根节点各自渲染) */
+/**
+ * 条目是否属于某「显示分组」(用于侧栏资源树按根节点过滤)。
+ * - 文档资源(article):markdown/text/config/web 归「文档资源」(与 getHomeData 统计口径一致,不计入图片资源/动画)。
+ * - 视频资源(video):按扩展名判定(视频条目 type 通常为自定义分组 id,不依赖入库 type)。
+ * - 其余分组(anim/image/audio/3d/自定义分组):沿用 typeGroup 归一到分组 id。
+ * 旧实现直接 typeGroup(i.type) === group,导致文档/视频条目(其 typeGroup 为 image/anim)在对应资源根下永不显示。
+ */
+function itemInGroup(item, group) {
+  if (!group || group === 'all') return true;
+  if (group === 'article') {
+    return item.type === 'markdown' || item.type === 'text' || item.type === 'config' || item.type === 'web';
+  }
+  if (group === 'video') return isVideoItem(item);
+  return typeGroup(item.type) === group;
+}
+
+/** 某资源类型分组('anim'/'image'/'audio'/'3d')下的全部条目(不随全局 tab 变化,供各类型根节点各自渲染) */
 function itemsForGroup(group) {
-  return state.items.filter((i) => typeGroup(i.type) === group);
+  return state.items.filter((i) => itemInGroup(i, group));
 }
 
 /** 某资源类型分组下某分类的条目(all=全部, ''=未分类) */
 function itemsForGroupCat(group, catId) {
   const all = itemsForGroup(group);
   if (catId === 'all') return all;
-  if (catId === '') return all.filter((i) => !i.categoryId);
-  return all.filter((i) => i.categoryId === catId);
+  if (catId === '') return all.filter((i) => !i.categoryId); // 未分类:按资源类型归属分组(无 categoryId)
+  // 具体分类:分类已通过 typeTags 归属该资源分组,其下条目以 categoryId 为准,
+  // 不再按 item.type 二次过滤(避免自定义分组下、分类内条目被误打成内置/其它类型时被剔除而不显示)
+  return state.items.filter((i) => i.categoryId === catId);
 }
 
 export function renderCategories(selectId = currentCategoryId) {
@@ -937,13 +961,23 @@ function renderMenuChildren(wrap, node) {
 
 /** 资源类型根节点的子内容(未分类 + 分类目录,按该类型过滤) */
 function renderResTypeChildren(wrap, group) {
-  const uncat = itemsForGroupCat(group, '');
-  if (uncat.length > 0) {
-    renderPseudoNode(wrap, { id: '', icon: '○', name: '未分类' }, group, 'uncat:' + group);
+  // 资源根目录自身的开关:关闭后该根下不再于菜单树中列出任何资源文件(仅保留目录结构)
+  const rootNode = resourceRootNode(group);
+  const rootShow = rootNode ? rootNode.showItemsInTree !== false : true;
+  if (rootShow) {
+    const uncat = itemsForGroupCat(group, '');
+    if (uncat.length > 0) {
+      renderPseudoNode(wrap, { id: '', icon: '○', name: '未分类' }, group, 'uncat:' + group);
+    }
   }
   for (const c of getCategoryChildren('')) {
     if (catVisibleInGroup(c, group)) renderCatNode(wrap, c, 0, group);
   }
+}
+
+/** 取得某资源分组的「资源根目录」菜单节点(动画/图片/音频/3D资源、文档/视频资源、自定义分组根) */
+function resourceRootNode(group) {
+  return state.menuNodes.find((m) => menuNodeResourceGroup(m) === group) || null;
 }
 
 /** 目录节点点击:进入对应模块主页 */
@@ -1246,6 +1280,8 @@ function openMenuNodeMenu(x, y, node) {
     if (grp) {
       // 资源类型根:直接新建该类型的顶层资源分类
       items.push({ label: '新建分类', onClick: () => newTopCategoryDialog(grp) });
+      // 资源根目录设置:控制是否在菜单树中列出该根下的资源文件
+      items.push({ label: '编辑资源根目录', onClick: () => editResRootDialog(node) });
     } else if (!locked) {
       // 普通目录(非资源根):可整体转换为资源分类目录(锁定节点保持只读,不提供转换=删除重建)
       items.push({ label: '转换为资源分类', onClick: () => convertMenuNodeToCategoryDialog(node) });
@@ -3327,11 +3363,17 @@ function countItemsInGroupRoot(group) {
 
 /** 递归渲染分类节点(子分类 + 直属条目);group 指定所属资源类型分组(缺省为当前 tab) */
 function renderCatNode(parent, cat, depth, group = currentGroup()) {
-  const items = itemsForGroupCat(group, cat.id);
+  const itemsAll = itemsForGroupCat(group, cat.id);
   // 子分类按资源类型标签过滤(无标签 → 所有类型显示;有标签 → 仅标签命中当前类型的显示)
   const children = getCategoryChildren(cat.id).filter((c) => catVisibleInGroup(c, group));
   const hasChildren = children.length > 0;
   const isOpen = expandedCats.has(cat.id);
+  // 资源根目录开关(主开关)与分类自身开关(从开关)共同决定是否在本分类下列出资源文件
+  // 根关闭 → 整个资源类型根下均不列出文件(仅保留目录结构);根开启 → 以分类自身开关为准
+  const rootNode = resourceRootNode(group);
+  const rootShow = rootNode ? rootNode.showItemsInTree !== false : true;
+  const showItemsInTree = rootShow && (cat.showItemsInTree !== false);
+  const items = showItemsInTree ? itemsAll : [];
 
   const node = document.createElement('div');
   node.className = 'cat-node' + (cat.id === currentCategoryId ? ' active' : '');
@@ -3365,13 +3407,13 @@ function renderCatNode(parent, cat, depth, group = currentGroup()) {
   ops.className = 'cat-ops';
   const favBtn = document.createElement('button');
   favBtn.className = 'icon-btn fav-btn';
-  const allFav = items.length > 0 && items.every((i) => isFavored(i.id));
+  const allFav = itemsAll.length > 0 && itemsAll.every((i) => isFavored(i.id));
   favBtn.textContent = allFav ? '★' : '☆';
   favBtn.title = allFav ? '整个目录已收藏(点击可收藏到其他位置)' : '收藏整个目录到收藏夹';
   favBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (items.length === 0) return toast('该分类下没有动画', 'error');
-    collectTargetDialog(items.map((i) => i.id));
+    if (itemsAll.length === 0) return toast('该分类下没有动画', 'error');
+    collectTargetDialog(itemsAll.map((i) => i.id));
   });
   const editBtn = document.createElement('button');
   editBtn.className = 'icon-btn';
@@ -3513,7 +3555,7 @@ function renderCatNode(parent, cat, depth, group = currentGroup()) {
 
   parent.appendChild(node);
 
-  // 展开区:子分类在前,直属条目在后
+  // 展开区:子分类在前,直属条目在后(勾选「在菜单树中显示资源文件列表」才渲染本目录资源)
   if (isOpen && (hasChildren || items.length > 0)) {
     const wrap = document.createElement('div');
     wrap.className = 'tree-items';
@@ -4763,16 +4805,37 @@ function editCategoryDialog(id) {
       { key: 'name', label: '目录名称', type: 'text', value: cat.name },
       typeTagField(cat.typeTags, inherited),
       { key: 'locked', label: '🔒 锁定(禁止删除)', type: 'checkbox', value: !!cat.locked },
+      { key: 'showItemsInTree', label: '在菜单树中显示资源文件列表', type: 'checkbox', value: cat.showItemsInTree !== false, hint: '勾选后,在左侧菜单树中展开本分类时会加载并显示其所包含的资源文件;取消勾选则不加载显示(仅保留子分类)。' },
     ],
-    onOk: ({ name, typeTags, locked }) => {
+    onOk: ({ name, typeTags, locked, showItemsInTree }) => {
       if (!name) return toast('目录名称不能为空', 'error');
       // 安全兜底:强制包含继承自父分类的资源组(locked+checked 项本就计入,这里再确保一次)
       const merged = Array.from(new Set([...(Array.isArray(inherited) ? inherited : []), ...(Array.isArray(typeTags) ? typeTags : [])]));
-      updateCategory(id, { name, typeTags: merged, locked: !!locked });
+      updateCategory(id, { name, typeTags: merged, locked: !!locked, showItemsInTree: !!showItemsInTree });
       renderCategories();
       renderItems();
       renderMainArea();
       toast('目录已更新');
+    },
+  });
+}
+
+/** 编辑资源根目录:控制该资源类型根下是否在菜单树中列出资源文件(主开关,作用于整棵子树) */
+function editResRootDialog(node) {
+  if (!node) return;
+  const grp = menuNodeResourceGroup(node);
+  if (!grp) return;
+  promptDialog({
+    title: '编辑资源根目录',
+    message: '资源根目录:' + (node.name || '') + (node.id ? '（' + node.id + '）' : ''),
+    fields: [
+      { key: 'showItemsInTree', label: '在菜单树中显示资源文件列表', type: 'checkbox', value: node.showItemsInTree !== false, hint: '勾选后,在左侧菜单树中展开本资源根目录时会加载并显示其所包含的资源文件(含未分类与各分类目录);取消勾选则整棵子树均不列出文件,仅保留目录结构。' },
+    ],
+    onOk: ({ showItemsInTree }) => {
+      updateMenuNode(node.id, { showItemsInTree: !!showItemsInTree });
+      renderTree();
+      renderMainArea();
+      toast('资源根目录已更新');
     },
   });
 }
@@ -5846,11 +5909,13 @@ function showPreviewPage(item) {
   const fguiView = document.getElementById('pv-fgui-view');
   const videoView = document.getElementById('pv-video-view');
   const markdownView = document.getElementById('pv-markdown-view');
+  const htmlView = document.getElementById('pv-html-view');
   if (imgView) imgView.hidden = !(isImageType(item.type));
   if (audioView) audioView.hidden = !(item.type === 'audio');
   if (fguiView) fguiView.hidden = !(item.type === 'fgui');
   if (videoView) videoView.hidden = !isVideoItem(item);
   if (markdownView) markdownView.hidden = !isMarkdownFile(item);
+  if (htmlView) htmlView.hidden = !isHtmlFile(item);
   // 顶部工具栏的「⇕ 隐藏工具栏」「⛶ 全屏」仅图片预览显示
   const isImage = isImageType(item.type);
   const chromeBtn = document.getElementById('img-chrome');
@@ -5945,6 +6010,8 @@ export async function selectItem(id, opts = {}) {
       await showVideoPlayer(item);
     } else if (isMarkdownFile(item)) {
       await showMarkdownViewer(item);
+    } else if (isHtmlFile(item)) {
+      await showHtmlViewer(item);
     } else if (isTextType(item)) {
       await showTextPreview(item);
     } else if (item.type === 'database') {
@@ -6039,6 +6106,13 @@ function isMarkdownFile(item) {
   return s.endsWith('.md') || s.endsWith('.markdown');
 }
 
+/** 是否为 HTML 文件(.html/.htm/.xhtml,按扩展名判定;网页类(type='web')走 HTML 编辑器而非纯文本预览) */
+function isHtmlFile(item) {
+  if (!item || !item.filePath) return false;
+  const s = String(item.filePath).toLowerCase();
+  return s.endsWith('.html') || s.endsWith('.htm') || s.endsWith('.xhtml');
+}
+
 /** Markdown 打开 → 查看/编辑(分栏编辑 + markdown-it 渲染预览,可保存回写原文件) */
 async function showMarkdownViewer(item) {
   showPreviewPage(item);
@@ -6050,6 +6124,20 @@ async function showMarkdownViewer(item) {
   } catch (e) {
     const er = document.getElementById('pv-error');
     if (er) { er.hidden = false; er.textContent = 'Markdown 加载失败: ' + (e.message || e); }
+  }
+}
+
+/** HTML 打开 → 查看/编辑(分栏编辑 + iframe 渲染预览,可保存回写原文件) */
+async function showHtmlViewer(item) {
+  showPreviewPage(item);
+  const errEl = document.getElementById('pv-error');
+  if (errEl) errEl.hidden = true;
+  if (!htmlEditor) return;
+  try {
+    await htmlEditor.load(item.filePath);
+  } catch (e) {
+    const er = document.getElementById('pv-error');
+    if (er) { er.hidden = false; er.textContent = 'HTML 加载失败: ' + (e.message || e); }
   }
 }
 

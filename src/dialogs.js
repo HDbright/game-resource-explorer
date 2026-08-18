@@ -197,10 +197,17 @@ export function toast(message, type = 'ok') {  const el = document.createElement
   setTimeout(() => el.remove(), 3000);
 }
 
-export function promptDialog({ title, fields, onOk, onCancel }) {
+export function promptDialog({ title, fields, onOk, onCancel, message }) {
   // fields: [{key, label, type: 'text'|'textarea'|'select'|'checkboxes', options?:[{value,label}], value}]
   const body = document.createElement('div');
   body.className = 'modal-body';
+  if (message) {
+    const msg = document.createElement('div');
+    msg.className = 'form-hint';
+    msg.style.marginBottom = '10px';
+    msg.textContent = message;
+    body.appendChild(msg);
+  }
   const inputs = {};
   for (const f of fields) {
     const row = document.createElement('div');

@@ -120,6 +120,8 @@ let db = readDb();
 let roots = new Map();
 // 预览专用目录注册表(spine 格式转换工具预览用,与条目 roots 隔离,避免被 DB 重载覆盖)
 const previewRoots = new Map();
+// HTML 文档预览目录注册表(渲染端打开 html 时注册,供 /html-pv/<token>/ 同源加载相对资源)
+const htmlRoots = new Map();
 
 /** 文件名安全化(itemId 用于缩略图缓存文件名) */
 function safeId(id) {
@@ -575,7 +577,7 @@ app.whenReady().then(async () => {
   refreshRoots();
   _T('refreshRoots');
 
-  server = createServer({ dist: DIST_DIR, roots: () => roots, previewRoots: () => previewRoots });
+  server = createServer({ dist: DIST_DIR, roots: () => roots, previewRoots: () => previewRoots, htmlRoots: () => htmlRoots });
   await server.ready;
   _T('server ready');
 
@@ -1187,6 +1189,29 @@ app.whenReady().then(async () => {
       const token = 'spc_' + crypto.randomBytes(8).toString('hex');
       previewRoots.set(token, dir);
       return { ok: true, token };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // 注册 HTML 文档所在目录到静态服务 htmlRoots,返回 token,供预览用 /html-pv/<token>/ 同源加载相对 CSS/JS/图片
+  ipcMain.handle('html:previewRegister', async (_e, { dir }) => {
+    try {
+      if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
+        return { ok: false, error: '目录不存在或无效:' + dir };
+      }
+      const token = 'html_' + crypto.randomBytes(8).toString('hex');
+      htmlRoots.set(token, dir);
+      return { ok: true, token };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+  // 注销 HTML 预览目录(切换/关闭文件时释放 token)
+  ipcMain.handle('html:previewUnregister', async (_e, { token }) => {
+    try {
+      if (token) htmlRoots.delete(token);
+      return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message };
     }

@@ -80,6 +80,7 @@ function open() {
       parent_id TEXT DEFAULT '',
       type_tags TEXT DEFAULT '[]',
       locked INTEGER DEFAULT 0,
+      show_items_in_tree INTEGER DEFAULT 1,
       sort INTEGER DEFAULT 0,
       created_at INTEGER DEFAULT 0,
       updated_at INTEGER DEFAULT 0
@@ -215,6 +216,7 @@ function open() {
       type_tags TEXT DEFAULT '[]',
       is_resource INTEGER DEFAULT 0,
       locked INTEGER DEFAULT 0,
+      show_items_in_tree INTEGER DEFAULT 1,
       sort INTEGER DEFAULT 0,
       created_at INTEGER DEFAULT 0,
       updated_at INTEGER DEFAULT 0
@@ -283,6 +285,10 @@ function open() {
     if (!cols.includes('locked')) {
       db.exec('ALTER TABLE categories ADD COLUMN locked INTEGER DEFAULT 0');
     }
+    // 旧库迁移:categories 缺 show_items_in_tree 列时补上(菜单树中是否列出该目录资源文件)
+    if (!cols.includes('show_items_in_tree')) {
+      db.exec('ALTER TABLE categories ADD COLUMN show_items_in_tree INTEGER DEFAULT 1');
+    }
   } catch (err) {
     console.error('[db] migrate categories parent_id/type_tags/locked error:', err);
   }
@@ -306,6 +312,10 @@ function open() {
     }
     if (!mnCols.includes('locked')) {
       db.exec('ALTER TABLE menu_nodes ADD COLUMN locked INTEGER DEFAULT 0');
+    }
+    // 旧库迁移:menu_nodes 缺 show_items_in_tree 列时补上(资源根目录是否在菜单树列出资源文件)
+    if (!mnCols.includes('show_items_in_tree')) {
+      db.exec('ALTER TABLE menu_nodes ADD COLUMN show_items_in_tree INTEGER DEFAULT 1');
     }
   } catch (err) {
     console.error('[db] migrate menu_nodes type_tags/is_resource/locked error:', err);
@@ -358,15 +368,16 @@ function readDb() {
       d.settings[row.key] = JSON.parse(row.value);
     }
     d.categories = conn.prepare(
-      'SELECT id, name, remark, parent_id AS parentId, type_tags AS typeTags, locked, sort, created_at AS createdAt, updated_at AS updatedAt FROM categories ORDER BY sort'
+      'SELECT id, name, remark, parent_id AS parentId, type_tags AS typeTags, locked, show_items_in_tree AS showItemsInTree, sort, created_at AS createdAt, updated_at AS updatedAt FROM categories ORDER BY sort'
     ).all();
-    // type_tags 列是 JSON 数组字符串 → 解析为数组;locked 整数 → 布尔
+    // type_tags 列是 JSON 数组字符串 → 解析为数组;locked / showItemsInTree 整数 → 布尔
     for (const c of d.categories) {
       if (typeof c.typeTags === 'string') {
         try { c.typeTags = JSON.parse(c.typeTags || '[]'); } catch (err) { c.typeTags = []; }
       }
       if (!Array.isArray(c.typeTags)) c.typeTags = [];
       c.locked = !!c.locked;
+      c.showItemsInTree = c.showItemsInTree == null ? true : !!c.showItemsInTree;
     }
     d.items = conn.prepare(
       'SELECT id, category_id AS categoryId, type, file_path AS filePath, atlas_path AS atlasPath, ' +
@@ -429,7 +440,7 @@ function readDb() {
       'SELECT id, name, icon, parent_id AS parentId, tool_id AS toolId, sort, created_at AS createdAt, updated_at AS updatedAt FROM toolbox_folders ORDER BY sort'
     ).all();
     d.menuNodes = conn.prepare(
-      'SELECT id, name, icon, parent_id AS parentId, node_type AS nodeType, action_type AS actionType, action, tooltip, note, type_tags AS typeTags, is_resource AS isResource, locked, sort, created_at AS createdAt, updated_at AS updatedAt FROM menu_nodes ORDER BY sort'
+      'SELECT id, name, icon, parent_id AS parentId, node_type AS nodeType, action_type AS actionType, action, tooltip, note, type_tags AS typeTags, is_resource AS isResource, locked, show_items_in_tree AS showItemsInTree, sort, created_at AS createdAt, updated_at AS updatedAt FROM menu_nodes ORDER BY sort'
     ).all();
     // type_tags 列是 JSON 数组字符串 → 解析为数组;is_resource / locked 整数 → 布尔
     for (const mn of (d.menuNodes || [])) {
@@ -439,6 +450,7 @@ function readDb() {
       if (!Array.isArray(mn.typeTags)) mn.typeTags = [];
       mn.isResource = !!mn.isResource;
       mn.locked = !!mn.locked;
+      mn.showItemsInTree = mn.showItemsInTree == null ? true : !!mn.showItemsInTree;
     }
     d.todoProjects = conn.prepare(
       'SELECT id, name, color, sort, created_at AS createdAt, updated_at AS updatedAt FROM todo_projects ORDER BY sort'
@@ -498,13 +510,14 @@ function writeDb(state) {
       setSetting.run(k, JSON.stringify(v));
     }
     const insCat = conn.prepare(
-      'INSERT INTO categories(id, name, remark, parent_id, type_tags, locked, sort, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO categories(id, name, remark, parent_id, type_tags, locked, show_items_in_tree, sort, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     for (const c of state.categories || []) {
       insCat.run(
         c.id, c.name || '', c.remark || '', c.parentId || '',
         JSON.stringify(Array.isArray(c.typeTags) ? c.typeTags : []),
         c.locked ? 1 : 0,
+        c.showItemsInTree ? 1 : 0,
         c.sort || 0, c.createdAt || 0, c.updatedAt || 0
       );
     }
@@ -598,7 +611,7 @@ function writeDb(state) {
       insTf.run(tf.id, tf.name || '', tf.icon || '', tf.parentId || '', tf.toolId || '', tf.sort || 0, tf.createdAt || 0, tf.updatedAt || 0);
     }
     const insMenu = conn.prepare(
-      'INSERT INTO menu_nodes(id, name, icon, parent_id, node_type, action_type, action, tooltip, note, type_tags, is_resource, locked, sort, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO menu_nodes(id, name, icon, parent_id, node_type, action_type, action, tooltip, note, type_tags, is_resource, locked, show_items_in_tree, sort, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     for (const mn of state.menuNodes || []) {
       insMenu.run(
@@ -607,6 +620,7 @@ function writeDb(state) {
         JSON.stringify(Array.isArray(mn.typeTags) ? mn.typeTags : []),
         mn.isResource ? 1 : 0,
         mn.locked ? 1 : 0,
+        mn.showItemsInTree ? 1 : 0,
         mn.sort || 0, mn.createdAt || 0, mn.updatedAt || 0
       );
     }
