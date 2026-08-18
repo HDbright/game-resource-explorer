@@ -857,6 +857,31 @@ app.whenReady().then(async () => {
         out.hasCreated = !!document.querySelector('.todo-proj-edit-created');
         out.hasDeadline = !!document.querySelector('.todo-proj-edit-deadline');
         out.hasComplete = !!document.querySelector('.todo-proj-edit-complete');
+        // 补丁·51:创建时间 input 的 value 必须落在 2020~2099 区间(修复旧库毫秒→秒迁移前显示成 58595)
+        const createdInput = document.querySelector('.todo-proj-edit-created');
+        out.createdValue = createdInput ? createdInput.value : '';
+        out._vlen = (out.createdValue || '').length;
+        out._vchars = JSON.stringify(out.createdValue); // chars printed as escape sequences
+        out.createdYearOk = (() => {
+          const v = out.createdValue || '';
+          // 用字符串切片判定年份(避免 IPC 传输中正则 \d 被吃)
+          const yRaw = v.length >= 4 ? v.slice(0, 4) : '';
+          const y = parseInt(yRaw, 10);
+          if (!y || !isFinite(y)) return null;
+          return y;
+        })();
+        out.createdYearOkBool = typeof out.createdYearOk === 'number' && out.createdYearOk >= 2020 && out.createdYearOk <= 2099;
+        // 补丁·51:面板父 modal-box 宽度应 ≤ 700(确保不撑破 90% 视口),且面板宽 ≤ modal 宽
+        const modalEl = document.querySelector('.todo-overlay .todo-modal');
+        const panelEl = document.querySelector('.todo-proj-edit');
+        out.modalWidth = modalEl ? modalEl.getBoundingClientRect().width : 0;
+        out.panelWidth = panelEl ? panelEl.getBoundingClientRect().width : 0;
+        out.modalWithinViewport = out.modalWidth > 0 && out.modalWidth <= 700;
+        out.panelFitsModal = out.modalWidth > 0 && out.panelWidth > 0 && out.panelWidth <= out.modalWidth + 1;
+        // 面板内 4 个 datetime/name/notes/parent 全部可见且无溢出
+        const fields = ['todo-proj-edit-name','todo-proj-edit-parent','todo-proj-edit-notes','todo-proj-edit-created','todo-proj-edit-deadline','todo-proj-edit-complete'];
+        out.fieldsAll = fields.every((s) => !!document.querySelector('.' + s));
+        out.saveBtnVisible = !!document.querySelector('[data-proj-save]');
         const nm = document.querySelector('.todo-proj-edit-name');
         const nt = document.querySelector('.todo-proj-edit-notes');
         const dl = document.querySelector('.todo-proj-edit-deadline');
@@ -878,6 +903,11 @@ app.whenReady().then(async () => {
       })()`);
       check('项目管理(补丁·50):点名称打开编辑面板', o.panelOpened === true);
       check('项目管理(补丁·50):编辑面板含 备注/创建/截止/完成 字段', o.hasNotes && o.hasCreated && o.hasDeadline && o.hasComplete, 'notes=' + o.hasNotes + ' created=' + o.hasCreated + ' deadline=' + o.hasDeadline + ' complete=' + o.hasComplete);
+      check('项目管理(补丁·51):创建时间年份不再 58595(迁移 fixMs 生效)', o.createdYearOkBool === true, 'vchars=' + o._vchars + ' vlen=' + o._vlen + ' year=' + o.createdYearOk + ' yearOk=' + o.createdYearOkBool);
+      check('项目管理(补丁·51):6 字段全部渲染', o.fieldsAll === true, 'fieldsAll=' + o.fieldsAll);
+      check('项目管理(补丁·51):modal 宽度不超 700px(避免撑破视口)', o.modalWithinViewport === true, 'modalWidth=' + o.modalWidth);
+      check('项目管理(补丁·51):面板宽度 ≤ modal 宽度(无横向溢出)', o.panelFitsModal === true, 'modalW=' + o.modalWidth + ' panelW=' + o.panelWidth);
+      check('项目管理(补丁·51):保存按钮可见', o.saveBtnVisible === true);
       check('项目管理(补丁·50):保存后显示改名结果', o.renamedShown === true);
 
       // 7) 列表视图 + 归档

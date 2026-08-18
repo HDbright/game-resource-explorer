@@ -1748,6 +1748,10 @@ export async function loadState() {
   // Todo-List 任务管理(兼容旧库缺字段)
   state.todoProjects = Array.isArray(data.todoProjects) ? data.todoProjects : [];
   state.todoTasks = Array.isArray(data.todoTasks) ? data.todoTasks : [];
+  // 老数据迁移:补丁·41/42 把 now() 改回秒,但旧库 createdAt/updatedAt 等仍是毫秒。
+  // 阈值 v > 1e12 = 2001-09-09 之后,合理。fixMs 必须应用到所有 now() 写出的字段,不能漏。
+  // (补丁·51 补:项目循环遗漏 createdAt/updatedAt/deadline/completeAt — 显示成 58595/03/13 即此 bug)
+  const fixMs = (v) => (typeof v === 'number' && v > 1e12 && isFinite(v)) ? Math.floor(v / 1000) : v;
   for (const p of state.todoProjects) {
     if (p.color == null) p.color = '#6366f1';
     if (p.sort == null) p.sort = 0;
@@ -1757,6 +1761,10 @@ export async function loadState() {
     if (p.completeAt == null) p.completeAt = 0; // 项目完成时间(补丁·50)
     if (p.createdAt == null) p.createdAt = now();
     if (p.updatedAt == null) p.updatedAt = now();
+    p.createdAt = fixMs(p.createdAt); // 迁移·51:旧项目毫秒 → 秒
+    p.updatedAt = fixMs(p.updatedAt);
+    p.deadline = fixMs(p.deadline);
+    p.completeAt = fixMs(p.completeAt);
   }
   for (const t of state.todoTasks) {
     if (!Array.isArray(t.tags)) t.tags = [];
@@ -1779,11 +1787,8 @@ export async function loadState() {
       if (s.sort == null) s.sort = 0;
       if (s.createdAt == null) s.createdAt = now();
     }
-    // 老数据迁移:v2.2.26~v2.2.40 之间,startAt/completeAt/s.doneAt/events[].at/createdAt/updatedAt
-    // 走的是 now()(毫秒)写入,而 tsToDateTimeLocal/fmtDateTime/fmtFullDate 都按"秒"处理,所以显示成 year=58598。
-    // 这里对 > 1e12(超出 year 33658)的字段除以 1000 转回秒。1e12 = 2001-09-09 之后,合理阈值。
-    // (补丁·42 补:createdAt/updatedAt 在 v2.2.41 初次迁移时遗漏,任务卡"创建于 58595年3月13日"即此 bug)
-    const fixMs = (v) => (typeof v === 'number' && v > 1e12 && isFinite(v)) ? Math.floor(v / 1000) : v;
+    // 老数据迁移(补丁·42 任务的 startAt/completeAt/subtask doneAt/events.at;
+    // 补丁·51 补:项目循环的 createdAt/updatedAt/deadline/completeAt — 显示成 58595/03/13 即遗漏修复)
     t.createdAt = fixMs(t.createdAt);
     t.updatedAt = fixMs(t.updatedAt);
     t.startAt = fixMs(t.startAt);
@@ -1798,7 +1803,7 @@ export async function loadState() {
       }
     }
   }
-  // Todo-List 日历事件(兼容旧库缺字段 + 补丁·42 补迁移 createdAt/updatedAt)
+  // Todo-List 日历事件(兼容旧库缺字段 + fixMs 已在项目循环上方定义)
   state.todoEvents = Array.isArray(data.todoEvents) ? data.todoEvents : [];
   for (const ev of state.todoEvents) {
     if (ev.date == null) ev.date = '';
@@ -1808,8 +1813,8 @@ export async function loadState() {
     if (ev.note == null) ev.note = '';
     if (ev.createdAt == null) ev.createdAt = now();
     if (ev.updatedAt == null) ev.updatedAt = now();
-    if (typeof ev.createdAt === 'number' && ev.createdAt > 1e12 && isFinite(ev.createdAt)) ev.createdAt = Math.floor(ev.createdAt / 1000);
-    if (typeof ev.updatedAt === 'number' && ev.updatedAt > 1e12 && isFinite(ev.updatedAt)) ev.updatedAt = Math.floor(ev.updatedAt / 1000);
+    ev.createdAt = fixMs(ev.createdAt);
+    ev.updatedAt = fixMs(ev.updatedAt);
   }
   // 自修复:被分类目录引用的自定义资源分组,确保左侧栏有对应资源根(否则分类在侧栏不可见)
   ensureResourceRootsForCategories();

@@ -2320,7 +2320,7 @@ function renderProjectsModal() {
   const ov = document.createElement('div');
   ov.className = 'todo-overlay';
   const box = document.createElement('div');
-  box.className = 'todo-modal';
+  box.className = 'todo-modal todo-modal-wide'; // 补丁·51:datetime 三列需要更宽窗口避免溢出
   box.innerHTML = `
     <div class="todo-modal-head">
       <h2 class="todo-modal-title">${T('manageProjects')}</h2>

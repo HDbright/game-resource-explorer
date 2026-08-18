@@ -2810,15 +2810,16 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .todo-stat-todo i { background: #6366f1; }
 .todo-stat-prog i { background: #f59e0b; }
 .todo-stat-done i { background: #22c55e; }
-/* 项目编辑面板(整行展开为表单) */
-.todo-proj-edit { display: flex; flex-direction: column; gap: 6px; padding: 8px 6px; background: var(--bg2); border: 1px solid var(--accent); border-radius: var(--radius); margin: 4px 0; }
-.todo-proj-edit-row { display: flex; flex-direction: column; gap: 2px; }
+/* 项目编辑面板(整行展开为表单) — 补丁·51:严格限制宽度,允许 datetime 三列折行 */
+.todo-proj-edit { display: flex; flex-direction: column; gap: 6px; padding: 8px; background: var(--bg2); border: 1px solid var(--accent); border-radius: var(--radius); margin: 4px 0; min-width: 0; max-width: 100%; box-sizing: border-box; }
+.todo-proj-edit-row { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .todo-proj-edit-row .todo-label { font-size: 11px; color: var(--text2); font-weight: 600; }
+.todo-proj-edit .todo-input { width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; }
 .todo-proj-edit textarea.todo-input { resize: vertical; min-height: 38px; font-family: inherit; }
-.todo-proj-edit-grid { display: flex; gap: 8px; }
-.todo-proj-edit-grid .todo-proj-edit-row { flex: 1; min-width: 0; }
-.todo-proj-edit-grid .todo-input { width: 100%; }
-.todo-proj-edit-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 2px; }
+.todo-proj-edit-grid { display: flex; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.todo-proj-edit-grid .todo-proj-edit-row { flex: 1 1 140px; min-width: 140px; }
+.todo-proj-edit-grid .todo-input { width: 100%; min-width: 0; box-sizing: border-box; }
+.todo-proj-edit-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 2px; flex-wrap: wrap; }
 /* 项目状态标记:完成 ✅ / 逾期 ⏰ */
 .todo-proj-mark { font-size: 12px; line-height: 1; flex-shrink: 0; }
 .todo-proj-mark.overdue { filter: grayscale(0); }
@@ -2940,7 +2941,7 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .todo-modal-wide { width: 560px; }
 .todo-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 13px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .todo-modal-title { font-size: 15px; font-weight: 600; }
-.todo-modal-body { overflow-y: auto; padding: 14px 16px; flex: 1; min-height: 0; }
+.todo-modal-body { overflow: auto; padding: 14px 16px; flex: 1; min-height: 0; min-width: 0; }
 .todo-modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 11px 16px; border-top: 1px solid var(--border); flex-shrink: 0; }
 .todo-modal-tabs { display: flex; gap: 2px; }
 .todo-tab-btn { padding: 8px 14px; font-size: 13px; color: var(--text2); border-bottom: 2px solid transparent; background: none; cursor: pointer; border-top: none; border-left: none; border-right: none; }

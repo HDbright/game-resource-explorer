@@ -3,7 +3,34 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.50`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.51`）。
+
+---
+
+## 2026-08-18（补丁·51）
+
+### [修复] 项目管理编辑窗口溢出 + 项目创建时间 58595 年显示
+
+- **症状**：
+  - 「项目管理」编辑面板在窄窗口下元素超出 modal 范围（项目名称 input、保存按钮被截到画面外）。
+  - 项目创建时间字段显示成 `58595/03/13 09:24`（v2.2.45 之前的老 bug 复发）。
+- **根因**：
+  - 布局：`.todo-modal-body` 未锁横向溢出；`.todo-proj-edit-grid`（三列 datetime-local）无 `flex-wrap`，窄弹窗内撑破面板；modal 宽度 460px 给三列 datetime-local 留不够空间。
+  - 时间：补丁·50 新增 `createdAt` 默认值时**漏掉了 `fixMs` 迁移**，任务循环在补丁·42 已修过，但项目循环没跟进；旧项目 `created_at` 仍是毫秒写入，被 `tsToDateTimeLocal` 当秒解析时 `*1000`，得出 year=58595。
+- **修复**：
+  - **数据 / 状态层**（`src/state.js`）：
+    - 把 `fixMs` 上移到 `todo_projects` 循环外，复用给任务 / 子任务 / 事件 / 项目 四个 `now()` 写出处。
+    - 项目循环新增 4 行迁移：`createdAt / updatedAt / deadline / completeAt` 都过 `fixMs(v) = v > 1e12 ? floor(v/1000) : v`。
+  - **布局**（`src/style.css`）：
+    - `.todo-modal-body { overflow: auto; min-width: 0 }` 锁横向。
+    - `.todo-proj-edit { min-width: 0; max-width: 100%; box-sizing: border-box }` 强制面板收缩。
+    - `.todo-proj-edit .todo-input { width: 100%; min-width: 0; max-width: 100% }` input 不溢出。
+    - `.todo-proj-edit-grid { flex-wrap: wrap }`，行 `flex: 1 1 140px; min-width: 140px`（不够就折行）。
+  - **弹窗**（`src/pages/todoPage.js`）：「项目管理」modal 由 `todo-modal` 升 `todo-modal-wide`（460→560px）。
+- **冒烟**：`scripts/todo-smoke-main.js` 新增 5 项断言（创建时间年份不在 58595/6 字段全渲染/modal 不超 700px/面板宽度 ≤ modal/保存按钮可见）；132/138 通过，余项为历史遗留看板拖拽与日历噪音。
+- **教训沉淀**（写进 `.workbuddy/memory/MEMORY.md`）：
+  - 加新时间字段时必须 `grep now()` 列出所有 `now()` 写出处，一次性补全 `fixMs`（补丁·41/42/50 三次踩同一个坑）。
+  - CSS flex 容器内放 datetime-local 这种「带 UA 默认 min-width 的元素」必须 `flex-wrap: wrap` + `min-width: 0` 二者齐全，否则窄容器一定被撑破。
 
 ---
 
