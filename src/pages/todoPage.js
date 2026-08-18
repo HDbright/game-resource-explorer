@@ -57,6 +57,7 @@ const LANGS = {
     priorityLabel: '优先级', statusLabel: '状态', projectLabel: '项目',
     deadlineLabel: '截止日期', tagsLabel: '标签', tagPh: '输入标签,回车添加', add: '添加',
     cancel: '取消', createTask: '创建任务', saveChanges: '保存修改',
+    newTaskUnderProject: '在此项目下新建任务', newSubtaskUnderTask: '在此任务下新建子任务', newTaskUnderNone: '新建无项目任务',
     titleRequired: '标题不能为空', saved: '已保存', close: '关闭',
     progress: '进度', addStepPh: '添加一个步骤…', dragToReorder: '拖拽排序',
     moveUp: '上移', moveDown: '下移', doubleClickRename: '双击重命名', del: '删除',
@@ -146,6 +147,7 @@ const LANGS = {
     priorityLabel: 'Priority', statusLabel: 'Status', projectLabel: 'Project',
     deadlineLabel: 'Deadline', tagsLabel: 'Tags', tagPh: 'Add tag, press Enter', add: 'Add',
     cancel: 'Cancel', createTask: 'Create Task', saveChanges: 'Save Changes',
+    newTaskUnderProject: 'New task under this project', newSubtaskUnderTask: 'New subtask under this task', newTaskUnderNone: 'New task (no project)',
     titleRequired: 'Title is required', saved: 'Saved', close: 'Close',
     progress: 'Progress', addStepPh: 'Add a step…', dragToReorder: 'Drag to reorder',
     moveUp: 'Move up', moveDown: 'Move down', doubleClickRename: 'Double-click to edit', del: 'Delete',
@@ -239,6 +241,7 @@ let modalTaskId = null;   // 任务模态框正在编辑的任务 id
 let modalInitialTab = 'details'; // 打开任务模态框时定位到的 tab(子任务右键编辑→'subtasks')
 let modalHighlightSub = ''; // 打开子任务 tab 时要高亮并滚动定位的子任务 id(悬停 ✎ / 右键编辑)
 let detailTaskId = null;  // 详情面板任务 id
+let modalNewParent = null; // 从树节点「+」新建任务时预设的父级 { projectId, parentTaskId }
 let projectsOpen = false;
 let archiveOpen = false;
 let exportOpen = false;
@@ -836,6 +839,20 @@ function renderTreeNode(node, depth) {
       reparentTaskToProjectTop(dragId, node.kind === 'none' ? '' : node.id);
     });
   }
+  // hover 浮现「+」:在该级(项目/任务)下新建任务/子任务
+  const addBtn = document.createElement('button');
+  addBtn.className = 'todo-tree-add';
+  addBtn.textContent = '+';
+  addBtn.title = node.kind === 'task' ? T('newSubtaskUnderTask') : (node.id === '__none__' ? T('newTaskUnderNone') : T('newTaskUnderProject'));
+  addBtn.addEventListener('mousedown', (e) => e.stopPropagation()); // 避免触发行拖拽
+  addBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (node.kind === 'task') modalNewParent = { projectId: node.projectId || '', parentTaskId: node.id };
+    else if (node.id === '__none__') modalNewParent = { projectId: '', parentTaskId: '' };
+    else modalNewParent = { projectId: node.id, parentTaskId: '' };
+    taskModalOpen = true; modalTaskId = null; detailTaskId = null; render();
+  });
+  row.appendChild(addBtn);
   el.appendChild(row);
   if (hasChildren && !collapsed) {
     const childWrap = document.createElement('div');
@@ -1871,8 +1888,8 @@ function renderTaskModal() {
     deadline: task && task.deadline ? tsToDateInput(task.deadline) : '',
     startAt: task && task.startAt ? tsToDateTimeLocal(task.startAt) : '',
     completeAt: task && task.completeAt ? tsToDateTimeLocal(task.completeAt) : '',
-    projectId: task ? task.projectId : '',
-    parentTaskId: task ? (task.parentTaskId || '') : '',
+    projectId: task ? task.projectId : (modalNewParent ? modalNewParent.projectId : ''),
+    parentTaskId: task ? (task.parentTaskId || '') : (modalNewParent ? (modalNewParent.parentTaskId || '') : ''),
     tags: task ? [...task.tags] : [],
     tagInput: '',
     subtaskInput: '',
@@ -2146,7 +2163,7 @@ function renderTaskModal() {
   }
 
   // 关闭(取消)
-  function close() { taskModalOpen = false; modalTaskId = null; render(); }
+  function close() { taskModalOpen = false; modalTaskId = null; modalNewParent = null; render(); }
   // 保存
   function save() {
     const title = draft.title.trim();
@@ -2176,6 +2193,7 @@ function renderTaskModal() {
       saveState();
     }
     toast(T('saved'), 'ok');
+    modalNewParent = null;
     close();
   }
 

@@ -790,6 +790,44 @@ app.whenReady().then(async () => {
       check('树:折叠后子项目从 DOM 移除 + ▸箭头', o.childHidden === true && o.arrowCollapsed === true, 'childHidden=' + o.childHidden + ' arrowGlyph=' + o.arrowGlyph);
       check('树:再次点击可展开还原', o.expandedAfter === true);
 
+      // 7.a2) 列表树节点 hover「+」新建(补丁·52):每级标题栏有 +,点项目下 + → 新任务预设该项目;点任务下 + → 预设该父任务
+      o = await js('treeAddBtn', `(async () => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        document.querySelectorAll('.todo-overlay').forEach((el) => el.remove());
+        const out = {};
+        // 每个树节点行都有 .todo-tree-add
+        const rows = [...document.querySelectorAll('.todo-tree-row')];
+        out.rowCount = rows.length;
+        out.addBtns = [...document.querySelectorAll('.todo-tree-add')].length;
+        // 项目节点 + :游戏开发
+        const gameNode = document.querySelector('.todo-tree-proj[data-proj="${PROJ_ID}"]');
+        const projAdd = gameNode ? gameNode.querySelector('.todo-tree-row .todo-tree-add') : null;
+        out.projAddFound = !!projAdd;
+        if (projAdd) { projAdd.click(); await sleep(250); }
+        const projModal = document.querySelector('.todo-modal-wide');
+        out.projModalOpened = !!projModal;
+        const projSel = projModal ? projModal.querySelector('[data-d="projectId"]') : null;
+        out.projSelVal = projSel ? projSel.value : '';
+        // 关闭项目模态(取消)
+        const projClose = projModal ? projModal.querySelector('[data-close]') : null;
+        if (projClose) { projClose.click(); await sleep(200); }
+        // 任务节点 + :TASK_A
+        const aNode = document.querySelector('.todo-tree-task[data-task-id="${TASK_A}"]');
+        const taskAdd = aNode ? aNode.querySelector('.todo-tree-row .todo-tree-add') : null;
+        out.taskAddFound = !!taskAdd;
+        if (taskAdd) { taskAdd.click(); await sleep(250); }
+        const taskModal = document.querySelector('.todo-modal-wide');
+        out.taskModalOpened = !!taskModal;
+        const taskSel = taskModal ? taskModal.querySelector('[data-d="parentTaskId"]') : null;
+        out.taskSelVal = taskSel ? taskSel.value : '';
+        const taskClose = taskModal ? taskModal.querySelector('[data-close]') : null;
+        if (taskClose) { taskClose.click(); await sleep(200); }
+        return out;
+      })()`);
+      check('树(补丁·52):每个节点标题栏都有 hover「+」按钮', o.addBtns === o.rowCount && o.rowCount > 0, 'rows=' + o.rowCount + ' adds=' + o.addBtns);
+      check('树(补丁·52):项目下 + 打开新任务并预设该项目', o.projAddFound === true && o.projModalOpened === true && o.projSelVal === PROJ_ID, 'found=' + o.projAddFound + ' modal=' + o.projModalOpened + ' selVal=' + o.projSelVal + ' PROJ_ID=' + PROJ_ID);
+      check('树(补丁·52):任务下 + 打开新任务并预设该父任务', o.taskAddFound === true && o.taskModalOpened === true && o.taskSelVal === TASK_A, 'found=' + o.taskAddFound + ' modal=' + o.taskModalOpened + ' selVal=' + o.taskSelVal + ' TASK_A=' + TASK_A);
+
       // 7.b) 项目管理(补丁·47):行内删除确认 + 重名拒绝
       o = await js('manageProjects', `(async () => {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
