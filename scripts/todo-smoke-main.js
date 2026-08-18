@@ -358,6 +358,38 @@ app.whenReady().then(async () => {
         'added=' + o.added + ' newValue=' + o.newValue + ' isCurYr=' + o.isCurrentYear
         + ' allValid=' + o.allInputsValid + ' badYear=' + o.badYear + ' detailYears=' + JSON.stringify(o.detailYears) + ' err=' + o.__err);
 
+      // 5.4.1) 任务 createdAt/updatedAt 格式(补丁·42 补:迁移遗漏了 createdAt/updatedAt,显示成 58595 年)
+      o = await js('createdAtFormat', `(async () => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        // 5.4 关闭后可能因多 modal 串联没干净,先点 overlay 兜底关闭所有模态
+        const overlay = document.querySelector('.todo-overlay');
+        if (overlay) { overlay.click(); await sleep(300); }
+        // 端到端:打开 taskA 详情面板(只读),看底部"创建于/更新于"年份
+        const card = document.querySelector('.todo-card[data-task-id="${TASK_A}"]');
+        if (!card) return { __err: 'card not found' };
+        const titleEl = card.querySelector('.todo-card-title');
+        titleEl.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        await sleep(500);
+        const body = document.querySelector('.todo-modal-body');
+        const bodyClasses = body ? Array.from(body.classList) : [];
+        // 必须命中 todo-detail-body 才是详情面板
+        if (!bodyClasses.includes('todo-detail-body')) return { __err: 'wrong modal opened', bodyClasses };
+        const foot = document.querySelector('.todo-detail-foot');
+        if (!foot) return { __err: 'detail foot not found', bodyClasses };
+        const footText = foot.textContent || '';
+        const thisYear = String(new Date().getFullYear());
+        const isCurrentYear = footText.includes(thisYear);
+        const badYear = /5859\\d|58\\d\\d\\d/.test(footText);
+        const closeBtn = document.querySelector('[data-act="close"]');
+        if (closeBtn) closeBtn.click();
+        await sleep(200);
+        return { isCurrentYear, badYear, footText: footText.slice(0, 80), bodyClasses };
+      })()`);
+      check('创建于/更新于年份正确(补丁·42 补迁移)',
+        o.isCurrentYear === true && o.badYear === false,
+        'isCurYr=' + o.isCurrentYear + ' badYear=' + o.badYear + ' foot="' + o.footText + '"'
+        + ' err=' + o.__err + ' bodyClasses=' + JSON.stringify(o.bodyClasses));
+
       // 5.5) 日历视图
       o = await js('calendar', `(async () => {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

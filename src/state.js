@@ -1774,14 +1774,18 @@ export async function loadState() {
       if (s.sort == null) s.sort = 0;
       if (s.createdAt == null) s.createdAt = now();
     }
-    // 老数据迁移:v2.2.26~v2.2.40 之间,startAt/completeAt/s.doneAt/events[].at
-    // 走的是 now()(毫秒)写入,而 tsToDateTimeLocal/fmtDateTime 都按"秒"处理,所以显示成 year=58598。
+    // 老数据迁移:v2.2.26~v2.2.40 之间,startAt/completeAt/s.doneAt/events[].at/createdAt/updatedAt
+    // 走的是 now()(毫秒)写入,而 tsToDateTimeLocal/fmtDateTime/fmtFullDate 都按"秒"处理,所以显示成 year=58598。
     // 这里对 > 1e12(超出 year 33658)的字段除以 1000 转回秒。1e12 = 2001-09-09 之后,合理阈值。
+    // (补丁·42 补:createdAt/updatedAt 在 v2.2.41 初次迁移时遗漏,任务卡"创建于 58595年3月13日"即此 bug)
     const fixMs = (v) => (typeof v === 'number' && v > 1e12 && isFinite(v)) ? Math.floor(v / 1000) : v;
+    t.createdAt = fixMs(t.createdAt);
+    t.updatedAt = fixMs(t.updatedAt);
     t.startAt = fixMs(t.startAt);
     t.completeAt = fixMs(t.completeAt);
     for (const s of t.subtasks) {
       if (s.doneAt != null) s.doneAt = fixMs(s.doneAt);
+      if (s.createdAt != null) s.createdAt = fixMs(s.createdAt);
     }
     if (Array.isArray(t.events)) {
       for (const ev of t.events) {
@@ -1789,7 +1793,7 @@ export async function loadState() {
       }
     }
   }
-  // Todo-List 日历事件(兼容旧库缺字段)
+  // Todo-List 日历事件(兼容旧库缺字段 + 补丁·42 补迁移 createdAt/updatedAt)
   state.todoEvents = Array.isArray(data.todoEvents) ? data.todoEvents : [];
   for (const ev of state.todoEvents) {
     if (ev.date == null) ev.date = '';
@@ -1799,6 +1803,8 @@ export async function loadState() {
     if (ev.note == null) ev.note = '';
     if (ev.createdAt == null) ev.createdAt = now();
     if (ev.updatedAt == null) ev.updatedAt = now();
+    if (typeof ev.createdAt === 'number' && ev.createdAt > 1e12 && isFinite(ev.createdAt)) ev.createdAt = Math.floor(ev.createdAt / 1000);
+    if (typeof ev.updatedAt === 'number' && ev.updatedAt > 1e12 && isFinite(ev.updatedAt)) ev.updatedAt = Math.floor(ev.updatedAt / 1000);
   }
   // 自修复:被分类目录引用的自定义资源分组,确保左侧栏有对应资源根(否则分类在侧栏不可见)
   ensureResourceRootsForCategories();
