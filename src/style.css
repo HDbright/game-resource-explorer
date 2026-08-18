@@ -2877,6 +2877,17 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .todo-kanban-body .todo-card { margin-bottom: 6px; cursor: grab; }
 .todo-kanban-body .todo-card:active { cursor: grabbing; }
 .todo-kanban-placeholder { padding: 20px; text-align: center; color: var(--text2); font-size: 12px; }
+/* 看板拖拽排序:被拖卡片半透明 + 插入位置指示线 */
+.todo-kanban-body .todo-card.dragging { opacity: .4; }
+.todo-kanban-body .todo-card { position: relative; }
+.todo-kanban-body .todo-card.todo-card-drop-before::before,
+.todo-kanban-body .todo-card.todo-card-drop-after::after {
+  content: ''; position: absolute; left: 0; right: 0; height: 3px;
+  background: var(--accent); border-radius: 2px; box-shadow: 0 0 6px var(--accent); z-index: 5;
+}
+.todo-kanban-body .todo-card.todo-card-drop-before::before { top: -5px; }
+.todo-kanban-body .todo-card.todo-card-drop-after::after { bottom: -5px; }
+.todo-kanban-body.drop-tail { box-shadow: inset 0 -3px 0 var(--accent); }
 
 /* 模态框 */
 .todo-overlay { position: fixed; inset: 0; z-index: 9998; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.45); }

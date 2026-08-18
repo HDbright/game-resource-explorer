@@ -640,13 +640,71 @@ function reorderInList(dragId, targetId) {
 }
 
 // ---------------- 看板视图 ----------------
+/** 看板某列的任务(按 sort 升序,同值退回创建时间) */
+function kanbanColTasks(status) {
+  return liveTasks()
+    .filter((t) => t.status === status)
+    .sort((a, b) => ((a.sort ?? 0) - (b.sort ?? 0)) || ((a.createdAt || 0) - (b.createdAt || 0)));
+}
+
+/** 清掉看板里所有插入指示线 */
+function clearKanbanDropMarks(scope) {
+  (scope || document).querySelectorAll('.todo-card-drop-before, .todo-card-drop-after')
+    .forEach((el) => el.classList.remove('todo-card-drop-before', 'todo-card-drop-after'));
+  (scope || document).querySelectorAll('.todo-kanban-body.drop-tail')
+    .forEach((el) => el.classList.remove('drop-tail'));
+}
+
+/**
+ * 把 dragId 移到 colStatus 列中 targetId 的前/后(targetId 为空 → 落到列尾)。
+ * 使用「分数序号」(fractional sort)只改被拖任务的 sort,不动同列其他任务,
+ * 避免影响列表视图的全局顺序;间隙不足时才对该列做一次整数重编号。
+ */
+function moveTaskInKanban(dragId, colStatus, targetId, insertBefore) {
+  const t = taskById(dragId);
+  if (!t) return;
+  if (targetId === dragId) return;
+  if (t.status !== colStatus) {
+    t.status = colStatus;
+    if (colStatus === 'done' && !t.completeAt) t.completeAt = now();
+    if (colStatus === 'in_progress' && !t.startAt) t.startAt = now();
+  }
+  const members = kanbanColTasks(colStatus).filter((x) => x.id !== dragId);
+  let idx = members.length;
+  if (targetId) {
+    const ti = members.findIndex((x) => x.id === targetId);
+    if (ti >= 0) idx = insertBefore ? ti : ti + 1;
+  }
+  const prev = members[idx - 1] || null;
+  const next = members[idx] || null;
+  if (!prev && !next) t.sort = 0;
+  else if (!prev) t.sort = (next.sort ?? 0) - 1;
+  else if (!next) t.sort = (prev.sort ?? 0) + 1;
+  else {
+    const a = prev.sort ?? 0, b = next.sort ?? 0;
+    const mid = (a + b) / 2;
+    if (mid > a && mid < b) t.sort = mid;
+    else {
+      // sort 相等或浮点间隙耗尽 → 该列整数重编号(保留该列原占用的最小值作基准)
+      const seq = [...members];
+      seq.splice(idx, 0, t);
+      const base = Math.min(...seq.map((x) => x.sort ?? 0));
+      seq.forEach((x, i) => { x.sort = base + i; x.updatedAt = now(); });
+    }
+  }
+  t.updatedAt = now();
+  dragTaskId = null;
+  saveState();
+  render();
+}
+
 function renderKanban() {
   const board = document.createElement('div');
   board.className = 'todo-kanban';
   for (const col of KANBAN_COLS) {
     const colEl = document.createElement('div');
     colEl.className = 'todo-kanban-col';
-    const tasks = liveTasks().filter((t) => t.status === col.status);
+    const tasks = kanbanColTasks(col.status);
     colEl.innerHTML = `
       <div class="todo-kanban-head">
         <span class="todo-kanban-dot" style="background:${col.color}"></span>
@@ -655,19 +713,25 @@ function renderKanban() {
       </div>`;
     const body = document.createElement('div');
     body.className = 'todo-kanban-body';
-    body.addEventListener('dragover', (e) => e.preventDefault());
-    body.addEventListener('drop', async (e) => {
+    // 落在列空白处 → 追加到列尾
+    body.addEventListener('dragover', (e) => {
       e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+      if (e.target === body || e.target.classList.contains('todo-kanban-placeholder')) {
+        clearKanbanDropMarks(board);
+        body.classList.add('drop-tail');
+      }
+    });
+    body.addEventListener('dragleave', (e) => {
+      if (e.target === body) body.classList.remove('drop-tail');
+    });
+    body.addEventListener('drop', (e) => {
+      e.preventDefault();
+      clearKanbanDropMarks(board);
       const dragId = dragTaskId || Number(e.dataTransfer.getData('text/plain')) || null;
       if (!dragId) return;
-      const t = taskById(dragId);
-      if (t && t.status !== col.status) {
-        t.status = col.status;
-        t.updatedAt = now();
-        saveState();
-      }
-      dragTaskId = null;
-      render();
+      // 若 drop 落在卡片上,由卡片自身的 drop 处理(已 stopPropagation),这里只兜底空白区
+      moveTaskInKanban(dragId, col.status, null, false);
     });
     for (const task of tasks) {
       const card = renderTaskCard(task, true, col.status);
@@ -677,8 +741,38 @@ function renderKanban() {
         dragTaskId = task.id;
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/plain', String(task.id));
+        setTimeout(() => card.classList.add('dragging'), 0);
       });
-      card.addEventListener('dragend', () => { dragTaskId = null; });
+      card.addEventListener('dragend', () => {
+        dragTaskId = null;
+        card.classList.remove('dragging');
+        clearKanbanDropMarks(board);
+      });
+      // 卡片上悬停 → 按鼠标处于上/下半区决定插到前面还是后面,并画插入线
+      card.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+        if (dragTaskId === task.id) return;
+        const r = card.getBoundingClientRect();
+        const before = (e.clientY - r.top) < r.height / 2;
+        clearKanbanDropMarks(board);
+        card.classList.add(before ? 'todo-card-drop-before' : 'todo-card-drop-after');
+      });
+      card.addEventListener('dragleave', (e) => {
+        if (!card.contains(e.relatedTarget)) {
+          card.classList.remove('todo-card-drop-before', 'todo-card-drop-after');
+        }
+      });
+      card.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const before = card.classList.contains('todo-card-drop-before');
+        clearKanbanDropMarks(board);
+        const dragId = dragTaskId || Number(e.dataTransfer.getData('text/plain')) || null;
+        if (!dragId || dragId === task.id) return;
+        moveTaskInKanban(dragId, col.status, task.id, before);
+      });
       body.appendChild(card);
     }
     if (!tasks.length) {

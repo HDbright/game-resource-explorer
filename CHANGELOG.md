@@ -3,7 +3,42 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.39`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.40`）。
+
+---
+
+## 2026-08-18（补丁·40）
+
+### [新增] 看板三列支持拖拽调整任务上下顺序
+
+**背景**：此前看板只能把卡片**跨列**拖拽来改状态（落在列内任意位置都只改 status），列内顺序完全由数据库数组的原始次序决定，无法调整。
+
+**改动**：
+- `src/pages/todoPage.js`
+  - 新增 `kanbanColTasks(status)`：看板列按 `sort` 升序取任务（同值退回 `createdAt`），列渲染改用此函数，列内顺序由此可控。
+  - 新增 `moveTaskInKanban(dragId, colStatus, targetId, insertBefore)`：采用**分数序号**（fractional sort）——只改被拖任务的 `sort` 为前后邻居的中值，不动同列其他任务，因此不会打乱列表视图的全局顺序；仅当 `sort` 相等或浮点间隙耗尽时，才对该列做一次整数重编号兜底。
+  - 新增 `clearKanbanDropMarks(scope)`：统一清理插入指示线。
+  - 卡片新增 `dragover / dragleave / drop` 监听：按鼠标位于卡片**上半区/下半区**决定插到目标前面还是后面，并 `stopPropagation()` 避免被列容器的 drop 抢掉。
+  - 列容器 `drop` 保留为**兜底**：落在卡片之外的空白区 → 追加到该列末尾。
+  - 跨列拖拽同时支持**指定插入位置**（不再只是改状态追加），并按需补 `completeAt`（拖入已完成）/`startAt`（拖入进行中）。
+  - 拖拽中给卡片加 `.dragging` 半透明反馈。
+- `src/style.css`：新增 `.todo-card-drop-before/.todo-card-drop-after` 伪元素插入指示线（accent 色 3px + 发光）、`.todo-kanban-body.drop-tail` 列尾指示、`.todo-card.dragging` 半透明。
+- `scripts/todo-smoke-main.js`：新增「看板卡片均可拖拽」「看板拖拽显示插入指示线」「看板列内拖拽排序生效」三项断言（模拟 `DragEvent` + `DataTransfer` 走完整拖放链）。
+
+### [修复] 任务「开始/完成时间」「任务事件」「子任务备注/完成时间」从未落库（重启即丢）
+
+**发现过程**：为验证拖拽排序补冒烟断言时，发现「进行中卡片显示橙色开始日期」一项 FAIL（`.todo-card-date` 完全没渲染）。用 `git stash` 跑基线确认非本次引入，逐层排查后定位到数据库层。
+
+**根因**：v2.2.26/27 给任务加了 `startAt`/`completeAt`/`events`、给子任务加了 `notes`/`doneAt`，但 **`electron/db.js` 的表结构、`readDb` 的 SELECT、`writeDb` 的 INSERT 三处都没有对应列** —— 这 5 个字段只存在于内存 state，`saveState()` 全量重写库时被静默丢弃，应用重启后全部归零。同时 `todo_tasks.sort` 是 `INTEGER`，与本次拖拽用的小数序号不匹配。
+
+**改动**（`electron/db.js`）：
+- 建表：`todo_tasks` 增 `start_at INTEGER` / `complete_at INTEGER` / `events TEXT DEFAULT '[]'`，`sort` 改 `REAL`；`todo_subtasks` 增 `notes TEXT` / `done_at INTEGER`。
+- 老库迁移：新增一段 `PRAGMA table_info` 检查 + `ALTER TABLE ADD COLUMN`，已有数据库自动补齐 5 列，无需重建。
+- `readDb`：SELECT 补齐 5 列并把 `events` 按 JSON 解析为数组（缺省 `[]`）、子任务 `notes` 缺省空串。
+- `writeDb`：INSERT 补齐 5 列；`sort` 由 `t.sort || 0` 改为 `isFinite` 判定，避免小数被吞。
+- 冒烟新增 5 项断言：`startAt` 落库、`events` 为数组、子任务含 `notes`/`doneAt` 列、`sort` 为有限数值、拖拽后列内相对顺序保留（实测 `sort=5.5` 正确落库）。
+
+**影响**：升级后这些字段才真正持久化；v2.2.39 及更早版本里填过的开始/完成时间、任务事件、子任务备注**已经丢失、无法恢复**，需重新填写。
 
 ---
 

@@ -269,10 +269,55 @@ app.whenReady().then(async () => {
       check('看板子任务可折叠', o.subToggleFound === true && o.subCollapsed === true && o.subExpanded === true, 'toggle=' + o.subToggleFound + ' collapsed=' + o.subCollapsed + ' expanded=' + o.subExpanded);
       // 状态色日期:in_progress 卡片应显示橙色开始日期(.todo-card-date.is-progress)
       o = await js('statusDate', `(async () => {
-        const el = document.querySelector('.todo-card[data-task-id="${TASK_A}"] .todo-card-date.is-progress');
-        return { found: !!el, text: el ? el.textContent : '' };
+        const card = document.querySelector('.todo-card[data-task-id="${TASK_A}"]');
+        const el = card ? card.querySelector('.todo-card-date.is-progress') : null;
+        const anyDate = card ? card.querySelector('.todo-card-date') : null;
+        const stBtn = card ? card.querySelector('[data-t="status"]') : null;
+        const colHead = card ? (card.closest('.todo-kanban-col') || {}).querySelector : null;
+        const colTitle = card && card.closest('.todo-kanban-col')
+          ? (card.closest('.todo-kanban-col').querySelector('.todo-kanban-title') || {}).textContent : '';
+        return { found: !!el, text: el ? el.textContent : '',
+          cardFound: !!card, anyDateCls: anyDate ? anyDate.className : '', anyDateText: anyDate ? anyDate.textContent : '',
+          stTitle: stBtn ? stBtn.title : '', isDone: card ? card.classList.contains('done') : null, colTitle };
       })()`);
-      check('进行中卡片显示橙色开始日期', o.found === true, 'text=' + o.text);
+      check('进行中卡片显示橙色开始日期', o.found === true,
+        'text=' + o.text + ' card=' + o.cardFound + ' col=' + o.colTitle + ' st=' + o.stTitle
+        + ' done=' + o.isDone + ' anyDate=[' + o.anyDateCls + '|' + o.anyDateText + ']');
+
+      // 5.2) 看板列内拖拽排序:同列相邻两卡片 dragstart→dragover(下半区)→drop 后应互换位置
+      o = await js('kanbanDragSort', `(async () => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const out = {};
+        const bodies = [...document.querySelectorAll('.todo-kanban-body')];
+        out.allDraggable = bodies.length > 0 && bodies.every((b) => [...b.querySelectorAll('.todo-card')].every((c) => c.draggable === true));
+        let best = null;
+        for (const b of bodies) {
+          const cs = [...b.querySelectorAll('.todo-card')];
+          if (!best || cs.length > best.cards.length) best = { body: b, cards: cs };
+        }
+        out.maxCards = best ? best.cards.length : 0;
+        if (!best || best.cards.length < 2) { out.skipped = true; return out; }
+        const colIdx = bodies.indexOf(best.body);
+        const c1 = best.cards[0], c2 = best.cards[1];
+        out.before = [c1.dataset.taskId, c2.dataset.taskId];
+        const dt = new DataTransfer();
+        c1.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
+        await sleep(60);
+        const r = c2.getBoundingClientRect();
+        const pt = { clientX: r.left + 10, clientY: r.top + r.height - 3 };
+        c2.dispatchEvent(new DragEvent('dragover', Object.assign({ bubbles: true, dataTransfer: dt }, pt)));
+        out.markAfter = c2.classList.contains('todo-card-drop-after');
+        c2.dispatchEvent(new DragEvent('drop', Object.assign({ bubbles: true, dataTransfer: dt }, pt)));
+        await sleep(350);
+        const nb = [...document.querySelectorAll('.todo-kanban-body')][colIdx];
+        out.after = nb ? [...nb.querySelectorAll('.todo-card')].slice(0, 2).map((c) => c.dataset.taskId) : [];
+        out.swapped = out.after[0] === out.before[1] && out.after[1] === out.before[0];
+        return out;
+      })()`);
+      check('看板卡片均可拖拽', o.allDraggable === true, 'maxCards=' + o.maxCards);
+      check('看板拖拽显示插入指示线', o.skipped === true || o.markAfter === true, 'skipped=' + o.skipped + ' mark=' + o.markAfter);
+      check('看板列内拖拽排序生效', o.skipped === true || o.swapped === true,
+        'before=' + JSON.stringify(o.before) + ' after=' + JSON.stringify(o.after));
 
       // 5.5) 日历视图
       o = await js('calendar', `(async () => {
@@ -644,6 +689,20 @@ app.whenReady().then(async () => {
       check('持久化:优先级 medium', a && a.priority === 'medium', a ? a.priority : 'null');
       check('持久化:归档恢复', a && a.archived === false, String(a && a.archived));
       check('持久化:子任务保留', a && a.subtasks && a.subtasks.length === 2, String(a && a.subtasks && a.subtasks.length));
+      // 补丁·40:startAt/completeAt/events + 子任务 notes/doneAt 之前根本没有数据库列,重启即丢
+      check('持久化:startAt 落库', a && typeof a.startAt === 'number' && a.startAt > 0, 'startAt=' + (a && a.startAt));
+      check('持久化:events 列存在(数组)', a && Array.isArray(a.events), 'events=' + JSON.stringify(a && a.events));
+      const subCols = a && a.subtasks && a.subtasks[0] ? Object.keys(a.subtasks[0]) : [];
+      check('持久化:子任务含 notes/doneAt 字段', subCols.includes('notes') && subCols.includes('doneAt'), 'cols=' + JSON.stringify(subCols));
+      const doneSub = a && (a.subtasks || []).find((s) => s.done);
+      check('持久化:已完成子任务保留 doneAt 列', !!doneSub && 'doneAt' in doneSub, 'sub=' + JSON.stringify(doneSub));
+      // 补丁·40:看板拖拽用分数序号(小数 sort),必须能存进 SQLite 且列内相对顺序被保留
+      const bT = d.todoTasks.find((t) => t.id === TASK_B);
+      const doneCol = d.todoTasks.filter((t) => !t.archived && t.status === (bT ? bT.status : 'done'))
+        .sort((x, y) => ((x.sort ?? 0) - (y.sort ?? 0)) || ((x.createdAt || 0) - (y.createdAt || 0)));
+      check('持久化:sort 为有限数值', !!bT && typeof bT.sort === 'number' && isFinite(bT.sort), 'sort=' + (bT && bT.sort));
+      check('持久化:看板拖拽后不再位列本列首位', doneCol.length < 2 || doneCol[0].id !== TASK_B,
+        'col=' + JSON.stringify(doneCol.slice(0, 2).map((t) => t.id + '@' + t.sort)));
       check('持久化:项目保留', d.todoProjects.some((p) => p.id === PROJ_ID) === true);
       check('持久化:新任务落库', d.todoTasks.some((t) => t.title === '冒烟测试任务') === true);
       check('持久化:导入任务落库', d.todoTasks.some((t) => t.title === '导入任务A') === true && d.todoTasks.some((t) => t.title === '导入任务B') === true);
