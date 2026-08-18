@@ -3,7 +3,23 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.38`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.39`）。
+
+---
+
+## 2026-08-18（补丁·39）
+
+### [修复] 子任务右键菜单位置错乱 + 菜单项点击无响应
+
+- **现象**：右键点击任务卡里的子任务标签（chip），弹出的「编辑 / 删除」菜单位置严重错位（跑到窗口左上角一带），且点菜单项没有反应。
+- **根因（三处叠加）**：
+  1. 补丁·38 把 `.todo-card-menu` 的 CSS 从 `position:absolute` 改为 `position:fixed`，但 `openSubMenu()` 仍把菜单 `appendChild` 到卡片内、并按「相对卡片的偏移」计算 `left/top`。`fixed` 下坐标相对**视口**，偏移量被当成视口坐标 → 位置完全跑偏。
+  2. `closeSubMenu()` 在 `document.click` **capture 阶段**监听且**没有 contains 判断**，capture 先于菜单内 click 冒泡触发 → 菜单被先 remove 掉，`[data-sm]` 的 click 永远收不到（与补丁·37 卡片菜单同类 bug，当时漏改了子任务菜单）。
+  3. 菜单改挂 body 后，`render()` 重绘会让它浮空残留。
+- **修复**：
+  - `openSubMenu(subId, atX, atY)` 改为接收鼠标 `e.clientX/clientY`，菜单 `appendChild(document.body)`，按视口坐标定位并加边界钳制（右/下越界自动反向）。
+  - `closeSubMenu(e)` 增加 `subMenuEl.contains(e.target)` 判断，点菜单内部不关闭；菜单内 click 加 `stopPropagation()`。
+  - `render()` 开头统一 `document.querySelectorAll('.todo-card-menu').forEach(el => el.remove())`，避免任何 body 级菜单重绘后浮空残留。
 
 ---
 

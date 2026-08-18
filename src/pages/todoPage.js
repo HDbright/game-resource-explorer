@@ -371,6 +371,8 @@ export function renderTodoTool(container) {
 
 function render() {
   if (!rootEl) return;
+  // 菜单挂在 body 上(position:fixed),重绘前必须清掉,否则会浮空残留
+  document.querySelectorAll('.todo-card-menu').forEach((el) => el.remove());
   rootEl.innerHTML = '';
   rootEl.appendChild(renderHeader());
   if (view === 'list') rootEl.appendChild(renderFiltersBar());
@@ -1325,30 +1327,35 @@ function renderTaskCard(task, compact = false, colStatus = null) {
     chip.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      openSubMenu(chip.dataset.sub, chip);
+      openSubMenu(chip.dataset.sub, e.clientX, e.clientY);
     });
   });
-  function openSubMenu(subId, chipEl) {
+  let subMenuEl = null;
+  function openSubMenu(subId, atX, atY) {
     closeSubMenu();
+    // 清理任何遗留的子任务菜单(render 重绘后可能残留在 body 上)
+    document.querySelectorAll('.todo-sub-menu').forEach((el) => el.remove());
     const sub = (task.subtasks || []).find((x) => x.id === subId);
     if (!sub) return;
-    const menu = document.createElement('div');
-    menu.className = 'todo-card-menu todo-sub-menu';
-    menu.innerHTML = `
+    subMenuEl = document.createElement('div');
+    subMenuEl.className = 'todo-card-menu todo-sub-menu';
+    subMenuEl.innerHTML = `
       <button data-sm="edit">${T('edit')}</button>
       <button data-sm="delete" class="danger">${T('delete')}</button>`;
-    card.appendChild(menu);
-    const r = chipEl.getBoundingClientRect();
-    const cr = card.getBoundingClientRect();
-    menu.style.left = (r.left - cr.left + (card.scrollLeft || 0)) + 'px';
-    menu.style.top = (r.bottom - cr.top + (card.scrollTop || 0) + 2) + 'px';
-    menu.style.right = 'auto';
-    menu.addEventListener('click', (ev) => {
+    // .todo-card-menu 是 position:fixed,坐标必须相对视口 → 挂到 body 并用 clientX/Y
+    document.body.appendChild(subMenuEl);
+    const mr = subMenuEl.getBoundingClientRect();
+    let lx = atX, ty = atY;
+    if (lx + mr.width > window.innerWidth - 8) lx = Math.max(8, window.innerWidth - mr.width - 8);
+    if (ty + mr.height > window.innerHeight - 8) ty = Math.max(8, atY - mr.height);
+    subMenuEl.style.left = lx + 'px';
+    subMenuEl.style.top = ty + 'px';
+    subMenuEl.addEventListener('click', (ev) => {
       const mb = ev.target.closest('[data-sm]');
       if (!mb) return;
+      ev.stopPropagation();
       const m = mb.dataset.sm;
       closeSubMenu();
-      document.removeEventListener('click', closeSubMenu, true);
       if (m === 'edit') { modalInitialTab = 'subtasks'; taskModalOpen = true; modalTaskId = task.id; render(); }
       else if (m === 'delete') {
         confirmDialog({ title: T('delSubTitle'), message: T('delSubMsg', sub.title), okText: T('delete'), danger: true, onOk: () => {
@@ -1359,9 +1366,11 @@ function renderTaskCard(task, compact = false, colStatus = null) {
     });
     setTimeout(() => document.addEventListener('click', closeSubMenu, true), 0);
   }
-  function closeSubMenu() {
-    const existing = card.querySelector('.todo-sub-menu');
-    if (existing) existing.remove();
+  // 外部点击关闭:必须先判断 contains,否则 capture 阶段会先移除菜单,
+  // 导致菜单内 [data-sm] 的 click 永远收不到(与补丁·37 卡片菜单同类 bug)。
+  function closeSubMenu(e) {
+    if (e && subMenuEl && subMenuEl.contains(e.target)) return;
+    if (subMenuEl) { subMenuEl.remove(); subMenuEl = null; }
     document.removeEventListener('click', closeSubMenu, true);
   }
 
