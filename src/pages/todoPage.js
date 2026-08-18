@@ -668,8 +668,8 @@ function renderKanban() {
       render();
     });
     for (const task of tasks) {
-      const card = renderTaskCard(task, true);
-      if (col.status === 'done') card.classList.add('todo-card-done-col');
+      const card = renderTaskCard(task, true, col.status);
+      card.classList.add('todo-card-kanban-col', 'todo-card-col-' + col.status);
       card.draggable = true;
       card.addEventListener('dragstart', (e) => {
         dragTaskId = task.id;
@@ -1252,7 +1252,8 @@ function cardStatusDate(task) {
   }
   return null;
 }
-function renderTaskCard(task, compact = false) {
+function renderTaskCard(task, compact = false, colStatus = null) {
+  const inKanbanCol = colStatus !== null;
   const card = document.createElement('div');
   card.className = `todo-card${task.status === 'done' ? ' done' : ''}`;
   card.setAttribute('data-task-id', task.id);
@@ -1266,9 +1267,12 @@ function renderTaskCard(task, compact = false) {
   const dl = deadlineInfo(task);
   const dateSuffix = cardStatusDate(task);
 
+  const statusBtn = (inKanbanCol && colStatus === 'in_progress')
+    ? `<button class="todo-status-btn" data-t="status" title="${stLabel(task.status)} · ${T('clickToggle')}"><img src="tasking64.png" class="todo-status-img" alt="🔄"></button>`
+    : `<button class="todo-status-btn" data-t="status" title="${stLabel(task.status)} · ${T('clickToggle')}" style="border-color:${task.status === 'done' ? '#22c55e' : task.status === 'in_progress' ? 'var(--accent)' : 'var(--border)'};color:${task.status === 'done' ? '#22c55e' : task.status === 'in_progress' ? 'var(--accent)' : 'var(--text2)'}">${st.icon}</button>`;
   let html = `
     <div class="todo-card-row">
-      <button class="todo-status-btn" data-t="status" title="${stLabel(task.status)} · ${T('clickToggle')}" style="border-color:${task.status === 'done' ? '#22c55e' : task.status === 'in_progress' ? 'var(--accent)' : 'var(--border)'};color:${task.status === 'done' ? '#22c55e' : task.status === 'in_progress' ? 'var(--accent)' : 'var(--text2)'}">${st.icon}</button>
+      ${statusBtn}
       <div class="todo-card-main">
         <div class="todo-card-title-row">
           <span class="todo-card-title">${escHtml(task.title)}</span>

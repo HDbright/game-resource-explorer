@@ -3,7 +3,16 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.33`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.34`）。
+
+---
+
+## 2026-08-18（补丁·34）
+
+### [修复] 看板三列状态图标去圆圈并放大（进行中用 tasking64.png）
+
+- 需求（用户：「进行中」列表条目前的图标不要加圆圈，只要显示 `tasking64.png` 并放大；「待办」列表条目前的图标也不要加圆圈并放大显示）。
+- 改动（`src/pages/todoPage.js` + `src/style.css` + `public/tasking64.png`）：`renderTaskCard` 新增 `colStatus` 形参；看板 `renderKanban` 对每张卡片加 `todo-card-kanban-col` 与 `todo-card-col-<status>` 类，并把 `col.status` 传入。`colStatus==='in_progress'` 时状态按钮内渲染 `<img src="tasking64.png">`，其余列仍用文字图标（✅/⬜）。CSS 将三列的状态按钮统一去 `border`/`border-radius`/圆形背景并放大（`font-size:20px`，进行中图片 `22×22`），仅「已完成」列保留绿色。复制 `E:\backup\logo\ico\tasking64.png` → `public/tasking64.png`（随 dist 发布）。列表视图保持原圆形按钮不变。
 
 ---
 
