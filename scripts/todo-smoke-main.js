@@ -83,6 +83,19 @@ function setup() {
     tags: [], projectId: 'p_smoke_child', parentTaskId: '', recurRule: '', archived: false,
     subtasks: [], createdAt: nowTs(), updatedAt: nowTs(),
   });
+  // 补丁·57 看板层级 + 子任务嵌套测试:进行中父任务 + 子任务(同列嵌套,验证 L 形从属连线)
+  d.todoTasks.push({
+    id: 't_smoke_parent', title: '父任务(进行中)', notes: '', notesHtml: '',
+    priority: 'medium', status: 'in_progress', deadline: null, reminderAt: null, sort: 0,
+    tags: [], projectId: 'p_smoke_child', parentTaskId: '', recurRule: '', archived: false,
+    subtasks: [], createdAt: nowTs(), updatedAt: nowTs(),
+  });
+  d.todoTasks.push({
+    id: 't_smoke_child', title: '子任务(进行中)', notes: '', notesHtml: '',
+    priority: 'low', status: 'in_progress', deadline: null, reminderAt: null, sort: 0,
+    tags: [], projectId: 'p_smoke_child', parentTaskId: 't_smoke_parent', recurRule: '', archived: false,
+    subtasks: [], createdAt: nowTs(), updatedAt: nowTs(),
+  });
   d.settings = d.settings || {};
   dbm.writeDb(d);
 }
@@ -163,8 +176,8 @@ app.whenReady().then(async () => {
       if (o && o.__err) { check('进入工具', false, o.__err); throw new Error('abort'); }
       check('侧栏 Todo-List 节点', o.found === true);
       check('页面渲染 .todo-root', o.pageShown === true);
-      check('任务卡片数量=3', o.cardCount === 3, 'count=' + o.cardCount + ' ids=' + JSON.stringify(o.cardIds));
-      check('完成统计 1/3', /已完成 1\/3/.test(o.subText || ''), o.subText);
+      check('任务卡片数量=5', o.cardCount === 5, 'count=' + o.cardCount + ' ids=' + JSON.stringify(o.cardIds));
+      check('完成统计 1/5', /已完成 1\/5/.test(o.subText || ''), o.subText);
 
       // 1.5) 中英文切换
       o = await js('lang', `(async () => {
@@ -202,8 +215,8 @@ app.whenReady().then(async () => {
         // 父项目\"游戏开发\"与子项目\"子项目\"都应出现在筛选下拉
         const projFilter = !![...document.querySelectorAll('.todo-select')].find((s) => [...s.options].some((x) => x.textContent === '游戏开发' || x.textContent === '子项目'));
         const cardA = document.querySelector('.todo-card[data-task-id="t_smoke_a"]');
-        const subIconDone = (document.querySelector('.todo-sub-chip.done span:first-child') || {}).textContent || '';
-        const subIconTodo = (document.querySelector('.todo-sub-chip:not(.done) span:first-child') || {}).textContent || '';
+        const subIconDone = (document.querySelector('.todo-sub-chip.sub-status-done span:first-child') || {}).textContent || '';
+        const subIconTodo = (document.querySelector('.todo-sub-chip.sub-status-todo span:first-child') || {}).textContent || '';
         return { projChip, subChips, projFilter, subIconDone, subIconTodo, cardAhtml: cardA ? cardA.innerHTML.slice(0, 700) : 'NO CARD' };
       })()`);
       check('项目徽章', o.projChip === true);
@@ -246,7 +259,7 @@ app.whenReady().then(async () => {
           newVisible: !![...document.querySelectorAll('.todo-card-title')].find((t) => (t.textContent || '').includes('冒烟测试任务')) };
       })()`);
       check('新建任务模态框', o.modalOpen === true, o.err || '');
-      check('新建后卡片=4', o.cardCount === 4, 'count=' + o.cardCount);
+      check('新建后卡片=6', o.cardCount === 6, 'count=' + o.cardCount);
       check('新任务可见', o.newVisible === true);
 
       // 4.1) 编辑模态框含开始/完成时间 + 事件 tab(打开任一任务)
@@ -328,8 +341,12 @@ app.whenReady().then(async () => {
         c2.dispatchEvent(new DragEvent('drop', Object.assign({ bubbles: true, dataTransfer: dt }, pt)));
         await sleep(350);
         const nb = [...document.querySelectorAll('.todo-kanban-body')][colIdx];
-        out.after = nb ? [...nb.querySelectorAll('.todo-card')].slice(0, 2).map((c) => c.dataset.taskId) : [];
-        out.swapped = out.after[0] === out.before[1] && out.after[1] === out.before[0];
+        const afterIds = nb ? [...nb.querySelectorAll('.todo-card')].map((c) => c.dataset.taskId) : [];
+        out.after = afterIds.slice(0, 2);
+        // 稳健判定:拖拽后 c1 应排在 c2 之后(两卡互换相对顺序),不要求整列恰好只有 2 张(补丁·57 进行中列含父子嵌套 3 张)
+        const i1 = afterIds.indexOf(out.before[0]);
+        const i2 = afterIds.indexOf(out.before[1]);
+        out.swapped = i1 > -1 && i2 > -1 && i1 > i2;
         return out;
       })()`);
       check('看板卡片均可拖拽', o.allDraggable === true, 'maxCards=' + o.maxCards);
@@ -337,7 +354,64 @@ app.whenReady().then(async () => {
       check('看板列内拖拽排序生效', o.skipped === true || o.swapped === true,
         'before=' + JSON.stringify(o.before) + ' after=' + JSON.stringify(o.after));
 
-      // 5.4) 事件时间格式(now()现在返回秒,不再出现 year=58598)
+      // 5.3) 补丁·57:看板"进行中"列 父/子任务层级 + L 形从属连线(与列表树样式一致)
+      o = await js('kanbanHierarchy', `(async () => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const cols = [...document.querySelectorAll('.todo-kanban-col')];
+        const progCol = cols.find((c) => (c.querySelector('.todo-kanban-title') || {}).textContent === '进行中');
+        if (!progCol) return { err: 'no in_progress col' };
+        const parentCard = progCol.querySelector('.todo-card[data-task-id="t_smoke_parent"]');
+        const parentNode = parentCard ? parentCard.closest('.todo-kanban-node') : null;
+        const childWrap = parentNode ? parentNode.querySelector(':scope > .todo-kanban-children') : null;
+        const childCard = childWrap ? childWrap.querySelector('.todo-card[data-task-id="t_smoke_child"]') : null;
+        const childRow = childCard ? childCard.closest('.todo-kanban-node-row') : null;
+        const guides = childRow ? childRow.querySelector('.todo-tree-guides') : null;
+        const vLine = guides ? guides.querySelector('.todo-tree-line.tl-v') : null;
+        const hLine = guides ? guides.querySelector('.todo-tree-line.tl-h') : null;
+        return { err: '', parentFound: !!parentCard, childNested: !!childCard,
+          guides: !!guides, vLine: !!vLine, hLine: !!hLine, childPad: childRow ? childRow.style.paddingLeft : '' };
+      })()`);
+      check('看板进行中:父/子任务同列嵌套', !o.err && o.parentFound && o.childNested, o.err || JSON.stringify(o));
+      check('看板进行中:子任务 L 形从属连线(与列表树一致)', o.guides && o.vLine && o.hLine, 'guides=' + o.guides + ' v=' + o.vLine + ' h=' + o.hLine + ' pad=' + o.childPad);
+
+      // 5.4) 补丁·57:子任务编辑 — 三态状态 + 嵌套子任务创建
+      o = await js('subtreeEdit', `(async () => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const cardA = document.querySelector('.todo-card[data-task-id="${TASK_A}"]');
+        if (!cardA) return { err: 'cardA missing' };
+        const editBtn = cardA.querySelector('[data-t="edit"]');
+        if (editBtn) { editBtn.click(); await sleep(350); }
+        const subTab = document.querySelector('[data-tab="subtasks"]');
+        if (subTab) { subTab.click(); await sleep(300); }
+        const sel1 = document.querySelector('.todo-sub-status-select[data-sub-status="s_smoke_1"]');
+        const sel2 = document.querySelector('.todo-sub-status-select[data-sub-status="s_smoke_2"]');
+        const opts2 = sel2 ? [...sel2.options].map((o) => o.value) : [];
+        const setSel = async (sel, val) => { sel.value = val; sel.dispatchEvent(new Event('change', { bubbles: true })); await sleep(120); };
+        await setSel(sel2, 'in_progress');
+        const afterIp = sel2 ? sel2.value : '';
+        const titleIp = document.querySelector('.todo-sub-title[data-sub-rename="s_smoke_2"]');
+        const titleIpDone = titleIp ? titleIp.classList.contains('done') : null;
+        await setSel(sel2, 'done');
+        const afterDone = sel2 ? sel2.value : '';
+        const doneAtEnabled = !!document.querySelector('.todo-sub-doneat[data-sub-doneat="s_smoke_2"]:not([disabled])');
+        await setSel(sel2, 'todo');
+        const afterTodo = sel2 ? sel2.value : '';
+        const beforeNodes = document.querySelectorAll('.todo-sub-node[data-sub-id="s_smoke_2"] .todo-sub-children .todo-sub-node').length;
+        const addBtn = document.querySelector('.todo-sub-addchild[data-sub-addchild="s_smoke_2"]');
+        if (addBtn) { addBtn.click(); await sleep(250); }
+        const afterNodes = document.querySelectorAll('.todo-sub-node[data-sub-id="s_smoke_2"] .todo-sub-children .todo-sub-node').length;
+        const saveBtn = document.querySelector('[data-save]');
+        if (saveBtn) { saveBtn.click(); await sleep(400); }
+        return { err: '', sel1Opts: sel1 ? [...sel1.options].map((o) => o.value) : [], opts2,
+          afterIp, titleIpDone, afterDone, doneAtEnabled, afterTodo,
+          beforeNodes, afterNodes, nestedCreated: afterNodes > beforeNodes };
+      })()`);
+      check('子任务状态选择存在(三态)', !o.err && o.opts2.length === 3 && o.opts2.includes('todo') && o.opts2.includes('in_progress') && o.opts2.includes('done'), 'opts=' + JSON.stringify(o.opts2));
+      check('子任务状态切换:todo→in_progress→done→todo', !o.err && o.afterIp === 'in_progress' && o.afterDone === 'done' && o.afterTodo === 'todo', 'ip=' + o.afterIp + ' done=' + o.afterDone + ' todo=' + o.afterTodo);
+      check('子任务完成态:doneAt 输入框启用', o.doneAtEnabled === true);
+      check('子任务下可再建子任务(嵌套)', o.nestedCreated === true, 'before=' + o.beforeNodes + ' after=' + o.afterNodes);
+
+      // 5.5) 事件时间格式(now()现在返回秒,不再出现 year=58598)
       o = await js('eventTimeFormat', `(async () => {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         // 用 ESM 模块名 -> 拿不到;改用 UI 端到端:打开 taskA 编辑,加一条事件,确认 datetime-local 显示本年
@@ -1093,7 +1167,7 @@ app.whenReady().then(async () => {
         return { menuFound, countAfter, rows, restoreFound, rowsAfter, closed: !document.querySelector('.todo-archive-row') };
       })()`);
       check('卡片菜单归档项', o.menuFound === true);
-      check('归档后卡片=3', o.countAfter === 3, 'count=' + o.countAfter);
+      check('归档后卡片=5', o.countAfter === 5, 'count=' + o.countAfter);
       check('归档弹窗 1 条', o.rows === 1, 'rows=' + o.rows);
       check('恢复按钮', o.restoreFound === true);
       check('恢复后归档=0', o.rowsAfter === 0, 'rows=' + o.rowsAfter);
@@ -1133,6 +1207,9 @@ app.whenReady().then(async () => {
       check('持久化:子任务 createdAt 为有效时间戳(补丁·44 显示创建时间)', !!sub0 && typeof sub0.createdAt === 'number' && sub0.createdAt > 0, 'createdAt=' + (sub0 && sub0.createdAt));
       const doneSub = a && (a.subtasks || []).find((s) => s.done);
       check('持久化:已完成子任务保留 doneAt 列', !!doneSub && 'doneAt' in doneSub, 'sub=' + JSON.stringify(doneSub));
+      // 补丁·57:嵌套子任务(子任务下再建子任务)必须能落库
+      const sub1 = a && a.subtasks && a.subtasks[1];
+      check('持久化:补丁·57 嵌套子任务落库', !!sub1 && Array.isArray(sub1.subtasks) && sub1.subtasks.length >= 1, 'sub1subs=' + JSON.stringify(sub1 && sub1.subtasks && sub1.subtasks.length));
       // 补丁·40:看板拖拽用分数序号(小数 sort),必须能存进 SQLite 且列内相对顺序被保留
       const bT = d.todoTasks.find((t) => t.id === TASK_B);
       const doneCol = d.todoTasks.filter((t) => !t.archived && t.status === (bT ? bT.status : 'done'))

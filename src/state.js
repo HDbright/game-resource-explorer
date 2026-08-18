@@ -1782,21 +1782,38 @@ export async function loadState() {
     if (t.createdAt == null) t.createdAt = now();
     if (t.updatedAt == null) t.updatedAt = now();
     if (!Array.isArray(t.subtasks)) t.subtasks = [];
-    for (const s of t.subtasks) {
-      if (s.done == null) s.done = false;
-      if (s.sort == null) s.sort = 0;
-      if (s.createdAt == null) s.createdAt = now();
-    }
+    // 子任务迁移(补丁·57):支持无限嵌套 + 独立状态(待办/进行中/已完成)。
+    // 旧数据仅 done 布尔 → 映射为 status;递归补齐嵌套 subtasks 与各字段。
+    const migrateSubs = (arr) => {
+      if (!Array.isArray(arr)) return;
+      for (const s of arr) {
+        if (!s || typeof s !== 'object') continue;
+        if (s.status == null) s.status = s.done ? 'done' : 'todo';
+        if (s.status !== 'todo' && s.status !== 'in_progress' && s.status !== 'done') s.status = s.done ? 'done' : 'todo';
+        if (s.done == null) s.done = s.status === 'done';
+        if (s.sort == null) s.sort = 0;
+        if (s.createdAt == null) s.createdAt = now();
+        if (!Array.isArray(s.subtasks)) s.subtasks = [];
+        migrateSubs(s.subtasks);
+      }
+    };
+    migrateSubs(t.subtasks);
     // 老数据迁移(补丁·42 任务的 startAt/completeAt/subtask doneAt/events.at;
     // 补丁·51 补:项目循环的 createdAt/updatedAt/deadline/completeAt — 显示成 58595/03/13 即遗漏修复)
     t.createdAt = fixMs(t.createdAt);
     t.updatedAt = fixMs(t.updatedAt);
     t.startAt = fixMs(t.startAt);
     t.completeAt = fixMs(t.completeAt);
-    for (const s of t.subtasks) {
-      if (s.doneAt != null) s.doneAt = fixMs(s.doneAt);
-      if (s.createdAt != null) s.createdAt = fixMs(s.createdAt);
-    }
+    const fixMsSubs = (arr) => {
+      if (!Array.isArray(arr)) return;
+      for (const s of arr) {
+        if (!s || typeof s !== 'object') continue;
+        if (s.doneAt != null) s.doneAt = fixMs(s.doneAt);
+        if (s.createdAt != null) s.createdAt = fixMs(s.createdAt);
+        fixMsSubs(s.subtasks);
+      }
+    };
+    fixMsSubs(t.subtasks);
     if (Array.isArray(t.events)) {
       for (const ev of t.events) {
         if (ev != null && ev.at != null) ev.at = fixMs(ev.at);

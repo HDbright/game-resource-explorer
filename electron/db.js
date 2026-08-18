@@ -258,6 +258,7 @@ function open() {
     CREATE TABLE IF NOT EXISTS todo_subtasks(
       id TEXT PRIMARY KEY,
       task_id TEXT NOT NULL,
+      parent_sub_id TEXT,
       title TEXT NOT NULL,
       notes TEXT DEFAULT '',
       done INTEGER DEFAULT 0,
@@ -349,6 +350,8 @@ function open() {
     const stCols = db.prepare('PRAGMA table_info(todo_subtasks)').all().map((r) => r.name);
     if (!stCols.includes('notes')) db.exec("ALTER TABLE todo_subtasks ADD COLUMN notes TEXT DEFAULT ''");
     if (!stCols.includes('done_at')) db.exec('ALTER TABLE todo_subtasks ADD COLUMN done_at INTEGER');
+    // 补丁·57:todo_subtasks 缺 parent_sub_id 列时补上(子任务下再建子任务的嵌套层级)
+    if (!stCols.includes('parent_sub_id')) db.exec('ALTER TABLE todo_subtasks ADD COLUMN parent_sub_id TEXT');
     // 旧库迁移:todo_projects 缺 parent_id 列时补上(项目树父子层级)
     const tpCols = db.prepare('PRAGMA table_info(todo_projects)').all().map((r) => r.name);
     if (!tpCols.includes('parent_id')) db.exec("ALTER TABLE todo_projects ADD COLUMN parent_id TEXT DEFAULT ''");
@@ -492,7 +495,7 @@ function readDb() {
       'tags, project_id AS projectId, parent_task_id AS parentTaskId, recur_rule AS recurRule, archived, created_at AS createdAt, updated_at AS updatedAt FROM todo_tasks ORDER BY sort'
     ).all();
     // tags / events 列是 JSON 数组字符串 → 解析为数组;附挂子任务
-    const subStmt = conn.prepare('SELECT id, task_id AS taskId, title, notes, done, done_at AS doneAt, sort, created_at AS createdAt FROM todo_subtasks WHERE task_id = ? ORDER BY sort');
+    const subStmt = conn.prepare('SELECT id, task_id AS taskId, parent_sub_id AS parentSubId, title, notes, done, done_at AS doneAt, sort, created_at AS createdAt FROM todo_subtasks WHERE task_id = ? ORDER BY parent_sub_id, sort');
     for (const t of (d.todoTasks || [])) {
       if (typeof t.tags === 'string') {
         try { t.tags = JSON.parse(t.tags || '[]'); } catch (err) { t.tags = []; }
@@ -506,9 +509,16 @@ function readDb() {
       if (!t.notesHtml) t.notesHtml = '';
       if (!t.recurRule) t.recurRule = '';
       t.archived = !!t.archived;
-      const subs = subStmt.all(t.id);
-      for (const s of subs) { s.done = !!s.done; if (!s.notes) s.notes = ''; }
-      t.subtasks = subs;
+      // 由扁平行按 parent_sub_id 重建嵌套树(补丁·57:支持子任务下再建子任务)
+      const flat = subStmt.all(t.id);
+      for (const s of flat) { s.done = !!s.done; if (!s.notes) s.notes = ''; s.subtasks = []; }
+      const byId = new Map(flat.map((s) => [s.id, s]));
+      const roots = [];
+      for (const s of flat) {
+        if (s.parentSubId && byId.has(s.parentSubId)) byId.get(s.parentSubId).subtasks.push(s);
+        else roots.push(s);
+      }
+      t.subtasks = roots;
     }
     d.todoEvents = conn.prepare(
       'SELECT id, date, type, calendar, title, note, created_at AS createdAt, updated_at AS updatedAt FROM todo_events ORDER BY date, created_at'
@@ -672,8 +682,15 @@ function writeDb(state) {
       'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     const insTodoSub = conn.prepare(
-      'INSERT INTO todo_subtasks(id, task_id, title, notes, done, done_at, sort, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO todo_subtasks(id, task_id, parent_sub_id, title, notes, done, done_at, sort, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
+    // 递归写入子任务(补丁·57:支持子任务下再建子任务的无限嵌套)
+    const writeSubs = (subs, taskId, parentSubId) => {
+      for (const s of (subs || [])) {
+        insTodoSub.run(s.id, taskId, parentSubId || null, s.title || '', s.notes || '', s.done ? 1 : 0, s.doneAt ?? null, s.sort || 0, s.createdAt || 0);
+        if (s.subtasks && s.subtasks.length) writeSubs(s.subtasks, taskId, s.id);
+      }
+    };
     for (const t of state.todoTasks || []) {
       insTodoTask.run(
         t.id, t.title || '', t.notes || '', t.notesHtml || '',
@@ -687,9 +704,7 @@ function writeDb(state) {
         t.projectId || '', t.parentTaskId || '', t.recurRule || '',
         t.archived ? 1 : 0, t.createdAt || 0, t.updatedAt || 0
       );
-      for (const s of (t.subtasks || [])) {
-        insTodoSub.run(s.id, t.id, s.title || '', s.notes || '', s.done ? 1 : 0, s.doneAt ?? null, s.sort || 0, s.createdAt || 0);
-      }
+      writeSubs(t.subtasks, t.id, null);
     }
     const insTodoEvent = conn.prepare(
       'INSERT INTO todo_events(id, date, type, calendar, title, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'

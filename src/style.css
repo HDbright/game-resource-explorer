@@ -2934,6 +2934,10 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 
 /* 看板 */
 .todo-kanban { display: flex; gap: 12px; height: 100%; overflow-x: auto; padding-bottom: 4px; }
+/* 看板层级树(补丁·57):与列表树一致的缩进 + L 形从属连线 */
+.todo-kanban-node { display: flex; flex-direction: column; gap: 2px; }
+.todo-kanban-node-row { position: relative; }
+.todo-kanban-children { display: flex; flex-direction: column; gap: 2px; }
 /* 三列均分容器宽度,随窗口缩放自适应;窗口过窄时保留最小宽度,横向滚动兜底 */
 .todo-kanban-col { flex: 1 1 0; min-width: 220px; display: flex; flex-direction: column; background: var(--bg2); border-radius: 10px; border: 1px solid var(--border); overflow: hidden; }
 .todo-kanban-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
@@ -3023,6 +3027,14 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .todo-sub-doneat:disabled { opacity: .4; cursor: not-allowed; }
 /* 子任务创建时间 */
 .todo-sub-created { flex-shrink: 0; font-size: 11px; color: var(--text2); white-space: nowrap; }
+/* 子任务递归树(补丁·57) */
+.todo-sub-tree { display: flex; flex-direction: column; gap: 2px; margin: 2px 0; }
+.todo-sub-node { border-radius: 4px; transition: background .12s, box-shadow .25s; }
+.todo-sub-node.drag-over { background: var(--bg3); box-shadow: inset 0 0 0 1px var(--accent); }
+.todo-sub-node.highlight { background: var(--bg3); box-shadow: inset 0 0 0 1px var(--accent); }
+.todo-sub-children { margin-left: 18px; padding-left: 6px; border-left: 1px dashed var(--border); }
+.todo-sub-status-select { font-size: 11px; height: 22px; padding: 0 2px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg); color: var(--text); cursor: pointer; }
+.todo-sub-addchild { color: var(--accent) !important; }
 
 /* 详情面板 */
 .todo-detail-title-wrap { display: flex; align-items: center; gap: 8px; min-width: 0; }

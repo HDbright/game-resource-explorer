@@ -215,6 +215,70 @@ const STATUS_CONFIG = {
 };
 function stLabel(s) { return T('st_' + s); }
 const STATUS_CYCLE = { todo: 'in_progress', in_progress: 'done', done: 'todo' };
+// 子任务状态(补丁·57):支持独立状态(待办/进行中/已完成) + 无限嵌套。
+// 旧数据可能只有 done 布尔,subStatus 统一映射;subDone 保持向后兼容。
+function subStatus(s) {
+  if (s && s.status && (s.status === 'todo' || s.status === 'in_progress' || s.status === 'done')) return s.status;
+  return (s && s.done) ? 'done' : 'todo';
+}
+function subDone(s) { return subStatus(s) === 'done'; }
+function subStatusIcon(s) { return STATUS_CONFIG[subStatus(s)].icon; }
+const SUB_STATUS_RANK = { todo: 0, in_progress: 1, done: 2 };
+const SUB_STATUS_NEXT = { todo: 'in_progress', in_progress: 'done', done: 'todo' };
+function countSubs(subs) {
+  let done = 0, total = 0;
+  const walk = (arr) => {
+    if (!Array.isArray(arr)) return;
+    for (const s of arr) {
+      if (!s || typeof s !== 'object') continue;
+      total++;
+      if (subDone(s)) done++;
+      walk(s.subtasks);
+    }
+  };
+  walk(subs);
+  return { done, total };
+}
+// 递归查找子任务(任意层级),返回 {sub, list, index, parent}
+function findSub(subs, id, parentList, parent) {
+  for (let i = 0; i < subs.length; i++) {
+    if (subs[i].id === id) return { sub: subs[i], list: parentList || subs, index: i, parent: parent || null };
+    const r = findSub(subs[i].subtasks || [], id, subs[i].subtasks, subs[i]);
+    if (r) return r;
+  }
+  return null;
+}
+// 收集子树所有 id(防环:判断 target 是否为某节点的后代)
+function collectSubIds(subs, out) {
+  if (!Array.isArray(subs)) return;
+  for (const s of subs) {
+    if (!s || typeof s !== 'object') continue;
+    out.push(s.id);
+    collectSubIds(s.subtasks, out);
+  }
+}
+// JSON 导入时递归映射子任务:旧 done 布尔 → status;保留嵌套 subtasks(补丁·57)
+function mapImportSub(s, j) {
+  const status = (s.status === 'todo' || s.status === 'in_progress' || s.status === 'done') ? s.status : (s.done ? 'done' : 'todo');
+  return {
+    id: uid('s'), title: (typeof s.title === 'string' && s.title.trim()) ? s.title.trim() : T('untitledStep'),
+    status, done: status === 'done', sort: j,
+    notes: typeof s.notes === 'string' ? s.notes : '',
+    doneAt: typeof s.doneAt === 'number' ? s.doneAt : (status === 'done' ? now() : null),
+    createdAt: now(),
+    subtasks: Array.isArray(s.subtasks) ? s.subtasks.filter((x) => x && typeof x === 'object').map((c, k) => mapImportSub(c, k)) : [],
+  };
+}
+// 列表/看板共用的缩进区从属连线(L 形:父列竖线 + 横向连接),depth>=1 才画(补丁·56/57)
+function treeGuideHTML(depth, isLast) {
+  if (depth < 1) return '';
+  const x = (depth - 1) * 18 + 9;
+  const vH = isLast ? 'calc(50% + 3px)' : 'calc(100% + 4px)';
+  return `<span class="todo-tree-guides" style="left:0;width:${depth * 18}px">` +
+    `<i class="todo-tree-line tl-v" style="left:${x}px;top:-2px;height:${vH}"></i>` +
+    `<i class="todo-tree-line tl-h" style="left:${x}px;top:50%;width:13px"></i>` +
+    `</span>`;
+}
 const PROJECT_COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f97316', '#f59e0b', '#22c55e', '#06b6d4', '#3b82f6'];
 const KANBAN_COLS = [
   { status: 'todo', color: '#6366f1' },
@@ -1058,6 +1122,60 @@ function moveTaskInKanban(dragId, colStatus, targetId, insertBefore) {
   render();
 }
 
+// 看板某列的任务森林(补丁·57):根是「状态匹配且父任务不在本列」的任务,
+// 子任务跟随父任务所在列嵌套显示(与列表树层级一致)。返回 [{task, children}]
+function kanbanColForest(status) {
+  const all = kanbanColTasks(status);
+  const inCol = new Set(all.map((t) => t.id));
+  const roots = all.filter((t) => {
+    const pid = t.parentTaskId || '';
+    if (!pid) return true;
+    const p = taskById(pid);
+    return !p || p.archived || (p.status !== status);
+  });
+  const byParent = new Map();
+  for (const t of all) {
+    const pid = t.parentTaskId || '';
+    if (pid && inCol.has(pid)) {
+      if (!byParent.has(pid)) byParent.set(pid, []);
+      byParent.get(pid).push(t);
+    }
+  }
+  const sortFn = (a, b) => ((a.sort ?? 0) - (b.sort ?? 0)) || ((a.createdAt || 0) - (b.createdAt || 0));
+  const build = (t) => ({ task: t, children: (byParent.get(t.id) || []).slice().sort(sortFn).map(build) });
+  return roots.slice().sort(sortFn).map(build);
+}
+// 看板卡片拖拽(改状态 / 列内排序),与列表树拖拽解耦(补丁·57)
+function attachKanbanCardDrag(card, task, col, board) {
+  card.addEventListener('dragstart', (e) => {
+    dragTaskId = task.id;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(task.id));
+    setTimeout(() => card.classList.add('dragging'), 0);
+  });
+  card.addEventListener('dragend', () => { dragTaskId = null; card.classList.remove('dragging'); clearKanbanDropMarks(board); });
+  card.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    if (dragTaskId === task.id) return;
+    const r = card.getBoundingClientRect();
+    const before = (e.clientY - r.top) < r.height / 2;
+    clearKanbanDropMarks(board);
+    card.classList.add(before ? 'todo-card-drop-before' : 'todo-card-drop-after');
+  });
+  card.addEventListener('dragleave', (e) => { if (!card.contains(e.relatedTarget)) card.classList.remove('todo-card-drop-before', 'todo-card-drop-after'); });
+  card.addEventListener('drop', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const before = card.classList.contains('todo-card-drop-before');
+    clearKanbanDropMarks(board);
+    const dragId = dragTaskId || Number(e.dataTransfer.getData('text/plain')) || null;
+    if (!dragId || dragId === task.id) return;
+    moveTaskInKanban(dragId, col.status, task.id, before);
+  });
+}
+
 function renderKanban() {
   const board = document.createElement('div');
   board.className = 'todo-kanban';
@@ -1093,48 +1211,32 @@ function renderKanban() {
       // 若 drop 落在卡片上,由卡片自身的 drop 处理(已 stopPropagation),这里只兜底空白区
       moveTaskInKanban(dragId, col.status, null, false);
     });
-    for (const task of tasks) {
+    // 按列构建任务森林(父/子层级 + 缩进 + L 形从属连线,与列表树一致),子任务跟随父任务列嵌套
+    const forest = kanbanColForest(col.status);
+    const renderNode = (node, depth, isLast) => {
+      const task = node.task;
+      const el = document.createElement('div');
+      el.className = 'todo-kanban-node';
+      const row = document.createElement('div');
+      row.className = 'todo-kanban-node-row';
+      row.style.position = 'relative';
+      row.style.paddingLeft = (depth * 18) + 'px';
+      if (depth >= 1) row.insertAdjacentHTML('afterbegin', treeGuideHTML(depth, isLast));
       const card = renderTaskCard(task, true, col.status);
       card.classList.add('todo-card-kanban-col', 'todo-card-col-' + col.status);
       card.draggable = true;
-      card.addEventListener('dragstart', (e) => {
-        dragTaskId = task.id;
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/plain', String(task.id));
-        setTimeout(() => card.classList.add('dragging'), 0);
-      });
-      card.addEventListener('dragend', () => {
-        dragTaskId = null;
-        card.classList.remove('dragging');
-        clearKanbanDropMarks(board);
-      });
-      // 卡片上悬停 → 按鼠标处于上/下半区决定插到前面还是后面,并画插入线
-      card.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-        if (dragTaskId === task.id) return;
-        const r = card.getBoundingClientRect();
-        const before = (e.clientY - r.top) < r.height / 2;
-        clearKanbanDropMarks(board);
-        card.classList.add(before ? 'todo-card-drop-before' : 'todo-card-drop-after');
-      });
-      card.addEventListener('dragleave', (e) => {
-        if (!card.contains(e.relatedTarget)) {
-          card.classList.remove('todo-card-drop-before', 'todo-card-drop-after');
-        }
-      });
-      card.addEventListener('drop', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const before = card.classList.contains('todo-card-drop-before');
-        clearKanbanDropMarks(board);
-        const dragId = dragTaskId || Number(e.dataTransfer.getData('text/plain')) || null;
-        if (!dragId || dragId === task.id) return;
-        moveTaskInKanban(dragId, col.status, task.id, before);
-      });
-      body.appendChild(card);
-    }
+      attachKanbanCardDrag(card, task, col, board);
+      row.appendChild(card);
+      el.appendChild(row);
+      if (node.children.length) {
+        const childWrap = document.createElement('div');
+        childWrap.className = 'todo-kanban-children';
+        node.children.forEach((c, i) => childWrap.appendChild(renderNode(c, depth + 1, i === node.children.length - 1)));
+        el.appendChild(childWrap);
+      }
+      return el;
+    };
+    forest.forEach((node, i) => body.appendChild(renderNode(node, 0, i === forest.length - 1)));
     if (!tasks.length) {
       const ph = document.createElement('div');
       ph.className = 'todo-kanban-placeholder';
@@ -1717,9 +1819,11 @@ function renderTaskCard(task, compact = false, colStatus = null) {
   const st = STATUS_CONFIG[task.status];
   const proj = task.projectId ? projectById(task.projectId) : null;
   const subs = task.subtasks || [];
-  const doneSubs = subs.filter((s) => s.done).length;
-  // 未完成在前、已完成置灰排在后面
-  const orderedSubs = [...subs].sort((a, b) => (a.done ? 1 : 0) - (b.done ? 1 : 0));
+  const subCount = countSubs(subs);
+  const doneSubs = subCount.done, totalSubs = subCount.total || 1;
+  // 状态排序:待办 → 进行中 → 已完成(已完成置灰排在后面)
+  const statusRank = (s) => SUB_STATUS_RANK[subStatus(s)] ?? 0;
+  const orderedSubs = [...subs].sort((a, b) => statusRank(a) - statusRank(b));
   const dl = deadlineInfo(task);
   const dateSuffix = cardStatusDate(task);
 
@@ -1744,20 +1848,16 @@ function renderTaskCard(task, compact = false, colStatus = null) {
       <div class="todo-card-subs">
         <button class="todo-sub-toggle" data-t="subtoggle" title="${T('toggleSubtasks')}">
           <span class="todo-sub-toggle-arrow">▾</span>
-          <span class="todo-sub-toggle-text">${T('subtasksPrefix', doneSubs, subs.length)}</span>
-          <span class="todo-sub-toggle-pct">${Math.round(doneSubs / subs.length * 100)}%</span>
+          <span class="todo-sub-toggle-text">${T('subtasksPrefix', doneSubs, totalSubs)}</span>
+          <span class="todo-sub-toggle-pct">${Math.round(doneSubs / totalSubs * 100)}%</span>
         </button>
         <div class="todo-card-sub-body">
           <div class="todo-card-sub-chips">
-            ${orderedSubs.map((s) => `
-              <span class="todo-sub-chip${s.done ? ' done' : ''}" data-t="sub" data-sub="${s.id}" title="${escHtml(s.title)}${s.notes ? '\n' + escHtml(s.notes) : ''}${s.doneAt ? '\n' + T('subDoneAt') + ' ' + fmtDateTime(s.doneAt) : ''}${s.createdAt ? '\n' + T('subCreatedOn', fmtFullDate(s.createdAt)) : ''}">
-                <span class="todo-sub-chip-icon">${s.done ? '✅' : '⬜'}</span><span class="todo-sub-chip-text">${escHtml(s.title)}</span>${s.done && s.doneAt ? `<span class="todo-sub-chip-date">${fmtShortDate(s.doneAt)}</span>` : ''}
-                <button class="todo-sub-chip-edit" data-t="subedit" data-sub="${s.id}" title="${T('editSubtask')}">✎</button>
-              </span>`).join('')}
+            ${renderSubChips(orderedSubs, 0)}
           </div>
           <div class="todo-card-sub-bar">
-            <div class="todo-card-sub-track"><div class="todo-card-sub-fill" style="width:${subs.length ? (doneSubs / subs.length) * 100 : 0}%"></div></div>
-            <span>${doneSubs}/${subs.length}</span>
+            <div class="todo-card-sub-track"><div class="todo-card-sub-fill" style="width:${totalSubs ? (doneSubs / totalSubs) * 100 : 0}%"></div></div>
+            <span>${doneSubs}/${totalSubs}</span>
           </div>
         </div>
       </div>`;
@@ -1899,6 +1999,49 @@ function renderTaskCard(task, compact = false, colStatus = null) {
   return card;
 }
 
+// 递归渲染子任务 chip(支持嵌套 + 状态图标),depth 用于缩进(补丁·57)
+function renderSubChips(subs, depth) {
+  if (!Array.isArray(subs) || !subs.length) return '';
+  return subs.map((s) => {
+    const st = subStatus(s);
+    const children = (s.subtasks && s.subtasks.length) ? renderSubChips(s.subtasks, depth + 1) : '';
+    const indent = depth > 0 ? ` style="margin-left:${depth * 16}px"` : '';
+    const datePart = s.doneAt ? `<span class="todo-sub-chip-date">${fmtShortDate(s.doneAt)}</span>` : '';
+    const titleTip = escHtml(s.title) + (s.notes ? '\n' + escHtml(s.notes) : '') + (s.doneAt ? '\n' + T('subDoneAt') + ' ' + fmtDateTime(s.doneAt) : '') + (s.createdAt ? '\n' + T('subCreatedOn', fmtFullDate(s.createdAt)) : '');
+    return `<span class="todo-sub-chip sub-status-${st}" data-t="sub" data-sub="${s.id}"${indent} title="${titleTip}">` +
+      `<span class="todo-sub-chip-icon">${subStatusIcon(s)}</span><span class="todo-sub-chip-text">${escHtml(s.title)}</span>${datePart}` +
+      `<button class="todo-sub-chip-edit" data-t="subedit" data-sub="${s.id}" title="${T('editSubtask')}">✎</button></span>${children}`;
+  }).join('');
+}
+
+// 详情面板递归渲染子任务(补丁·57)
+function renderDetailSubs(subs, depth) {
+  if (!Array.isArray(subs) || !subs.length) return '';
+  return subs.map((s) => {
+    const st = subStatus(s);
+    const indent = depth > 0 ? ` style="margin-left:${depth * 16}px"` : '';
+    const children = (s.subtasks && s.subtasks.length) ? renderDetailSubs(s.subtasks, depth + 1) : '';
+    return `<div class="todo-detail-sub"${indent}>` +
+      `<button class="todo-status-btn" data-act="sub" data-sub="${s.id}" style="border-color:${st === 'done' ? '#22c55e' : st === 'in_progress' ? 'var(--accent)' : 'var(--border)'};color:${st === 'done' ? '#22c55e' : st === 'in_progress' ? 'var(--accent)' : 'var(--text2)'}">${subStatusIcon(s)}</button>` +
+      `<span class="${st === 'done' ? 'done' : ''}">${escHtml(s.title)}</span>` +
+      (s.notes ? `<span class="todo-detail-sub-notes">📝 ${escHtml(s.notes)}</span>` : '') +
+      (s.doneAt ? `<span class="todo-detail-sub-date">${T('subDoneAt')} ${fmtDateTime(s.doneAt)}</span>` : '') +
+      `</div>${children}`;
+  }).join('');
+}
+// 复制文本用的子任务行(递归 + 状态标记)
+function subLines(subs, depth) {
+  if (!Array.isArray(subs) || !subs.length) return '';
+  const marker = { todo: '○', in_progress: '◐', done: '✓' };
+  let out = '';
+  for (const s of subs) {
+    const pad = '  '.repeat(depth + 1);
+    out += `\n${pad}${marker[subStatus(s)] || '○'} ${s.title}${s.doneAt ? ` (${fmtDateTime(s.doneAt)})` : ''}`;
+    out += subLines(s.subtasks, depth + 1);
+  }
+  return out;
+}
+
 function openDetail(id) { detailTaskId = id; render(); }
 
 function cycleStatus(task) {
@@ -1917,11 +2060,15 @@ function cyclePriority(task) {
   render();
 }
 async function toggleSubtask(task, subId) {
-  const s = (task.subtasks || []).find((x) => x.id === subId);
+  const found = findSub(task.subtasks || [], subId);
+  const s = found && found.sub;
   if (!s) return;
-  s.done = !s.done;
-  if (s.done && !s.doneAt) s.doneAt = now();
-  if (!s.done) s.doneAt = null;
+  // 循环切换三级状态:待办 → 进行中 → 已完成 → 待办(补丁·57)
+  const ns = SUB_STATUS_NEXT[subStatus(s)];
+  s.status = ns;
+  s.done = ns === 'done';
+  if (ns === 'done' && !s.doneAt) s.doneAt = now();
+  if (ns !== 'done') s.doneAt = null;
   saveState();
   render();
 }
@@ -1960,7 +2107,7 @@ function renderTaskModal() {
     <div class="todo-modal-head">
       <div class="todo-modal-tabs">
         <button class="todo-tab-btn on" data-tab="details">${T('tabDetails')}</button>
-        <button class="todo-tab-btn" data-tab="subtasks">${T('tabSubtasks')}${task && task.subtasks.length ? ` (${task.subtasks.filter((s) => s.done).length}/${task.subtasks.length})` : ''}</button>
+        <button class="todo-tab-btn" data-tab="subtasks">${T('tabSubtasks')}${task && task.subtasks.length ? ` (${countSubs(task.subtasks).done}/${countSubs(task.subtasks).total})` : ''}</button>
         <button class="todo-tab-btn" data-tab="events">${T('eventsTab')}${task && (task.events || []).length ? ` (${task.events.length})` : ''}</button>
       </div>
       <button class="todo-icon-btn" data-close title="${T('close')}">✕</button>
@@ -2068,15 +2215,15 @@ function renderTaskModal() {
         inp.value = '';
       }
     } else if (tab === 'subtasks') {
-      // 子任务 tab
-      const subs = draft.subtasks;
+      // 子任务 tab(补丁·57):递归树形,支持嵌套子任务 + 独立三级状态(待办/进行中/已完成)
+      const cc = countSubs(draft.subtasks);
       bodyEl.innerHTML = `
-        ${subs.length ? `
+        ${cc.total ? `
           <div class="todo-sub-progress">
-            <span>${T('progress')}</span><span>${subs.filter((s) => s.done).length}/${subs.length}</span>
-            <div class="todo-card-sub-track" style="flex:1;margin:0 8px"><div class="todo-card-sub-fill" style="width:${(subs.filter((s) => s.done).length / subs.length) * 100}%"></div></div>
-          </div>
-          <div class="todo-sub-list"></div>` : ''}
+            <span>${T('progress')}</span><span>${cc.done}/${cc.total}</span>
+            <div class="todo-card-sub-track" style="flex:1;margin:0 8px"><div class="todo-card-sub-fill" style="width:${cc.total ? (cc.done / cc.total) * 100 : 0}%"></div></div>
+          </div>` : ''}
+        <div class="todo-sub-tree"></div>
         <div class="todo-field" style="margin-top:8px">
           <div class="todo-tag-add">
             <input class="todo-input" data-sub-input placeholder="${T('addStepPh')}" style="flex:1">
@@ -2084,105 +2231,93 @@ function renderTaskModal() {
           </div>
           <input class="todo-input todo-sub-add-notes" data-sub-add-notes placeholder="${T('subNotesPh')}" style="margin-top:6px;width:100%">
         </div>`;
-      const listEl = bodyEl.querySelector('.todo-sub-list');
-      if (listEl) {
-        subs.forEach((s, idx) => {
-          const row = document.createElement('div');
-          row.className = 'todo-sub-row';
-          row.draggable = true;
-          // 两行布局:上行 拖拽/上下移/状态/标题/删除;下行 备注 + 完成日期(仅已完成可编辑)
-          row.innerHTML = `
-            <div class="todo-sub-row-top">
-              <span class="todo-sub-grip" title="${T('dragToReorder')}">⠿</span>
-              <div class="todo-sub-arrows">
-                <button data-sub-up="${idx}" title="${T('moveUp')}" ${idx === 0 ? 'disabled' : ''}>▲</button>
-                <button data-sub-down="${idx}" title="${T('moveDown')}" ${idx === subs.length - 1 ? 'disabled' : ''}>▼</button>
-              </div>
-              <button class="todo-status-btn" data-sub-toggle="${s.id}" style="border-color:${s.done ? '#22c55e' : 'var(--border)'};color:${s.done ? '#22c55e' : 'var(--text2)'}">${s.done ? '✅' : '⬜'}</button>
-              <span class="todo-sub-title${s.done ? ' done' : ''}" data-sub-rename="${s.id}" title="${T('doubleClickRename')}">${escHtml(s.title)}</span>
-              <button class="todo-icon-btn" data-sub-del="${s.id}" title="${T('del')}">✕</button>
-            </div>
-            <div class="todo-sub-row-bottom">
-              <input class="todo-input todo-sub-notes" data-sub-notes="${s.id}" placeholder="${T('subNotesPh')}" value="${escHtml(s.notes || '')}">
-              <label class="todo-sub-doneat-label" title="${s.done ? T('subDoneAtLabel') : T('subDoneAtDisabledTip')}">
-                <span>${T('subDoneAtLabel')}</span>
-                <input type="datetime-local" class="todo-input todo-sub-doneat" data-sub-doneat="${s.id}"
-                  value="${s.doneAt ? tsToDateTimeLocal(s.doneAt) : ''}" ${s.done ? '' : 'disabled'}>
-              </label>
-              <span class="todo-sub-created" title="${T('subCreatedOn', fmtFullDate(s.createdAt))}">🕓 ${T('subCreatedOn', fmtShortDate(s.createdAt))}</span>
-            </div>`;
-          if (modalHighlightSub && s.id === modalHighlightSub) row.classList.add('highlight');
-          row.addEventListener('dragstart', (e) => {
-            e.dataTransfer.effectAllowed = 'move';
-            e.dataTransfer.setData('text/plain', String(s.id));
-          });
-          row.addEventListener('dragover', (e) => { e.preventDefault(); row.classList.add('drag-over'); });
-          row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
-          row.addEventListener('drop', (e) => {
-            e.preventDefault();
-            row.classList.remove('drag-over');
-            const dragId = e.dataTransfer.getData('text/plain');
-            reorderSubtasks(dragId, s.id);
-          });
-          row.addEventListener('dragend', () => row.classList.remove('drag-over'));
-          listEl.appendChild(row);
+      const treeEl = bodyEl.querySelector('.todo-sub-tree');
+      function subtreeHTML(subs, depth) {
+        if (!Array.isArray(subs) || !subs.length) return '';
+        return subs.map((s, i) => {
+          const st = subStatus(s);
+          const hasKids = s.subtasks && s.subtasks.length;
+          const indent = depth > 0 ? ` style="margin-left:${depth * 18}px"` : '';
+          const statusOpts = Object.keys(STATUS_CONFIG).map((k) => `<option value="${k}"${st === k ? ' selected' : ''}>${stLabel(k)}</option>`).join('');
+          return `<div class="todo-sub-node${hasKids ? ' has-children' : ''}" data-sub-id="${s.id}"${indent}>` +
+            `<div class="todo-sub-row-top">` +
+              `<span class="todo-sub-grip" title="${T('dragToReorder')}">⠿</span>` +
+              `<div class="todo-sub-arrows">` +
+                `<button data-sub-up="${s.id}" title="${T('moveUp')}" ${i === 0 ? 'disabled' : ''}>▲</button>` +
+                `<button data-sub-down="${s.id}" title="${T('moveDown')}" ${i === subs.length - 1 ? 'disabled' : ''}>▼</button>` +
+              `</div>` +
+              `<select class="todo-sub-status-select" data-sub-status="${s.id}" title="${T('statusLabel')}">${statusOpts}</select>` +
+              `<span class="todo-sub-title${st === 'done' ? ' done' : ''}" data-sub-rename="${s.id}" title="${T('doubleClickRename')}">${escHtml(s.title)}</span>` +
+              `<button class="todo-icon-btn todo-sub-addchild" data-sub-addchild="${s.id}" title="${T('newSubtaskUnderTask')}">➕</button>` +
+              `<button class="todo-icon-btn" data-sub-del="${s.id}" title="${T('del')}">✕</button>` +
+            `</div>` +
+            `<div class="todo-sub-row-bottom">` +
+              `<input class="todo-input todo-sub-notes" data-sub-notes="${s.id}" placeholder="${T('subNotesPh')}" value="${escHtml(s.notes || '')}">` +
+              `<label class="todo-sub-doneat-label" title="${st === 'done' ? T('subDoneAtLabel') : T('subDoneAtDisabledTip')}">` +
+                `<span>${T('subDoneAtLabel')}</span>` +
+                `<input type="datetime-local" class="todo-input todo-sub-doneat" data-sub-doneat="${s.id}" value="${s.doneAt ? tsToDateTimeLocal(s.doneAt) : ''}" ${st === 'done' ? '' : 'disabled'}>` +
+              `</label>` +
+              `<span class="todo-sub-created" title="${T('subCreatedOn', fmtFullDate(s.createdAt))}">🕓 ${T('subCreatedOn', fmtShortDate(s.createdAt))}</span>` +
+            `</div>` +
+            (hasKids ? `<div class="todo-sub-children">${subtreeHTML(s.subtasks, depth + 1)}</div>` : '') +
+            `</div>`;
+        }).join('');
+      }
+      function attachTreeDnD() {
+        treeEl.querySelectorAll('.todo-sub-node').forEach((node) => {
+          node.setAttribute('draggable', 'true');
+          node.addEventListener('dragstart', (e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', node.dataset.subId); });
+          node.addEventListener('dragover', (e) => { e.preventDefault(); node.classList.add('drag-over'); });
+          node.addEventListener('dragleave', () => node.classList.remove('drag-over'));
+          node.addEventListener('drop', (e) => { e.preventDefault(); e.stopPropagation(); node.classList.remove('drag-over'); const dragId = e.dataTransfer.getData('text/plain'); reparentSubtask(dragId, node.dataset.subId); });
+          node.addEventListener('dragend', () => node.classList.remove('drag-over'));
         });
-        listEl.addEventListener('click', (e) => {
-          const up = e.target.closest('[data-sub-up]');
-          const down = e.target.closest('[data-sub-down]');
-          const tog = e.target.closest('[data-sub-toggle]');
-          const del = e.target.closest('[data-sub-del]');
-          if (up) moveSubtask(Number(up.dataset.subUp), -1);
-          else if (down) moveSubtask(Number(down.dataset.subDown), 1);
-          else if (tog) { const s = subs.find((x) => x.id === tog.dataset.subToggle); if (s) { s.done = !s.done; if (s.done && !s.doneAt) s.doneAt = now(); if (!s.done) s.doneAt = null; renderBody(); } }
-          else if (del) { const id = del.dataset.subDel; draft.subtasks = subs.filter((x) => x.id !== id); renderBody(); }
-        });
-        listEl.addEventListener('input', (e) => {
-          const ne = e.target.closest('[data-sub-notes]');
-          if (!ne) return;
-          const s = subs.find((x) => x.id === ne.dataset.subNotes);
-          if (s) s.notes = ne.value;
-        });
-        // 完成日期修改:datetime-local → 秒时间戳(与 now() 单位一致,见补丁·41)
-        listEl.addEventListener('change', (e) => {
-          const de = e.target.closest('[data-sub-doneat]');
-          if (!de) return;
-          const s = subs.find((x) => x.id === de.dataset.subDoneat);
-          if (!s) return;
-          s.doneAt = de.value ? dateTimeLocalToTs(de.value) : null;
-        });
-        // 高亮定位:悬停 ✎ / 右键编辑进来时滚动到该子任务并短暂高亮
-        if (modalHighlightSub) {
-          const hit = listEl.querySelector('.todo-sub-row.highlight');
-          if (hit) {
-            hit.scrollIntoView({ block: 'nearest' });
-            setTimeout(() => hit.classList.remove('highlight'), 2000);
-          }
-          modalHighlightSub = '';
-        }
-        listEl.addEventListener('dblclick', (e) => {
-          const sp = e.target.closest('[data-sub-rename]');
-          if (!sp) return;
-          const id = sp.dataset.subRename;
-          const s = subs.find((x) => x.id === id);
-          if (!s) return;
-          const input = document.createElement('input');
-          input.className = 'todo-input';
-          input.value = s.title;
-          sp.replaceWith(input);
-          input.focus();
-          input.select();
-          const commit = () => {
-            const v = input.value.trim();
-            if (v && v !== s.title) { s.title = v; }
-            renderBody();
-          };
-          input.addEventListener('blur', commit);
-          input.addEventListener('keydown', (ev) => {
-            if (ev.key === 'Enter') commit();
-            if (ev.key === 'Escape') renderBody();
-          });
-        });
+      }
+      treeEl.innerHTML = subtreeHTML(draft.subtasks, 0);
+      attachTreeDnD();
+      // 点击委托:同级上下移 / 加子任务 / 删除
+      treeEl.addEventListener('click', (e) => {
+        const up = e.target.closest('[data-sub-up]');
+        const down = e.target.closest('[data-sub-down]');
+        const addc = e.target.closest('[data-sub-addchild]');
+        const del = e.target.closest('[data-sub-del]');
+        if (up) moveSubtask(up.dataset.subUp, -1);
+        else if (down) moveSubtask(down.dataset.subDown, 1);
+        else if (addc) addChildSub(addc.dataset.subAddchild);
+        else if (del) { const f = findSub(draft.subtasks, del.dataset.subDel); if (f) { f.list.splice(f.index, 1); renderBody(); } }
+      });
+      // 状态选择 / 完成日期
+      treeEl.addEventListener('change', (e) => {
+        const se = e.target.closest('[data-sub-status]');
+        const de = e.target.closest('[data-sub-doneat]');
+        if (se) { const f = findSub(draft.subtasks, se.dataset.subStatus); if (f) { const ns = se.value; f.sub.status = ns; f.sub.done = ns === 'done'; if (ns === 'done' && !f.sub.doneAt) f.sub.doneAt = now(); if (ns !== 'done') f.sub.doneAt = null; renderBody(); } }
+        else if (de) { const f = findSub(draft.subtasks, de.dataset.subDoneat); if (f) f.sub.doneAt = de.value ? dateTimeLocalToTs(de.value) : null; }
+      });
+      treeEl.addEventListener('input', (e) => {
+        const ne = e.target.closest('[data-sub-notes]');
+        if (!ne) return;
+        const f = findSub(draft.subtasks, ne.dataset.subNotes);
+        if (f) f.sub.notes = ne.value;
+      });
+      treeEl.addEventListener('dblclick', (e) => {
+        const sp = e.target.closest('[data-sub-rename]');
+        if (!sp) return;
+        const f = findSub(draft.subtasks, sp.dataset.subRename);
+        if (!f) return;
+        const input = document.createElement('input');
+        input.className = 'todo-input';
+        input.value = f.sub.title;
+        sp.replaceWith(input);
+        input.focus(); input.select();
+        const commit = () => { const v = input.value.trim(); if (v && v !== f.sub.title) f.sub.title = v; renderBody(); };
+        input.addEventListener('blur', commit);
+        input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') commit(); if (ev.key === 'Escape') renderBody(); });
+      });
+      // 高亮定位:悬停 ✎ / 右键编辑进来时滚动到该子任务并短暂高亮
+      if (modalHighlightSub) {
+        const hit = treeEl.querySelector('.todo-sub-node[data-sub-id="' + modalHighlightSub + '"]');
+        if (hit) { hit.classList.add('highlight'); hit.scrollIntoView({ block: 'nearest' }); setTimeout(() => hit.classList.remove('highlight'), 2000); }
+        modalHighlightSub = '';
       }
       bodyEl.querySelector('[data-add-sub]').addEventListener('click', addSubFromInput);
       bodyEl.querySelector('[data-sub-input]').addEventListener('keydown', (e) => { if (e.key === 'Enter') addSubFromInput(); });
@@ -2192,9 +2327,16 @@ function renderTaskModal() {
         if (!v) return;
         const nInp = bodyEl.querySelector('[data-sub-add-notes]');
         const notes = nInp ? nInp.value.trim() : '';
-        draft.subtasks.push({ id: uid('s'), title: v, done: false, sort: draft.subtasks.length, notes, doneAt: null, createdAt: now() });
+        draft.subtasks.push({ id: uid('s'), title: v, status: 'todo', done: false, sort: draft.subtasks.length, notes, doneAt: null, createdAt: now(), subtasks: [] });
         inp.value = '';
         if (nInp) nInp.value = '';
+        renderBody();
+      }
+      function addChildSub(parentId) {
+        const f = findSub(draft.subtasks, parentId);
+        if (!f) return;
+        if (!Array.isArray(f.sub.subtasks)) f.sub.subtasks = [];
+        f.sub.subtasks.push({ id: uid('s'), title: '新子任务', status: 'todo', done: false, sort: f.sub.subtasks.length, notes: '', doneAt: null, createdAt: now(), subtasks: [] });
         renderBody();
       }
     } else if (tab === 'events') {
@@ -2237,23 +2379,29 @@ function renderTaskModal() {
       });
     }
   }
-  function reorderSubtasks(dragId, targetId) {
-    const subs = draft.subtasks;
-    const fromIdx = subs.findIndex((x) => x.id === dragId);
-    const toIdx = subs.findIndex((x) => x.id === targetId);
-    if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return;
-    const reordered = [...subs];
-    const [moved] = reordered.splice(fromIdx, 1);
-    reordered.splice(toIdx, 0, moved);
-    reordered.forEach((x, i) => { x.sort = i; });
+  // 把 dragId 拖到 targetId 下成为其子节点(补丁·57:支持子任务嵌套);防环:target 不能是 drag 的后代
+  function reparentSubtask(dragId, targetId) {
+    if (dragId === targetId) return;
+    const df = findSub(draft.subtasks, dragId);
+    const tf = findSub(draft.subtasks, targetId);
+    if (!df || !tf) return;
+    const ids = [];
+    collectSubIds(df.sub.subtasks, ids);
+    if (ids.includes(targetId)) return; // 不能拖到自己的后代下
+    const moved = df.list.splice(df.index, 1)[0];
+    if (!Array.isArray(tf.sub.subtasks)) tf.sub.subtasks = [];
+    tf.sub.subtasks.push(moved);
+    moved.sort = tf.sub.subtasks.length - 1;
     renderBody();
   }
-  function moveSubtask(idx, delta) {
-    const subs = draft.subtasks;
-    const to = idx + delta;
-    if (to < 0 || to >= subs.length) return;
-    [subs[idx], subs[to]] = [subs[to], subs[idx]];
-    subs.forEach((x, i) => { x.sort = i; });
+  // 同级上下移(补丁·57:通过 findSub 定位其所属兄弟列表,支持任意层级)
+  function moveSubtask(id, delta) {
+    const f = findSub(draft.subtasks, id);
+    if (!f) return;
+    const list = f.list, idx = f.index, to = idx + delta;
+    if (to < 0 || to >= list.length) return;
+    [list[idx], list[to]] = [list[to], list[idx]];
+    list.forEach((x, i) => { x.sort = i; });
     renderBody();
   }
 
@@ -2317,7 +2465,8 @@ function renderDetailPanel() {
   const st = STATUS_CONFIG[task.status];
   const proj = task.projectId ? projectById(task.projectId) : null;
   const subs = task.subtasks || [];
-  const doneSubs = subs.filter((s) => s.done).length;
+  const subCount = countSubs(subs);
+  const doneSubs = subCount.done, totalSubs = subCount.total || 1;
   const dl = deadlineInfo(task);
 
   box.innerHTML = `
@@ -2371,15 +2520,9 @@ function renderDetailPanel() {
         </div>` : ''}
       ${subs.length ? `
         <div class="todo-detail-section">
-          <div class="todo-detail-label" style="display:flex;justify-content:space-between">${T('tabSubtasks')} <span>${doneSubs}/${subs.length}</span></div>
-          <div class="todo-card-sub-track" style="margin:6px 0 8px"><div class="todo-card-sub-fill" style="width:${(doneSubs / subs.length) * 100}%"></div></div>
-          ${subs.map((s) => `
-            <div class="todo-detail-sub">
-              <button class="todo-status-btn" data-act="sub" data-sub="${s.id}" style="border-color:${s.done ? '#22c55e' : 'var(--border)'};color:${s.done ? '#22c55e' : 'var(--text2)'}">${s.done ? '✅' : '⬜'}</button>
-              <span class="${s.done ? 'done' : ''}">${escHtml(s.title)}</span>
-              ${s.notes ? `<span class="todo-detail-sub-notes">📝 ${escHtml(s.notes)}</span>` : ''}
-              ${s.doneAt ? `<span class="todo-detail-sub-date">${T('subDoneAt')} ${fmtDateTime(s.doneAt)}</span>` : ''}
-            </div>`).join('')}
+          <div class="todo-detail-label" style="display:flex;justify-content:space-between">${T('tabSubtasks')} <span>${doneSubs}/${totalSubs}</span></div>
+          <div class="todo-card-sub-track" style="margin:6px 0 8px"><div class="todo-card-sub-fill" style="width:${(doneSubs / totalSubs) * 100}%"></div></div>
+          ${renderDetailSubs(subs, 0)}
         </div>` : ''}
       ${(task.events || []).length ? `
         <div class="todo-detail-section">
@@ -2412,7 +2555,7 @@ function renderDetailPanel() {
         task.completeAt ? `🏁 ${T('completeAtLabel')}: ${fmtDateTime(task.completeAt)}` : null,
         task.tags.length ? T('tagsPrefix', task.tags.join(', ')) : null,
         task.notes ? `\n${task.notes}` : null,
-        subs.length ? `\n${T('subtasksPrefix', doneSubs, subs.length)}\n${subs.map((s) => `  ${s.done ? '✓' : '○'} ${s.title}${s.doneAt ? ` (${fmtDateTime(s.doneAt)})` : ''}`).join('\n')}` : null,
+        subs.length ? `${T('subtasksPrefix', doneSubs, totalSubs)}${subLines(subs, 0)}` : null,
         (task.events || []).length ? `\n${T('eventsSection')}:\n${[...task.events].sort((a, b) => (a.at || 0) - (b.at || 0)).map((ev) => `  ${fmtDateTime(ev.at)} ${ev.text || ''}`).join('\n')}` : null,
       ].filter(Boolean).join('\n');
       navigator.clipboard.writeText(lines).then(() => toast(T('copied'), 'ok')).catch(() => toast(T('copyFailed'), 'warn'));
@@ -2672,7 +2815,12 @@ async function exportTasks(type) {
         t.startAt ? tsToDateTimeLocal(t.startAt) : '',
         t.completeAt ? tsToDateTimeLocal(t.completeAt) : '',
         csv(t.tags.join(', ')), csv(proj),
-        csv((t.subtasks || []).map((s) => `${s.done ? '[x]' : '[ ]'} ${s.title}${s.doneAt ? ` @${fmtDateTime(s.doneAt)}` : ''}`).join('; ')),
+        // 子任务导出(补丁·57):递归扁平化,按层级缩进 + 状态标记 [ ]/[~]/[x]
+        (function () {
+          const flat = [];
+          (function walk(arr, d) { for (const s of (arr || [])) { flat.push({ d, s }); walk(s.subtasks, d + 1); } })(t.subtasks, 0);
+          return csv(flat.map(({ d, s }) => `${'  '.repeat(d)}${subStatus(s) === 'done' ? '[x]' : subStatus(s) === 'in_progress' ? '[~]' : '[ ]'} ${s.title}${s.doneAt ? ` @${fmtDateTime(s.doneAt)}` : ''}`).join('; '));
+        })(),
         t.createdAt ? tsToDateInput(t.createdAt) : '',
       ].join(',');
     });
@@ -2773,12 +2921,8 @@ async function importTasks() {
       notesHtml: typeof t.notesHtml === 'string' ? t.notesHtml : (typeof t.notes_html === 'string' ? t.notes_html : (typeof t.notes === 'string' ? t.notes : '')),
       priority, status, deadline, startAt, completeAt, events, reminderAt: null,
       sort: baseSort + i, tags, projectId, recurRule: '', archived: false,
-      subtasks: rawSubs.map((s, j) => ({
-        id: uid('s'), taskId, title: (typeof s.title === 'string' && s.title.trim()) ? s.title.trim() : T('untitledStep'),
-        done: !!s.done, sort: j, createdAt: now(),
-        notes: typeof s.notes === 'string' ? s.notes : '',
-        doneAt: typeof s.doneAt === 'number' ? s.doneAt : (s.done ? now() : null),
-      })),
+      // 子任务导入(补丁·57):映射 status(旧 done→status) + 递归嵌套
+      subtasks: rawSubs.map((s, j) => mapImportSub(s, j)),
       createdAt: now(), updatedAt: now(),
     });
     subCount += rawSubs.length;
