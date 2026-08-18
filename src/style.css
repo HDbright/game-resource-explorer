@@ -2857,7 +2857,7 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .todo-icon-btn { width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; font-size: 13px; cursor: pointer; background: var(--bg4); border: 1px solid var(--border); color: var(--text2); padding: 0; }
 .todo-icon-btn:hover { background: var(--bg); color: var(--text); }
 .todo-icon-btn.danger { color: #ef4444; }
-.todo-card-menu { position: absolute; top: calc(100% - 6px); right: 8px; z-index: 9999; min-width: 120px; padding: 4px; background: var(--bg3); border: 1px solid var(--border); border-radius: 7px; box-shadow: 0 4px 14px rgba(0,0,0,.45); }
+.todo-card-menu { position: fixed; z-index: 9999; min-width: 120px; padding: 4px; background: var(--bg3); border: 1px solid var(--border); border-radius: 7px; box-shadow: 0 4px 14px rgba(0,0,0,.45); }
 .todo-card-menu button { display: block; width: 100%; padding: 6px 10px; text-align: left; background: none; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; color: var(--text); }
 .todo-card-menu button:hover { background: var(--bg4); }
 .todo-card-menu button.danger { color: #ef4444; }

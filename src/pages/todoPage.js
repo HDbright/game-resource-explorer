@@ -1365,9 +1365,9 @@ function renderTaskCard(task, compact = false, colStatus = null) {
     document.removeEventListener('click', closeSubMenu, true);
   }
 
-  // 右键/⋮ 菜单(编辑/归档/删除)
+  // 右键/⋮ 菜单(编辑/归档/删除) — 跟随触发位置弹出
   let menuEl = null;
-  function openCardMenu() {
+  function openCardMenu(atX, atY) {
     if (menuEl) { menuEl.remove(); menuEl = null; return; }
     menuEl = document.createElement('div');
     menuEl.className = 'todo-card-menu';
@@ -1375,6 +1375,14 @@ function renderTaskCard(task, compact = false, colStatus = null) {
       <button data-m="edit">${T('edit')}</button>
       <button data-m="archive">${T('archive')}</button>
       <button data-m="delete" class="danger">${T('delete')}</button>`;
+    document.body.appendChild(menuEl);
+    // 定位:紧挨触发点,默认向下向右;视口越界自动反向/钳制
+    const m = menuEl.getBoundingClientRect();
+    let lx = atX, ty = atY;
+    if (lx + m.width > window.innerWidth - 8) lx = Math.max(8, window.innerWidth - m.width - 8);
+    if (ty + m.height > window.innerHeight - 8) ty = Math.max(8, atY - m.height);
+    menuEl.style.left = lx + 'px';
+    menuEl.style.top = ty + 'px';
     menuEl.addEventListener('click', (ev) => {
       const mb = ev.target.closest('[data-m]');
       if (!mb) return;
@@ -1384,10 +1392,9 @@ function renderTaskCard(task, compact = false, colStatus = null) {
       if (m === 'edit') { taskModalOpen = true; modalTaskId = task.id; render(); }
       else if (m === 'archive') { task.archived = true; task.updatedAt = now(); saveState(); render(); }
       else if (m === 'delete') {
-        confirmDialog({ title: T('deleteTaskTitle'), message: T('deleteTaskMsg', task.title), okText: T('delete'), danger: true, onOk: () => { removeTask(task.id); render(); } });
+        confirmDialog({ title: T('deleteTaskTitle'), message: T('deleteTaskMsg', task.title), okText: T('del'), danger: true, onOk: () => { removeTask(task.id); render(); } });
       }
     });
-    card.appendChild(menuEl);
     setTimeout(() => document.addEventListener('click', closeMenuOutside, true), 0);
   }
   function closeMenuOutside(e) {
@@ -1398,7 +1405,7 @@ function renderTaskCard(task, compact = false, colStatus = null) {
   }
   card.addEventListener('contextmenu', (e) => {
     e.preventDefault();
-    openCardMenu();
+    openCardMenu(e.clientX, e.clientY);
   });
   card.addEventListener('click', (e) => {
     const b = e.target.closest('[data-t]');
@@ -1410,7 +1417,11 @@ function renderTaskCard(task, compact = false, colStatus = null) {
     else if (t === 'sub') { toggleSubtask(task, b.dataset.sub); }
     else if (t === 'subtoggle') { toggleSubtasksCollapse(task, b); }
     else if (t === 'edit') { taskModalOpen = true; modalTaskId = task.id; render(); }
-    else if (t === 'menu') { openCardMenu(); }
+    else if (t === 'menu') {
+      // ⋮ 按钮:菜单出现在按钮左下方(贴近按钮)
+      const r = b.getBoundingClientRect();
+      openCardMenu(r.left, r.bottom + 2);
+    }
   });
   return card;
 }
