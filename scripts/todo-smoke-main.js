@@ -799,7 +799,7 @@ app.whenReady().then(async () => {
         const out = {};
         const overlay = document.querySelector('.todo-overlay');
         const modal = overlay ? overlay.querySelector('.todo-modal') : null;
-        out.modalOpened = !!modal && /管理项目/.test(modal.textContent || '');
+        out.modalOpened = !!modal && /项目管理/.test(modal.textContent || '');
         // 初次叠加的 overlay 数(后续点击删除不应再叠)
         out.overlaysBefore = document.querySelectorAll('.todo-overlay').length;
         out.rowsBefore = document.querySelectorAll('.todo-proj-row').length;
@@ -838,6 +838,47 @@ app.whenReady().then(async () => {
       check('管理项目:点 × 后行内出现 ✓删除 / 取消 按钮', o.inlineConfirmShown === true);
       check('管理项目:确认后行数 -1', o.rowsAfter === o.rowsBefore - 1, 'before=' + o.rowsBefore + ' after=' + o.rowsAfter + ' name=' + o.firstName);
       check('管理项目:重名拒绝(行数不变)', o.rowsAfterDup === o.rowsAfter, 'after=' + o.rowsAfter + ' dup=' + o.rowsAfterDup);
+
+      // 7.c) 项目管理(补丁·50):点名称 → 编辑面板(名称/备注/创建/截止/完成) → 保存落库
+      o = await js('projectEdit', `(async () => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        document.querySelectorAll('.todo-overlay').forEach((el) => el.remove());
+        document.querySelector('[data-action="projects"]').click(); await sleep(250);
+        const out = {};
+        const pRow = [...document.querySelectorAll('.todo-proj-row')].find((r) => {
+          const n = r.querySelector('.todo-proj-name');
+          return n && /游戏开发/.test(n.textContent || '');
+        });
+        out.rowFound = !!pRow;
+        const nameSpan = pRow ? pRow.querySelector('[data-edit]') : null;
+        if (nameSpan) { nameSpan.click(); await sleep(200); }
+        out.panelOpened = !!document.querySelector('.todo-proj-edit');
+        out.hasNotes = !!document.querySelector('.todo-proj-edit-notes');
+        out.hasCreated = !!document.querySelector('.todo-proj-edit-created');
+        out.hasDeadline = !!document.querySelector('.todo-proj-edit-deadline');
+        out.hasComplete = !!document.querySelector('.todo-proj-edit-complete');
+        const nm = document.querySelector('.todo-proj-edit-name');
+        const nt = document.querySelector('.todo-proj-edit-notes');
+        const dl = document.querySelector('.todo-proj-edit-deadline');
+        const cp = document.querySelector('.todo-proj-edit-complete');
+        if (nm) { nm.value = '游戏开发(改)'; nm.dispatchEvent(new Event('input', { bubbles: true })); }
+        if (nt) { nt.value = '测试备注内容'; nt.dispatchEvent(new Event('input', { bubbles: true })); }
+        if (dl) { dl.value = '2030-01-01T09:00'; dl.dispatchEvent(new Event('input', { bubbles: true })); }
+        if (cp) { cp.value = '2030-02-02T10:00'; cp.dispatchEvent(new Event('input', { bubbles: true })); }
+        const saveBtn = document.querySelector('[data-proj-save]');
+        if (saveBtn) { saveBtn.click(); await sleep(250); }
+        const renamedRow = [...document.querySelectorAll('.todo-proj-row')].find((r) => {
+          const n = r.querySelector('.todo-proj-name');
+          return n && (n.textContent || '').includes('游戏开发(改)');
+        });
+        out.renamedShown = !!renamedRow;
+        const closeBtn = document.querySelector('[data-close]');
+        if (closeBtn) { closeBtn.click(); await sleep(150); }
+        return out;
+      })()`);
+      check('项目管理(补丁·50):点名称打开编辑面板', o.panelOpened === true);
+      check('项目管理(补丁·50):编辑面板含 备注/创建/截止/完成 字段', o.hasNotes && o.hasCreated && o.hasDeadline && o.hasComplete, 'notes=' + o.hasNotes + ' created=' + o.hasCreated + ' deadline=' + o.hasDeadline + ' complete=' + o.hasComplete);
+      check('项目管理(补丁·50):保存后显示改名结果', o.renamedShown === true);
 
       // 7) 列表视图 + 归档
       o = await js('archive', `(async () => {
@@ -913,6 +954,12 @@ app.whenReady().then(async () => {
       check('持久化:看板拖拽后不再位列本列首位', doneCol.length < 2 || doneCol[0].id !== TASK_B,
         'col=' + JSON.stringify(doneCol.slice(0, 2).map((t) => t.id + '@' + t.sort)));
       check('持久化:项目保留', d.todoProjects.some((p) => p.id === PROJ_ID) === true);
+      // 补丁·50:项目 备注 / 截止 / 完成 时间 字段必须落库(旧库无列会静默丢)
+      const proj50 = d.todoProjects.find((p) => p.id === PROJ_ID);
+      check('持久化:项目 备注 落库', !!proj50 && proj50.notes === '测试备注内容', 'notes=' + (proj50 && proj50.notes));
+      check('持久化:项目 截止时间 落库(秒)', !!proj50 && typeof proj50.deadline === 'number' && proj50.deadline > 1e9, 'deadline=' + (proj50 && proj50.deadline));
+      check('持久化:项目 完成时间 落库(秒)', !!proj50 && typeof proj50.completeAt === 'number' && proj50.completeAt > 1e9, 'completeAt=' + (proj50 && proj50.completeAt));
+      check('持久化:项目 改名 落库', !!proj50 && proj50.name === '游戏开发(改)', 'name=' + (proj50 && proj50.name));
       check('持久化:新任务落库', d.todoTasks.some((t) => t.title === '冒烟测试任务') === true);
       check('持久化:导入任务落库', d.todoTasks.some((t) => t.title === '导入任务A') === true && d.todoTasks.some((t) => t.title === '导入任务B') === true);
       const impProj = d.todoProjects.find((p) => p.name === '导入项目');

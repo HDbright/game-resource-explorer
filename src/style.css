@@ -2810,7 +2810,19 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .todo-stat-todo i { background: #6366f1; }
 .todo-stat-prog i { background: #f59e0b; }
 .todo-stat-done i { background: #22c55e; }
-.todo-proj-edit { display: flex; align-items: center; gap: 6px; padding: 4px 0; }
+/* 项目编辑面板(整行展开为表单) */
+.todo-proj-edit { display: flex; flex-direction: column; gap: 6px; padding: 8px 6px; background: var(--bg2); border: 1px solid var(--accent); border-radius: var(--radius); margin: 4px 0; }
+.todo-proj-edit-row { display: flex; flex-direction: column; gap: 2px; }
+.todo-proj-edit-row .todo-label { font-size: 11px; color: var(--text2); font-weight: 600; }
+.todo-proj-edit textarea.todo-input { resize: vertical; min-height: 38px; font-family: inherit; }
+.todo-proj-edit-grid { display: flex; gap: 8px; }
+.todo-proj-edit-grid .todo-proj-edit-row { flex: 1; min-width: 0; }
+.todo-proj-edit-grid .todo-input { width: 100%; }
+.todo-proj-edit-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 2px; }
+/* 项目状态标记:完成 ✅ / 逾期 ⏰ */
+.todo-proj-mark { font-size: 12px; line-height: 1; flex-shrink: 0; }
+.todo-proj-mark.overdue { filter: grayscale(0); }
+.todo-proj-row .todo-proj-mark { margin-right: 2px; }
 
 .todo-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 200px; gap: 6px; color: var(--text2); }
 .todo-empty-ico { font-size: 40px; opacity: .5; }

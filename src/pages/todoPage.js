@@ -15,7 +15,7 @@ const LANGS = {
     // 头部
     title: 'Todo-List 任务管理', completed: '已完成 {0}/{1}',
     viewList: '列表', viewKanban: '看板', viewCalendar: '日历', listView: '列表视图', kanbanView: '看板视图', calendarView: '日历视图',
-    projects: '项目', manageProjectsTitle: '管理项目', archive: '归档', archiveTitle: '查看归档任务',
+    projects: '项目', manageProjectsTitle: '项目管理', archive: '归档', archiveTitle: '查看归档任务',
     exportBtn: '导出', exportTitle: '导出', importBtn: '导入', importTitle: '从 JSON 文件导入任务',
     newTask: '新建任务', newTaskTitle: '新建任务', csvFile: 'CSV 文件', jsonFile: 'JSON 文件',
     langBtn: 'EN', langTitle: '切换界面语言(中/EN)',
@@ -75,7 +75,7 @@ const LANGS = {
     deadlinePrefix: '截止:{0}', tagsPrefix: '标签:{0}', subtasksPrefix: '子任务({0}/{1}):',
     today: '今天', tomorrow: '明天',
     // 项目
-    manageProjects: '管理项目', noProjectsYet: '还没有项目,在下面创建一个吧',
+    manageProjects: '项目管理', noProjectsYet: '还没有项目,在下面创建一个吧',
     newProject: '新建项目', projectNamePh: '项目名称', addProject: '+ 添加项目',
     projectNameRequired: '请输入项目名称', projectNameDuplicate: '项目名称「{0}」已存在',
     taskCount: '{0} 个任务',
@@ -83,6 +83,9 @@ const LANGS = {
     delProjectTitleTip: '删除项目(任务保留,变为无项目)',
     deleteProjectInline: '确定删除项目「{0}」?项目下任务会保留并变为「无项目」。',
     confirmDelete: '✓ 删除', cancelDelete: '取消',
+    projectNameLabel: '项目名称', projectNotesLabel: '项目备注', projectNotesPh: '项目补充说明…',
+    projectCreatedAtLabel: '创建时间', projectDeadlineLabel: '截止时间', projectCompleteAtLabel: '完成时间',
+    saveProject: '保存', projectOverdueTip: '已逾期', projectDoneTip: '已完成', projectOverdue: '已逾期', projectDone: '已完成',
     // 归档
     archivedTasks: '📦 归档任务', noArchived: '没有归档任务',
     noArchivedDesc: '归档的任务会出现在这里,可随时恢复或永久删除',
@@ -107,7 +110,7 @@ const LANGS = {
   en: {
     title: 'Todo-List Task Manager', completed: 'Completed {0}/{1}',
     viewList: 'List', viewKanban: 'Board', listView: 'List view', kanbanView: 'Board view',
-    projects: 'Projects', manageProjectsTitle: 'Manage Projects', archive: 'Archive', archiveTitle: 'View archived tasks',
+    projects: 'Projects', manageProjectsTitle: 'Project Management', archive: 'Archive', archiveTitle: 'View archived tasks',
     exportBtn: 'Export', exportTitle: 'Export', importBtn: 'Import', importTitle: 'Import tasks from JSON',
     newTask: 'New Task', newTaskTitle: 'New Task', csvFile: 'CSV File', jsonFile: 'JSON File',
     langBtn: '中', langTitle: 'Switch UI language (中/EN)',
@@ -158,7 +161,7 @@ const LANGS = {
     taskNotFound: 'Task not found', priPrefix: 'Priority:{0} | Status:{1}', projectPrefix: 'Project:{0}',
     deadlinePrefix: 'Deadline:{0}', tagsPrefix: 'Tags:{0}', subtasksPrefix: 'Subtasks ({0}/{1}):',
     today: 'Today', tomorrow: 'Tomorrow',
-    manageProjects: 'Manage Projects', noProjectsYet: 'No projects yet — create one below',
+    manageProjects: 'Project Management', noProjectsYet: 'No projects yet — create one below',
     newProject: 'New Project', projectNamePh: 'Project name', addProject: '+ Add Project',
     projectNameRequired: 'Please enter a project name', projectNameDuplicate: 'Project name "{0}" already exists',
     taskCount: '{0} tasks',
@@ -166,6 +169,9 @@ const LANGS = {
     delProjectTitleTip: 'Delete project (tasks kept, become No Project)',
     deleteProjectInline: 'Delete project "{0}"? Its tasks will be kept and become "No Project".',
     confirmDelete: '✓ Delete', cancelDelete: 'Cancel',
+    projectNameLabel: 'Name', projectNotesLabel: 'Notes', projectNotesPh: 'Project details…',
+    projectCreatedAtLabel: 'Created', projectDeadlineLabel: 'Deadline', projectCompleteAtLabel: 'Completed',
+    saveProject: 'Save', projectOverdueTip: 'Overdue', projectDoneTip: 'Completed', projectOverdue: 'Overdue', projectDone: 'Completed',
     archivedTasks: '📦 Archived Tasks', noArchived: 'No archived tasks',
     noArchivedDesc: 'Archived tasks appear here. You can restore or delete them anytime.',
     restore: 'Restore', restoreTitle: 'Restore task', deleteForever: 'Delete permanently',
@@ -812,6 +818,13 @@ function renderTreeNode(node, depth) {
     name.className = 'todo-proj-name';
     name.textContent = node.name;
     row.appendChild(name);
+    // 项目状态标记:完成 ✅ / 逾期 ⏰(无项目伪节点不显示)
+    if (node.kind === 'proj' && node.id !== '__none__') {
+      let markHTML = '';
+      if (node.completeAt > 0) markHTML = `<span class="todo-proj-mark done" title="${T('projectDoneTip')}">✅</span>`;
+      else if (node.deadline > 0 && node.deadline < now()) markHTML = `<span class="todo-proj-mark overdue" title="${T('projectOverdueTip')}">⏰</span>`;
+      if (markHTML) row.insertAdjacentHTML('beforeend', markHTML);
+    }
     row.insertAdjacentHTML('beforeend', statusBadgeHTML(nodeStatusCounts(node)));
     row.addEventListener('click', () => { if (hasChildren) toggleNode(node.id); });
     // 拖到项目行 → 归该项目顶级
@@ -2319,6 +2332,7 @@ ${state.todoProjects.length ? state.todoProjects.map((p) => `
           <div class="todo-proj-row" data-proj-row="${p.id}">
             <span class="todo-pri-dot" style="background:${p.color}"></span>
             <span class="todo-proj-name" data-edit="${p.id}">${escHtml(p.name)}</span>
+            ${p.completeAt > 0 ? `<span class="todo-proj-mark done" title="${T('projectDoneTip')}">✅</span>` : (p.deadline > 0 && p.deadline < now() ? `<span class="todo-proj-mark overdue" title="${T('projectOverdueTip')}">⏰</span>` : '')}
             <span class="todo-proj-count">${T('taskCount', liveTasks().filter((t) => t.projectId === p.id).length)}</span>
             <button class="todo-icon-btn" data-del="${p.id}" title="${T('delProjectTitleTip')}">✕</button>
           </div>`).join('') : `<div class="todo-empty-desc" style="text-align:center;padding:14px 0">${T('noProjectsYet')}</div>`}
@@ -2389,29 +2403,73 @@ ${state.todoProjects.length ? state.todoProjects.map((p) => `
     else if (edit) {
       const p = projectById(edit.dataset.edit);
       if (!p) return;
+      const row = edit.closest('.todo-proj-row');
+      if (!row || row._editing) return;
+      row._editing = true;
+      const origHTML = row.innerHTML;
+      row._origHTML = origHTML;
       const wrap = document.createElement('div');
       wrap.className = 'todo-proj-edit';
       wrap.innerHTML = `
-        <input class="todo-input todo-proj-edit-name" value="${escHtml(p.name)}" style="flex:1">
-        <select class="todo-input todo-proj-edit-parent" style="flex:1;min-width:80px">
-          <option value="">${T('noParentProject')}</option>
-          ${state.todoProjects.filter((x) => x.id !== p.id && !isProjectDescendant(x.id, p.id)).map((x) => `<option value="${x.id}"${x.id === p.parentId ? ' selected' : ''}>${escHtml(x.name)}</option>`).join('')}
-        </select>`;
-      edit.replaceWith(wrap);
+        <div class="todo-proj-edit-row">
+          <label class="todo-label">${T('projectNameLabel')}</label>
+          <input class="todo-input todo-proj-edit-name" value="${escHtml(p.name)}">
+        </div>
+        <div class="todo-proj-edit-row">
+          <label class="todo-label">${T('parentProjectLabel')}</label>
+          <select class="todo-input todo-proj-edit-parent">
+            <option value="">${T('noParentProject')}</option>
+            ${state.todoProjects.filter((x) => x.id !== p.id && !isProjectDescendant(x.id, p.id)).map((x) => `<option value="${x.id}"${x.id === p.parentId ? ' selected' : ''}>${escHtml(x.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="todo-proj-edit-row">
+          <label class="todo-label">${T('projectNotesLabel')}</label>
+          <textarea class="todo-input todo-proj-edit-notes" rows="2" placeholder="${T('projectNotesPh')}">${escHtml(p.notes || '')}</textarea>
+        </div>
+        <div class="todo-proj-edit-grid">
+          <div class="todo-proj-edit-row">
+            <label class="todo-label">${T('projectCreatedAtLabel')}</label>
+            <input type="datetime-local" class="todo-input todo-proj-edit-created" value="${tsToDateTimeLocal(p.createdAt)}">
+          </div>
+          <div class="todo-proj-edit-row">
+            <label class="todo-label">${T('projectDeadlineLabel')}</label>
+            <input type="datetime-local" class="todo-input todo-proj-edit-deadline" value="${tsToDateTimeLocal(p.deadline)}">
+          </div>
+          <div class="todo-proj-edit-row">
+            <label class="todo-label">${T('projectCompleteAtLabel')}</label>
+            <input type="datetime-local" class="todo-input todo-proj-edit-complete" value="${tsToDateTimeLocal(p.completeAt)}">
+          </div>
+        </div>
+        <div class="todo-proj-edit-actions">
+          <button class="btn primary" data-proj-save="${p.id}">${T('saveProject')}</button>
+          <button class="btn" data-proj-cancel>${T('cancel')}</button>
+        </div>`;
+      row.innerHTML = '';
+      row.appendChild(wrap);
       const nameInput = wrap.querySelector('.todo-proj-edit-name');
       nameInput.focus(); nameInput.select();
-      const commit = () => {
+      const cancelEdit = () => { if (row._editing) { row.innerHTML = row._origHTML || origHTML; row._editing = false; } };
+      wrap.querySelector('[data-proj-cancel]').addEventListener('click', cancelEdit);
+      wrap.querySelector('[data-proj-save]').addEventListener('click', () => {
         const v = nameInput.value.trim();
+        if (!v) { toast(T('projectNameRequired'), 'warn'); nameInput.focus(); return; }
+        // 重名拒绝(编辑时排除自身)
+        const dup = state.todoProjects.find((x) => x.id !== p.id && (x.name || '').trim().toLowerCase() === v.toLowerCase());
+        if (dup) { toast(T('projectNameDuplicate', v), 'warn'); nameInput.focus(); nameInput.select(); return; }
         const np = wrap.querySelector('.todo-proj-edit-parent').value || '';
-        if (v) p.name = v;
+        const ct = dateTimeLocalToTs(wrap.querySelector('.todo-proj-edit-created').value);
+        const dl = dateTimeLocalToTs(wrap.querySelector('.todo-proj-edit-deadline').value);
+        const cp = dateTimeLocalToTs(wrap.querySelector('.todo-proj-edit-complete').value);
+        p.name = v;
         p.parentId = np;
+        p.notes = wrap.querySelector('.todo-proj-edit-notes').value || '';
+        if (ct != null) p.createdAt = ct;
+        p.deadline = dl != null ? dl : 0;
+        p.completeAt = cp != null ? cp : 0;
         p.updatedAt = now();
         saveState();
         render();
-      };
-      nameInput.addEventListener('blur', commit);
-      nameInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') commit(); if (ev.key === 'Escape') render(); });
-      wrap.querySelector('.todo-proj-edit-parent').addEventListener('change', commit);
+      });
     }
   });
   ov.addEventListener('click', (e) => { if (e.target === ov) { projectsOpen = false; render(); } });

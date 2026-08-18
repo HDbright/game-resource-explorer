@@ -228,6 +228,9 @@ function open() {
       color TEXT DEFAULT '#6366f1',
       sort INTEGER DEFAULT 0,
       parent_id TEXT DEFAULT '',
+      notes TEXT DEFAULT '',
+      deadline INTEGER DEFAULT 0,
+      complete_at INTEGER DEFAULT 0,
       created_at INTEGER DEFAULT 0,
       updated_at INTEGER DEFAULT 0
     );
@@ -349,6 +352,9 @@ function open() {
     // 旧库迁移:todo_projects 缺 parent_id 列时补上(项目树父子层级)
     const tpCols = db.prepare('PRAGMA table_info(todo_projects)').all().map((r) => r.name);
     if (!tpCols.includes('parent_id')) db.exec("ALTER TABLE todo_projects ADD COLUMN parent_id TEXT DEFAULT ''");
+    if (!tpCols.includes('notes')) db.exec("ALTER TABLE todo_projects ADD COLUMN notes TEXT DEFAULT ''");
+    if (!tpCols.includes('deadline')) db.exec('ALTER TABLE todo_projects ADD COLUMN deadline INTEGER DEFAULT 0');
+    if (!tpCols.includes('complete_at')) db.exec('ALTER TABLE todo_projects ADD COLUMN complete_at INTEGER DEFAULT 0');
     // 旧库迁移:todo_tasks 缺 parent_task_id 列时补上(任务树父子层级)
     if (!ttCols.includes('parent_task_id')) db.exec("ALTER TABLE todo_tasks ADD COLUMN parent_task_id TEXT DEFAULT ''");
   } catch (err) {
@@ -478,7 +484,7 @@ function readDb() {
       mn.showItemsInTree = mn.showItemsInTree == null ? true : !!mn.showItemsInTree;
     }
     d.todoProjects = conn.prepare(
-      'SELECT id, name, color, sort, parent_id AS parentId, created_at AS createdAt, updated_at AS updatedAt FROM todo_projects ORDER BY sort'
+      'SELECT id, name, color, sort, parent_id AS parentId, notes, deadline, complete_at AS completeAt, created_at AS createdAt, updated_at AS updatedAt FROM todo_projects ORDER BY sort'
     ).all();
     d.todoTasks = conn.prepare(
       'SELECT id, title, notes, notes_html AS notesHtml, priority, status, deadline, reminder_at AS reminderAt, ' +
@@ -656,10 +662,10 @@ function writeDb(state) {
     }
     // ---- Todo-List 任务管理:项目 / 任务 / 子任务 ----
     const insTodoProj = conn.prepare(
-      'INSERT INTO todo_projects(id, name, color, sort, parent_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO todo_projects(id, name, color, sort, parent_id, notes, deadline, complete_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     for (const p of state.todoProjects || []) {
-      insTodoProj.run(p.id, p.name || '', p.color || '#6366f1', p.sort || 0, p.parentId || '', p.createdAt || 0, p.updatedAt || 0);
+      insTodoProj.run(p.id, p.name || '', p.color || '#6366f1', p.sort || 0, p.parentId || '', p.notes || '', p.deadline || 0, p.completeAt || 0, p.createdAt || 0, p.updatedAt || 0);
     }
     const insTodoTask = conn.prepare(
       'INSERT INTO todo_tasks(id, title, notes, notes_html, priority, status, deadline, reminder_at, start_at, complete_at, events, sort, tags, project_id, parent_task_id, recur_rule, archived, created_at, updated_at) ' +
