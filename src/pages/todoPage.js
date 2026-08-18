@@ -77,9 +77,12 @@ const LANGS = {
     // 项目
     manageProjects: '管理项目', noProjectsYet: '还没有项目,在下面创建一个吧',
     newProject: '新建项目', projectNamePh: '项目名称', addProject: '+ 添加项目',
-    projectNameRequired: '请输入项目名称', taskCount: '{0} 个任务',
+    projectNameRequired: '请输入项目名称', projectNameDuplicate: '项目名称「{0}」已存在',
+    taskCount: '{0} 个任务',
     deleteProjectTitle: '删除项目', deleteProjectMsg: '确定删除项目「{0}」吗?项目下任务会保留并变为「无项目」。',
     delProjectTitleTip: '删除项目(任务保留,变为无项目)',
+    deleteProjectInline: '确定删除项目「{0}」?项目下任务会保留并变为「无项目」。',
+    confirmDelete: '✓ 删除', cancelDelete: '取消',
     // 归档
     archivedTasks: '📦 归档任务', noArchived: '没有归档任务',
     noArchivedDesc: '归档的任务会出现在这里,可随时恢复或永久删除',
@@ -157,9 +160,12 @@ const LANGS = {
     today: 'Today', tomorrow: 'Tomorrow',
     manageProjects: 'Manage Projects', noProjectsYet: 'No projects yet — create one below',
     newProject: 'New Project', projectNamePh: 'Project name', addProject: '+ Add Project',
-    projectNameRequired: 'Please enter a project name', taskCount: '{0} tasks',
+    projectNameRequired: 'Please enter a project name', projectNameDuplicate: 'Project name "{0}" already exists',
+    taskCount: '{0} tasks',
     deleteProjectTitle: 'Delete Project', deleteProjectMsg: 'Delete project "{0}"? Its tasks will be kept and become "No Project".',
     delProjectTitleTip: 'Delete project (tasks kept, become No Project)',
+    deleteProjectInline: 'Delete project "{0}"? Its tasks will be kept and become "No Project".',
+    confirmDelete: '✓ Delete', cancelDelete: 'Cancel',
     archivedTasks: '📦 Archived Tasks', noArchived: 'No archived tasks',
     noArchivedDesc: 'Archived tasks appear here. You can restore or delete them anytime.',
     restore: 'Restore', restoreTitle: 'Restore task', deleteForever: 'Delete permanently',
@@ -2309,26 +2315,26 @@ function renderProjectsModal() {
     </div>
     <div class="todo-modal-body">
       <div class="todo-proj-list">
-        ${state.todoProjects.length ? state.todoProjects.map((p) => `
-          <div class="todo-proj-row">
+${state.todoProjects.length ? state.todoProjects.map((p) => `
+          <div class="todo-proj-row" data-proj-row="${p.id}">
             <span class="todo-pri-dot" style="background:${p.color}"></span>
             <span class="todo-proj-name" data-edit="${p.id}">${escHtml(p.name)}</span>
             <span class="todo-proj-count">${T('taskCount', liveTasks().filter((t) => t.projectId === p.id).length)}</span>
             <button class="todo-icon-btn" data-del="${p.id}" title="${T('delProjectTitleTip')}">✕</button>
           </div>`).join('') : `<div class="todo-empty-desc" style="text-align:center;padding:14px 0">${T('noProjectsYet')}</div>`}
-      </div>
-      <div class="todo-proj-new">
-        <div class="todo-label">${T('newProject')}</div>
-        <input class="todo-input" data-new-name placeholder="${T('projectNamePh')}" style="width:100%;margin:6px 0 8px">
-        <div style="display:flex;align-items:flex-end;gap:8px">
-          <div class="todo-color-row">${PROJECT_COLORS.map((c) => `<button class="todo-color-btn" data-color="${c}" style="background:${c}"></button>`).join('')}</div>
-          <select class="todo-input" data-new-parent style="flex:1;min-width:90px">
-            <option value="">${T('noParentProject')}</option>
-            ${state.todoProjects.map((p) => `<option value="${p.id}">${escHtml(p.name)}</option>`).join('')}
-          </select>
-          <button class="btn primary" data-new-create style="margin-left:auto">${T('addProject')}</button>
         </div>
-      </div>
+        <div class="todo-proj-new">
+          <div class="todo-label">${T('newProject')}</div>
+          <input class="todo-input" data-new-name placeholder="${T('projectNamePh')}" style="width:100%;margin:6px 0 8px">
+          <div style="display:flex;align-items:flex-end;gap:8px">
+            <div class="todo-color-row">${PROJECT_COLORS.map((c) => `<button class="todo-color-btn" data-color="${c}" style="background:${c}"></button>`).join('')}</div>
+            <select class="todo-input" data-new-parent style="flex:1;min-width:90px">
+              <option value="">${T('noParentProject')}</option>
+              ${state.todoProjects.map((p) => `<option value="${p.id}">${escHtml(p.name)}</option>`).join('')}
+            </select>
+            <button class="btn primary" data-new-create style="margin-left:auto">${T('addProject')}</button>
+          </div>
+        </div>
     </div>`;
   let newColor = PROJECT_COLORS[0];
   box.querySelectorAll('[data-color]').forEach((b) => b.addEventListener('click', () => {
@@ -2338,7 +2344,10 @@ function renderProjectsModal() {
   box.querySelector('[data-new-create]').addEventListener('click', () => {
     const inp = box.querySelector('[data-new-name]');
     const name = inp.value.trim();
-    if (!name) { toast(T('projectNameRequired'), 'warn'); return; }
+    if (!name) { toast(T('projectNameRequired'), 'warn'); inp.focus(); return; }
+    // 重名拒绝:大小写不敏感 + 与现有任意项目名(无论父子级)冲突即拒
+    const dup = state.todoProjects.find((x) => (x.name || '').trim().toLowerCase() === name.toLowerCase());
+    if (dup) { toast(T('projectNameDuplicate', name), 'warn'); inp.focus(); inp.select(); return; }
     const parentId = box.querySelector('[data-new-parent]').value || '';
     upsertProject({ id: uid('p'), name, color: newColor, sort: state.todoProjects.length, parentId, createdAt: now(), updatedAt: now() });
     inp.value = '';
@@ -2351,10 +2360,30 @@ function renderProjectsModal() {
     const edit = e.target.closest('[data-edit]');
     if (close) { projectsOpen = false; render(); }
     else if (del) {
-      const p = projectById(del.dataset.del);
-      confirmDialog({
-        title: T('deleteProjectTitle'), message: T('deleteProjectMsg', p ? p.name : ''),
-        okText: T('delete'), danger: true, onOk: () => { removeProject(del.dataset.del); render(); },
+      // 行内二级确认:点 × 后行内显示「✓ 删除 / 取消」,不弹全局 confirmDialog
+      // 避免在 .todo-overlay 之上再叠 .modal-mask 造成双层黑罩"调暗"
+      // 6 秒无操作自动撤销,避免误操作永久卡住
+      const row = del.closest('.todo-proj-row');
+      if (!row || row._confirming) return;
+      row._confirming = true;
+      const pname = (() => { const pp = projectById(del.dataset.del); return pp ? pp.name : ''; })();
+      const origHTML = row.innerHTML;
+      row.innerHTML = `
+        <span class="todo-pri-dot" style="background:#ef4444"></span>
+        <span class="todo-proj-name" style="color:#ef4444">${T('deleteProjectInline', escHtml(pname))}</span>
+        <button class="btn danger" data-proj-del-ok="${del.dataset.del}" style="margin-left:auto">${T('confirmDelete')}</button>
+        <button class="btn" data-proj-del-cancel>${T('cancelDelete')}</button>`;
+      const clear = () => { row._confirming = false; clearTimeout(row._delTimer); delete row._origHTML; };
+      row._origHTML = origHTML;
+      row._delTimer = setTimeout(() => {
+        if (row._confirming) { row.innerHTML = row._origHTML || origHTML; clear(); }
+      }, 6000);
+      row.querySelector('[data-proj-del-cancel]').addEventListener('click', () => { row.innerHTML = row._origHTML || origHTML; clear(); });
+      row.querySelector('[data-proj-del-ok]').addEventListener('click', () => {
+        const pid = del.dataset.del;
+        clear();
+        removeProject(pid);
+        render();
       });
     }
     else if (edit) {

@@ -790,6 +790,55 @@ app.whenReady().then(async () => {
       check('树:折叠后子项目从 DOM 移除 + ▸箭头', o.childHidden === true && o.arrowCollapsed === true, 'childHidden=' + o.childHidden + ' arrowGlyph=' + o.arrowGlyph);
       check('树:再次点击可展开还原', o.expandedAfter === true);
 
+      // 7.b) 项目管理(补丁·47):行内删除确认 + 重名拒绝
+      o = await js('manageProjects', `(async () => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        // 关掉树里可能展开的多余 modal
+        document.querySelectorAll('.todo-overlay').forEach((el) => el.remove());
+        document.querySelector('[data-action="projects"]').click(); await sleep(250);
+        const out = {};
+        const overlay = document.querySelector('.todo-overlay');
+        const modal = overlay ? overlay.querySelector('.todo-modal') : null;
+        out.modalOpened = !!modal && /管理项目/.test(modal.textContent || '');
+        // 初次叠加的 overlay 数(后续点击删除不应再叠)
+        out.overlaysBefore = document.querySelectorAll('.todo-overlay').length;
+        out.rowsBefore = document.querySelectorAll('.todo-proj-row').length;
+        // (1) 点 子项目 行(非 PROJ_ID,避免影响持久化「项目保留」断言)的 × → 行内二级确认
+        const childRow = [...document.querySelectorAll('.todo-proj-row')].find((r) => {
+          const n = r.querySelector('.todo-proj-name');
+          return n && /子项目/.test(n.textContent || '');
+        });
+        const firstDel = childRow ? childRow.querySelector('[data-del]') : null;
+        const firstName = childRow ? (childRow.querySelector('.todo-proj-name') || {}).textContent : '';
+        out.firstName = firstName;
+        if (firstDel) firstDel.click(); await sleep(150);
+        out.overlaysAfterClick = document.querySelectorAll('.todo-overlay').length;
+        out.modalMasksAfterClick = document.querySelectorAll('.modal-mask').length;
+        const confirmRow = document.querySelector('[data-proj-del-ok]');
+        out.inlineConfirmShown = !!confirmRow && !!document.querySelector('[data-proj-del-cancel]');
+        // 确认删除 → 行数 -1
+        if (confirmRow) { confirmRow.click(); await sleep(200); }
+        out.rowsAfter = document.querySelectorAll('.todo-proj-row').length;
+        out.modalStillOpen = !!document.querySelector('.todo-overlay');
+        // (2) 重名拒绝:在 modal 中输入现有项目名(游戏开发,删除子项目后仍存在)→ 点 + 添加项目 → 应被拒
+        const newNameInput = document.querySelector('[data-new-name]');
+        if (newNameInput) {
+          newNameInput.value = '游戏开发'; newNameInput.dispatchEvent(new Event('input', { bubbles: true }));
+          const createBtn = document.querySelector('[data-new-create]');
+          if (createBtn) { createBtn.click(); await sleep(200); }
+        }
+        out.rowsAfterDup = document.querySelectorAll('.todo-proj-row').length;
+        // 关闭 modal
+        const closeBtn = document.querySelector('[data-close]');
+        if (closeBtn) { closeBtn.click(); await sleep(150); }
+        return out;
+      })()`);
+      check('管理项目:点 ◆ 项目 打开 modal', o.modalOpened === true);
+      check('管理项目:行内删除不再叠 confirmDialog(overlay 数不变)', o.overlaysAfterClick === o.overlaysBefore && o.modalMasksAfterClick === 0, 'before=' + o.overlaysBefore + ' after=' + o.overlaysAfterClick + ' mask=' + o.modalMasksAfterClick);
+      check('管理项目:点 × 后行内出现 ✓删除 / 取消 按钮', o.inlineConfirmShown === true);
+      check('管理项目:确认后行数 -1', o.rowsAfter === o.rowsBefore - 1, 'before=' + o.rowsBefore + ' after=' + o.rowsAfter + ' name=' + o.firstName);
+      check('管理项目:重名拒绝(行数不变)', o.rowsAfterDup === o.rowsAfter, 'after=' + o.rowsAfter + ' dup=' + o.rowsAfterDup);
+
       // 7) 列表视图 + 归档
       o = await js('archive', `(async () => {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
