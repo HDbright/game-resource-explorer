@@ -2800,13 +2800,13 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .todo-card-row { display: flex; align-items: flex-start; gap: 10px; }
 .todo-status-btn { width: 20px; height: 20px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border-radius: 50%; border: 1.5px solid var(--border); background: transparent; color: var(--text2); font-size: 10px; cursor: pointer; margin-top: 1px; transition: all .15s; }
 /* 看板三列:状态图标去圆圈,只显示放大后的图标(已完成✅/进行中tasking64.png/待办⬜) */
-.todo-card-done-col .todo-status-btn,
+.todo-card-col-done .todo-status-btn,
 .todo-card-col-progress .todo-status-btn,
 .todo-card-col-todo .todo-status-btn {
-  width: auto; height: auto; min-width: 22px; border: none; background: transparent; border-radius: 0; font-size: 20px; line-height: 1; margin-top: 0; padding: 0;
+  width: auto; height: auto; min-width: 20px; border: none; background: transparent; border-radius: 0; font-size: 20px; line-height: 1; margin-top: 0; padding: 0;
 }
-.todo-card-done-col .todo-status-btn { color: #22c55e; }
-.todo-card-col-progress .todo-status-btn .todo-status-img { width: 22px; height: 22px; object-fit: contain; display: block; pointer-events: none; }
+.todo-card-col-done .todo-status-btn { color: #22c55e; }
+.todo-card-col-progress .todo-status-btn .todo-status-img { width: 20px; height: 20px; object-fit: contain; display: block; pointer-events: none; }
 .todo-card-main { flex: 1; min-width: 0; }
 .todo-card-title-row { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
 .todo-card-title { font-size: 14px; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
