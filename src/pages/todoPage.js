@@ -66,7 +66,7 @@ const LANGS = {
     subNotesLabel: '子任务备注', subNotesPh: '子任务补充说明…',
     eventsTab: '任务事件', addEvent: '添加事件', eventTextPh: '事件内容…', noEvents: '暂无任务事件',
     subDoneAt: '完成于', eventsSection: '任务事件',
-    editSubtask: '编辑子任务', subDoneAtLabel: '完成日期', subDoneAtDisabledTip: '子任务未完成,勾选后才能填完成日期',
+    editSubtask: '编辑子任务', subDoneAtLabel: '完成日期', subDoneAtDisabledTip: '子任务未完成,勾选后才能填完成日期', subCreatedOn: '创建于 {0}',
     parentTaskLabel: '父任务', noParent: '无父任务', publishAtLabel: '发布时间',
     // 详情
     copy: '复制', copyTitle: '复制任务摘要', copied: '已复制到剪贴板', copyFailed: '复制失败',
@@ -148,7 +148,7 @@ const LANGS = {
     subNotesLabel: 'Subtask notes', subNotesPh: 'Subtask details…',
     eventsTab: 'Task Events', addEvent: 'Add Event', eventTextPh: 'Event content…', noEvents: 'No task events yet',
     subDoneAt: 'Done on', eventsSection: 'Task Events',
-    editSubtask: 'Edit subtask', subDoneAtLabel: 'Done at', subDoneAtDisabledTip: 'Subtask not done yet — check it first to set a completion date',
+    editSubtask: 'Edit subtask', subDoneAtLabel: 'Done at', subDoneAtDisabledTip: 'Subtask not done yet — check it first to set a completion date', subCreatedOn: 'Created {0}',
     parentTaskLabel: 'Parent task', noParent: 'No parent', publishAtLabel: 'Publish time',
     copy: 'Copy', copyTitle: 'Copy task summary', copied: 'Copied to clipboard', copyFailed: 'Copy failed',
     overduePrefix: 'Overdue · ', descLabel: 'Description', createdOn: 'Created {0}', updatedOn: 'Updated {0}',
@@ -1393,7 +1393,7 @@ function renderTaskCard(task, compact = false, colStatus = null) {
         <div class="todo-card-sub-body">
           <div class="todo-card-sub-chips">
             ${orderedSubs.map((s) => `
-              <span class="todo-sub-chip${s.done ? ' done' : ''}" data-t="sub" data-sub="${s.id}" title="${escHtml(s.title)}${s.notes ? '\n' + escHtml(s.notes) : ''}${s.doneAt ? '\n' + T('subDoneAt') + ' ' + fmtDateTime(s.doneAt) : ''}">
+              <span class="todo-sub-chip${s.done ? ' done' : ''}" data-t="sub" data-sub="${s.id}" title="${escHtml(s.title)}${s.notes ? '\n' + escHtml(s.notes) : ''}${s.doneAt ? '\n' + T('subDoneAt') + ' ' + fmtDateTime(s.doneAt) : ''}${s.createdAt ? '\n' + T('subCreatedOn', fmtFullDate(s.createdAt)) : ''}">
                 <span class="todo-sub-chip-icon">${s.done ? '✅' : '⬜'}</span><span class="todo-sub-chip-text">${escHtml(s.title)}</span>${s.done && s.doneAt ? `<span class="todo-sub-chip-date">${fmtShortDate(s.doneAt)}</span>` : ''}
                 <button class="todo-sub-chip-edit" data-t="subedit" data-sub="${s.id}" title="${T('editSubtask')}">✎</button>
               </span>`).join('')}
@@ -1740,6 +1740,7 @@ function renderTaskModal() {
                 <input type="datetime-local" class="todo-input todo-sub-doneat" data-sub-doneat="${s.id}"
                   value="${s.doneAt ? tsToDateTimeLocal(s.doneAt) : ''}" ${s.done ? '' : 'disabled'}>
               </label>
+              <span class="todo-sub-created" title="${T('subCreatedOn', fmtFullDate(s.createdAt))}">🕓 ${T('subCreatedOn', fmtShortDate(s.createdAt))}</span>
             </div>`;
           if (modalHighlightSub && s.id === modalHighlightSub) row.classList.add('highlight');
           row.addEventListener('dragstart', (e) => {

@@ -2950,7 +2950,7 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .todo-sub-row.drag-over { border-top-color: var(--accent); background: var(--bg3); }
 .todo-sub-row.highlight { background: var(--bg3); box-shadow: inset 0 0 0 1px var(--accent); }
 .todo-sub-row-top { display: flex; align-items: center; gap: 6px; }
-.todo-sub-row-bottom { display: flex; align-items: center; gap: 6px; padding-left: 24px; }
+.todo-sub-row-bottom { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding-left: 24px; }
 .todo-sub-grip { cursor: grab; color: var(--text2); font-size: 13px; opacity: .6; line-height: 1; }
 .todo-sub-arrows { display: flex; flex-direction: column; gap: 1px; }
 .todo-sub-arrows button { font-size: 9px; line-height: 1; background: none; border: none; cursor: pointer; color: var(--text2); opacity: .6; padding: 1px 2px; }
@@ -2961,6 +2961,8 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .todo-sub-doneat-label { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; font-size: 11px; color: var(--text2); }
 .todo-sub-doneat { width: 152px; font-size: 11px; height: 24px; padding: 2px 6px; }
 .todo-sub-doneat:disabled { opacity: .4; cursor: not-allowed; }
+/* 子任务创建时间 */
+.todo-sub-created { flex-shrink: 0; font-size: 11px; color: var(--text2); white-space: nowrap; }
 
 /* 详情面板 */
 .todo-detail-title-wrap { display: flex; align-items: center; gap: 8px; min-width: 0; }

@@ -390,6 +390,36 @@ app.whenReady().then(async () => {
         'isCurYr=' + o.isCurrentYear + ' badYear=' + o.badYear + ' foot="' + o.footText + '"'
         + ' err=' + o.__err + ' bodyClasses=' + JSON.stringify(o.bodyClasses));
 
+      // 5.4.2) 子任务创建时间显示(补丁·44:子任务也要显示创建于)
+      o = await js('subCreatedAt', `(async () => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const card = document.querySelector('.todo-card[data-task-id="${TASK_A}"]');
+        if (!card) return { __err: 'card not found' };
+        const editBtn = card.querySelector('[data-t="edit"]');
+        if (editBtn) editBtn.click();
+        await sleep(400);
+        const subTab = document.querySelector('.todo-tab-btn[data-tab="subtasks"]');
+        if (!subTab) return { __err: 'subtab not found', modalExists: !!document.querySelector('.todo-modal') };
+        subTab.click();
+        await sleep(300);
+        const createdEl = document.querySelector('.todo-sub-created');
+        if (!createdEl) return { __err: 'no .todo-sub-created', modalExists: !!document.querySelector('.todo-modal') };
+        // title 用 fmtFullDate(含年份),可同时验证正确年份 + 抓住末日年份 bug;
+        // 内联文本用 fmtShortDate(省略当年年份),不能直接查年份
+        const title = createdEl.getAttribute('title') || '';
+        const txt = createdEl.textContent || '';
+        const thisYear = String(new Date().getFullYear());
+        const isCurrentYear = title.includes(thisYear);
+        const badYear = /5859\\d|58\\d\\d\\d/.test(title);
+        const closeBtn = document.querySelector('[data-act="close"]');
+        if (closeBtn) closeBtn.click();
+        await sleep(200);
+        return { isCurrentYear, badYear, title: title.slice(0, 40), txt: txt.slice(0, 40) };
+      })()`);
+      check('子任务显示创建于年份正确(补丁·44)',
+        o.isCurrentYear === true && o.badYear === false,
+        'isCurYr=' + o.isCurrentYear + ' badYear=' + o.badYear + ' title="' + o.title + '" txt="' + o.txt + '"' + ' err=' + o.__err);
+
       // 5.5) 日历视图
       o = await js('calendar', `(async () => {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -764,7 +794,9 @@ app.whenReady().then(async () => {
       check('持久化:startAt 落库', a && typeof a.startAt === 'number' && a.startAt > 0, 'startAt=' + (a && a.startAt));
       check('持久化:events 列存在(数组)', a && Array.isArray(a.events), 'events=' + JSON.stringify(a && a.events));
       const subCols = a && a.subtasks && a.subtasks[0] ? Object.keys(a.subtasks[0]) : [];
-      check('持久化:子任务含 notes/doneAt 字段', subCols.includes('notes') && subCols.includes('doneAt'), 'cols=' + JSON.stringify(subCols));
+      check('持久化:子任务含 notes/doneAt/createdAt 字段', subCols.includes('notes') && subCols.includes('doneAt') && subCols.includes('createdAt'), 'cols=' + JSON.stringify(subCols));
+      const sub0 = a && a.subtasks && a.subtasks[0];
+      check('持久化:子任务 createdAt 为有效时间戳(补丁·44 显示创建时间)', !!sub0 && typeof sub0.createdAt === 'number' && sub0.createdAt > 0, 'createdAt=' + (sub0 && sub0.createdAt));
       const doneSub = a && (a.subtasks || []).find((s) => s.done);
       check('持久化:已完成子任务保留 doneAt 列', !!doneSub && 'doneAt' in doneSub, 'sub=' + JSON.stringify(doneSub));
       // 补丁·40:看板拖拽用分数序号(小数 sort),必须能存进 SQLite 且列内相对顺序被保留
