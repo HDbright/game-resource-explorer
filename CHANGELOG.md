@@ -3,7 +3,23 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.36`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.37`）。
+
+---
+
+## 2026-08-18（补丁·37）
+
+### [修复] 右键菜单 delete 无反应 + 归档永久删除「调暗」页面
+
+**问题 1：右键菜单的 delete 点不动**
+- 现象：右键任务卡 → 弹 edit/归档/delete 菜单 → 点 delete 无任何反应（任务不删除、不报错）。
+- 根因：`openCardMenu()` 的 `closeMenuOutside` 监听 `document.click` 用 **capture 阶段**（`true`），**先于** menuEl 自身的 click 冒泡触发。事件流：捕获阶段 document 立即把 menuEl remove 掉 → 后续 menuEl click 监听器收不到事件 → onClick 永不执行。
+- 修复：closeMenuOutside 加 `menuEl.contains(e.target)` 判断，点 menu 内部时不关闭。
+
+**问题 2：归档窗口 × 删除后页面"调暗"**
+- 现象：归档窗口点 × 永久删除按钮 → 弹 confirmDialog 确认框 → 视觉上**双层黑色遮罩**叠加（归档 .todo-overlay `rgba(0,0,0,.45)` + confirmDialog .modal-mask `rgba(0,0,0,.55)`）→ 页面异常暗沉。
+- 修复：归档删除改为**行内二级确认**——点 × 后该行就地变成红色提示"确定永久删除「XXX」?" + `[✓ 删除] [取消]` 两按钮。6 秒无操作自动撤销回原状态。**完全不再弹全局确认框**，避免双层遮罩。
+- 文件：`src/pages/todoPage.js:1393-1398`(closeMenuOutside 修复)、`src/pages/todoPage.js:2023-2044`(归档行内二级确认)。
 
 ---
 

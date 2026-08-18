@@ -1390,8 +1390,10 @@ function renderTaskCard(task, compact = false, colStatus = null) {
     card.appendChild(menuEl);
     setTimeout(() => document.addEventListener('click', closeMenuOutside, true), 0);
   }
-  function closeMenuOutside() {
-    if (menuEl) { menuEl.remove(); menuEl = null; }
+  function closeMenuOutside(e) {
+    // 仅在点击发生在 menuEl 外部时才关闭;否则会被 capture 阶段先移除 menuEl,
+    // 导致 menuEl 自身的 click 监听无法触发(右键菜单 delete 不响应的根因)。
+    if (menuEl && (!e || !menuEl.contains(e.target))) { menuEl.remove(); menuEl = null; }
     document.removeEventListener('click', closeMenuOutside, true);
   }
   card.addEventListener('contextmenu', (e) => {
@@ -2019,11 +2021,26 @@ function renderArchiveModal() {
       if (t) { t.archived = false; t.updatedAt = now(); saveState(); render(); }
     }
     else if (del) {
-      const t = taskById(del.dataset.del);
-      confirmDialog({
-        title: T('deleteForeverTitle'), message: T('deleteForeverMsg', t ? t.title : ''),
-        okText: T('delete'), danger: true, onOk: () => { removeTask(del.dataset.del); render(); },
-      });
+      // 内联二级确认:点 × 按钮后,行内显示"✓ 删除 / 取消"两按钮,
+      // 不弹全局 confirmDialog,避免在 .todo-overlay 之上再叠 .modal-mask 造成双层黑罩"调暗"。
+      // 6 秒无操作自动撤销,避免误操作永久卡住。
+      const row = del.closest('.todo-archive-row');
+      if (!row) return;
+      if (row._confirming) return; // 已经在二次确认态,避免重复触发
+      row._confirming = true;
+      const origHTML = row.innerHTML;
+      const taskTitle = (() => { const t = taskById(del.dataset.del); return t ? t.title : ''; })();
+      row.innerHTML = `
+        <div class="todo-archive-main">
+          <div class="todo-archive-title" style="color:#ef4444">${T('deleteForeverTitle')}「${escHtml(taskTitle)}」?</div>
+          <div class="todo-archive-meta" style="color:#ef4444">${T('deleteForeverMsg', taskTitle)}</div>
+        </div>
+        <button class="btn danger" data-del-confirm="${del.dataset.del}">✓ ${T('del')}</button>
+        <button class="btn" data-del-cancel>${T('cancel')}</button>`;
+      const clear = () => { row._confirming = false; clearTimeout(row._delTimer); };
+      row._delTimer = setTimeout(() => { if (row._confirming) { row.innerHTML = origHTML; clear(); } }, 6000);
+      row.querySelector('[data-del-cancel]').addEventListener('click', () => { row.innerHTML = origHTML; clear(); });
+      row.querySelector('[data-del-confirm]').addEventListener('click', () => { removeTask(del.dataset.del); archiveOpen = false; render(); });
     }
   });
   ov.addEventListener('click', (e) => { if (e.target === ov) { archiveOpen = false; render(); } });
