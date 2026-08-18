@@ -775,7 +775,11 @@ function attachTaskDrag(row, node) {
   row.addEventListener('dragend', () => { dragTaskId = null; });
 }
 // 统一树节点渲染(项目 / 无项目 / 任务 同树)
-function renderTreeNode(node, depth) {
+// ancestors: 长度为 depth 的布尔数组,ancestors[a] = 深度 a 的祖先是否为其父的最后一个子(用于竖线是否继续)
+// isLast: 本节点是否为其父的最后一个子(用于本节点分支线是否封口)
+function renderTreeNode(node, depth, ancestors, isLast) {
+  if (!Array.isArray(ancestors)) ancestors = [];
+  if (isLast == null) isLast = true;
   const el = document.createElement('div');
   el.className = 'todo-tree-' + (node.kind === 'task' ? 'task' : 'proj') + (node.kind === 'none' ? ' todo-proj-none' : '');
   if (node.kind === 'task') el.setAttribute('data-task-id', node.id);
@@ -853,11 +857,25 @@ function renderTreeNode(node, depth) {
     taskModalOpen = true; modalTaskId = null; detailTaskId = null; render();
   });
   row.appendChild(addBtn);
+  // 从属连接线:根级(深度0)无缩进线;其余各级在缩进区画竖线 + 分支线(补丁·53)
+  if (depth >= 1) {
+    const segs = [];
+    // 祖先级竖线:祖先非末子才继续向下画
+    for (let a = 0; a < depth - 1; a++) {
+      if (!ancestors[a]) segs.push(`<i class="todo-tree-line tl-v" style="left:${a * 18 + 9}px;top:-2px;height:calc(100% + 4px)"></i>`);
+    }
+    // 本级竖线:向上连父(恒画);向下仅在非末子时继续(末子封口)
+    if (isLast) segs.push(`<i class="todo-tree-line tl-v" style="left:${(depth - 1) * 18 + 9}px;top:-2px;height:calc(50% + 3px)"></i>`);
+    else segs.push(`<i class="todo-tree-line tl-v" style="left:${(depth - 1) * 18 + 9}px;top:-2px;height:calc(100% + 4px)"></i>`);
+    // 本级分支横线:父级竖线 → 本级内容起点
+    segs.push(`<i class="todo-tree-line tl-h" style="left:${(depth - 1) * 18 + 9}px;top:50%;width:13px"></i>`);
+    row.insertAdjacentHTML('afterbegin', `<span class="todo-tree-guides" style="left:${-(depth * 18)}px;width:${depth * 18}px">${segs.join('')}</span>`);
+  }
   el.appendChild(row);
   if (hasChildren && !collapsed) {
     const childWrap = document.createElement('div');
     childWrap.className = 'todo-tree-children';
-    node.children.forEach((ch) => childWrap.appendChild(renderTreeNode(ch, depth + 1)));
+    node.children.forEach((ch, i) => childWrap.appendChild(renderTreeNode(ch, depth + 1, [...ancestors, isLast], i === node.children.length - 1)));
     el.appendChild(childWrap);
   }
   return el;
@@ -882,8 +900,8 @@ function renderList() {
     const found = treeFind(projRoots, filters.projectId);
     projNodes = found ? [found] : [];
   }
-  projNodes.forEach((pn) => wrap.appendChild(renderTreeNode(pn, 0)));
-  if (!isSpecific && noneNode) wrap.appendChild(renderTreeNode(noneNode, 0));
+  projNodes.forEach((pn, i) => wrap.appendChild(renderTreeNode(pn, 0, [], i === projNodes.length - 1)));
+  if (!isSpecific && noneNode) wrap.appendChild(renderTreeNode(noneNode, 0, [], true));
   return wrap;
 }
 

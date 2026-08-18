@@ -781,6 +781,15 @@ app.whenReady().then(async () => {
         if (gRow2) { gRow2.click(); await sleep(200); }
         const gameNode3 = document.querySelector('.todo-tree-proj[data-proj="${PROJ_ID}"]');
         out.expandedAfter = !!(gameNode3 && gameNode3.querySelector('.todo-tree-proj[data-proj="p_smoke_child"]'));
+        // (e) 从属连接线(补丁·53):根级无 guides,子级有 guides + 竖线/分支线
+        out.guidesTotal = document.querySelectorAll('.todo-tree-guides').length;
+        out.vlines = document.querySelectorAll('.todo-tree-line.tl-v').length;
+        out.hlines = document.querySelectorAll('.todo-tree-line.tl-h').length;
+        const childNode2 = document.querySelector('.todo-tree-proj[data-proj="p_smoke_child"]');
+        const childRow = childNode2 ? childNode2.querySelector('.todo-tree-row') : null;
+        out.childHasGuides = !!(childRow && childRow.querySelector('.todo-tree-guides'));
+        const rootRow = gameNode3 ? gameNode3.querySelector('.todo-tree-row') : null;
+        out.rootHasNoGuides = !!(rootRow && !rootRow.querySelector('.todo-tree-guides'));
         return out;
       })()`);
       check('树:项目树含子项目(游戏开发→子项目)', o.gameNodeFound === true && o.childProjFound === true && /子项目/.test(o.childProjName || ''), 'gameNode=' + o.gameNodeFound + ' child=' + o.childProjFound + ' name=' + o.childProjName);
@@ -789,6 +798,8 @@ app.whenReady().then(async () => {
       check('树:折叠写入 localStorage(todo_tree_collapsed)', o.lsHasId === true, 'before=' + o.beforeLS + ' after=' + o.afterLS);
       check('树:折叠后子项目从 DOM 移除 + ▸箭头', o.childHidden === true && o.arrowCollapsed === true, 'childHidden=' + o.childHidden + ' arrowGlyph=' + o.arrowGlyph);
       check('树:再次点击可展开还原', o.expandedAfter === true);
+      check('树(补丁·53):从属连接线存在(竖线+分支线)', o.guidesTotal > 0 && o.vlines > 0 && o.hlines > 0, 'guides=' + o.guidesTotal + ' v=' + o.vlines + ' h=' + o.hlines);
+      check('树(补丁·53):子级节点有连接线 / 根级无连接线', o.childHasGuides === true && o.rootHasNoGuides === true, 'child=' + o.childHasGuides + ' root=' + o.rootHasNoGuides);
 
       // 7.a2) 列表树节点 hover「+」新建(补丁·52):每级标题栏有 +,点项目下 + → 新任务预设该项目;点任务下 + → 预设该父任务
       o = await js('treeAddBtn', `(async () => {
