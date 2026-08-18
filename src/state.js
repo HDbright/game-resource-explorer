@@ -1774,6 +1774,20 @@ export async function loadState() {
       if (s.sort == null) s.sort = 0;
       if (s.createdAt == null) s.createdAt = now();
     }
+    // 老数据迁移:v2.2.26~v2.2.40 之间,startAt/completeAt/s.doneAt/events[].at
+    // 走的是 now()(毫秒)写入,而 tsToDateTimeLocal/fmtDateTime 都按"秒"处理,所以显示成 year=58598。
+    // 这里对 > 1e12(超出 year 33658)的字段除以 1000 转回秒。1e12 = 2001-09-09 之后,合理阈值。
+    const fixMs = (v) => (typeof v === 'number' && v > 1e12 && isFinite(v)) ? Math.floor(v / 1000) : v;
+    t.startAt = fixMs(t.startAt);
+    t.completeAt = fixMs(t.completeAt);
+    for (const s of t.subtasks) {
+      if (s.doneAt != null) s.doneAt = fixMs(s.doneAt);
+    }
+    if (Array.isArray(t.events)) {
+      for (const ev of t.events) {
+        if (ev != null && ev.at != null) ev.at = fixMs(ev.at);
+      }
+    }
   }
   // Todo-List 日历事件(兼容旧库缺字段)
   state.todoEvents = Array.isArray(data.todoEvents) ? data.todoEvents : [];
@@ -1842,7 +1856,10 @@ export function uid(prefix) {
 }
 
 export function now() {
-  return Date.now();
+  // 全代码统一返回"秒"时间戳:与 deadline(dateInputToTs)、ev.at(dateTimeLocalToTs)
+  // 单位一致;UI 侧 tsToDateTimeLocal/fmtDateTime 都走 `ts * 1000` 显示。
+  // 早先返回 Date.now()(毫秒)与上述格式化函数错位,会得到 year=58598 之类的末日日期。
+  return Math.floor(Date.now() / 1000);
 }
 
 // ---------------- 分类 ----------------

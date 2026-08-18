@@ -319,6 +319,45 @@ app.whenReady().then(async () => {
       check('看板列内拖拽排序生效', o.skipped === true || o.swapped === true,
         'before=' + JSON.stringify(o.before) + ' after=' + JSON.stringify(o.after));
 
+      // 5.4) 事件时间格式(now()现在返回秒,不再出现 year=58598)
+      o = await js('eventTimeFormat', `(async () => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        // 用 ESM 模块名 -> 拿不到;改用 UI 端到端:打开 taskA 编辑,加一条事件,确认 datetime-local 显示本年
+        const editBtn = document.querySelector('.todo-card[data-task-id="${TASK_A}"] [data-t="edit"]');
+        if (!editBtn) return { __err: 'edit btn not found' };
+        editBtn.click();
+        await sleep(400);
+        const eventsTab = document.querySelector('[data-tab="events"]');
+        if (!eventsTab) return { __err: 'events tab not found' };
+        eventsTab.click();
+        await sleep(250);
+        // 记下加事件前 datetime-local 数量
+        const beforeInputs = document.querySelectorAll('[data-ev-at]').length;
+        const addBtn = document.querySelector('[data-add-event]');
+        if (addBtn) addBtn.click();
+        await sleep(300);
+        const inputs = [...document.querySelectorAll('[data-ev-at]')];
+        const newInput = inputs[inputs.length - 1];
+        const thisYear = String(new Date().getFullYear());
+        // 检查新增的 input value 是否以本年开始
+        const isCurrentYear = newInput && newInput.value && newInput.value.startsWith(thisYear);
+        // 检查没有 58xxx 的末日年份
+        const allInputsValid = inputs.every((i) => /^(19|20)\\d{2}-/.test(i.value));
+        // 详情面板里"过去事件"显示的年份不是 58598
+        const details = [...document.querySelectorAll('.todo-detail-event-time')].map((e) => e.textContent || '');
+        const badYear = details.some((t) => /5859\\d|58\\d\\d\\d/.test(t));
+        // 关闭 modal
+        const closeBtn = document.querySelector('[data-act="close"]');
+        if (closeBtn) closeBtn.click();
+        await sleep(200);
+        return { beforeInputs, added: inputs.length - beforeInputs, newValue: newInput ? newInput.value : '',
+          isCurrentYear, allInputsValid, badYear, detailYears: details.map((t) => t.slice(0, 4)) };
+      })()`);
+      check('事件时间格式正确(显示当前年份)',
+        o.added === 1 && o.isCurrentYear === true && o.allInputsValid === true && o.badYear === false,
+        'added=' + o.added + ' newValue=' + o.newValue + ' isCurYr=' + o.isCurrentYear
+        + ' allValid=' + o.allInputsValid + ' badYear=' + o.badYear + ' detailYears=' + JSON.stringify(o.detailYears) + ' err=' + o.__err);
+
       // 5.5) 日历视图
       o = await js('calendar', `(async () => {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

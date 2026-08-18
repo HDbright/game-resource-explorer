@@ -3,7 +3,20 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.40`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.41`）。
+
+---
+
+## 2026-08-18（补丁·41）
+
+### [修复] 任务事件等时间字段显示成 year=58598 末日日期
+- **现象**：「任务事件」tab 新增事件后，`datetime-local` 控件显示 `58598/10/18 01:17`；进入「详情」面板，所有 `startAt` / `completeAt` / `events[].at` / `s.doneAt` 时间字段也都是 5859x 年。
+- **根因**：`state.js` 的 `now()` 返回 `Date.now()`（毫秒），但全代码的时间格式化函数 `tsToDateTimeLocal` / `fmtDateTime` / `fmtShortDate` / `fmtFullDate` / `todayStartTs` 内部统一 `ts * 1000`（按秒处理）。两端单位错位 → 毫秒值 `~1.755e12` × 1000 = `~1.755e15` 喂给 `new Date()` 解析成年份 58598。
+- **影响范围**：v2.2.26 之后的所有时间字段（`startAt` / `completeAt` / `events[].at` / `s.doneAt`），通过 `now()` 写入的均为毫秒。`deadline` 字段走 `dateInputToTs` 一直是秒，未受影响。
+- **修复**：
+  1. `state.js` 中 `now()` 改为 `Math.floor(Date.now() / 1000)` 返回秒，与 `dateTimeLocalToTs` / `dateInputToTs` 输出一致，所有格式化函数无需修改。
+  2. `loadState()` 增加「老数据迁移」：对存量任务中 > 1e12 的 `startAt` / `completeAt` / `s.doneAt` / `events[].at` 字段除以 1000 转回秒，**老用户升级后自动修复**已存的脏数据。
+- **冒烟测试**：`scripts/todo-smoke-main.js` 新增 `5.4 事件时间格式正确(显示当前年份)` 断言，端到端验证「打开编辑 → events tab → 添加事件」显示的 datetime-local value 必须以当前年份开头，全表无 58xxx 末日年份。
 
 ---
 
