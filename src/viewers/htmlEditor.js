@@ -1,10 +1,13 @@
 'use strict';
 /**
  * HTML 查看 / 编辑器(参考 Markdown 编辑器的分栏编辑体验)。
- * - 工具栏:打开 / 保存 / 分栏 / 仅预览 / 仅编辑 切换、复制源码、加入库
+ * - 工具栏:新建 / 打开 / 保存 / 另存为 / 分栏 / 仅预览 / 仅编辑 切换、复制源码、加入库
  * - 编辑区 textarea + 预览区 iframe 渲染(直接渲染 HTML,支持脚本/样式)
- * - 预览时自动注入 <base> 指向源文件目录,使相对路径的图片/CSS 等资源可正确加载
+ * - 预览时自动注入 <base> 指向源文件目录(经内部 http 服务同源加载,规避 file:// 被 webSecurity 拦截),使相对路径的图片/CSS 等资源可正确加载
  * - load(filePath) 读取文件 → 编辑 / 保存回写原文件
+ * - 自动存档:编辑空闲 2.5s 自动写回(已有落盘路径时);切换离开编辑页时强制自动存档;
+ *   同路径重复打开跳过重载,保持切换前的编辑状态。
+ * - 未保存改动:文件名后出现小白点提示(dirty)。
  */
 import { state, addItem, categoryPath } from '../state.js';
 import { openModal, footButtons, toast } from '../dialogs.js';
@@ -20,11 +23,24 @@ function esc(s) {
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   }[c]));
 }
-/** 由文件路径得到目录的 file:// URL(用于 iframe <base> 解析相对资源) */
+/** 文件路径 basename(最后一段) */
+function basename(p) { return String(p || '').split(/[\\/]/).pop(); }
+/** 文件路径目录(去掉最后一段) */
+function dirOf(p) { return String(p || '').replace(/[\\/][^\\/]*$/, ''); }
+/** 由文件路径得到目录的 file:// URL(用于 iframe <base> 解析相对资源,回退用) */
 function dirFileUrl(filePath) {
-  const dir = String(filePath || '').replace(/[\\/][^\\/]*$/, '');
+  const dir = dirOf(filePath);
   if (!dir) return '';
   return 'file:///' + dir.replace(/\\/g, '/');
+}
+/** 写 UTF-8 文本到文件(经主进程 IPC) */
+async function writeTextFile(filePath, text) {
+  const bytes = new TextEncoder().encode(text);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  const b64 = btoa(bin);
+  const r = await window.api.writeFileBase64(filePath, 'data:text/plain;base64,' + b64);
+  if (!r || !r.ok) throw new Error((r && r.error) || '写入失败');
 }
 
 export class HtmlEditorController {
@@ -35,8 +51,17 @@ export class HtmlEditorController {
     this.ta = null;
     this.preview = null;
     this.mode = 'split'; // split | preview | edit
+    this.dotSel = '#html-dirty'; // 未保存小白点元素
+    this.defaultExt = 'html'; // 本编辑器新建/另存为的扩展名
     this.previewToken = null; // html:previewRegister 返回的目录 token(同源 http 加载相对资源)
     this.previewBase = ''; // <base href>(同源 http://host/html-pv/<token>/),优先于 file://
+    // ---- 自动存档 / 脏标记状态 ----
+    this.dirty = false; // 相对上次保存是否有未保存改动
+    this.savedText = ''; // 上次保存时的内容(用于比较 dirty)
+    this.currentPath = null; // 当前已加载文件(同路径重复打开跳过重载)
+    this.loaded = false;
+    this.defaultDir = ''; // 另存为默认目录(随打开文件更新)
+    this.autoSaveTimer = null; // 编辑空闲自动存档定时器
   }
 
   init(wrap) {
@@ -47,17 +72,21 @@ export class HtmlEditorController {
 
     wrap.querySelector('#html-open').addEventListener('click', () => this.pickAndLoad());
     wrap.querySelector('#html-save').addEventListener('click', () => this.save());
+    wrap.querySelector('#html-save-as').addEventListener('click', () => this.saveAs());
     wrap.querySelector('#html-add-lib').addEventListener('click', () => this.addToLibrary());
     wrap.querySelector('#html-mode-split').addEventListener('click', () => this.setMode('split'));
     wrap.querySelector('#html-mode-preview').addEventListener('click', () => this.setMode('preview'));
     wrap.querySelector('#html-mode-edit').addEventListener('click', () => this.setMode('edit'));
     wrap.querySelector('#html-copy').addEventListener('click', () => this.copySource());
+    // 新建(空白 HTML 文档)由 ui.js 的 newDocument('html') 处理(需创建文件 + 入库 + 打开)
 
-    // 编辑输入 → 防抖刷新预览(预览/分栏模式)
-    let to = null;
+    // 编辑输入 → 标记脏 + 防抖刷新预览 + 防抖自动存档(仅已有落盘路径)
     this.ta.addEventListener('input', () => {
-      clearTimeout(to);
-      to = setTimeout(() => this.renderPreview(), 250);
+      this.dirty = this.savedText !== this.ta.value;
+      this.updateDirtyDot();
+      clearTimeout(this._renderTimer);
+      this._renderTimer = setTimeout(() => this.renderPreview(), 250);
+      this.scheduleAutoSave();
     });
     // Ctrl+S 保存
     this.ta.addEventListener('keydown', (e) => {
@@ -66,6 +95,30 @@ export class HtmlEditorController {
         this.save();
       }
     });
+  }
+
+  /** 编辑空闲自动存档(2.5s 无输入且脏 → 写回原文件) */
+  scheduleAutoSave() {
+    if (!this.filePath) return; // 无落盘路径不静默自动存档
+    clearTimeout(this.autoSaveTimer);
+    this.autoSaveTimer = setTimeout(() => {
+      if (this.dirty && this.filePath) {
+        writeTextFile(this.filePath, this.ta.value)
+          .then(() => this.markSaved(this.ta.value))
+          .catch(() => { /* 失败静默,小白点保留 */ });
+      }
+    }, 2500);
+  }
+
+  /** 切换离开编辑页时自动存档(由 ui.js 钩子调用);无落盘路径(纯内存新文档)则跳过 */
+  async autoSaveOnLeave() {
+    if (!this.dirty || !this.filePath) return;
+    try {
+      await writeTextFile(this.filePath, this.ta.value);
+      this.markSaved(this.ta.value);
+    } catch (e) {
+      // 失败静默,小白点保留提示未保存
+    }
   }
 
   /** 打开文件对话框选择 html → 加载 */
@@ -85,16 +138,26 @@ export class HtmlEditorController {
 
   /** 加载指定文件(读文本) */
   async load(filePath) {
+    // 同一文件重复打开:保留内存中的编辑内容(保持切换前的状态,不被磁盘内容覆盖)
+    if (this.loaded && this.currentPath === filePath) {
+      return this.ta.value;
+    }
     const r = await window.api.readBase64(filePath);
     if (!r || !r.ok) throw new Error((r && r.error) || '读取失败');
     const text = b64ToText(String(r.dataUrl || ''));
     this.filePath = filePath;
+    this.currentPath = filePath;
+    this.loaded = true;
+    this.defaultDir = dirOf(filePath);
     // 注册文件所在目录到内部 http 服务,预览时 <base> 指向同源 http://host/html-pv/<token>/
     // 使相对 CSS/JS/图片 经 http 加载(规避 file:// 被 webSecurity 拦截导致的空白/破版)
     await this.registerPreviewRoot(filePath);
     this.ta.value = text;
+    this.savedText = text;
+    this.dirty = false;
+    this.updateDirtyDot();
     this.renderPreview();
-    const nm = String(filePath).split(/[\\/]/).pop();
+    const nm = basename(filePath);
     const nameEl = this.wrap.querySelector('#html-name');
     if (nameEl) nameEl.textContent = nm;
     this.setStatus('已打开 ' + nm);
@@ -109,7 +172,7 @@ export class HtmlEditorController {
       this.previewToken = null;
       this.previewBase = '';
     }
-    const dir = String(filePath || '').replace(/[\\/][^\\/]*$/, '');
+    const dir = dirOf(filePath);
     if (!dir) return;
     try {
       const res = await window.api.htmlPreviewRegister({ dir });
@@ -125,24 +188,59 @@ export class HtmlEditorController {
     }
   }
 
-  /** 保存回写原文件(UTF-8) */
+  /** 保存回写原文件(UTF-8);无文件路径则走另存为 */
   async save() {
     if (!this.filePath) {
-      this.setStatus('尚未打开文件', true);
+      this.saveAs();
       return;
     }
     try {
-      const text = this.ta.value;
-      const bytes = new TextEncoder().encode(text);
-      let bin = '';
-      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-      const b64 = btoa(bin);
-      const r = await window.api.writeFileBase64(this.filePath, 'data:text/plain;base64,' + b64);
-      if (!r || !r.ok) throw new Error((r && r.error) || '写入失败');
+      await writeTextFile(this.filePath, this.ta.value);
+      this.markSaved(this.ta.value);
       this.setStatus('已保存 ' + new Date().toLocaleTimeString());
     } catch (e) {
       this.setStatus('保存失败: ' + e.message, true);
     }
+  }
+
+  /** 另存为到指定路径(弹出保存对话框,默认当前文件目录 / 默认目录) */
+  async saveAs() {
+    const base = this.filePath ? basename(this.filePath) : '未命名.html';
+    const defaultName = this.defaultDir ? (this.defaultDir.replace(/[\\/]$/, '') + '\\' + base) : base;
+    try {
+      const r = await window.api.saveText({
+        defaultName,
+        content: this.ta.value,
+        filters: [{ name: 'HTML', extensions: ['html', 'htm', 'xhtml'] }],
+      });
+      if (!r || r.canceled) return;
+      this.filePath = r.path;
+      this.currentPath = r.path;
+      this.loaded = true;
+      this.defaultDir = dirOf(r.path);
+      await this.registerPreviewRoot(r.path); // 重新注册新路径目录,使相对资源可加载
+      this.markSaved(this.ta.value);
+      const nameEl = this.wrap.querySelector('#html-name');
+      if (nameEl) nameEl.textContent = basename(r.path);
+      this.renderPreview();
+      this.setStatus('已另存为 ' + basename(r.path));
+    } catch (e) {
+      this.setStatus('另存为失败: ' + e.message, true);
+    }
+  }
+
+  /** 标记已保存(清 dirty + 更新小白点) */
+  markSaved(text) {
+    this.savedText = (text == null ? this.ta.value : text);
+    this.dirty = false;
+    this.updateDirtyDot();
+  }
+
+  /** 更新文件名后的小白点显隐 */
+  updateDirtyDot() {
+    if (!this.wrap) return;
+    const el = this.wrap.querySelector(this.dotSel);
+    if (el) el.hidden = !this.dirty;
   }
 
   setMode(mode) {

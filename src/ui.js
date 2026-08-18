@@ -103,6 +103,7 @@ let currentTypeFilter = null; // 资源浏览页类型过滤(自定义资源类�
 let currentGroupFilterSet = null; // 目录「允许显示的类型组」视图(分组标签数组;null=未启用)
 let currentGroupFilterTitle = ''; // 目录视图标题(来源目录名)
 let emojiShown = false; // 右侧是否显示 emoji 图标库管理页
+let currentShownPage = 'home'; // 当前主区页面(用于离开预览页时自动存档钩子)
 
 // ---- 主区多标签页(资源/功能页标签,可切换/关闭) ----
 const mainTabs = []; // [{key, id, kind, params, label, icon}]
@@ -410,6 +411,15 @@ export function initUI(pv) {
   htmlEditor = new HtmlEditorController();
   const htmlWrap = document.getElementById('pv-html-view');
   if (htmlWrap) htmlEditor.init(htmlWrap);
+  // 编辑器工具栏:新建空白文档(由 ui.js 的 newDocument 流程处理:建文件+入库+打开)/ 另存为
+  const mdNew = document.getElementById('md-new');
+  if (mdNew) mdNew.addEventListener('click', () => newDocument('md'));
+  const mdSaveAs = document.getElementById('md-save-as');
+  if (mdSaveAs) mdSaveAs.addEventListener('click', () => markdownEditor.saveAs());
+  const htmlNew = document.getElementById('html-new');
+  if (htmlNew) htmlNew.addEventListener('click', () => newDocument('html'));
+  const htmlSaveAs = document.getElementById('html-save-as');
+  if (htmlSaveAs) htmlSaveAs.addEventListener('click', () => htmlEditor.saveAs());
   // 视频播放器:倍速选择 → 播放器 playbackRate
   const videoRateSel = document.getElementById('video-rate');
   if (videoRateSel) {
@@ -4989,6 +4999,11 @@ function showPage(pageId) {
   for (const [k, el] of Object.entries(pages)) {
     if (el) el.hidden = k !== pageId;
   }
+  // 离开预览(文档编辑)页 → 自动存档(切到其它页面时自动存档,避免丢失编辑内容)
+  if (currentShownPage === 'preview' && pageId !== 'preview') {
+    autoSaveActiveEditor();
+  }
+  currentShownPage = pageId;
   if (pageId === 'custom') {
     renderCustomPage();
   }
@@ -4998,6 +5013,12 @@ function showPage(pageId) {
       if (preview && preview._resize) preview._resize();
     });
   }
+}
+
+/** 自动存档当前正在编辑的文档(若有未保存改动且已落盘):Markdown / HTML 编辑器 */
+function autoSaveActiveEditor() {
+  try { if (markdownEditor && markdownEditor.autoSaveOnLeave) markdownEditor.autoSaveOnLeave(); } catch (e) { /* ignore */ }
+  try { if (htmlEditor && htmlEditor.autoSaveOnLeave) htmlEditor.autoSaveOnLeave(); } catch (e) { /* ignore */ }
 }
 
 /** 打开系统设置页(保存当前主区状态,关闭后恢复) */
@@ -5451,6 +5472,7 @@ export function renderMainArea() {
         },
         onClearFilter: () => { folderTagFilter = ''; folderSearchText = ''; renderMainArea(); },
         onAdd: () => runAddFlow(false, currentCategoryId === 'all' || currentCategoryId === '' ? '' : currentCategoryId),
+        onNewDoc: () => newDocumentMenu(),
         // ---- 编辑模式 ----
         onToggleEditMode: () => {
           editModeActive = !editModeActive;
@@ -5952,6 +5974,8 @@ export async function selectItem(id, opts = {}) {
   const { forceRaw = false, replaceCurrent = false } = opts;
   const item = itemById(id);
   if (!item) return;
+  // 打开其它资源前,先自动存档当前正在编辑的文档(若有未保存改动),避免切换即丢失
+  autoSaveActiveEditor();
   // 清除图集拆分浏览态(切回普通预览/目录)
   atlasShown = false;
   currentAtlasItemId = null;
@@ -6111,6 +6135,110 @@ function isHtmlFile(item) {
   if (!item || !item.filePath) return false;
   const s = String(item.filePath).toLowerCase();
   return s.endsWith('.html') || s.endsWith('.htm') || s.endsWith('.xhtml');
+}
+
+/** 取文件路径的目录(去掉最后一段) */
+function docDirOf(p) { return p ? String(p).replace(/[\\/][^\\/]*$/, '') : ''; }
+/** 取文件路径 basename */
+function docBaseOf(p) { return String(p || '').split(/[\\/]/).pop(); }
+
+/**
+ * 计算新建文档的默认保存目录:
+ * 1) 当前已打开文档所在目录(文档的所在目录);2) 当前分类下第一个有文件路径的条目目录(当前目录);
+ * 3) 回退到用户文档目录(app:docsDir)。
+ */
+async function computeDefaultDocDir() {
+  if (markdownEditor && markdownEditor.filePath) return docDirOf(markdownEditor.filePath);
+  if (htmlEditor && htmlEditor.filePath) return docDirOf(htmlEditor.filePath);
+  const catId = currentCategoryId;
+  if (catId && catId !== 'all' && catId !== '') {
+    const it = state.items.find((i) => i.categoryId === catId && i.filePath);
+    if (it) return docDirOf(it.filePath);
+  }
+  try { const d = await window.api.docsDir(); if (d) return d; } catch (e) { /* ignore */ }
+  return '';
+}
+
+/**
+ * 新建空白文档文件:先自动存档当前编辑中的文档,再在默认目录创建空白文件、
+ * 加入当前分类(资源库)、打开进入编辑器。保存位置默认为「当前目录 / 文档所在目录」。
+ * @param {'md'|'html'} kind
+ */
+async function newDocument(kind) {
+  const ext = kind === 'md' ? 'md' : 'html';
+  // 先自动存档当前正在编辑的文档(若有未保存改动)
+  autoSaveActiveEditor();
+  const dir = await computeDefaultDocDir();
+  if (!dir) {
+    toast('无法确定默认保存目录', 'error');
+    return;
+  }
+  // 生成唯一文件名(未命名.md / 未命名 (2).md ...),避免覆盖已有文件
+  const stem = '未命名';
+  let base = stem + '.' + ext;
+  let n = 1;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const p = dir + '\\' + base;
+    let exists = false;
+    try { const s = await window.api.statFile(p); exists = !!s; } catch (e) { exists = false; }
+    if (!exists) break;
+    n++;
+    base = stem + ' (' + n + ').' + ext;
+    if (n > 999) break; // 安全上限
+  }
+  const full = dir + '\\' + base;
+  try {
+    // 创建空白文件(空 base64 dataURL → 0 字节文件)
+    await window.api.writeFileBase64(full, 'data:text/plain;base64,');
+  } catch (e) {
+    toast('新建文档失败: ' + (e && e.message ? e.message : e), 'error');
+    return;
+  }
+  // 加入资源库(当前分类;all/'' 则未分类)
+  const catId = (currentCategoryId && currentCategoryId !== 'all' && currentCategoryId !== '') ? currentCategoryId : '';
+  const item = addItem({
+    categoryId: catId,
+    type: kind === 'md' ? 'markdown' : 'web',
+    filePath: full,
+    displayName: base.replace(/\.[^.]+$/, ''),
+    remark: '',
+    size: 0,
+    mtime: null,
+  });
+  try { document.dispatchEvent(new CustomEvent('library:changed')); } catch (e) { /* ignore */ }
+  renderCategories();
+  // 打开进入编辑器(切到预览页 + 加载空白文件,后续编辑即自动存档)
+  await selectItem(item.id);
+  toast('已新建 ' + base + '（' + dir + '）', 'ok', 2600);
+}
+
+/** 文档资源列表页「新建」按钮:弹出类型选择(Markdown / HTML) */
+function newDocumentMenu() {
+  const body = document.createElement('div');
+  body.className = 'modal-body';
+  const hint = document.createElement('div');
+  hint.className = 'form-hint';
+  hint.textContent = '选择要新建的空白文档类型(将在当前目录/文档所在目录创建空白文件并打开):';
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:12px;margin-top:12px';
+  const mk = (label, k) => {
+    const b = document.createElement('button');
+    b.className = 'btn primary';
+    b.textContent = label;
+    b.style.flex = '1';
+    b.addEventListener('click', () => { close(); newDocument(k); });
+    return b;
+  };
+  row.appendChild(mk('📝 Markdown', 'md'));
+  row.appendChild(mk('🌐 HTML', 'html'));
+  body.appendChild(hint);
+  body.appendChild(row);
+  const { close } = openModal({
+    title: '新建文档',
+    body,
+    foot: footButtons([{ text: '取消', cls: '', onClick: () => close() }]),
+  });
 }
 
 /** Markdown 打开 → 查看/编辑(分栏编辑 + markdown-it 渲染预览,可保存回写原文件) */

@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // 应用信息
   appInfo: () => ipcRenderer.invoke('app:info'),
+  docsDir: () => ipcRenderer.invoke('app:docsDir'),
 
   // ---- 开发者调试服务(CDP)开关 ----
   cdpGetState: () => ipcRenderer.invoke('cdp:getState'),

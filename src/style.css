@@ -422,6 +422,14 @@ body {
 .md-preview .hint { color: var(--text2, #888); }
 .md-error { color: #e0573c; }
 
+/* 文件名后「未保存改动」小白点(dirty 提示) */
+.dirty-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: #ffffff; box-shadow: 0 0 3px rgba(0,0,0,.6);
+  margin-left: 4px; vertical-align: middle; flex: 0 0 auto;
+}
+.dirty-dot[hidden] { display: none; }
+
 .list-empty { padding: 30px 20px; text-align: center; color: var(--text2); display: flex; flex-direction: column; gap: 12px; align-items: center; }
 
 /* ---------- 预览区 ---------- */

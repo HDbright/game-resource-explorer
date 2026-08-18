@@ -266,6 +266,7 @@ export function renderFolderPage(container, opts) {
       </div>
       <button class="icon-btn" id="folder-reload-thumbs" title="重新生成缩略图(刷新被修改过的文件)" type="button">⟳</button>
       <button class="btn sm ${editMode ? 'active' : ''}" id="edit-mode-btn" title="进入/退出管理模式(批量编辑)">✎ 管理</button>
+      ${actions.onNewDoc ? '<button class="btn sm" id="folder-new-doc" title="新建空白文档(Markdown / HTML)">＋ 新建文档</button>' : ''}
       ${editMode ? `
         <button class="btn sm" data-edit-act="select-all" title="全选">☑ 全选</button>
         <button class="btn sm" data-edit-act="select-none" title="取消全选">☐ 取消</button>
@@ -491,13 +492,21 @@ export function renderFolderPage(container, opts) {
     });
   }
 
-  // 编辑模式开关(按钮在 folder-toolbar 中)
-  const editBtn = container.querySelector('#edit-mode-btn');
-  if (editBtn) {
-    editBtn.addEventListener('click', () => {
-      actions.onToggleEditMode && actions.onToggleEditMode();
-    });
-  }
+    // 编辑模式开关(按钮在 folder-toolbar 中)
+    const editBtn = container.querySelector('#edit-mode-btn');
+    if (editBtn) {
+      editBtn.addEventListener('click', () => {
+        actions.onToggleEditMode && actions.onToggleEditMode();
+      });
+    }
+
+    // 新建文档按钮(列表页工具栏:创建空白 Markdown/HTML 文档)
+    const newDocBtn = container.querySelector('#folder-new-doc');
+    if (newDocBtn) {
+      newDocBtn.addEventListener('click', () => {
+        actions.onNewDoc && actions.onNewDoc();
+      });
+    }
 
   container.oncontextmenu = (e) => {
     const res = e.target.closest('[data-item]');

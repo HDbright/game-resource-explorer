@@ -894,6 +894,13 @@ app.whenReady().then(async () => {
     dbFile: dbFile(),
   }));
 
+  // 用户文档目录(新建文档默认可保存位置回退):优先 documents,缺失回退 userData
+  ipcMain.handle('app:docsDir', () => {
+    try { return app.getPath('documents'); } catch (e) { /* ignore */ }
+    try { return app.getPath('userData'); } catch (e) { /* ignore */ }
+    return '';
+  });
+
   // ============ 开发者调试服务(CDP)开关 ============
   // 查询: 开关状态 + 端口 + 当前是否真的在监听
   ipcMain.handle('cdp:getState', async () => {

@@ -170,10 +170,31 @@ async function main() {
   } else {
     console.warn('rcedit 或 icon 不存在,跳过图标注入');
   }
-  // rcedit 刚写完大文件,Defender/句柄可能瞬时锁定;稍候再覆盖,降低 EBUSY 概率
+  // rcedit 刚写完大文件,Defender/句柄可能瞬时锁定;稍候再操作,降低 EBUSY 概率
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 2000);
-  copyFileRetry(asciiTmp, exePath); // 覆盖
-  console.log('exe 就绪:', exePath);
+  // 最终落盘:避免「直接覆盖被 Defender/句柄锁定的旧 exe」触发 EBUSY。
+  // 策略:先把旧 exe 改名腾出文件名(exePath 不再存在,无锁),再把 rcedit 好的临时 exe
+  //   复制到「全新文件名」后瞬间 rename 回 exePath(纯 MFT 操作,远快于 Defender 扫描锁)。
+  // 若旧 exe 改名失败(仍被占用),回退到带重试的覆盖写。
+  let oldExeRenamed = false;
+  try {
+    const backup = path.join(appDir, `${APP_NAME}_old_${stamp}.exe`);
+    fs.renameSync(exePath, backup); // 腾出文件名(旧文件被排除在 zip 之外)
+    oldExeRenamed = true;
+    console.log('旧 exe 已改名腾位:', backup);
+  } catch (e) {
+    console.warn(`[pack] 旧 exe 改名失败(${e.code}),将回退覆盖写`);
+  }
+  const stagedExe = path.join(appDir, `${APP_NAME}_new_${stamp}.exe`);
+  copyFileRetry(asciiTmp, stagedExe); // 全新文件,无锁
+  try {
+    fs.renameSync(stagedExe, exePath); // 瞬时改名到位
+    console.log('exe 就绪(改名落位):', exePath);
+  } catch (e) {
+    console.warn(`[pack] 最终 rename 失败(${e.code}),回退覆盖写`);
+    copyFileRetry(asciiTmp, exePath);
+    console.log('exe 就绪(覆盖写):', exePath);
+  }
   // 6. 冒烟验证打包版(可选,SKELETON_VIEWER_PACK_SMOKE=1 时执行)
   if (process.env.SKELETON_VIEWER_PACK_SMOKE === '1') {
     const dataDir = path.join(appDir, 'data');

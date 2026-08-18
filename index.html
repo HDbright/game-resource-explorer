@@ -287,13 +287,15 @@
             <div id="pv-markdown-view" hidden>
               <div class="md-editor">
                 <div class="md-toolbar">
-                  <span class="md-name" id="md-name">(未打开文件)</span>
+                  <span class="md-name" id="md-name">(未打开文件)</span><span class="dirty-dot" id="md-dirty" title="有未保存的改动" hidden></span>
                   <span class="ctrl-spacer"></span>
+                  <button class="btn sm" id="md-new" title="新建空白 Markdown 文档">＋ 新建</button>
                   <button class="md-mode-btn active" data-mode="split" id="md-mode-split" title="分栏:左侧编辑、右侧预览">分栏</button>
                   <button class="md-mode-btn" data-mode="preview" id="md-mode-preview" title="仅预览渲染结果">预览</button>
                   <button class="md-mode-btn" data-mode="edit" id="md-mode-edit" title="仅编辑源码">编辑</button>
                   <button class="btn sm" id="md-open" title="打开本地 Markdown 文件">📂 打开</button>
                   <button class="btn sm" id="md-add-lib" title="把当前打开的文档加入资源库指定分类(如「文档资源」)">＋ 加入库</button>
+                  <button class="btn sm" id="md-save-as" title="另存为到指定路径">💾 另存为</button>
                   <button class="btn sm primary" id="md-save" title="保存回写原文件(Ctrl+S)">💾 保存</button>
                   <button class="btn sm" id="md-copy" title="复制源码">📋</button>
                   <span class="status" id="md-status"></span>
@@ -313,13 +315,15 @@
             <div id="pv-html-view" hidden>
               <div class="html-editor">
                 <div class="html-toolbar">
-                  <span class="html-name" id="html-name">(未打开文件)</span>
+                  <span class="html-name" id="html-name">(未打开文件)</span><span class="dirty-dot" id="html-dirty" title="有未保存的改动" hidden></span>
                   <span class="ctrl-spacer"></span>
+                  <button class="btn sm" id="html-new" title="新建空白 HTML 文档">＋ 新建</button>
                   <button class="html-mode-btn active" data-mode="split" id="html-mode-split" title="分栏:左侧编辑、右侧预览渲染结果">分栏</button>
                   <button class="html-mode-btn" data-mode="preview" id="html-mode-preview" title="仅预览渲染结果(iframe)">预览</button>
                   <button class="html-mode-btn" data-mode="edit" id="html-mode-edit" title="仅编辑源码">编辑</button>
                   <button class="btn sm" id="html-open" title="打开本地 HTML 文件">📂 打开</button>
                   <button class="btn sm" id="html-add-lib" title="把当前打开的文档加入资源库指定分类(如「文档资源」)">＋ 加入库</button>
+                  <button class="btn sm" id="html-save-as" title="另存为到指定路径">💾 另存为</button>
                   <button class="btn sm primary" id="html-save" title="保存回写原文件(Ctrl+S)">💾 保存</button>
                   <button class="btn sm" id="html-copy" title="复制源码">📋</button>
                   <span class="status" id="html-status"></span>
