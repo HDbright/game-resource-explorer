@@ -66,6 +66,7 @@ const LANGS = {
     subNotesLabel: '子任务备注', subNotesPh: '子任务补充说明…',
     eventsTab: '任务事件', addEvent: '添加事件', eventTextPh: '事件内容…', noEvents: '暂无任务事件',
     subDoneAt: '完成于', eventsSection: '任务事件',
+    editSubtask: '编辑子任务', subDoneAtLabel: '完成日期', subDoneAtDisabledTip: '子任务未完成,勾选后才能填完成日期',
     parentTaskLabel: '父任务', noParent: '无父任务', publishAtLabel: '发布时间',
     // 详情
     copy: '复制', copyTitle: '复制任务摘要', copied: '已复制到剪贴板', copyFailed: '复制失败',
@@ -147,6 +148,7 @@ const LANGS = {
     subNotesLabel: 'Subtask notes', subNotesPh: 'Subtask details…',
     eventsTab: 'Task Events', addEvent: 'Add Event', eventTextPh: 'Event content…', noEvents: 'No task events yet',
     subDoneAt: 'Done on', eventsSection: 'Task Events',
+    editSubtask: 'Edit subtask', subDoneAtLabel: 'Done at', subDoneAtDisabledTip: 'Subtask not done yet — check it first to set a completion date',
     parentTaskLabel: 'Parent task', noParent: 'No parent', publishAtLabel: 'Publish time',
     copy: 'Copy', copyTitle: 'Copy task summary', copied: 'Copied to clipboard', copyFailed: 'Copy failed',
     overduePrefix: 'Overdue · ', descLabel: 'Description', createdOn: 'Created {0}', updatedOn: 'Updated {0}',
@@ -223,6 +225,7 @@ let filters = { search: '', priority: 'all', status: 'all', projectId: 'all', so
 let taskModalOpen = false; // 任务模态框开关(null 任务=新建;modalTaskId 非 null=编辑)
 let modalTaskId = null;   // 任务模态框正在编辑的任务 id
 let modalInitialTab = 'details'; // 打开任务模态框时定位到的 tab(子任务右键编辑→'subtasks')
+let modalHighlightSub = ''; // 打开子任务 tab 时要高亮并滚动定位的子任务 id(悬停 ✎ / 右键编辑)
 let detailTaskId = null;  // 详情面板任务 id
 let projectsOpen = false;
 let archiveOpen = false;
@@ -1390,9 +1393,10 @@ function renderTaskCard(task, compact = false, colStatus = null) {
         <div class="todo-card-sub-body">
           <div class="todo-card-sub-chips">
             ${orderedSubs.map((s) => `
-              <button class="todo-sub-chip${s.done ? ' done' : ''}" data-t="sub" data-sub="${s.id}" title="${escHtml(s.title)}${s.doneAt ? ' · ' + T('subDoneAt') + ' ' + fmtDateTime(s.doneAt) : ''}">
-                <span>${s.done ? '✅' : '⬜'}</span><span class="todo-sub-chip-text">${escHtml(s.title)}</span>${s.done && s.doneAt ? `<span class="todo-sub-chip-date">${fmtShortDate(s.doneAt)}</span>` : ''}
-              </button>`).join('')}
+              <span class="todo-sub-chip${s.done ? ' done' : ''}" data-t="sub" data-sub="${s.id}" title="${escHtml(s.title)}${s.notes ? '\n' + escHtml(s.notes) : ''}${s.doneAt ? '\n' + T('subDoneAt') + ' ' + fmtDateTime(s.doneAt) : ''}">
+                <span class="todo-sub-chip-icon">${s.done ? '✅' : '⬜'}</span><span class="todo-sub-chip-text">${escHtml(s.title)}</span>${s.done && s.doneAt ? `<span class="todo-sub-chip-date">${fmtShortDate(s.doneAt)}</span>` : ''}
+                <button class="todo-sub-chip-edit" data-t="subedit" data-sub="${s.id}" title="${T('editSubtask')}">✎</button>
+              </span>`).join('')}
           </div>
           <div class="todo-card-sub-bar">
             <div class="todo-card-sub-track"><div class="todo-card-sub-fill" style="width:${subs.length ? (doneSubs / subs.length) * 100 : 0}%"></div></div>
@@ -1450,7 +1454,7 @@ function renderTaskCard(task, compact = false, colStatus = null) {
       ev.stopPropagation();
       const m = mb.dataset.sm;
       closeSubMenu();
-      if (m === 'edit') { modalInitialTab = 'subtasks'; taskModalOpen = true; modalTaskId = task.id; render(); }
+      if (m === 'edit') { modalInitialTab = 'subtasks'; modalHighlightSub = subId; taskModalOpen = true; modalTaskId = task.id; render(); }
       else if (m === 'delete') {
         confirmDialog({ title: T('delSubTitle'), message: T('delSubMsg', sub.title), okText: T('delete'), danger: true, onOk: () => {
           task.subtasks = (task.subtasks || []).filter((x) => x.id !== subId);
@@ -1517,6 +1521,12 @@ function renderTaskCard(task, compact = false, colStatus = null) {
     const t = b.dataset.t;
     if (t === 'status') { cycleStatus(task); }
     else if (t === 'priority') { cyclePriority(task); }
+    else if (t === 'subedit') {
+      // 子任务悬停 ✎:打开编辑弹窗并定位到子任务 tab,高亮该行
+      modalInitialTab = 'subtasks';
+      modalHighlightSub = b.dataset.sub;
+      taskModalOpen = true; modalTaskId = task.id; render();
+    }
     else if (t === 'sub') { toggleSubtask(task, b.dataset.sub); }
     else if (t === 'subtoggle') { toggleSubtasksCollapse(task, b); }
     else if (t === 'edit') { taskModalOpen = true; modalTaskId = task.id; render(); }
@@ -1711,16 +1721,27 @@ function renderTaskModal() {
           const row = document.createElement('div');
           row.className = 'todo-sub-row';
           row.draggable = true;
+          // 两行布局:上行 拖拽/上下移/状态/标题/删除;下行 备注 + 完成日期(仅已完成可编辑)
           row.innerHTML = `
-            <span class="todo-sub-grip" title="${T('dragToReorder')}">⠿</span>
-            <div class="todo-sub-arrows">
-              <button data-sub-up="${idx}" title="${T('moveUp')}" ${idx === 0 ? 'disabled' : ''}>▲</button>
-              <button data-sub-down="${idx}" title="${T('moveDown')}" ${idx === subs.length - 1 ? 'disabled' : ''}>▼</button>
+            <div class="todo-sub-row-top">
+              <span class="todo-sub-grip" title="${T('dragToReorder')}">⠿</span>
+              <div class="todo-sub-arrows">
+                <button data-sub-up="${idx}" title="${T('moveUp')}" ${idx === 0 ? 'disabled' : ''}>▲</button>
+                <button data-sub-down="${idx}" title="${T('moveDown')}" ${idx === subs.length - 1 ? 'disabled' : ''}>▼</button>
+              </div>
+              <button class="todo-status-btn" data-sub-toggle="${s.id}" style="border-color:${s.done ? '#22c55e' : 'var(--border)'};color:${s.done ? '#22c55e' : 'var(--text2)'}">${s.done ? '✅' : '⬜'}</button>
+              <span class="todo-sub-title${s.done ? ' done' : ''}" data-sub-rename="${s.id}" title="${T('doubleClickRename')}">${escHtml(s.title)}</span>
+              <button class="todo-icon-btn" data-sub-del="${s.id}" title="${T('del')}">✕</button>
             </div>
-            <button class="todo-status-btn" data-sub-toggle="${s.id}" style="border-color:${s.done ? '#22c55e' : 'var(--border)'};color:${s.done ? '#22c55e' : 'var(--text2)'}">${s.done ? '✅' : '⬜'}</button>
-            <span class="todo-sub-title${s.done ? ' done' : ''}" data-sub-rename="${s.id}" title="${T('doubleClickRename')}">${escHtml(s.title)}</span>
-            <input class="todo-input todo-sub-notes" data-sub-notes="${s.id}" placeholder="${T('subNotesPh')}" value="${escHtml(s.notes || '')}">
-            <button class="todo-icon-btn" data-sub-del="${s.id}" title="${T('del')}">✕</button>`;
+            <div class="todo-sub-row-bottom">
+              <input class="todo-input todo-sub-notes" data-sub-notes="${s.id}" placeholder="${T('subNotesPh')}" value="${escHtml(s.notes || '')}">
+              <label class="todo-sub-doneat-label" title="${s.done ? T('subDoneAtLabel') : T('subDoneAtDisabledTip')}">
+                <span>${T('subDoneAtLabel')}</span>
+                <input type="datetime-local" class="todo-input todo-sub-doneat" data-sub-doneat="${s.id}"
+                  value="${s.doneAt ? tsToDateTimeLocal(s.doneAt) : ''}" ${s.done ? '' : 'disabled'}>
+              </label>
+            </div>`;
+          if (modalHighlightSub && s.id === modalHighlightSub) row.classList.add('highlight');
           row.addEventListener('dragstart', (e) => {
             e.dataTransfer.effectAllowed = 'move';
             e.dataTransfer.setData('text/plain', String(s.id));
@@ -1752,6 +1773,23 @@ function renderTaskModal() {
           const s = subs.find((x) => x.id === ne.dataset.subNotes);
           if (s) s.notes = ne.value;
         });
+        // 完成日期修改:datetime-local → 秒时间戳(与 now() 单位一致,见补丁·41)
+        listEl.addEventListener('change', (e) => {
+          const de = e.target.closest('[data-sub-doneat]');
+          if (!de) return;
+          const s = subs.find((x) => x.id === de.dataset.subDoneat);
+          if (!s) return;
+          s.doneAt = de.value ? dateTimeLocalToTs(de.value) : null;
+        });
+        // 高亮定位:悬停 ✎ / 右键编辑进来时滚动到该子任务并短暂高亮
+        if (modalHighlightSub) {
+          const hit = listEl.querySelector('.todo-sub-row.highlight');
+          if (hit) {
+            hit.scrollIntoView({ block: 'nearest' });
+            setTimeout(() => hit.classList.remove('highlight'), 2000);
+          }
+          modalHighlightSub = '';
+        }
         listEl.addEventListener('dblclick', (e) => {
           const sp = e.target.closest('[data-sub-rename]');
           if (!sp) return;

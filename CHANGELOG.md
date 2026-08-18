@@ -3,7 +3,30 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.41`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.42`）。
+
+---
+
+## 2026-08-18（补丁·42）
+
+### [新增] 列表子任务支持鼠标悬停浮现编辑按钮 + 子任务可修改完成日期
+
+**背景**：主任务卡片已有「鼠标悬停浮现 ✎ 编辑按钮」的交互，但列表中的子任务（chip）没有；且进入任务弹窗的「子任务」tab 无法修改单个子任务的完成日期，与事件时间可编辑能力不对等。
+
+**改动**：
+- `src/pages/todoPage.js`
+  - 列表子任务 chip 由 `<button>` 改为 `<span>`（避免 chip 内再嵌编辑 `<button>` 形成非法嵌套），新增悬停浮现的 `✎` 编辑按钮 `.todo-sub-chip-edit`（含 `data-t="subedit"`）。
+  - 卡片点击监听新增 `subedit` 分支：打开任务弹窗并定位到「子任务」tab，同时高亮 + 滚动到该子任务行（`modalHighlightSub`）。
+  - 右键子任务菜单的「编辑」项同样设置 `modalHighlightSub`，实现「悬停 ✎ / 右键编辑」都能深链定位。
+  - 「子任务」tab 行改为**两行布局**：上行为拖拽手柄 / 上下移动 / 状态按钮 / 标题 / 删除；下行为备注输入 + 完成日期 `datetime-local`（未完成时禁用，勾选完成才可选）。
+  - 新增 `change` 监听：`datetime-local` 改动 → `dateTimeLocalToTs()` 写回 `s.doneAt`（秒，与 `now()` 单位一致，沿用补丁·41 约定）。
+  - 打开子任务 tab 时若命中 `modalHighlightSub`，滚动定位并短暂高亮（2 秒后去除）。
+  - i18n 新增 `editSubtask` / `subDoneAtLabel` / `subDoneAtDisabledTip`（中英文）。
+- `src/style.css`
+  - `.todo-sub-chip-edit`：15×15px、悬停 `opacity` 由 0 渐显（与主任务编辑按钮同款交互）。
+  - `.todo-sub-row` 改为 `flex-direction: column` 两行布局，新增 `.todo-sub-row-top` / `.todo-sub-row-bottom` / `.todo-sub-row.highlight`（2 秒高亮） / `.todo-sub-doneat-label` / `.todo-sub-doneat`（152px，禁用时 `opacity .4`）样式。
+
+**冒烟**：`scripts/todo-smoke-main.js` 既有「子任务含 notes/doneAt 字段」「已完成子任务保留 doneAt 列」断言通过；手动验证悬停 ✎ 与完成日期回填。
 
 ---
 
