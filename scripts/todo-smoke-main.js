@@ -14,6 +14,7 @@ app.commandLine.appendSwitch('use-angle', 'swiftshader');
 app.commandLine.appendSwitch('enable-unsafe-swiftshader');
 
 const PROJ_ID = 'p_smoke_' + Date.now();
+const PROJ2_ID = 'p_smoke_root2_' + Date.now();
 const TASK_A = 't_smoke_a';
 const TASK_B = 't_smoke_b';
 const SMOKE_TITLE = '冒烟测试任务';
@@ -54,6 +55,10 @@ function setup() {
   d.todoProjects.push({
     id: 'p_smoke_child', name: '子项目', color: '#f59e0b', sort: 1, parentId: PROJ_ID, createdAt: nowTs(), updatedAt: nowTs(),
   });
+  // 补丁·54 拖拽重排测试:第二个根级项目(PROJ_ID 之外的兄弟根项目)
+  d.todoProjects.push({
+    id: PROJ2_ID, name: '根项目二', color: '#10b981', sort: 2, createdAt: nowTs(), updatedAt: nowTs(),
+  });
   const t0 = new Date(); const today = Math.floor(new Date(t0.getFullYear(), t0.getMonth(), t0.getDate()).getTime() / 1000);
   d.todoTasks.push({
     id: TASK_A, title: '完成 Spine 转换工具', notes: '支持 skel↔json 双向', notesHtml: '',
@@ -69,6 +74,13 @@ function setup() {
     id: TASK_B, title: '整理文档', notes: '', notesHtml: '',
     priority: 'low', status: 'done', deadline: null, reminderAt: null, sort: 1,
     tags: ['杂项'], projectId: 'p_smoke_child', parentTaskId: TASK_A, recurRule: '', archived: false,
+    subtasks: [], createdAt: nowTs(), updatedAt: nowTs(),
+  });
+  // 补丁·54 拖拽重排测试:子项目下第二个同级任务(与 TASK_A 同层,用于兄弟重排);id 以 t_smoke_ 开头会被 cleanup 清理
+  d.todoTasks.push({
+    id: 't_smoke_c', title: '编写单元测试', notes: '', notesHtml: '',
+    priority: 'medium', status: 'todo', deadline: null, reminderAt: null, sort: 2,
+    tags: [], projectId: 'p_smoke_child', parentTaskId: '', recurRule: '', archived: false,
     subtasks: [], createdAt: nowTs(), updatedAt: nowTs(),
   });
   d.settings = d.settings || {};
@@ -151,8 +163,8 @@ app.whenReady().then(async () => {
       if (o && o.__err) { check('进入工具', false, o.__err); throw new Error('abort'); }
       check('侧栏 Todo-List 节点', o.found === true);
       check('页面渲染 .todo-root', o.pageShown === true);
-      check('任务卡片数量=2', o.cardCount === 2, 'count=' + o.cardCount + ' ids=' + JSON.stringify(o.cardIds));
-      check('完成统计 1/2', /已完成 1\/2/.test(o.subText || ''), o.subText);
+      check('任务卡片数量=3', o.cardCount === 3, 'count=' + o.cardCount + ' ids=' + JSON.stringify(o.cardIds));
+      check('完成统计 1/3', /已完成 1\/3/.test(o.subText || ''), o.subText);
 
       // 1.5) 中英文切换
       o = await js('lang', `(async () => {
@@ -169,10 +181,10 @@ app.whenReady().then(async () => {
         const subBack = (document.querySelector('.todo-sub') || {}).textContent || '';
         return { subZh, subEn, subBack, btnText0, btnText1, newBtnEn };
       })()`);
-      check('语言切换:默认中文', /已完成 1\/2/.test(o.subZh || ''), o.subZh);
-      check('语言切换:切英文', /Completed 1\/2/.test(o.subEn || ''), o.subEn + ' btn=' + o.btnText1);
+      check('语言切换:默认中文', /已完成 1\//.test(o.subZh || ''), o.subZh);
+      check('语言切换:切英文', /Completed 1\//.test(o.subEn || ''), o.subEn + ' btn=' + o.btnText1);
       check('语言切换:英文按钮文案', o.newBtnEn === true && o.btnText0 === 'EN', o.btnText0 + '→' + o.btnText1);
-      check('语言切换:切回中文', /已完成 1\/2/.test(o.subBack || ''), o.subBack);
+      check('语言切换:切回中文', /已完成 1\//.test(o.subBack || ''), o.subBack);
 
       // 1.6) 头部事件提醒(今日待办 / 今日生日 / 3 日内生日)
       o = await js('remind', `(() => {
@@ -234,7 +246,7 @@ app.whenReady().then(async () => {
           newVisible: !![...document.querySelectorAll('.todo-card-title')].find((t) => (t.textContent || '').includes('冒烟测试任务')) };
       })()`);
       check('新建任务模态框', o.modalOpen === true, o.err || '');
-      check('新建后卡片=3', o.cardCount === 3, 'count=' + o.cardCount);
+      check('新建后卡片=4', o.cardCount === 4, 'count=' + o.cardCount);
       check('新任务可见', o.newVisible === true);
 
       // 4.1) 编辑模态框含开始/完成时间 + 事件 tab(打开任一任务)
@@ -839,6 +851,82 @@ app.whenReady().then(async () => {
       check('树(补丁·52):项目下 + 打开新任务并预设该项目', o.projAddFound === true && o.projModalOpened === true && o.projSelVal === PROJ_ID, 'found=' + o.projAddFound + ' modal=' + o.projModalOpened + ' selVal=' + o.projSelVal + ' PROJ_ID=' + PROJ_ID);
       check('树(补丁·52):任务下 + 打开新任务并预设该父任务', o.taskAddFound === true && o.taskModalOpened === true && o.taskSelVal === TASK_A, 'found=' + o.taskAddFound + ' modal=' + o.taskModalOpened + ' selVal=' + o.taskSelVal + ' TASK_A=' + TASK_A);
 
+      // 7.a3) 列表树拖拽重排(补丁·54):项目行可拖拽;拖项目改变根级顺序;拖任务改变同层顺序
+      o = await js('treeDragReorder', `(async () => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const listBtn = document.querySelector('[data-view="list"]');
+        if (listBtn) { listBtn.click(); await sleep(200); }
+        document.querySelectorAll('.todo-overlay').forEach((el) => el.remove());
+        const out = {};
+        function rowOf(projId) {
+          const wrap = document.querySelector('.todo-tree-proj[data-proj="' + projId + '"]');
+          return wrap ? wrap.querySelector('.todo-tree-row') : null;
+        }
+        function taskRowOf(tid) {
+          const el = document.querySelector('.todo-tree-task[data-task-id="' + tid + '"]');
+          return el ? el.querySelector('.todo-tree-row') : null;
+        }
+        const rootProjRows = [...document.querySelectorAll('.todo-tree-proj[data-proj]')].filter((r) => {
+          const id = r.getAttribute('data-proj'); return id && id !== '__none__';
+        });
+        out.projRows = rootProjRows.length;
+        out.allProjDraggable = rootProjRows.length > 1 && rootProjRows.every((r) => {
+          const row = r.querySelector('.todo-tree-row'); return row && row.draggable === true;
+        });
+        const orderIds = () => [...document.querySelectorAll('.todo-tree-proj[data-proj]')]
+          .map((r) => r.getAttribute('data-proj')).filter((id) => id && id !== '__none__');
+        out.before = orderIds();
+        const dragRow = rowOf('${PROJ2_ID}');
+        const targetRow = rowOf('${PROJ_ID}');
+        if (dragRow && targetRow) {
+          const dt = new DataTransfer();
+          dragRow.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
+          await sleep(60);
+          const r = targetRow.getBoundingClientRect();
+          const pt = { clientX: r.left + 10, clientY: r.top + 2 };
+          targetRow.dispatchEvent(new DragEvent('dragover', Object.assign({ bubbles: true, dataTransfer: dt }, pt)));
+          out.markBefore = targetRow.classList.contains('todo-tree-drop-before');
+          targetRow.dispatchEvent(new DragEvent('drop', Object.assign({ bubbles: true, dataTransfer: dt }, pt)));
+          await sleep(350);
+          out.after = orderIds();
+          out.projReordered = out.before.indexOf('${PROJ2_ID}') > out.before.indexOf('${PROJ_ID}') && out.after.indexOf('${PROJ2_ID}') < out.after.indexOf('${PROJ_ID}');
+        }
+        // 任务重排:确保子项目展开,拖 t_smoke_c(子项目下与 TASK_A 同级)到 TASK_A 前面
+        const childWrap = document.querySelector('.todo-tree-proj[data-proj="p_smoke_child"]');
+        if (childWrap && !taskRowOf('${TASK_A}')) {
+          const arrow = childWrap.querySelector('.todo-tree-arrow');
+          if (arrow) arrow.click();
+          await sleep(200);
+        }
+        out.fullOrder = [...document.querySelectorAll('.todo-tree-task[data-task-id]')].map((e) => e.getAttribute('data-task-id'));
+        const dragTaskRow = taskRowOf('t_smoke_c');
+        const targetTaskRow = taskRowOf('${TASK_A}');
+        out.taskRowsFound = !!dragTaskRow && !!targetTaskRow;
+        if (dragTaskRow && targetTaskRow) {
+          const taskOrder = () => {
+            const w = document.querySelector('.todo-tree-proj[data-proj="p_smoke_child"] .todo-tree-children');
+            return w ? [...w.querySelectorAll(':scope > .todo-tree-task')].map((e) => e.getAttribute('data-task-id')) : [];
+          };
+          out.taskBefore = taskOrder();
+          const dt2 = new DataTransfer();
+          dragTaskRow.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt2 }));
+          await sleep(60);
+          const r2 = targetTaskRow.getBoundingClientRect();
+          const pt2 = { clientX: r2.left + 10, clientY: r2.top + 2 };
+          targetTaskRow.dispatchEvent(new DragEvent('dragover', Object.assign({ bubbles: true, dataTransfer: dt2 }, pt2)));
+          out.taskMarkBefore = targetTaskRow.classList.contains('todo-tree-drop-before');
+          targetTaskRow.dispatchEvent(new DragEvent('drop', Object.assign({ bubbles: true, dataTransfer: dt2 }, pt2)));
+          await sleep(350);
+          out.taskAfter = taskOrder();
+          out.taskReordered = out.taskBefore.indexOf('t_smoke_c') > out.taskBefore.indexOf('${TASK_A}') && out.taskAfter.indexOf('t_smoke_c') < out.taskAfter.indexOf('${TASK_A}');
+        }
+        return out;
+      })()`);
+      check('树(补丁·54):项目区块行均可拖拽', o.allProjDraggable === true, 'projRows=' + o.projRows);
+      check('树(补丁·54):拖拽显示插入指示线(项目/任务)', o.markBefore === true && o.taskMarkBefore === true, 'projMark=' + o.markBefore + ' taskMark=' + o.taskMarkBefore);
+      check('树(补丁·54):根级项目拖拽改变排列顺序', o.projReordered === true, 'before=' + JSON.stringify(o.before) + ' after=' + JSON.stringify(o.after));
+      check('树(补丁·54):子项目内任务拖拽改变同层顺序', o.taskRowsFound && o.taskReordered === true, 'full=' + JSON.stringify(o.fullOrder) + ' before=' + JSON.stringify(o.taskBefore) + ' after=' + JSON.stringify(o.taskAfter));
+
       // 7.b) 项目管理(补丁·47):行内删除确认 + 重名拒绝
       o = await js('manageProjects', `(async () => {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -985,7 +1073,7 @@ app.whenReady().then(async () => {
         return { menuFound, countAfter, rows, restoreFound, rowsAfter, closed: !document.querySelector('.todo-archive-row') };
       })()`);
       check('卡片菜单归档项', o.menuFound === true);
-      check('归档后卡片=2', o.countAfter === 2, 'count=' + o.countAfter);
+      check('归档后卡片=3', o.countAfter === 3, 'count=' + o.countAfter);
       check('归档弹窗 1 条', o.rows === 1, 'rows=' + o.rows);
       check('恢复按钮', o.restoreFound === true);
       check('恢复后归档=0', o.rowsAfter === 0, 'rows=' + o.rowsAfter);

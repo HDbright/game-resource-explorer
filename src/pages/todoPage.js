@@ -246,6 +246,7 @@ let projectsOpen = false;
 let archiveOpen = false;
 let exportOpen = false;
 let dragTaskId = null;
+let dragNode = null;     // 树内拖拽源:{ kind:'task'|'proj', id }
 let eventModal = null;    // 日历事件弹窗:{id} 编辑 / {date:'YYYY-MM-DD'} 新建
 let dayEventsModal = null; // 当日事件列表弹窗:{date:'YYYY-MM-DD'}
 let dayEvTab = 'list';    // 当日事件弹窗标签:'list'(事件列表) | 'new'(新建事件)
@@ -733,25 +734,6 @@ function treeFind(forest, id) {
   }
   return null;
 }
-/** 树内拖拽:把 dragId 变成 targetId 的同级(同 parentTaskId / projectId),并插到 target 之前 */
-function reparentTaskAsSibling(dragId, targetId) {
-  const drag = taskById(dragId);
-  const target = taskById(targetId);
-  if (!drag || !target || drag.id === target.id) return;
-  drag.parentTaskId = target.parentTaskId || '';
-  drag.projectId = target.projectId || '';
-  const others = state.todoTasks
-    .filter((t) => !t.archived && (t.projectId || '') === (target.projectId || '') && (t.parentTaskId || '') === (target.parentTaskId || '') && t.id !== drag.id)
-    .sort((a, b) => a.sort - b.sort);
-  const ti = others.findIndex((t) => t.id === target.id);
-  let newSort;
-  if (ti <= 0) newSort = (others[0] ? others[0].sort : 0) - 1;
-  else newSort = (others[ti - 1].sort + others[ti].sort) / 2;
-  drag.sort = newSort;
-  drag.updatedAt = now();
-  saveState();
-  render();
-}
 /** 树内拖拽:把 dragId 移到某项目的顶级(parentTaskId='') */
 function reparentTaskToProjectTop(dragId, projId) {
   const drag = taskById(dragId);
@@ -765,14 +747,123 @@ function reparentTaskToProjectTop(dragId, projId) {
   saveState();
   render();
 }
+// ---- 列表树拖拽重排(补丁·54) ----
+// 通用:在兄弟序列 members(已按 sort 升序)的 idx 处插入 t,用分数序号只改 t.sort
+function assignSortBetween(members, idx, t) {
+  const prev = members[idx - 1] || null;
+  const next = members[idx] || null;
+  if (!prev && !next) t.sort = 0;
+  else if (!prev) t.sort = (next.sort ?? 0) - 1;
+  else if (!next) t.sort = (prev.sort ?? 0) + 1;
+  else {
+    const a = prev.sort ?? 0, b = next.sort ?? 0;
+    const mid = (a + b) / 2;
+    if (mid > a && mid < b) t.sort = mid;
+    else {
+      // 浮点间隙耗尽 → 该兄弟组整数重编号(以原最小值为基准)
+      const seq = [...members]; seq.splice(idx, 0, t);
+      const base = Math.min(...seq.map((x) => x.sort ?? 0));
+      seq.forEach((x, i) => { x.sort = base + i; x.updatedAt = now(); });
+    }
+  }
+}
+// 任务重排:作为 target 的同级(同 projectId + parentTaskId),插到 target 前/后
+function reorderTaskSibling(dragId, targetId, after) {
+  const drag = taskById(dragId);
+  const target = taskById(targetId);
+  if (!drag || !target || drag.id === target.id) return;
+  drag.parentTaskId = target.parentTaskId || '';
+  drag.projectId = target.projectId || '';
+  const members = state.todoTasks
+    .filter((x) => !x.archived && x.id !== drag.id && (x.projectId || '') === (drag.projectId || '') && (x.parentTaskId || '') === (drag.parentTaskId || ''))
+    .sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0) || ((a.createdAt || 0) - (b.createdAt || 0)));
+  let idx = members.findIndex((x) => x.id === target.id);
+  if (idx < 0) idx = members.length;
+  idx = after ? idx + 1 : idx;
+  assignSortBetween(members, idx, drag);
+  drag.updatedAt = now();
+  saveState();
+  render();
+}
+// 项目重排:作为 target 的同级(同 parentId),插到 target 前/后
+function reorderProjectWithin(dragId, targetId, after) {
+  const drag = state.todoProjects.find((p) => p.id === dragId);
+  const target = state.todoProjects.find((p) => p.id === targetId);
+  if (!drag || !target || drag.id === target.id) return;
+  drag.parentId = target.parentId || '';
+  const members = state.todoProjects
+    .filter((p) => p.id !== drag.id && (p.parentId || '') === (drag.parentId || ''))
+    .sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0) || ((a.createdAt || 0) - (b.createdAt || 0)));
+  let idx = members.findIndex((x) => x.id === target.id);
+  if (idx < 0) idx = members.length;
+  idx = after ? idx + 1 : idx;
+  assignSortBetween(members, idx, drag);
+  drag.updatedAt = now();
+  saveState();
+  render();
+}
+function parseDragData(str) {
+  const [kind, id] = (str || '').split(':');
+  if (kind === 'proj') return { kind: 'proj', id };
+  if (kind === 'task') return { kind: 'task', id: Number(id) };
+  return null;
+}
+function clearTreeDropMarks() {
+  document.querySelectorAll('.todo-tree-drop-before, .todo-tree-drop-after')
+    .forEach((el) => el.classList.remove('todo-tree-drop-before', 'todo-tree-drop-after'));
+}
+// dragover:校验是否合法落点,画插入指示线(上/下半区)
+function onDragOverTree(row, node, e) {
+  const d = dragNode || parseDragData(e.dataTransfer ? e.dataTransfer.getData('text/plain') : '');
+  if (!d) return;
+  const valid = (node.kind === 'task' && d.kind === 'task')
+    || (node.kind === 'proj' && (d.kind === 'proj' || d.kind === 'task'))
+    || (node.kind === 'none' && d.kind === 'task');
+  if (!valid) return;
+  e.preventDefault();
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+  e.stopPropagation();
+  clearTreeDropMarks();
+  const r = row.getBoundingClientRect();
+  const after = e.clientY > r.top + r.height / 2;
+  row.classList.add(after ? 'todo-tree-drop-after' : 'todo-tree-drop-before');
+}
+// drop:按落点前/后重排(项目↔项目 / 任务↔任务 重排;任务→项目 归该项目顶级)
+function onDropTree(row, node, e) {
+  e.preventDefault();
+  e.stopPropagation();
+  clearTreeDropMarks();
+  const d = dragNode || parseDragData(e.dataTransfer ? e.dataTransfer.getData('text/plain') : '');
+  if (!d) return;
+  const r = row.getBoundingClientRect();
+  const after = e.clientY > r.top + r.height / 2;
+  if (node.kind === 'proj') {
+    if (d.kind === 'proj') reorderProjectWithin(d.id, node.id, after);
+    else if (d.kind === 'task') reparentTaskToProjectTop(d.id, node.id);
+  } else if (node.kind === 'task') {
+    if (d.kind === 'task') reorderTaskSibling(d.id, node.id, after);
+  } else if (node.kind === 'none') {
+    if (d.kind === 'task') reparentTaskToProjectTop(d.id, '');
+  }
+}
 function attachTaskDrag(row, node) {
   row.setAttribute('draggable', 'true');
   row.addEventListener('dragstart', (e) => {
+    dragNode = { kind: 'task', id: node.id };
     dragTaskId = node.id;
     e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', String(node.id));
+    e.dataTransfer.setData('text/plain', 'task:' + node.id);
   });
-  row.addEventListener('dragend', () => { dragTaskId = null; });
+  row.addEventListener('dragend', () => { dragNode = null; dragTaskId = null; clearTreeDropMarks(); });
+}
+function attachProjectDrag(row, node) {
+  row.setAttribute('draggable', 'true');
+  row.addEventListener('dragstart', (e) => {
+    dragNode = { kind: 'proj', id: node.id };
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', 'proj:' + node.id);
+  });
+  row.addEventListener('dragend', () => { dragNode = null; clearTreeDropMarks(); });
 }
 // 统一树节点渲染(项目 / 无项目 / 任务 同树)
 // ancestors: 长度为 depth 的布尔数组,ancestors[a] = 深度 a 的祖先是否为其父的最后一个子(用于竖线是否继续)
@@ -807,14 +898,9 @@ function renderTreeNode(node, depth, ancestors, isLast) {
     const card = renderTaskCard(node);
     attachTaskDrag(row, node);
     row.appendChild(card);
-    // 拖到任务行 → 成为其同级
-    row.addEventListener('dragover', (e) => e.preventDefault());
-    row.addEventListener('drop', (e) => {
-      e.preventDefault();
-      const dragId = dragTaskId || Number(e.dataTransfer.getData('text/plain')) || null;
-      if (!dragId || dragId === node.id) return;
-      reparentTaskAsSibling(dragId, node.id);
-    });
+    // 拖到任务行 → 成为其同级(前/后由落点决定)
+    row.addEventListener('dragover', (e) => onDragOverTree(row, node, e));
+    row.addEventListener('drop', (e) => onDropTree(row, node, e));
   } else {
     // 项目 / 无项目节点:色点 + 名称 + 三色状态统计
     const dot = document.createElement('span');
@@ -834,14 +920,10 @@ function renderTreeNode(node, depth, ancestors, isLast) {
     }
     row.insertAdjacentHTML('beforeend', statusBadgeHTML(nodeStatusCounts(node)));
     row.addEventListener('click', () => { if (hasChildren) toggleNode(node.id); });
-    // 拖到项目行 → 归该项目顶级
-    row.addEventListener('dragover', (e) => e.preventDefault());
-    row.addEventListener('drop', (e) => {
-      e.preventDefault();
-      const dragId = dragTaskId || Number(e.dataTransfer.getData('text/plain')) || null;
-      if (!dragId) return;
-      reparentTaskToProjectTop(dragId, node.kind === 'none' ? '' : node.id);
-    });
+    // 真实项目行可拖拽重排;项目/无项目行均可作为落点
+    if (node.kind === 'proj' && node.id !== '__none__') attachProjectDrag(row, node);
+    row.addEventListener('dragover', (e) => onDragOverTree(row, node, e));
+    row.addEventListener('drop', (e) => onDropTree(row, node, e));
   }
   // hover 浮现「+」:在该级(项目/任务)下新建任务/子任务
   const addBtn = document.createElement('button');
