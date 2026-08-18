@@ -1268,7 +1268,7 @@ function renderTaskCard(task, compact = false, colStatus = null) {
   const dateSuffix = cardStatusDate(task);
 
   const statusBtn = (inKanbanCol && colStatus === 'in_progress')
-    ? `<button class="todo-status-btn" data-t="status" title="${stLabel(task.status)} · ${T('clickToggle')}"><img src="tasking64.png" class="todo-status-img" alt="🔄"></button>`
+    ? `<button class="todo-status-btn" data-t="status" title="${stLabel(task.status)} · ${T('clickToggle')}"><img src="tasking64.png" class="todo-status-img" style="width:18px;height:18px;max-width:18px;max-height:18px" alt="◑"></button>`
     : `<button class="todo-status-btn" data-t="status" title="${stLabel(task.status)} · ${T('clickToggle')}" style="border-color:${task.status === 'done' ? '#22c55e' : task.status === 'in_progress' ? 'var(--accent)' : 'var(--border)'};color:${task.status === 'done' ? '#22c55e' : task.status === 'in_progress' ? 'var(--accent)' : 'var(--text2)'}">${st.icon}</button>`;
   let html = `
     <div class="todo-card-row">

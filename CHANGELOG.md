@@ -3,7 +3,21 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.35`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.36`）。
+
+---
+
+## 2026-08-18（补丁·36）
+
+### [修复] 看板「进行中」列图标与另两列不等大
+
+- 现象（用户截图）：进行中列 `tasking64.png` 图标相对「待办 ⬜」「已完成 ✅」明显偏大（占卡片宽度约 1/4，视觉上"大了好多倍"）。
+- 根因：图片按精确像素 `20×20` 满框渲染，而 emoji 字符（⬜/✅）受字体行高与字符内边距影响实际可见尺寸约 `16-18px`；两者放一起对比时图片视觉明显更大。
+- 修复：
+  1. JS inline style：`width:18px;height:18px;max-width:18px;max-height:18px` —— 强制覆盖任何外层 CSS。
+  2. CSS `.todo-card-col-progress .todo-status-btn .todo-status-img` 加 `!important` + `vertical-align:middle` 双重保险。
+  3. 同步把 img `alt` 由 `🔄` 改回 `◑`，与 `STATUS_CONFIG.in_progress.icon` 一致。
+- 文件：`src/pages/todoPage.js:1270-1272`、`src/style.css:2809`
 
 ---
 

@@ -2806,7 +2806,7 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
   width: auto; height: auto; min-width: 20px; border: none; background: transparent; border-radius: 0; font-size: 20px; line-height: 1; margin-top: 0; padding: 0;
 }
 .todo-card-col-done .todo-status-btn { color: #22c55e; }
-.todo-card-col-progress .todo-status-btn .todo-status-img { width: 20px; height: 20px; object-fit: contain; display: block; pointer-events: none; }
+.todo-card-col-progress .todo-status-btn .todo-status-img { width: 18px !important; height: 18px !important; max-width: 18px; max-height: 18px; object-fit: contain; display: block; pointer-events: none; vertical-align: middle; }
 .todo-card-main { flex: 1; min-width: 0; }
 .todo-card-title-row { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
 .todo-card-title { font-size: 14px; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
