@@ -613,7 +613,7 @@ function isFilterActive() {
 }
 
 // ---------------- 列表视图 ----------------
-// ---------------- 树状层级(补丁·45:项目树 + 项目内任务树) ----------------
+// ---------------- 合并树(补丁·46:项目层级为主干 + 任务同树嵌套 + 三色状态统计) ----------------
 const TREE_COLLAPSED_KEY = 'todo_tree_collapsed';
 let collapsedNodes = (() => { try { return new Set(JSON.parse(localStorage.getItem(TREE_COLLAPSED_KEY) || '[]')); } catch { return new Set(); } })();
 function persistCollapsed() { try { localStorage.setItem(TREE_COLLAPSED_KEY, JSON.stringify([...collapsedNodes])); } catch {} }
@@ -622,73 +622,98 @@ function toggleNode(id) {
   persistCollapsed();
   render();
 }
-// 项目森林:按 parentId 构建,返回根项目数组(每项含 children 递归);防环
-function buildProjectForest() {
-  const nodes = state.todoProjects.map((p) => ({ ...p, children: [] }));
-  const byId = new Map(nodes.map((n) => [n.id, n]));
-  const roots = [];
-  const placed = new Set();
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const n of nodes) {
-      if (placed.has(n.id)) continue;
-      const pid = n.parentId || '';
-      if (!pid || pid === n.id) { roots.push(n); placed.add(n.id); changed = true; }
-      else if (byId.has(pid) && placed.has(pid)) { byId.get(pid).children.push(n); placed.add(n.id); changed = true; }
+// 三色状态统计:聚合节点下所有后代任务的 待办/进行中/已完成 数量
+function nodeStatusCounts(node) {
+  const c = { todo: 0, in_progress: 0, done: 0 };
+  const walk = (n) => {
+    if (n.kind === 'task') {
+      const s = n.status || 'todo';
+      if (s === 'done') c.done++;
+      else if (s === 'in_progress') c.in_progress++;
+      else c.todo++;
     }
-  }
-  for (const n of nodes) if (!placed.has(n.id)) { roots.push(n); placed.add(n.id); }
-  const sortP = (a, b) => (a.sort ?? 0) - (b.sort ?? 0) || ((a.createdAt || 0) - (b.createdAt || 0));
-  const sortRec = (arr) => { arr.sort(sortP); arr.forEach((c) => sortRec(c.children)); };
-  sortRec(roots);
-  return roots;
+    (n.children || []).forEach(walk);
+  };
+  walk(node);
+  return c;
 }
-// 某项目内任务树:matched 为该项目的匹配任务(已过滤),自动补全匹配任务的祖先以维持树形
-function buildTaskTreeFrom(matched, projId) {
-  const projTasks = matched.filter((t) => (t.projectId || '') === projId);
-  const set = new Map();
-  projTasks.forEach((t) => set.set(t.id, { ...t, children: [] }));
-  for (const t of projTasks) {
+function statusBadgeHTML(c) {
+  return `<span class="todo-stat todo-stat-todo" title="${T('st_todo')}"><i></i><b>${c.todo}</b></span>`
+    + `<span class="todo-stat todo-stat-prog" title="${T('st_in_progress')}"><i></i><b>${c.in_progress}</b></span>`
+    + `<span class="todo-stat todo-stat-done" title="${T('st_done')}"><i></i><b>${c.done}</b></span>`;
+}
+// 构建合并森林:项目按 parent_id 为骨架,任务按 parentTaskId(任务父)或 projectId(项目父)混入同一棵树;
+// 无项目的任务归到 __none__ 伪节点。自动补全匹配任务的祖先任务以维持连通。
+function buildUnifiedForest(matched) {
+  const nodes = [];
+  const byId = new Map();
+  state.todoProjects.forEach((p) => {
+    const n = { ...p, kind: 'proj', children: [] };
+    nodes.push(n); byId.set(p.id, n);
+  });
+  const ensureTask = (t) => {
+    if (byId.has(t.id)) return byId.get(t.id);
+    const n = { ...t, kind: 'task', children: [] };
+    nodes.push(n); byId.set(t.id, n);
+    return n;
+  };
+  const tasks = matched.filter((t) => !t.archived);
+  tasks.forEach(ensureTask);
+  // 自动补全匹配任务的祖先任务(保证树连通)
+  for (const t of tasks) {
     let pid = t.parentTaskId || '';
     let guard = 0;
     while (pid && guard++ < 100) {
-      if (set.has(pid)) break;
+      if (byId.has(pid)) break;
       const parent = taskById(pid);
       if (!parent || parent.archived) break;
-      set.set(pid, { ...parent, children: [] });
+      ensureTask(parent);
       pid = parent.parentTaskId || '';
     }
   }
-  const nodes = [...set.values()];
-  const byId = new Map(nodes.map((n) => [n.id, n]));
-  const roots = [];
+  const getParent = (n) => {
+    if (n.kind === 'proj') {
+      const pid = n.parentId || '';
+      return (pid && byId.has(pid)) ? byId.get(pid) : null;
+    }
+    const pt = n.parentTaskId || '';
+    if (pt && byId.has(pt)) return byId.get(pt);
+    const pr = n.projectId || '';
+    if (pr && byId.has(pr)) return byId.get(pr);
+    return null;
+  };
   const placed = new Set();
+  const roots = [];
   let changed = true;
   while (changed) {
     changed = false;
     for (const n of nodes) {
       if (placed.has(n.id)) continue;
-      const pid = n.parentTaskId || '';
-      if (!pid || pid === n.id) { roots.push(n); placed.add(n.id); changed = true; }
-      else if (byId.has(pid) && placed.has(pid)) { byId.get(pid).children.push(n); placed.add(n.id); changed = true; }
+      const parent = getParent(n);
+      if (parent === null) { roots.push(n); placed.add(n.id); changed = true; }
+      else if (placed.has(parent.id)) { parent.children.push(n); placed.add(n.id); changed = true; }
     }
   }
   for (const n of nodes) if (!placed.has(n.id)) { roots.push(n); placed.add(n.id); }
-  const sortT = (a, b) => (a.sort ?? 0) - (b.sort ?? 0) || ((a.createdAt || 0) - (b.createdAt || 0));
-  const sortRec = (arr) => { arr.sort(sortT); arr.forEach((c) => sortRec(c.children)); };
+  // 排序:项目优先于直接任务(形成"项目主干"),同层按 sort/createdAt
+  const sortNode = (a, b) => (a.sort ?? 0) - (b.sort ?? 0) || ((a.createdAt || 0) - (b.createdAt || 0));
+  const sortRec = (arr) => {
+    arr.sort((a, b) => (a.kind === b.kind ? sortNode(a, b) : (a.kind === 'proj' ? -1 : 1)));
+    arr.forEach((c) => sortRec(c.children));
+  };
   sortRec(roots);
-  return roots;
+  const projRoots = roots.filter((r) => r.kind === 'proj');
+  const noneTasks = roots.filter((r) => r.kind === 'task');
+  let noneNode = null;
+  if (noneTasks.length || filters.projectId === 'none') {
+    noneNode = { id: '__none__', name: T('noProject'), kind: 'none', color: '#94a3b8', children: noneTasks };
+  }
+  return { projRoots, noneNode };
 }
-function countProjectTasks(projNode, matched) {
-  let n = matched.filter((t) => t.projectId === projNode.id).length;
-  for (const c of (projNode.children || [])) n += countProjectTasks(c, matched);
-  return n;
-}
-function forestFind(forest, id) {
+function treeFind(forest, id) {
   for (const n of forest) {
     if (n.id === id) return n;
-    const f = forestFind(n.children || [], id);
+    const f = treeFind(n.children || [], id);
     if (f) return f;
   }
   return null;
@@ -725,115 +750,87 @@ function reparentTaskToProjectTop(dragId, projId) {
   saveState();
   render();
 }
-function attachTaskDrag(card, task) {
-  card.addEventListener('dragstart', (e) => {
-    dragTaskId = task.id;
+function attachTaskDrag(row, node) {
+  row.setAttribute('draggable', 'true');
+  row.addEventListener('dragstart', (e) => {
+    dragTaskId = node.id;
     e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', String(task.id));
+    e.dataTransfer.setData('text/plain', String(node.id));
   });
-  card.addEventListener('dragend', () => { dragTaskId = null; });
-  card.addEventListener('dragover', (e) => { e.preventDefault(); });
-  card.addEventListener('drop', (e) => {
-    e.preventDefault();
-    const dragId = dragTaskId || Number(e.dataTransfer.getData('text/plain')) || null;
-    if (!dragId || dragId === task.id) return;
-    reparentTaskAsSibling(dragId, task.id);
-  });
+  row.addEventListener('dragend', () => { dragTaskId = null; });
 }
-function renderTaskNode(tn, depth) {
+// 统一树节点渲染(项目 / 无项目 / 任务 同树)
+function renderTreeNode(node, depth) {
   const el = document.createElement('div');
-  el.className = 'todo-task-node';
-  el.setAttribute('data-task-id', tn.id);
-  const collapsed = collapsedNodes.has(tn.id);
-  const hasChildren = (tn.children || []).length > 0;
+  el.className = 'todo-tree-' + (node.kind === 'task' ? 'task' : 'proj') + (node.kind === 'none' ? ' todo-proj-none' : '');
+  if (node.kind === 'task') el.setAttribute('data-task-id', node.id);
+  else el.setAttribute('data-proj', node.id);
+  const hasChildren = (node.children || []).length > 0;
+  const collapsed = collapsedNodes.has(node.id);
+
   const row = document.createElement('div');
-  row.className = 'todo-task-node-row';
+  row.className = 'todo-tree-row';
   row.style.marginLeft = (depth * 18) + 'px';
+
   const arrow = document.createElement('button');
-  arrow.className = 'todo-tree-arrow todo-task-arrow';
-  arrow.setAttribute('data-task-toggle', tn.id);
+  arrow.className = 'todo-tree-arrow';
   arrow.textContent = hasChildren ? (collapsed ? '▸' : '▾') : '';
   arrow.style.visibility = hasChildren ? 'visible' : 'hidden';
-  arrow.addEventListener('click', (e) => { e.stopPropagation(); if (hasChildren) toggleNode(tn.id); });
+  if (hasChildren) arrow.addEventListener('click', (e) => { e.stopPropagation(); toggleNode(node.id); });
   row.appendChild(arrow);
-  const card = renderTaskCard(tn);
-  attachTaskDrag(card, tn);
-  row.appendChild(card);
+
+  if (node.kind === 'task') {
+    // 任务节点:三色状态点 + 任务卡片
+    const dot = document.createElement('span');
+    dot.className = 'todo-tree-task-dot';
+    dot.style.background = node.status === 'done' ? '#22c55e' : node.status === 'in_progress' ? '#f59e0b' : '#6366f1';
+    row.appendChild(dot);
+    const card = renderTaskCard(node);
+    attachTaskDrag(row, node);
+    row.appendChild(card);
+    // 拖到任务行 → 成为其同级
+    row.addEventListener('dragover', (e) => e.preventDefault());
+    row.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const dragId = dragTaskId || Number(e.dataTransfer.getData('text/plain')) || null;
+      if (!dragId || dragId === node.id) return;
+      reparentTaskAsSibling(dragId, node.id);
+    });
+  } else {
+    // 项目 / 无项目节点:色点 + 名称 + 三色状态统计
+    const dot = document.createElement('span');
+    dot.className = 'todo-proj-dot';
+    dot.style.background = node.color || '#6366f1';
+    row.appendChild(dot);
+    const name = document.createElement('span');
+    name.className = 'todo-proj-name';
+    name.textContent = node.name;
+    row.appendChild(name);
+    row.insertAdjacentHTML('beforeend', statusBadgeHTML(nodeStatusCounts(node)));
+    row.addEventListener('click', () => { if (hasChildren) toggleNode(node.id); });
+    // 拖到项目行 → 归该项目顶级
+    row.addEventListener('dragover', (e) => e.preventDefault());
+    row.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const dragId = dragTaskId || Number(e.dataTransfer.getData('text/plain')) || null;
+      if (!dragId) return;
+      reparentTaskToProjectTop(dragId, node.kind === 'none' ? '' : node.id);
+    });
+  }
   el.appendChild(row);
   if (hasChildren && !collapsed) {
     const childWrap = document.createElement('div');
-    childWrap.className = 'todo-task-children';
-    tn.children.forEach((c) => childWrap.appendChild(renderTaskNode(c, depth + 1)));
+    childWrap.className = 'todo-tree-children';
+    node.children.forEach((ch) => childWrap.appendChild(renderTreeNode(ch, depth + 1)));
     el.appendChild(childWrap);
   }
-  return el;
-}
-function renderProjectNode(projNode, matched, depth, recurseSubs = true) {
-  const el = document.createElement('div');
-  el.className = 'todo-proj-node';
-  el.setAttribute('data-proj', projNode.id);
-  const collapsed = collapsedNodes.has(projNode.id);
-  const count = countProjectTasks(projNode, matched);
-  const head = document.createElement('div');
-  head.className = 'todo-proj-head';
-  head.setAttribute('data-proj-toggle', projNode.id);
-  head.innerHTML = `
-    <span class="todo-tree-arrow">${collapsed ? '▸' : '▾'}</span>
-    <span class="todo-proj-dot" style="background:${projNode.color}"></span>
-    <span class="todo-proj-name">${escHtml(projNode.name)}</span>
-    ${count ? `<span class="todo-proj-count">${count}</span>` : ''}`;
-  head.addEventListener('click', () => toggleNode(projNode.id));
-  // 拖到项目头 → 成为该项目顶级任务
-  head.addEventListener('dragover', (e) => e.preventDefault());
-  head.addEventListener('drop', (e) => {
-    e.preventDefault();
-    const dragId = dragTaskId || Number(e.dataTransfer.getData('text/plain')) || null;
-    if (!dragId) return;
-    reparentTaskToProjectTop(dragId, projNode.id);
-  });
-  el.appendChild(head);
-  const body = document.createElement('div');
-  body.className = 'todo-proj-body' + (collapsed ? ' collapsed' : '');
-  body.style.marginLeft = (depth > 0 ? 14 : 0) + 'px';
-  if (recurseSubs) (projNode.children || []).forEach((cp) => body.appendChild(renderProjectNode(cp, matched, depth + 1, true)));
-  buildTaskTreeFrom(matched, projNode.id).forEach((tn) => body.appendChild(renderTaskNode(tn, 0)));
-  el.appendChild(body);
-  return el;
-}
-function renderNoneNode(noneTasks) {
-  const el = document.createElement('div');
-  el.className = 'todo-proj-node todo-proj-none';
-  el.setAttribute('data-proj', '__none__');
-  const collapsed = collapsedNodes.has('__none__');
-  const head = document.createElement('div');
-  head.className = 'todo-proj-head';
-  head.setAttribute('data-proj-toggle', '__none__');
-  head.innerHTML = `
-    <span class="todo-tree-arrow">${collapsed ? '▸' : '▾'}</span>
-    <span class="todo-proj-dot"></span>
-    <span class="todo-proj-name">${T('noProject')}</span>
-    <span class="todo-proj-count">${noneTasks.length}</span>`;
-  head.addEventListener('click', () => toggleNode('__none__'));
-  head.addEventListener('dragover', (e) => e.preventDefault());
-  head.addEventListener('drop', (e) => {
-    e.preventDefault();
-    const dragId = dragTaskId || Number(e.dataTransfer.getData('text/plain')) || null;
-    if (dragId) reparentTaskToProjectTop(dragId, '');
-  });
-  el.appendChild(head);
-  const body = document.createElement('div');
-  body.className = 'todo-proj-body' + (collapsed ? ' collapsed' : '');
-  buildTaskTreeFrom(noneTasks, '').forEach((tn) => body.appendChild(renderTaskNode(tn, 0)));
-  el.appendChild(body);
   return el;
 }
 function renderList() {
   const wrap = document.createElement('div');
   wrap.className = 'todo-list-tree';
   const matched = filteredTasks();
-  const forest = buildProjectForest();
-  const noneTasks = matched.filter((t) => !t.projectId);
-  if (!matched.length && !forest.length) {
+  if (!matched.length && !state.todoProjects.length) {
     wrap.innerHTML = `
       <div class="todo-empty">
         <div class="todo-empty-ico">📋</div>
@@ -842,14 +839,15 @@ function renderList() {
       </div>`;
     return wrap;
   }
-  let projNodes = forest;
+  const { projRoots, noneNode } = buildUnifiedForest(matched);
+  let projNodes = projRoots;
   const isSpecific = filters.projectId && filters.projectId !== 'all' && filters.projectId !== 'none';
   if (isSpecific) {
-    const found = forestFind(forest, filters.projectId);
+    const found = treeFind(projRoots, filters.projectId);
     projNodes = found ? [found] : [];
   }
-  projNodes.forEach((pn) => wrap.appendChild(renderProjectNode(pn, matched, 0, !isSpecific)));
-  if (!isSpecific && (filters.projectId === 'none' || noneTasks.length)) wrap.appendChild(renderNoneNode(noneTasks));
+  projNodes.forEach((pn) => wrap.appendChild(renderTreeNode(pn, 0)));
+  if (!isSpecific && noneNode) wrap.appendChild(renderTreeNode(noneNode, 0));
   return wrap;
 }
 

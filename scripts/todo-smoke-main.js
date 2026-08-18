@@ -739,46 +739,55 @@ app.whenReady().then(async () => {
       check('详情标题', (o.title || '').includes('完成 Spine 转换工具'), o.title);
       check('详情面板关闭', o.closed === true);
 
-      // 7.0) 树状列表(补丁·45):项目树 + 项目内任务树 + 折叠持久化
+      // 7.0) 合并树(补丁·46):项目层级为主干 + 任务同树嵌套 + 三色状态统计 + 折叠持久化
       o = await js('tree', `(async () => {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         document.querySelector('[data-view="list"]').click(); await sleep(300);
         const out = {};
-        // (a) 项目树:根"游戏开发"节点包含子项目"子项目"节点
-        const gameNode = document.querySelector('.todo-proj-node[data-proj="${PROJ_ID}"]');
+        // (a) 项目树:根"游戏开发"节点包含子项目"子项目"节点(同树嵌套)
+        const gameNode = document.querySelector('.todo-tree-proj[data-proj="${PROJ_ID}"]');
         out.gameNodeFound = !!gameNode;
-        const childNode = gameNode ? gameNode.querySelector('.todo-proj-node[data-proj="p_smoke_child"]') : null;
+        const childNode = gameNode ? gameNode.querySelector('.todo-tree-proj[data-proj="p_smoke_child"]') : null;
         out.childProjFound = !!childNode;
         out.childProjName = childNode ? (childNode.querySelector('.todo-proj-name') || {}).textContent : '';
-        // (b) 任务树:TASK_B 节点位于 TASK_A 节点的 .todo-task-children 内(层级缩进)
-        const aNode = document.querySelector('.todo-task-node[data-task-id="${TASK_A}"]');
-        const bNode = document.querySelector('.todo-task-node[data-task-id="${TASK_B}"]');
+        // (b) 任务树:TASK_B 节点位于 TASK_A 节点的 .todo-tree-children 内(层级嵌套)
+        const aNode = document.querySelector('.todo-tree-task[data-task-id="${TASK_A}"]');
+        const bNode = document.querySelector('.todo-tree-task[data-task-id="${TASK_B}"]');
         out.aNodeFound = !!aNode;
         out.bNodeFound = !!bNode;
-        const aChildren = aNode ? aNode.querySelector('.todo-task-children') : null;
+        const aChildren = aNode ? aNode.querySelector('.todo-tree-children') : null;
         out.bInsideA = !!(aChildren && bNode && aChildren.contains(bNode));
-        out.bIndent = bNode ? (bNode.querySelector('.todo-task-node-row') || {}).style.marginLeft : '';
-        // (c) 折叠持久化:点击"游戏开发"项目头 → localStorage 写入 id + DOM 收起;再展开还原
+        // (c) 三色状态统计:项目节点含 待办/进行中/已完成 三色计数
+        const todoEl = gameNode ? gameNode.querySelector('.todo-stat-todo b') : null;
+        const progEl = gameNode ? gameNode.querySelector('.todo-stat-prog b') : null;
+        const doneEl = gameNode ? gameNode.querySelector('.todo-stat-done b') : null;
+        out.statTodo = todoEl ? Number(todoEl.textContent) : -1;
+        out.statProg = progEl ? Number(progEl.textContent) : -1;
+        out.statDone = doneEl ? Number(doneEl.textContent) : -1;
+        out.statOk = !!(todoEl && progEl && doneEl);
+        // (d) 折叠持久化:点击"游戏开发"项目行 → localStorage 写入 id + 子项目节点从 DOM 移除;再展开还原
         out.beforeLS = localStorage.getItem('todo_tree_collapsed');
-        const gHead = gameNode ? gameNode.querySelector('.todo-proj-head') : null;
-        if (gHead) { gHead.click(); await sleep(200); }
-        const gameNode2 = document.querySelector('.todo-proj-node[data-proj="${PROJ_ID}"]');
+        const gRow = gameNode ? gameNode.querySelector('.todo-tree-row') : null;
+        if (gRow) { gRow.click(); await sleep(200); }
+        const gameNode2 = document.querySelector('.todo-tree-proj[data-proj="${PROJ_ID}"]');
         out.afterLS = localStorage.getItem('todo_tree_collapsed');
         out.lsHasId = !!(out.afterLS && out.afterLS.includes('${PROJ_ID}'));
-        out.bodyCollapsed = !!(gameNode2 && gameNode2.querySelector('.todo-proj-body.collapsed'));
-        out.arrowGlyph = gameNode2 ? (gameNode2.querySelector('.todo-proj-head .todo-tree-arrow') || {}).textContent : '';
+        // 折叠后子项目节点不再出现在 DOM(统一树不渲染 children 包裹层)
+        out.childHidden = !!(gameNode2 && !gameNode2.querySelector('.todo-tree-proj[data-proj="p_smoke_child"]'));
+        out.arrowGlyph = gameNode2 ? (gameNode2.querySelector('.todo-tree-row .todo-tree-arrow') || {}).textContent : '';
         out.arrowCollapsed = out.arrowGlyph.includes('▸');
         // 展开还原,避免影响后续归档
-        const gHead2 = gameNode2 ? gameNode2.querySelector('.todo-proj-head') : null;
-        if (gHead2) { gHead2.click(); await sleep(200); }
-        const gameNode3 = document.querySelector('.todo-proj-node[data-proj="${PROJ_ID}"]');
-        out.expandedAfter = !!(gameNode3 && !gameNode3.querySelector('.todo-proj-body.collapsed'));
+        const gRow2 = gameNode2 ? gameNode2.querySelector('.todo-tree-row') : null;
+        if (gRow2) { gRow2.click(); await sleep(200); }
+        const gameNode3 = document.querySelector('.todo-tree-proj[data-proj="${PROJ_ID}"]');
+        out.expandedAfter = !!(gameNode3 && gameNode3.querySelector('.todo-tree-proj[data-proj="p_smoke_child"]'));
         return out;
       })()`);
       check('树:项目树含子项目(游戏开发→子项目)', o.gameNodeFound === true && o.childProjFound === true && /子项目/.test(o.childProjName || ''), 'gameNode=' + o.gameNodeFound + ' child=' + o.childProjFound + ' name=' + o.childProjName);
-      check('树:项目内任务树嵌套(TASK_B 在 TASK_A 下)', o.aNodeFound === true && o.bNodeFound === true && o.bInsideA === true, 'a=' + o.aNodeFound + ' b=' + o.bNodeFound + ' inside=' + o.bInsideA + ' indent=' + o.bIndent);
+      check('树:项目内任务树嵌套(TASK_B 在 TASK_A 下)', o.aNodeFound === true && o.bNodeFound === true && o.bInsideA === true, 'a=' + o.aNodeFound + ' b=' + o.bNodeFound + ' inside=' + o.bInsideA);
+      check('树:三色状态统计(待办/进行中/已完成)', o.statOk === true && (o.statTodo + o.statProg + o.statDone) >= 2, 'todo=' + o.statTodo + ' prog=' + o.statProg + ' done=' + o.statDone);
       check('树:折叠写入 localStorage(todo_tree_collapsed)', o.lsHasId === true, 'before=' + o.beforeLS + ' after=' + o.afterLS);
-      check('树:折叠后 DOM 收起(body.collapsed + ▸箭头)', o.bodyCollapsed === true && o.arrowCollapsed === true, 'body=' + o.bodyCollapsed + ' arrowGlyph=' + o.arrowGlyph);
+      check('树:折叠后子项目从 DOM 移除 + ▸箭头', o.childHidden === true && o.arrowCollapsed === true, 'childHidden=' + o.childHidden + ' arrowGlyph=' + o.arrowGlyph);
       check('树:再次点击可展开还原', o.expandedAfter === true);
 
       // 7) 列表视图 + 归档
