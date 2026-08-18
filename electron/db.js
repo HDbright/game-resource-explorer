@@ -227,6 +227,7 @@ function open() {
       name TEXT NOT NULL,
       color TEXT DEFAULT '#6366f1',
       sort INTEGER DEFAULT 0,
+      parent_id TEXT DEFAULT '',
       created_at INTEGER DEFAULT 0,
       updated_at INTEGER DEFAULT 0
     );
@@ -245,6 +246,7 @@ function open() {
       sort REAL DEFAULT 0,
       tags TEXT DEFAULT '[]',
       project_id TEXT DEFAULT '',
+      parent_task_id TEXT DEFAULT '',
       recur_rule TEXT DEFAULT '',
       archived INTEGER DEFAULT 0,
       created_at INTEGER DEFAULT 0,
@@ -344,8 +346,13 @@ function open() {
     const stCols = db.prepare('PRAGMA table_info(todo_subtasks)').all().map((r) => r.name);
     if (!stCols.includes('notes')) db.exec("ALTER TABLE todo_subtasks ADD COLUMN notes TEXT DEFAULT ''");
     if (!stCols.includes('done_at')) db.exec('ALTER TABLE todo_subtasks ADD COLUMN done_at INTEGER');
+    // 旧库迁移:todo_projects 缺 parent_id 列时补上(项目树父子层级)
+    const tpCols = db.prepare('PRAGMA table_info(todo_projects)').all().map((r) => r.name);
+    if (!tpCols.includes('parent_id')) db.exec("ALTER TABLE todo_projects ADD COLUMN parent_id TEXT DEFAULT ''");
+    // 旧库迁移:todo_tasks 缺 parent_task_id 列时补上(任务树父子层级)
+    if (!ttCols.includes('parent_task_id')) db.exec("ALTER TABLE todo_tasks ADD COLUMN parent_task_id TEXT DEFAULT ''");
   } catch (err) {
-    console.error('[db] migrate todo_tasks start_at/complete_at/events + todo_subtasks notes/done_at error:', err);
+    console.error('[db] migrate todo_tasks start_at/complete_at/events + todo_subtasks notes/done_at + 项目/任务父子层级 error:', err);
   }
   // 旧库迁移:items 缺 size / mtime 列时补上(游戏资源管理器排序/统计用)
   try {
@@ -471,12 +478,12 @@ function readDb() {
       mn.showItemsInTree = mn.showItemsInTree == null ? true : !!mn.showItemsInTree;
     }
     d.todoProjects = conn.prepare(
-      'SELECT id, name, color, sort, created_at AS createdAt, updated_at AS updatedAt FROM todo_projects ORDER BY sort'
+      'SELECT id, name, color, sort, parent_id AS parentId, created_at AS createdAt, updated_at AS updatedAt FROM todo_projects ORDER BY sort'
     ).all();
     d.todoTasks = conn.prepare(
       'SELECT id, title, notes, notes_html AS notesHtml, priority, status, deadline, reminder_at AS reminderAt, ' +
       'start_at AS startAt, complete_at AS completeAt, events, sort, ' +
-      'tags, project_id AS projectId, recur_rule AS recurRule, archived, created_at AS createdAt, updated_at AS updatedAt FROM todo_tasks ORDER BY sort'
+      'tags, project_id AS projectId, parent_task_id AS parentTaskId, recur_rule AS recurRule, archived, created_at AS createdAt, updated_at AS updatedAt FROM todo_tasks ORDER BY sort'
     ).all();
     // tags / events 列是 JSON 数组字符串 → 解析为数组;附挂子任务
     const subStmt = conn.prepare('SELECT id, task_id AS taskId, title, notes, done, done_at AS doneAt, sort, created_at AS createdAt FROM todo_subtasks WHERE task_id = ? ORDER BY sort');
@@ -649,14 +656,14 @@ function writeDb(state) {
     }
     // ---- Todo-List 任务管理:项目 / 任务 / 子任务 ----
     const insTodoProj = conn.prepare(
-      'INSERT INTO todo_projects(id, name, color, sort, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+      'INSERT INTO todo_projects(id, name, color, sort, parent_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
     );
     for (const p of state.todoProjects || []) {
-      insTodoProj.run(p.id, p.name || '', p.color || '#6366f1', p.sort || 0, p.createdAt || 0, p.updatedAt || 0);
+      insTodoProj.run(p.id, p.name || '', p.color || '#6366f1', p.sort || 0, p.parentId || '', p.createdAt || 0, p.updatedAt || 0);
     }
     const insTodoTask = conn.prepare(
-      'INSERT INTO todo_tasks(id, title, notes, notes_html, priority, status, deadline, reminder_at, start_at, complete_at, events, sort, tags, project_id, recur_rule, archived, created_at, updated_at) ' +
-      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO todo_tasks(id, title, notes, notes_html, priority, status, deadline, reminder_at, start_at, complete_at, events, sort, tags, project_id, parent_task_id, recur_rule, archived, created_at, updated_at) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     const insTodoSub = conn.prepare(
       'INSERT INTO todo_subtasks(id, task_id, title, notes, done, done_at, sort, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
@@ -671,7 +678,7 @@ function writeDb(state) {
         // sort 支持小数(看板拖拽用分数序号插队),不能用 `|| 0` 之外的取整
         typeof t.sort === 'number' && isFinite(t.sort) ? t.sort : 0,
         JSON.stringify(Array.isArray(t.tags) ? t.tags : []),
-        t.projectId || '', t.recurRule || '',
+        t.projectId || '', t.parentTaskId || '', t.recurRule || '',
         t.archived ? 1 : 0, t.createdAt || 0, t.updatedAt || 0
       );
       for (const s of (t.subtasks || [])) {

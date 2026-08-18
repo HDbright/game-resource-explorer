@@ -1751,6 +1751,7 @@ export async function loadState() {
   for (const p of state.todoProjects) {
     if (p.color == null) p.color = '#6366f1';
     if (p.sort == null) p.sort = 0;
+    if (p.parentId == null) p.parentId = ''; // 项目树父子层级(补丁·45)
     if (p.createdAt == null) p.createdAt = now();
     if (p.updatedAt == null) p.updatedAt = now();
   }
@@ -1759,6 +1760,7 @@ export async function loadState() {
     if (t.notes == null) t.notes = '';
     if (t.notesHtml == null) t.notesHtml = '';
     if (t.projectId == null) t.projectId = '';
+    if (t.parentTaskId == null) t.parentTaskId = ''; // 任务树父子层级(补丁·45)
     if (t.recurRule == null) t.recurRule = '';
     if (t.priority == null) t.priority = 'medium';
     if (t.status == null) t.status = 'todo';

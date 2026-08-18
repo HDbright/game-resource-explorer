@@ -2788,6 +2788,26 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 
 .todo-content { flex: 1; min-height: 0; overflow: hidden; margin-top: 8px; }
 .todo-list-wrap { height: 100%; overflow-y: auto; padding: 2px 4px 10px 0; }
+/* 列表视图:项目树 + 项目内任务树(补丁·45) */
+.todo-list-tree { height: 100%; overflow-y: auto; padding: 2px 4px 10px 0; display: flex; flex-direction: column; gap: 2px; }
+.todo-proj-node { }
+.todo-proj-head { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 6px; cursor: pointer; background: var(--bg2); user-select: none; transition: background .12s; }
+.todo-proj-head:hover { background: var(--bg3); }
+.todo-proj-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; background: var(--accent); }
+.todo-proj-name { font-weight: 600; font-size: 13px; color: var(--text); }
+.todo-proj-count { font-size: 11px; color: var(--text2); background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 0 7px; margin-left: auto; }
+.todo-proj-body { display: flex; flex-direction: column; gap: 2px; margin: 2px 0 6px; }
+.todo-proj-body.collapsed { display: none; }
+.todo-tree-arrow { display: inline-flex; width: 16px; justify-content: center; color: var(--text2); font-size: 11px; flex-shrink: 0; line-height: 1; }
+.todo-task-node { }
+.todo-task-node-row { display: flex; align-items: flex-start; gap: 2px; }
+.todo-task-node-row > .todo-card { flex: 1; min-width: 0; }
+.todo-task-arrow { margin-top: 11px; margin-left: 2px; background: none; border: none; cursor: pointer; color: var(--text2); padding: 0; }
+.todo-task-arrow:hover { color: var(--text); }
+.todo-task-children { display: flex; flex-direction: column; gap: 2px; }
+.todo-proj-none .todo-proj-dot { background: #94a3b8; }
+.todo-proj-edit { display: flex; align-items: center; gap: 6px; padding: 4px 0; }
+
 .todo-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 200px; gap: 6px; color: var(--text2); }
 .todo-empty-ico { font-size: 40px; opacity: .5; }
 .todo-empty-title { font-size: 15px; font-weight: 600; color: var(--text); }

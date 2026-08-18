@@ -50,11 +50,15 @@ function setup() {
   d.todoProjects.push({
     id: PROJ_ID, name: '游戏开发', color: '#8b5cf6', sort: 0, createdAt: nowTs(), updatedAt: nowTs(),
   });
+  // 补丁·45 树测试:子项目(挂在"游戏开发"下)
+  d.todoProjects.push({
+    id: 'p_smoke_child', name: '子项目', color: '#f59e0b', sort: 1, parentId: PROJ_ID, createdAt: nowTs(), updatedAt: nowTs(),
+  });
   const t0 = new Date(); const today = Math.floor(new Date(t0.getFullYear(), t0.getMonth(), t0.getDate()).getTime() / 1000);
   d.todoTasks.push({
     id: TASK_A, title: '完成 Spine 转换工具', notes: '支持 skel↔json 双向', notesHtml: '',
     priority: 'high', status: 'todo', deadline: today, startAt: nowTs() - 86400000, reminderAt: null, sort: 0,
-    tags: ['工具'], projectId: PROJ_ID, recurRule: '', archived: false,
+    tags: ['工具'], projectId: 'p_smoke_child', recurRule: '', archived: false,
     subtasks: [
       { id: 's_smoke_1', taskId: TASK_A, title: '写文档', done: true, sort: 0, createdAt: nowTs() },
       { id: 's_smoke_2', taskId: TASK_A, title: '跑测试', done: false, sort: 1, createdAt: nowTs() },
@@ -64,7 +68,7 @@ function setup() {
   d.todoTasks.push({
     id: TASK_B, title: '整理文档', notes: '', notesHtml: '',
     priority: 'low', status: 'done', deadline: null, reminderAt: null, sort: 1,
-    tags: ['杂项'], projectId: '', recurRule: '', archived: false,
+    tags: ['杂项'], projectId: 'p_smoke_child', parentTaskId: TASK_A, recurRule: '', archived: false,
     subtasks: [], createdAt: nowTs(), updatedAt: nowTs(),
   });
   d.settings = d.settings || {};
@@ -180,9 +184,11 @@ app.whenReady().then(async () => {
 
       // 2) 卡片内容
       o = await js('card', `(() => {
-        const projChip = !![...document.querySelectorAll('.todo-card-proj span')].find((s) => (s.textContent || '').includes('游戏开发'));
+        // 补丁·45:TASK_A 挂在子项目\"子项目\"下,卡片徽章应显示\"子项目\"
+        const projChip = !![...document.querySelectorAll('.todo-card-proj span')].find((s) => (s.textContent || '').includes('子项目'));
         const subChips = document.querySelectorAll('.todo-card .todo-sub-chip').length;
-        const projFilter = !![...document.querySelectorAll('.todo-select')].find((s) => [...s.options].some((x) => x.textContent === '游戏开发'));
+        // 父项目\"游戏开发\"与子项目\"子项目\"都应出现在筛选下拉
+        const projFilter = !![...document.querySelectorAll('.todo-select')].find((s) => [...s.options].some((x) => x.textContent === '游戏开发' || x.textContent === '子项目'));
         const cardA = document.querySelector('.todo-card[data-task-id="t_smoke_a"]');
         const subIconDone = (document.querySelector('.todo-sub-chip.done span:first-child') || {}).textContent || '';
         const subIconTodo = (document.querySelector('.todo-sub-chip:not(.done) span:first-child') || {}).textContent || '';
@@ -732,6 +738,48 @@ app.whenReady().then(async () => {
       check('详情面板打开', o.shown === true);
       check('详情标题', (o.title || '').includes('完成 Spine 转换工具'), o.title);
       check('详情面板关闭', o.closed === true);
+
+      // 7.0) 树状列表(补丁·45):项目树 + 项目内任务树 + 折叠持久化
+      o = await js('tree', `(async () => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        document.querySelector('[data-view="list"]').click(); await sleep(300);
+        const out = {};
+        // (a) 项目树:根"游戏开发"节点包含子项目"子项目"节点
+        const gameNode = document.querySelector('.todo-proj-node[data-proj="${PROJ_ID}"]');
+        out.gameNodeFound = !!gameNode;
+        const childNode = gameNode ? gameNode.querySelector('.todo-proj-node[data-proj="p_smoke_child"]') : null;
+        out.childProjFound = !!childNode;
+        out.childProjName = childNode ? (childNode.querySelector('.todo-proj-name') || {}).textContent : '';
+        // (b) 任务树:TASK_B 节点位于 TASK_A 节点的 .todo-task-children 内(层级缩进)
+        const aNode = document.querySelector('.todo-task-node[data-task-id="${TASK_A}"]');
+        const bNode = document.querySelector('.todo-task-node[data-task-id="${TASK_B}"]');
+        out.aNodeFound = !!aNode;
+        out.bNodeFound = !!bNode;
+        const aChildren = aNode ? aNode.querySelector('.todo-task-children') : null;
+        out.bInsideA = !!(aChildren && bNode && aChildren.contains(bNode));
+        out.bIndent = bNode ? (bNode.querySelector('.todo-task-node-row') || {}).style.marginLeft : '';
+        // (c) 折叠持久化:点击"游戏开发"项目头 → localStorage 写入 id + DOM 收起;再展开还原
+        out.beforeLS = localStorage.getItem('todo_tree_collapsed');
+        const gHead = gameNode ? gameNode.querySelector('.todo-proj-head') : null;
+        if (gHead) { gHead.click(); await sleep(200); }
+        const gameNode2 = document.querySelector('.todo-proj-node[data-proj="${PROJ_ID}"]');
+        out.afterLS = localStorage.getItem('todo_tree_collapsed');
+        out.lsHasId = !!(out.afterLS && out.afterLS.includes('${PROJ_ID}'));
+        out.bodyCollapsed = !!(gameNode2 && gameNode2.querySelector('.todo-proj-body.collapsed'));
+        out.arrowGlyph = gameNode2 ? (gameNode2.querySelector('.todo-proj-head .todo-tree-arrow') || {}).textContent : '';
+        out.arrowCollapsed = out.arrowGlyph.includes('▸');
+        // 展开还原,避免影响后续归档
+        const gHead2 = gameNode2 ? gameNode2.querySelector('.todo-proj-head') : null;
+        if (gHead2) { gHead2.click(); await sleep(200); }
+        const gameNode3 = document.querySelector('.todo-proj-node[data-proj="${PROJ_ID}"]');
+        out.expandedAfter = !!(gameNode3 && !gameNode3.querySelector('.todo-proj-body.collapsed'));
+        return out;
+      })()`);
+      check('树:项目树含子项目(游戏开发→子项目)', o.gameNodeFound === true && o.childProjFound === true && /子项目/.test(o.childProjName || ''), 'gameNode=' + o.gameNodeFound + ' child=' + o.childProjFound + ' name=' + o.childProjName);
+      check('树:项目内任务树嵌套(TASK_B 在 TASK_A 下)', o.aNodeFound === true && o.bNodeFound === true && o.bInsideA === true, 'a=' + o.aNodeFound + ' b=' + o.bNodeFound + ' inside=' + o.bInsideA + ' indent=' + o.bIndent);
+      check('树:折叠写入 localStorage(todo_tree_collapsed)', o.lsHasId === true, 'before=' + o.beforeLS + ' after=' + o.afterLS);
+      check('树:折叠后 DOM 收起(body.collapsed + ▸箭头)', o.bodyCollapsed === true && o.arrowCollapsed === true, 'body=' + o.bodyCollapsed + ' arrowGlyph=' + o.arrowGlyph);
+      check('树:再次点击可展开还原', o.expandedAfter === true);
 
       // 7) 列表视图 + 归档
       o = await js('archive', `(async () => {

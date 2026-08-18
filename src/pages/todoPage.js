@@ -67,7 +67,7 @@ const LANGS = {
     eventsTab: '任务事件', addEvent: '添加事件', eventTextPh: '事件内容…', noEvents: '暂无任务事件',
     subDoneAt: '完成于', eventsSection: '任务事件',
     editSubtask: '编辑子任务', subDoneAtLabel: '完成日期', subDoneAtDisabledTip: '子任务未完成,勾选后才能填完成日期', subCreatedOn: '创建于 {0}',
-    parentTaskLabel: '父任务', noParent: '无父任务', publishAtLabel: '发布时间',
+    parentTaskLabel: '父任务', noParent: '无父任务', publishAtLabel: '发布时间', parentProjectLabel: '父项目', noParentProject: '无（顶级项目）', noParentTask: '无（顶级任务）',
     // 详情
     copy: '复制', copyTitle: '复制任务摘要', copied: '已复制到剪贴板', copyFailed: '复制失败',
     overduePrefix: '已逾期 · ', descLabel: '描述', createdOn: '创建于 {0}', updatedOn: '更新于 {0}',
@@ -149,7 +149,7 @@ const LANGS = {
     eventsTab: 'Task Events', addEvent: 'Add Event', eventTextPh: 'Event content…', noEvents: 'No task events yet',
     subDoneAt: 'Done on', eventsSection: 'Task Events',
     editSubtask: 'Edit subtask', subDoneAtLabel: 'Done at', subDoneAtDisabledTip: 'Subtask not done yet — check it first to set a completion date', subCreatedOn: 'Created {0}',
-    parentTaskLabel: 'Parent task', noParent: 'No parent', publishAtLabel: 'Publish time',
+    parentTaskLabel: 'Parent task', noParent: 'No parent', publishAtLabel: 'Publish time', parentProjectLabel: 'Parent project', noParentProject: 'None (top-level)', noParentTask: 'None (top-level)',
     copy: 'Copy', copyTitle: 'Copy task summary', copied: 'Copied to clipboard', copyFailed: 'Copy failed',
     overduePrefix: 'Overdue · ', descLabel: 'Description', createdOn: 'Created {0}', updatedOn: 'Updated {0}',
     taskNotFound: 'Task not found', priPrefix: 'Priority:{0} | Status:{1}', projectPrefix: 'Project:{0}',
@@ -326,6 +326,28 @@ function removeProject(id) {
   state.todoProjects = state.todoProjects.filter((p) => p.id !== id);
   for (const t of state.todoTasks) if (t.projectId === id) t.projectId = '';
   saveState();
+}
+// 判断 nodeId 是否为 ancestorId 的后代(防任务树成环)
+function isTaskDescendant(nodeId, ancestorId) {
+  if (!ancestorId) return false;
+  let cur = taskById(nodeId);
+  let guard = 0;
+  while (cur && guard++ < 100) {
+    if ((cur.parentTaskId || '') === ancestorId) return true;
+    cur = taskById(cur.parentTaskId || '');
+  }
+  return false;
+}
+// 判断项目节点是否为某祖先的后代(防项目树成环)
+function isProjectDescendant(nodeId, ancestorId) {
+  if (!ancestorId) return false;
+  let cur = projectById(nodeId);
+  let guard = 0;
+  while (cur && guard++ < 100) {
+    if ((cur.parentId || '') === ancestorId) return true;
+    cur = projectById(cur.parentId || '');
+  }
+  return false;
 }
 
 // ---------------- 筛选 + 排序 ----------------
@@ -591,11 +613,227 @@ function isFilterActive() {
 }
 
 // ---------------- 列表视图 ----------------
+// ---------------- 树状层级(补丁·45:项目树 + 项目内任务树) ----------------
+const TREE_COLLAPSED_KEY = 'todo_tree_collapsed';
+let collapsedNodes = (() => { try { return new Set(JSON.parse(localStorage.getItem(TREE_COLLAPSED_KEY) || '[]')); } catch { return new Set(); } })();
+function persistCollapsed() { try { localStorage.setItem(TREE_COLLAPSED_KEY, JSON.stringify([...collapsedNodes])); } catch {} }
+function toggleNode(id) {
+  if (collapsedNodes.has(id)) collapsedNodes.delete(id); else collapsedNodes.add(id);
+  persistCollapsed();
+  render();
+}
+// 项目森林:按 parentId 构建,返回根项目数组(每项含 children 递归);防环
+function buildProjectForest() {
+  const nodes = state.todoProjects.map((p) => ({ ...p, children: [] }));
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const roots = [];
+  const placed = new Set();
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const n of nodes) {
+      if (placed.has(n.id)) continue;
+      const pid = n.parentId || '';
+      if (!pid || pid === n.id) { roots.push(n); placed.add(n.id); changed = true; }
+      else if (byId.has(pid) && placed.has(pid)) { byId.get(pid).children.push(n); placed.add(n.id); changed = true; }
+    }
+  }
+  for (const n of nodes) if (!placed.has(n.id)) { roots.push(n); placed.add(n.id); }
+  const sortP = (a, b) => (a.sort ?? 0) - (b.sort ?? 0) || ((a.createdAt || 0) - (b.createdAt || 0));
+  const sortRec = (arr) => { arr.sort(sortP); arr.forEach((c) => sortRec(c.children)); };
+  sortRec(roots);
+  return roots;
+}
+// 某项目内任务树:matched 为该项目的匹配任务(已过滤),自动补全匹配任务的祖先以维持树形
+function buildTaskTreeFrom(matched, projId) {
+  const projTasks = matched.filter((t) => (t.projectId || '') === projId);
+  const set = new Map();
+  projTasks.forEach((t) => set.set(t.id, { ...t, children: [] }));
+  for (const t of projTasks) {
+    let pid = t.parentTaskId || '';
+    let guard = 0;
+    while (pid && guard++ < 100) {
+      if (set.has(pid)) break;
+      const parent = taskById(pid);
+      if (!parent || parent.archived) break;
+      set.set(pid, { ...parent, children: [] });
+      pid = parent.parentTaskId || '';
+    }
+  }
+  const nodes = [...set.values()];
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const roots = [];
+  const placed = new Set();
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const n of nodes) {
+      if (placed.has(n.id)) continue;
+      const pid = n.parentTaskId || '';
+      if (!pid || pid === n.id) { roots.push(n); placed.add(n.id); changed = true; }
+      else if (byId.has(pid) && placed.has(pid)) { byId.get(pid).children.push(n); placed.add(n.id); changed = true; }
+    }
+  }
+  for (const n of nodes) if (!placed.has(n.id)) { roots.push(n); placed.add(n.id); }
+  const sortT = (a, b) => (a.sort ?? 0) - (b.sort ?? 0) || ((a.createdAt || 0) - (b.createdAt || 0));
+  const sortRec = (arr) => { arr.sort(sortT); arr.forEach((c) => sortRec(c.children)); };
+  sortRec(roots);
+  return roots;
+}
+function countProjectTasks(projNode, matched) {
+  let n = matched.filter((t) => t.projectId === projNode.id).length;
+  for (const c of (projNode.children || [])) n += countProjectTasks(c, matched);
+  return n;
+}
+function forestFind(forest, id) {
+  for (const n of forest) {
+    if (n.id === id) return n;
+    const f = forestFind(n.children || [], id);
+    if (f) return f;
+  }
+  return null;
+}
+/** 树内拖拽:把 dragId 变成 targetId 的同级(同 parentTaskId / projectId),并插到 target 之前 */
+function reparentTaskAsSibling(dragId, targetId) {
+  const drag = taskById(dragId);
+  const target = taskById(targetId);
+  if (!drag || !target || drag.id === target.id) return;
+  drag.parentTaskId = target.parentTaskId || '';
+  drag.projectId = target.projectId || '';
+  const others = state.todoTasks
+    .filter((t) => !t.archived && (t.projectId || '') === (target.projectId || '') && (t.parentTaskId || '') === (target.parentTaskId || '') && t.id !== drag.id)
+    .sort((a, b) => a.sort - b.sort);
+  const ti = others.findIndex((t) => t.id === target.id);
+  let newSort;
+  if (ti <= 0) newSort = (others[0] ? others[0].sort : 0) - 1;
+  else newSort = (others[ti - 1].sort + others[ti].sort) / 2;
+  drag.sort = newSort;
+  drag.updatedAt = now();
+  saveState();
+  render();
+}
+/** 树内拖拽:把 dragId 移到某项目的顶级(parentTaskId='') */
+function reparentTaskToProjectTop(dragId, projId) {
+  const drag = taskById(dragId);
+  if (!drag) return;
+  drag.parentTaskId = '';
+  drag.projectId = projId || '';
+  const tops = state.todoTasks.filter((t) => !t.archived && (t.projectId || '') === (projId || '') && !(t.parentTaskId || ''));
+  const maxSort = tops.length ? Math.max(...tops.map((t) => t.sort)) : 0;
+  drag.sort = maxSort + 1;
+  drag.updatedAt = now();
+  saveState();
+  render();
+}
+function attachTaskDrag(card, task) {
+  card.addEventListener('dragstart', (e) => {
+    dragTaskId = task.id;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(task.id));
+  });
+  card.addEventListener('dragend', () => { dragTaskId = null; });
+  card.addEventListener('dragover', (e) => { e.preventDefault(); });
+  card.addEventListener('drop', (e) => {
+    e.preventDefault();
+    const dragId = dragTaskId || Number(e.dataTransfer.getData('text/plain')) || null;
+    if (!dragId || dragId === task.id) return;
+    reparentTaskAsSibling(dragId, task.id);
+  });
+}
+function renderTaskNode(tn, depth) {
+  const el = document.createElement('div');
+  el.className = 'todo-task-node';
+  el.setAttribute('data-task-id', tn.id);
+  const collapsed = collapsedNodes.has(tn.id);
+  const hasChildren = (tn.children || []).length > 0;
+  const row = document.createElement('div');
+  row.className = 'todo-task-node-row';
+  row.style.marginLeft = (depth * 18) + 'px';
+  const arrow = document.createElement('button');
+  arrow.className = 'todo-tree-arrow todo-task-arrow';
+  arrow.setAttribute('data-task-toggle', tn.id);
+  arrow.textContent = hasChildren ? (collapsed ? '▸' : '▾') : '';
+  arrow.style.visibility = hasChildren ? 'visible' : 'hidden';
+  arrow.addEventListener('click', (e) => { e.stopPropagation(); if (hasChildren) toggleNode(tn.id); });
+  row.appendChild(arrow);
+  const card = renderTaskCard(tn);
+  attachTaskDrag(card, tn);
+  row.appendChild(card);
+  el.appendChild(row);
+  if (hasChildren && !collapsed) {
+    const childWrap = document.createElement('div');
+    childWrap.className = 'todo-task-children';
+    tn.children.forEach((c) => childWrap.appendChild(renderTaskNode(c, depth + 1)));
+    el.appendChild(childWrap);
+  }
+  return el;
+}
+function renderProjectNode(projNode, matched, depth, recurseSubs = true) {
+  const el = document.createElement('div');
+  el.className = 'todo-proj-node';
+  el.setAttribute('data-proj', projNode.id);
+  const collapsed = collapsedNodes.has(projNode.id);
+  const count = countProjectTasks(projNode, matched);
+  const head = document.createElement('div');
+  head.className = 'todo-proj-head';
+  head.setAttribute('data-proj-toggle', projNode.id);
+  head.innerHTML = `
+    <span class="todo-tree-arrow">${collapsed ? '▸' : '▾'}</span>
+    <span class="todo-proj-dot" style="background:${projNode.color}"></span>
+    <span class="todo-proj-name">${escHtml(projNode.name)}</span>
+    ${count ? `<span class="todo-proj-count">${count}</span>` : ''}`;
+  head.addEventListener('click', () => toggleNode(projNode.id));
+  // 拖到项目头 → 成为该项目顶级任务
+  head.addEventListener('dragover', (e) => e.preventDefault());
+  head.addEventListener('drop', (e) => {
+    e.preventDefault();
+    const dragId = dragTaskId || Number(e.dataTransfer.getData('text/plain')) || null;
+    if (!dragId) return;
+    reparentTaskToProjectTop(dragId, projNode.id);
+  });
+  el.appendChild(head);
+  const body = document.createElement('div');
+  body.className = 'todo-proj-body' + (collapsed ? ' collapsed' : '');
+  body.style.marginLeft = (depth > 0 ? 14 : 0) + 'px';
+  if (recurseSubs) (projNode.children || []).forEach((cp) => body.appendChild(renderProjectNode(cp, matched, depth + 1, true)));
+  buildTaskTreeFrom(matched, projNode.id).forEach((tn) => body.appendChild(renderTaskNode(tn, 0)));
+  el.appendChild(body);
+  return el;
+}
+function renderNoneNode(noneTasks) {
+  const el = document.createElement('div');
+  el.className = 'todo-proj-node todo-proj-none';
+  el.setAttribute('data-proj', '__none__');
+  const collapsed = collapsedNodes.has('__none__');
+  const head = document.createElement('div');
+  head.className = 'todo-proj-head';
+  head.setAttribute('data-proj-toggle', '__none__');
+  head.innerHTML = `
+    <span class="todo-tree-arrow">${collapsed ? '▸' : '▾'}</span>
+    <span class="todo-proj-dot"></span>
+    <span class="todo-proj-name">${T('noProject')}</span>
+    <span class="todo-proj-count">${noneTasks.length}</span>`;
+  head.addEventListener('click', () => toggleNode('__none__'));
+  head.addEventListener('dragover', (e) => e.preventDefault());
+  head.addEventListener('drop', (e) => {
+    e.preventDefault();
+    const dragId = dragTaskId || Number(e.dataTransfer.getData('text/plain')) || null;
+    if (dragId) reparentTaskToProjectTop(dragId, '');
+  });
+  el.appendChild(head);
+  const body = document.createElement('div');
+  body.className = 'todo-proj-body' + (collapsed ? ' collapsed' : '');
+  buildTaskTreeFrom(noneTasks, '').forEach((tn) => body.appendChild(renderTaskNode(tn, 0)));
+  el.appendChild(body);
+  return el;
+}
 function renderList() {
   const wrap = document.createElement('div');
-  wrap.className = 'todo-list-wrap';
-  const list = filteredTasks();
-  if (!list.length) {
+  wrap.className = 'todo-list-tree';
+  const matched = filteredTasks();
+  const forest = buildProjectForest();
+  const noneTasks = matched.filter((t) => !t.projectId);
+  if (!matched.length && !forest.length) {
     wrap.innerHTML = `
       <div class="todo-empty">
         <div class="todo-empty-ico">📋</div>
@@ -604,24 +842,14 @@ function renderList() {
       </div>`;
     return wrap;
   }
-  list.forEach((task, idx) => {
-    const card = renderTaskCard(task);
-    card.draggable = true;
-    card.addEventListener('dragstart', (e) => {
-      dragTaskId = task.id;
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', String(task.id));
-    });
-    card.addEventListener('dragend', () => { dragTaskId = null; });
-    card.addEventListener('dragover', (e) => { e.preventDefault(); });
-    card.addEventListener('drop', (e) => {
-      e.preventDefault();
-      const dragId = dragTaskId || Number(e.dataTransfer.getData('text/plain')) || null;
-      if (!dragId || dragId === task.id) return;
-      reorderInList(dragId, task.id);
-    });
-    wrap.appendChild(card);
-  });
+  let projNodes = forest;
+  const isSpecific = filters.projectId && filters.projectId !== 'all' && filters.projectId !== 'none';
+  if (isSpecific) {
+    const found = forestFind(forest, filters.projectId);
+    projNodes = found ? [found] : [];
+  }
+  projNodes.forEach((pn) => wrap.appendChild(renderProjectNode(pn, matched, 0, !isSpecific)));
+  if (!isSpecific && (filters.projectId === 'none' || noneTasks.length)) wrap.appendChild(renderNoneNode(noneTasks));
   return wrap;
 }
 
@@ -1425,15 +1653,16 @@ function renderTaskCard(task, compact = false, colStatus = null) {
     chip.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      openSubMenu(chip.dataset.sub, e.clientX, e.clientY);
+      const real = taskById(task.id) || task;
+      openSubMenu(real, chip.dataset.sub, e.clientX, e.clientY);
     });
   });
   let subMenuEl = null;
-  function openSubMenu(subId, atX, atY) {
+  function openSubMenu(tk, subId, atX, atY) {
     closeSubMenu();
     // 清理任何遗留的子任务菜单(render 重绘后可能残留在 body 上)
     document.querySelectorAll('.todo-sub-menu').forEach((el) => el.remove());
-    const sub = (task.subtasks || []).find((x) => x.id === subId);
+    const sub = (tk.subtasks || []).find((x) => x.id === subId);
     if (!sub) return;
     subMenuEl = document.createElement('div');
     subMenuEl.className = 'todo-card-menu todo-sub-menu';
@@ -1454,10 +1683,10 @@ function renderTaskCard(task, compact = false, colStatus = null) {
       ev.stopPropagation();
       const m = mb.dataset.sm;
       closeSubMenu();
-      if (m === 'edit') { modalInitialTab = 'subtasks'; modalHighlightSub = subId; taskModalOpen = true; modalTaskId = task.id; render(); }
+      if (m === 'edit') { modalInitialTab = 'subtasks'; modalHighlightSub = subId; taskModalOpen = true; modalTaskId = tk.id; render(); }
       else if (m === 'delete') {
         confirmDialog({ title: T('delSubTitle'), message: T('delSubMsg', sub.title), okText: T('delete'), danger: true, onOk: () => {
-          task.subtasks = (task.subtasks || []).filter((x) => x.id !== subId);
+          tk.subtasks = (tk.subtasks || []).filter((x) => x.id !== subId);
           saveState(); render();
         } });
       }
@@ -1474,7 +1703,7 @@ function renderTaskCard(task, compact = false, colStatus = null) {
 
   // 右键/⋮ 菜单(编辑/归档/删除) — 跟随触发位置弹出
   let menuEl = null;
-  function openCardMenu(atX, atY) {
+  function openCardMenu(tk, atX, atY) {
     if (menuEl) { menuEl.remove(); menuEl = null; return; }
     menuEl = document.createElement('div');
     menuEl.className = 'todo-card-menu';
@@ -1496,10 +1725,10 @@ function renderTaskCard(task, compact = false, colStatus = null) {
       menuEl.remove(); menuEl = null;
       document.removeEventListener('click', closeMenuOutside, true);
       const m = mb.dataset.m;
-      if (m === 'edit') { taskModalOpen = true; modalTaskId = task.id; render(); }
-      else if (m === 'archive') { task.archived = true; task.updatedAt = now(); saveState(); render(); }
+      if (m === 'edit') { taskModalOpen = true; modalTaskId = tk.id; render(); }
+      else if (m === 'archive') { tk.archived = true; tk.updatedAt = now(); saveState(); render(); }
       else if (m === 'delete') {
-        confirmDialog({ title: T('deleteTaskTitle'), message: T('deleteTaskMsg', task.title), okText: T('del'), danger: true, onOk: () => { removeTask(task.id); render(); } });
+        confirmDialog({ title: T('deleteTaskTitle'), message: T('deleteTaskMsg', tk.title), okText: T('del'), danger: true, onOk: () => { removeTask(tk.id); render(); } });
       }
     });
     setTimeout(() => document.addEventListener('click', closeMenuOutside, true), 0);
@@ -1512,28 +1741,30 @@ function renderTaskCard(task, compact = false, colStatus = null) {
   }
   card.addEventListener('contextmenu', (e) => {
     e.preventDefault();
-    openCardMenu(e.clientX, e.clientY);
+    const real = taskById(task.id) || task;
+    openCardMenu(real, e.clientX, e.clientY);
   });
   card.addEventListener('click', (e) => {
     const b = e.target.closest('[data-t]');
     if (!b) { openDetail(task.id); return; }
     e.stopPropagation();
     const t = b.dataset.t;
-    if (t === 'status') { cycleStatus(task); }
-    else if (t === 'priority') { cyclePriority(task); }
+    const real = taskById(task.id) || task;
+    if (t === 'status') { cycleStatus(real); }
+    else if (t === 'priority') { cyclePriority(real); }
     else if (t === 'subedit') {
       // 子任务悬停 ✎:打开编辑弹窗并定位到子任务 tab,高亮该行
       modalInitialTab = 'subtasks';
       modalHighlightSub = b.dataset.sub;
-      taskModalOpen = true; modalTaskId = task.id; render();
+      taskModalOpen = true; modalTaskId = real.id; render();
     }
-    else if (t === 'sub') { toggleSubtask(task, b.dataset.sub); }
-    else if (t === 'subtoggle') { toggleSubtasksCollapse(task, b); }
-    else if (t === 'edit') { taskModalOpen = true; modalTaskId = task.id; render(); }
+    else if (t === 'sub') { toggleSubtask(real, b.dataset.sub); }
+    else if (t === 'subtoggle') { toggleSubtasksCollapse(real, b); }
+    else if (t === 'edit') { taskModalOpen = true; modalTaskId = real.id; render(); }
     else if (t === 'menu') {
       // ⋮ 按钮:菜单出现在按钮左下方(贴近按钮)
       const r = b.getBoundingClientRect();
-      openCardMenu(r.left, r.bottom + 2);
+      openCardMenu(real, r.left, r.bottom + 2);
     }
   });
   return card;
@@ -1624,6 +1855,7 @@ function renderTaskModal() {
     startAt: task && task.startAt ? tsToDateTimeLocal(task.startAt) : '',
     completeAt: task && task.completeAt ? tsToDateTimeLocal(task.completeAt) : '',
     projectId: task ? task.projectId : '',
+    parentTaskId: task ? (task.parentTaskId || '') : '',
     tags: task ? [...task.tags] : [],
     tagInput: '',
     subtaskInput: '',
@@ -1656,6 +1888,13 @@ function renderTaskModal() {
               <option value="">${T('noProject')}</option>
               ${projects.map((p) => `<option value="${p.id}"${draft.projectId === p.id ? ' selected' : ''}>${escHtml(p.name)}</option>`).join('')}
             </select></div>
+          <div class="todo-field" style="flex:1"><label class="todo-label">${T('parentTaskLabel')}</label>
+            <select class="todo-input" data-d="parentTaskId">
+              <option value="">${T('noParentTask')}</option>
+              ${state.todoTasks
+                .filter((t) => (t.projectId || '') === (draft.projectId || '') && t.id !== (task ? task.id : '') && !isTaskDescendant(t.id, task ? task.id : ''))
+                .map((t) => `<option value="${t.id}"${draft.parentTaskId === t.id ? ' selected' : ''}>${escHtml(t.title)}</option>`).join('')}
+            </select></div>
         </div>
         <div class="todo-field"><label class="todo-label">${T('deadlineLabel')}</label>
           <input class="todo-input" type="date" data-d="deadline" value="${draft.deadline}"></div>
@@ -1676,7 +1915,8 @@ function renderTaskModal() {
       bodyEl.querySelector('[data-d="title"]').addEventListener('input', (e) => { draft.title = e.target.value; });
       bodyEl.querySelector('[data-d="notes"]').addEventListener('input', (e) => { draft.notes = e.target.value; });
       bodyEl.querySelector('[data-d="status"]').addEventListener('change', (e) => { draft.status = e.target.value; });
-      bodyEl.querySelector('[data-d="projectId"]').addEventListener('change', (e) => { draft.projectId = e.target.value; });
+      bodyEl.querySelector('[data-d="projectId"]').addEventListener('change', (e) => { draft.projectId = e.target.value; draft.parentTaskId = ''; renderBody(); });
+      bodyEl.querySelector('[data-d="parentTaskId"]').addEventListener('change', (e) => { draft.parentTaskId = e.target.value; });
       bodyEl.querySelector('[data-d="deadline"]').addEventListener('change', (e) => { draft.deadline = e.target.value; });
       bodyEl.querySelector('[data-d="startAt"]').addEventListener('change', (e) => { draft.startAt = e.target.value; });
       bodyEl.querySelector('[data-d="completeAt"]').addEventListener('change', (e) => { draft.completeAt = e.target.value; });
@@ -1904,7 +2144,7 @@ function renderTaskModal() {
         priority: draft.priority, status: draft.status,
         deadline: dateInputToTs(draft.deadline), startAt, completeAt, events: draft.events, reminderAt: null,
         sort: liveTasks().length, tags: draft.tags,
-        projectId: draft.projectId, recurRule: '',
+        projectId: draft.projectId, parentTaskId: draft.parentTaskId || '', recurRule: '',
         archived: false, subtasks: draft.subtasks, createdAt: now(), updatedAt: now(),
       };
       upsertTask(t);
@@ -1913,7 +2153,7 @@ function renderTaskModal() {
         title, notes: draft.notes, notesHtml: draft.notes,
         priority: draft.priority, status: draft.status,
         deadline: dateInputToTs(draft.deadline), startAt, completeAt, events: draft.events,
-        tags: draft.tags, projectId: draft.projectId,
+        tags: draft.tags, projectId: draft.projectId, parentTaskId: draft.parentTaskId || '',
         subtasks: draft.subtasks, updatedAt: now(),
       });
       saveState();
@@ -2081,9 +2321,13 @@ function renderProjectsModal() {
       </div>
       <div class="todo-proj-new">
         <div class="todo-label">${T('newProject')}</div>
-        <input class="todo-input" data-new-name placeholder="${T('projectNamePh')}" style="width:100%;margin:6px 0 10px">
-        <div style="display:flex;align-items:center;gap:8px">
+        <input class="todo-input" data-new-name placeholder="${T('projectNamePh')}" style="width:100%;margin:6px 0 8px">
+        <div style="display:flex;align-items:flex-end;gap:8px">
           <div class="todo-color-row">${PROJECT_COLORS.map((c) => `<button class="todo-color-btn" data-color="${c}" style="background:${c}"></button>`).join('')}</div>
+          <select class="todo-input" data-new-parent style="flex:1;min-width:90px">
+            <option value="">${T('noParentProject')}</option>
+            ${state.todoProjects.map((p) => `<option value="${p.id}">${escHtml(p.name)}</option>`).join('')}
+          </select>
           <button class="btn primary" data-new-create style="margin-left:auto">${T('addProject')}</button>
         </div>
       </div>
@@ -2097,7 +2341,8 @@ function renderProjectsModal() {
     const inp = box.querySelector('[data-new-name]');
     const name = inp.value.trim();
     if (!name) { toast(T('projectNameRequired'), 'warn'); return; }
-    upsertProject({ id: uid('p'), name, color: newColor, sort: state.todoProjects.length, createdAt: now(), updatedAt: now() });
+    const parentId = box.querySelector('[data-new-parent]').value || '';
+    upsertProject({ id: uid('p'), name, color: newColor, sort: state.todoProjects.length, parentId, createdAt: now(), updatedAt: now() });
     inp.value = '';
     render();
   });
@@ -2117,18 +2362,29 @@ function renderProjectsModal() {
     else if (edit) {
       const p = projectById(edit.dataset.edit);
       if (!p) return;
-      const input = document.createElement('input');
-      input.className = 'todo-input';
-      input.value = p.name;
-      edit.replaceWith(input);
-      input.focus(); input.select();
+      const wrap = document.createElement('div');
+      wrap.className = 'todo-proj-edit';
+      wrap.innerHTML = `
+        <input class="todo-input todo-proj-edit-name" value="${escHtml(p.name)}" style="flex:1">
+        <select class="todo-input todo-proj-edit-parent" style="flex:1;min-width:80px">
+          <option value="">${T('noParentProject')}</option>
+          ${state.todoProjects.filter((x) => x.id !== p.id && !isProjectDescendant(x.id, p.id)).map((x) => `<option value="${x.id}"${x.id === p.parentId ? ' selected' : ''}>${escHtml(x.name)}</option>`).join('')}
+        </select>`;
+      edit.replaceWith(wrap);
+      const nameInput = wrap.querySelector('.todo-proj-edit-name');
+      nameInput.focus(); nameInput.select();
       const commit = () => {
-        const v = input.value.trim();
-        if (v && v !== p.name) { p.name = v; p.updatedAt = now(); saveState(); }
+        const v = nameInput.value.trim();
+        const np = wrap.querySelector('.todo-proj-edit-parent').value || '';
+        if (v) p.name = v;
+        p.parentId = np;
+        p.updatedAt = now();
+        saveState();
         render();
       };
-      input.addEventListener('blur', commit);
-      input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') commit(); if (ev.key === 'Escape') render(); });
+      nameInput.addEventListener('blur', commit);
+      nameInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') commit(); if (ev.key === 'Escape') render(); });
+      wrap.querySelector('.todo-proj-edit-parent').addEventListener('change', commit);
     }
   });
   ov.addEventListener('click', (e) => { if (e.target === ov) { projectsOpen = false; render(); } });
