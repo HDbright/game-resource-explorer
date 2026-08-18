@@ -802,6 +802,24 @@ app.whenReady().then(async () => {
         out.childHasGuides = !!(childRow && childRow.querySelector('.todo-tree-guides'));
         const rootRow = gameNode3 ? gameNode3.querySelector('.todo-tree-row') : null;
         out.rootHasNoGuides = !!(rootRow && !rootRow.querySelector('.todo-tree-guides'));
+        // (f) 补丁·56:深度≥2 节点只剩 L 形分支竖线,不再有祖辈列贯穿竖线
+        const aNode2 = document.querySelector('.todo-tree-task[data-task-id="${TASK_A}"]');
+        const aRow2 = aNode2 ? aNode2.querySelector('.todo-tree-row') : null;
+        out.aVlines = aRow2 ? aRow2.querySelectorAll('.todo-tree-line.tl-v').length : 0;
+        const bNode2 = document.querySelector('.todo-tree-task[data-task-id="${TASK_B}"]');
+        const bRow2 = bNode2 ? bNode2.querySelector('.todo-tree-row') : null;
+        out.bVlines = bRow2 ? bRow2.querySelectorAll('.todo-tree-line.tl-v').length : 0;
+        // 校验:深度≥2 节点的竖线 left 都在 (depth-1)*18+9 这一列(无祖辈列)
+        out.aVlinesAllAtOwnCol = (() => {
+          if (!aRow2) return false;
+          const vlines = [...aRow2.querySelectorAll('.todo-tree-line.tl-v')];
+          return vlines.length > 0 && vlines.every((v) => /left:\s*27px/.test(v.getAttribute('style') || ''));
+        })();
+        out.bVlinesAllAtOwnCol = (() => {
+          if (!bRow2) return false;
+          const vlines = [...bRow2.querySelectorAll('.todo-tree-line.tl-v')];
+          return vlines.length > 0 && vlines.every((v) => /left:\s*45px/.test(v.getAttribute('style') || ''));
+        })();
         return out;
       })()`);
       check('树:项目树含子项目(游戏开发→子项目)', o.gameNodeFound === true && o.childProjFound === true && /子项目/.test(o.childProjName || ''), 'gameNode=' + o.gameNodeFound + ' child=' + o.childProjFound + ' name=' + o.childProjName);
@@ -812,6 +830,8 @@ app.whenReady().then(async () => {
       check('树:再次点击可展开还原', o.expandedAfter === true);
       check('树(补丁·53):从属连接线存在(竖线+分支线)', o.guidesTotal > 0 && o.vlines > 0 && o.hlines > 0, 'guides=' + o.guidesTotal + ' v=' + o.vlines + ' h=' + o.hlines);
       check('树(补丁·53):子级节点有连接线 / 根级无连接线', o.childHasGuides === true && o.rootHasNoGuides === true, 'child=' + o.childHasGuides + ' root=' + o.rootHasNoGuides);
+      check('树(补丁·56):深度≥2 节点只剩 1 条 L 形分支竖线(无祖辈贯穿竖线)', o.aVlines === 1 && o.bVlines === 1, 'aVlines=' + o.aVlines + ' bVlines=' + o.bVlines);
+      check('树(补丁·56):竖线只在本列(无祖辈列)', o.aVlinesAllAtOwnCol === true && o.bVlinesAllAtOwnCol === true, 'aCol=' + o.aVlinesAllAtOwnCol + ' bCol=' + o.bVlinesAllAtOwnCol);
 
       // 7.a2) 列表树节点 hover「+」新建(补丁·52):每级标题栏有 +,点项目下 + → 新任务预设该项目;点任务下 + → 预设该父任务
       o = await js('treeAddBtn', `(async () => {
