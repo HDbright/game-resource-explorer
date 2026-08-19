@@ -2859,17 +2859,21 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .todo-card.done .todo-card-main { opacity: .6; }
 .todo-card-row { display: flex; align-items: flex-start; gap: 10px; }
 .todo-status-btn { width: 20px; height: 20px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border-radius: 50%; border: 1.5px solid var(--border); background: transparent; color: var(--text2); font-size: 10px; cursor: pointer; margin-top: 1px; transition: all .15s; }
-/* 看板三列:状态图标去圆圈,只显示放大后的图标(已完成✅/进行中tasking64.png/待办⬜) */
+/* 看板三列:状态图标去圆圈,只显示放大后的图标(已完成✅/进行中◑/待办🔳;补丁·77:进行中列与列表视图一致用 ◑ 文本图标) */
 .todo-card-col-done .todo-status-btn,
 .todo-card-col-progress .todo-status-btn,
 .todo-card-col-todo .todo-status-btn {
   width: auto; height: auto; min-width: 20px; border: none; background: transparent; border-radius: 0; font-size: 20px; line-height: 1; margin-top: 0; padding: 0;
 }
 .todo-card-col-done .todo-status-btn { color: #22c55e; }
-.todo-card-col-progress .todo-status-btn .todo-status-img { width: 18px !important; height: 18px !important; max-width: 18px; max-height: 18px; object-fit: contain; display: block; pointer-events: none; vertical-align: middle; }
 .todo-card-main { flex: 1; min-width: 0; }
 .todo-card-title-row { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
 .todo-card-title { font-size: 14px; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+/* 补丁·73:列表视图(卡片位于 .todo-tree-row 内)标题行 —— 项目/日期/优先级标签紧贴任务标题后(不被 flex:1 推到行尾);
+   子任务块时间标签随 JS 移到子任务标题后同一行,✎ 仍靠右。看板视图(作用域外)排列不变。 */
+.todo-tree-row .todo-card-title { flex: 0 1 auto; min-width: 0; }
+.todo-tree-row .todo-sub-block-title { flex: 0 1 auto; min-width: 0; }
+.todo-tree-row .todo-sub-block-actions { margin-left: auto; }
 .todo-card.done .todo-card-title { text-decoration: line-through; color: var(--text2); }
 /* 看板视图:任务标题单独占一行以便完整显示,项目名/日期/优先级换行紧随其后 */
 .todo-card-kanban-col .todo-card-title-row { flex-wrap: wrap; align-items: flex-start; }
@@ -2909,6 +2913,8 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 }
 .todo-sub-block:hover { background: var(--bg4); border-color: var(--accent); }
 .todo-sub-block:hover .todo-sub-block-actions { opacity: 1; }
+/* 父任务卡片悬停时,内嵌子任务块背景同步切换为 bg4,与母卡片保持相近色(避免悬停后子块明显偏深) */
+.todo-card:hover .todo-sub-block { background: var(--bg4); }
 .todo-sub-block.done { opacity: .8; }
 .todo-sub-block.done .todo-sub-block-title { text-decoration: line-through; color: var(--text2); }
 /* L 形 ├ 连接线:
@@ -2945,7 +2951,11 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .todo-sub-block-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-height: 22px; position: relative; z-index: 1; }
 .todo-sub-block-status { flex-shrink: 0; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; border: 1.5px solid var(--border); background: transparent; color: var(--text2); font-size: 10px; cursor: pointer; padding: 0; transition: all .15s; }
 .todo-sub-block-status.sub-done { border-color: #22c55e; color: #22c55e; }
-.todo-sub-block-status.sub-in_progress { border-color: var(--accent); color: var(--accent); }
+.todo-sub-block-status.sub-in_progress { border-color: #f59e0b; color: #f59e0b; }
+/* 补丁·74:嵌套子任务块折叠/展开箭头(仅含子任务的块显示) */
+.todo-sub-block-toggle { flex-shrink: 0; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; background: none; border: none; cursor: pointer; color: var(--text2); font-size: 10px; padding: 0; }
+.todo-sub-block-toggle:hover { color: var(--text); }
+.todo-sub-block.collapsed > .todo-sub-block-children { display: none; }
 .todo-sub-block-title { flex: 1; min-width: 100px; font-size: 12.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .todo-sub-block-pri { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 /* 子任务块底部 meta:tags + 截止日期 */
@@ -2974,8 +2984,27 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .todo-deadline.overdue { color: #ef4444; font-weight: 600; }
 .todo-deadline.warn { color: #f59e0b; font-weight: 600; }
 .todo-done-at { font-size: 11px; color: #22c55e; font-weight: 500; }
-.todo-card-actions { display: flex; align-items: center; gap: 3px; opacity: 0; transition: opacity .15s; flex-shrink: 0; }
+.todo-card-actions {
+  /* 补丁·70:悬浮在卡片右上角,不参与 flex 行布局,不再挤占内容宽度(标题/子任务块可充分利用可视区域) */
+  /* 补丁·71:容器透明(去边框/阴影),按钮半透明 → 被遮挡文字可大致透出 */
+  position: absolute;
+  top: 8px; right: 8px;
+  display: flex; align-items: center; gap: 3px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  z-index: 5;
+  opacity: 0;
+  transition: opacity .15s;
+}
 .todo-card:hover .todo-card-actions { opacity: 1; }
+/* 浮动工具条按钮半透明,文字可透出;悬停该按钮时增强不透明度作为强调 */
+.todo-card-actions .todo-icon-btn {
+  background: color-mix(in srgb, var(--bg4) 45%, transparent);
+}
+.todo-card-actions .todo-icon-btn:hover {
+  background: color-mix(in srgb, var(--bg4) 85%, transparent);
+}
 .todo-sub-notes { flex: 1; min-width: 80px; font-size: 11px; height: 24px; padding: 2px 6px; }
 .todo-events { display: flex; flex-direction: column; gap: 10px; }
 .todo-events-list { display: flex; flex-direction: column; gap: 8px; }
@@ -3107,7 +3136,7 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .todo-sub-drill-row:hover { background: var(--bg3); }
 .todo-sub-status-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; background: var(--text2); }
 .todo-sub-status-dot.todo-sub-status-todo { background: var(--border); }
-.todo-sub-status-dot.todo-sub-status-in_progress { background: var(--accent); }
+.todo-sub-status-dot.todo-sub-status-in_progress { background: #f59e0b; }
 .todo-sub-status-dot.todo-sub-status-done { background: #22c55e; }
 .todo-sub-drill-title { flex: 1; font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .todo-drill-back { margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--border); }

@@ -254,7 +254,8 @@ function open() {
       recur_rule TEXT DEFAULT '',
       archived INTEGER DEFAULT 0,
       created_at INTEGER DEFAULT 0,
-      updated_at INTEGER DEFAULT 0
+      updated_at INTEGER DEFAULT 0,
+      subs_collapsed INTEGER DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS todo_subtasks(
       id TEXT PRIMARY KEY,
@@ -274,7 +275,8 @@ function open() {
       start_at INTEGER,
       complete_at INTEGER,
       tags TEXT DEFAULT '[]',
-      updated_at INTEGER DEFAULT 0
+      updated_at INTEGER DEFAULT 0,
+      collapsed INTEGER DEFAULT 0
     );
     -- Todo-List 日历事件(生日/纪念日/待办事件/重要事件记录)
     CREATE TABLE IF NOT EXISTS todo_events(
@@ -361,6 +363,8 @@ function open() {
     if (!ttCols.includes('start_at')) db.exec('ALTER TABLE todo_tasks ADD COLUMN start_at INTEGER');
     if (!ttCols.includes('complete_at')) db.exec('ALTER TABLE todo_tasks ADD COLUMN complete_at INTEGER');
     if (!ttCols.includes('events')) db.exec("ALTER TABLE todo_tasks ADD COLUMN events TEXT DEFAULT '[]'");
+    // 补丁·79:todo_tasks 缺 subs_collapsed 列时补上(父卡子任务区折叠状态持久化)
+    if (!ttCols.includes('subs_collapsed')) db.exec('ALTER TABLE todo_tasks ADD COLUMN subs_collapsed INTEGER DEFAULT 0');
     const stCols = db.prepare('PRAGMA table_info(todo_subtasks)').all().map((r) => r.name);
     if (!stCols.includes('notes')) db.exec("ALTER TABLE todo_subtasks ADD COLUMN notes TEXT DEFAULT ''");
     if (!stCols.includes('done_at')) db.exec('ALTER TABLE todo_subtasks ADD COLUMN done_at INTEGER');
@@ -375,6 +379,8 @@ function open() {
     if (!stCols.includes('complete_at')) db.exec('ALTER TABLE todo_subtasks ADD COLUMN complete_at INTEGER');
     if (!stCols.includes('tags')) db.exec("ALTER TABLE todo_subtasks ADD COLUMN tags TEXT DEFAULT '[]'");
     if (!stCols.includes('updated_at')) db.exec('ALTER TABLE todo_subtasks ADD COLUMN updated_at INTEGER DEFAULT 0');
+    // 补丁·79:todo_subtasks 缺 collapsed 列时补上(嵌套子任务块折叠状态持久化)
+    if (!stCols.includes('collapsed')) db.exec('ALTER TABLE todo_subtasks ADD COLUMN collapsed INTEGER DEFAULT 0');
     // 旧库迁移:todo_projects 缺 parent_id 列时补上(项目树父子层级)
     const tpCols = db.prepare('PRAGMA table_info(todo_projects)').all().map((r) => r.name);
     if (!tpCols.includes('parent_id')) db.exec("ALTER TABLE todo_projects ADD COLUMN parent_id TEXT DEFAULT ''");
@@ -516,10 +522,10 @@ function readDb() {
     d.todoTasks = conn.prepare(
       'SELECT id, title, notes, notes_html AS notesHtml, priority, status, deadline, reminder_at AS reminderAt, ' +
       'start_at AS startAt, complete_at AS completeAt, events, sort, ' +
-      'tags, project_id AS projectId, parent_task_id AS parentTaskId, recur_rule AS recurRule, archived, created_at AS createdAt, updated_at AS updatedAt FROM todo_tasks ORDER BY sort'
+      'tags, project_id AS projectId, parent_task_id AS parentTaskId, recur_rule AS recurRule, archived, created_at AS createdAt, updated_at AS updatedAt, subs_collapsed AS subsCollapsed FROM todo_tasks ORDER BY sort'
     ).all();
     // tags / events 列是 JSON 数组字符串 → 解析为数组;附挂子任务
-    const subStmt = conn.prepare('SELECT id, task_id AS taskId, parent_sub_id AS parentSubId, title, notes, done, done_at AS doneAt, sort, created_at AS createdAt, priority, project_id AS projectId, parent_task_id AS parentTaskId, deadline, start_at AS startAt, complete_at AS completeAt, tags, updated_at AS updatedAt FROM todo_subtasks WHERE task_id = ? ORDER BY parent_sub_id, sort');
+    const subStmt = conn.prepare('SELECT id, task_id AS taskId, parent_sub_id AS parentSubId, title, notes, done, done_at AS doneAt, sort, created_at AS createdAt, priority, project_id AS projectId, parent_task_id AS parentTaskId, deadline, start_at AS startAt, complete_at AS completeAt, tags, updated_at AS updatedAt, collapsed FROM todo_subtasks WHERE task_id = ? ORDER BY parent_sub_id, sort');
     for (const t of (d.todoTasks || [])) {
       if (typeof t.tags === 'string') {
         try { t.tags = JSON.parse(t.tags || '[]'); } catch (err) { t.tags = []; }
@@ -533,10 +539,12 @@ function readDb() {
       if (!t.notesHtml) t.notesHtml = '';
       if (!t.recurRule) t.recurRule = '';
       t.archived = !!t.archived;
+      t.subsCollapsed = !!t.subsCollapsed; // 补丁·79:父卡子任务区折叠状态
       // 由扁平行按 parent_sub_id 重建嵌套树(补丁·57:支持子任务下再建子任务)
       const flat = subStmt.all(t.id);
       for (const s of flat) {
         s.done = !!s.done;
+        s.collapsed = !!s.collapsed; // 补丁·79:嵌套子任务块折叠状态
         if (!s.notes) s.notes = '';
         // 补丁·60:子任务独立字段缺省值 + tags JSON 解析
         if (!s.priority) s.priority = 'medium';
@@ -715,12 +723,12 @@ function writeDb(state) {
       insTodoProj.run(p.id, p.name || '', p.color || '#6366f1', p.sort || 0, p.parentId || '', p.notes || '', p.deadline || 0, p.completeAt || 0, p.createdAt || 0, p.updatedAt || 0);
     }
     const insTodoTask = conn.prepare(
-      'INSERT INTO todo_tasks(id, title, notes, notes_html, priority, status, deadline, reminder_at, start_at, complete_at, events, sort, tags, project_id, parent_task_id, recur_rule, archived, created_at, updated_at) ' +
-      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO todo_tasks(id, title, notes, notes_html, priority, status, deadline, reminder_at, start_at, complete_at, events, sort, tags, project_id, parent_task_id, recur_rule, archived, created_at, updated_at, subs_collapsed) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     const insTodoSub = conn.prepare(
-      'INSERT INTO todo_subtasks(id, task_id, parent_sub_id, title, notes, done, done_at, sort, created_at, priority, project_id, parent_task_id, deadline, start_at, complete_at, tags, updated_at) ' +
-      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO todo_subtasks(id, task_id, parent_sub_id, title, notes, done, done_at, sort, created_at, priority, project_id, parent_task_id, deadline, start_at, complete_at, tags, updated_at, collapsed) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     // 递归写入子任务(补丁·57:支持子任务下再建子任务;补丁·60:每个子任务独立归属任务 — 由 saveTask 在前端完成跨任务迁移,这里仍用 taskId 即可)
     const writeSubs = (subs, taskId, parentSubId) => {
@@ -735,7 +743,8 @@ function writeDb(state) {
           s.priority || 'medium', s.projectId || '', s.parentTaskId || taskId,
           s.deadline || 0, s.startAt ?? null, s.completeAt ?? null,
           JSON.stringify(Array.isArray(s.tags) ? s.tags : []),
-          s.updatedAt || 0
+          s.updatedAt || 0,
+          s.collapsed ? 1 : 0
         );
         if (s.subtasks && s.subtasks.length) writeSubs(s.subtasks, realTaskId, s.id);
       }
@@ -751,7 +760,8 @@ function writeDb(state) {
         typeof t.sort === 'number' && isFinite(t.sort) ? t.sort : 0,
         JSON.stringify(Array.isArray(t.tags) ? t.tags : []),
         t.projectId || '', t.parentTaskId || '', t.recurRule || '',
-        t.archived ? 1 : 0, t.createdAt || 0, t.updatedAt || 0
+        t.archived ? 1 : 0, t.createdAt || 0, t.updatedAt || 0,
+        t.subsCollapsed ? 1 : 0
       );
       writeSubs(t.subtasks, t.id, null);
     }

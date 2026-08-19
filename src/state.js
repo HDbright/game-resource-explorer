@@ -1777,6 +1777,7 @@ export async function loadState() {
     if (t.status == null) t.status = 'todo';
     if (t.sort == null) t.sort = 0;
     if (t.archived == null) t.archived = false;
+    if (t.subsCollapsed == null) t.subsCollapsed = false; // 补丁·79:父卡子任务区折叠状态
     if (t.deadline == null) t.deadline = null;
     if (t.reminderAt == null) t.reminderAt = null;
     if (t.createdAt == null) t.createdAt = now();
@@ -1791,6 +1792,7 @@ export async function loadState() {
         if (s.status == null) s.status = s.done ? 'done' : 'todo';
         if (s.status !== 'todo' && s.status !== 'in_progress' && s.status !== 'done') s.status = s.done ? 'done' : 'todo';
         if (s.done == null) s.done = s.status === 'done';
+        if (s.collapsed == null) s.collapsed = false; // 补丁·79:嵌套子任务块折叠状态
         if (s.sort == null) s.sort = 0;
         if (s.createdAt == null) s.createdAt = now();
         if (!Array.isArray(s.subtasks)) s.subtasks = [];
@@ -1818,6 +1820,64 @@ export async function loadState() {
       for (const ev of t.events) {
         if (ev != null && ev.at != null) ev.at = fixMs(ev.at);
       }
+    }
+  }
+  // 补丁·X(方向 X):统一"子任务"数据模型。
+  // 旧库中可能已存在经由列表树「+」创建的"子任务式 Task"(todo_tasks.parent_task_id ≠ ''),
+  // 它们与详情弹窗「子任务」tab 创建的内嵌 todo_subtasks 是两套模型、显示方式不同。
+  // 这里把所有 child-task 递归并入其父任务的 subtasks[],使全库统一为内嵌子任务模型。
+  // 根任务(无 parentTaskId 或父不存在)保持完整任务对象不变,只有 child-task 被转成内嵌子任务对象。
+  // 幂等:每次加载执行;转换后原 child-task 不再存在于 todoTasks,下次 saveState 落盘即把数据从 todo_tasks 迁入 todo_subtasks。
+  {
+    const allById = new Map(state.todoTasks.map((t) => [t.id, t]));
+    const processed = new Set();
+    // 把一条"子任务式 Task"(parentTaskId 指向某任务)递归转成内嵌子任务对象;其自身的 child-task 也递归转嵌套
+    const taskToSub = (task) => {
+      processed.add(task.id);
+      const sub = {
+        id: task.id,
+        title: task.title || '未命名子任务',
+        notes: task.notes || '',
+        priority: task.priority || 'medium',
+        status: task.status || 'todo',
+        done: task.status === 'done',
+        collapsed: false, // 补丁·79:嵌套子任务块折叠状态
+        sort: 0,
+        doneAt: task.completeAt || null,
+        createdAt: task.createdAt || now(),
+        updatedAt: task.updatedAt || now(),
+        deadline: task.deadline || 0,
+        tags: Array.isArray(task.tags) ? task.tags : [],
+        parentTaskId: (task.parentTaskId && allById.has(task.parentTaskId)) ? task.parentTaskId : '',
+        subtasks: [],
+      };
+      const inline = Array.isArray(task.subtasks) ? task.subtasks : [];
+      const childTasks = state.todoTasks.filter((c) => c.parentTaskId === task.id && !processed.has(c.id));
+      const nested = [...inline, ...childTasks.map((c) => taskToSub(c))];
+      nested.forEach((s, i) => { s.sort = i; });
+      sub.subtasks = nested;
+      return sub;
+    };
+    const newTasks = [];
+    for (const t of state.todoTasks) {
+      if (processed.has(t.id)) continue; // 已被作为子任务并入某父任务
+      if (t.parentTaskId && allById.has(t.parentTaskId)) {
+        // 该任务是 child-task → 转成内嵌子任务挂到父任务的 subtasks(父任务保持完整任务对象)
+        const sub = taskToSub(t);
+        const parent = allById.get(t.parentTaskId);
+        parent.subtasks = Array.isArray(parent.subtasks) ? parent.subtasks : [];
+        parent.subtasks.push(sub);
+      } else {
+        newTasks.push(t); // 根任务原样保留(含已并入的子任务)
+      }
+    }
+    // 根任务的 subtasks 重新编号;child-task 已被转成内嵌子任务
+    for (const t of newTasks) {
+      if (Array.isArray(t.subtasks)) t.subtasks.forEach((s, i) => { s.sort = i; });
+    }
+    if (newTasks.length !== state.todoTasks.length) {
+      state.todoTasks = newTasks;
+      saveState();
     }
   }
   // Todo-List 日历事件(兼容旧库缺字段 + fixMs 已在项目循环上方定义)

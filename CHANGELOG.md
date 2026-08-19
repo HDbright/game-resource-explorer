@@ -3,9 +3,121 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.67`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.80`）。
 
 ---
+
+## 2026-08-19（补丁·80）
+
+### [改动] 待办任务项前图标：⬜ → 🔳
+- **现象**：Todo-List 中待办状态图标为「⬜」（大白方块），与看板/子任务等场景的待办指示不够醒目。
+- **改动**：`STATUS_CONFIG.todo.icon` 由 `'⬜'` 改为 `'🔳'`（白色方块按钮，带边框更清晰）。影响范围：列表/看板主任务卡状态按钮、子任务块未完成状态图标（同一配置源）；`style.css` 看板三列注释同步更新。
+- **冒烟**：同步更新 2 处断言（子任务块未完成图标、状态循环 todo 起始图标）为 `🔳`，与历史噪音一致、无新增回归。
+
+## 2026-08-19（补丁·79）
+
+### [修复] Todo-List：子任务折叠/展开状态改存 SQLite（不再依赖 localStorage），重启后可靠保持
+- **现象**：补丁·78 用 localStorage 持久化折叠状态，但渲染端走本地 HTTP 服务器（固定端口 13456），端口一旦被占用会递增换端口，而 localStorage 按 origin（含端口）隔离 → 换端口会话写入的状态重启后读不到，看板视图折叠状态回到默认。
+- **根因**：localStorage 在该 Electron 架构下不是可靠持久层（`electron/server.js` 注释亦声明"冲突时该次会话 localStorage 不跨启动保留"）。
+- **改动**（折叠状态改为随 `saveState` 写入 SQLite，DB 是应用可靠存储，与端口无关）：
+  - 数据模型：任务对象新增 `subsCollapsed`（父卡「子任务(x/y)」区折叠）、子任务对象新增 `collapsed`（嵌套子任务块折叠）。
+  - `electron/db.js` 四处补齐：①`todo_tasks` 建表加 `subs_collapsed`、`todo_subtasks` 建表加 `collapsed`；②老库 `ALTER TABLE ADD COLUMN` 迁移；③`readDb` SELECT 读取 + `!!` 布尔转换；④`writeDb` INSERT 语句与参数（`insTodoTask` 20 列 / `writeSubs` 18 列）。
+  - `src/state.js`：任务/子任务默认值补齐；child-task→子任务迁移构造对象补 `collapsed:false`。
+  - `src/pages/todoPage.js`：删除 localStorage 版 Set 与持久化函数；`renderTaskCard`/`renderSubBlocks` 读取对象字段；两个折叠切换函数直接改对象字段并 `saveState()`。
+- **效果**：无论端口是否变化、应用重启多少次，父卡子任务区与嵌套子任务块的折叠/展开状态都能可靠恢复。
+
+## 2026-08-19（补丁·78）
+
+### [新增] Todo-List：子任务折叠/展开状态持久化（列表 + 看板，重启保持）
+- **需求**：看板/列表视图中的子任务折叠状态（嵌套子任务块折叠 + 父卡「子任务(x/y)」区折叠）要在关闭应用后保持，重启恢复到上次的折叠/展开状态。
+- **改动**（`src/pages/todoPage.js`）：
+  - 嵌套子任务块折叠状态 `subCollapsedIds` 改为 localStorage 初始化并持久化（key `todo_sub_collapsed`，按子任务 id）；
+  - 新增父卡子任务区折叠状态 `cardSubsCollapsed`（key `todo_card_subs_collapsed`，按任务 id）——`renderTaskCard` 渲染时按状态加 `collapsed` class 并切换箭头（▶/▼），`toggleSubtasksCollapse` 切换时同步写入 localStorage；
+  - `toggleSubBlockCollapse` 切换时同步写入 localStorage。
+- **效果**：应用重启后，列表/看板视图中已折叠的父卡子任务区与嵌套子任务子树保持折叠，与关闭前一致。
+
+## 2026-08-19（补丁·77）
+
+### [修复] Todo-List 看板视图：「进行中」列状态图标由 tasking64.png 图片改为橙色 ◑ 文本图标
+- **现象**：看板「进行中」列任务卡状态按钮用的是 `tasking64.png` 图片（专用 `todo-status-img` 分支），与列表视图的 ◑ 文本图标不一致；补丁·76 后列表视图 ◑ 已是橙色，看板仍显示图片。
+- **改动**：
+  - `src/pages/todoPage.js`：`renderTaskCard` 删除看板 in_progress 列的图片专用分支，统一走文本图标分支（进行中 → 橙色 `#f59e0b` 的 ◑，与列表视图完全一致）。
+  - `src/style.css`：清理不再使用的 `.todo-card-col-progress .todo-status-btn .todo-status-img` 规则，更新三列图标注释。
+- **效果**：看板「进行中」列显示橙色 ◑（20px 放大样式），与列表视图图标一致；✅/⬜ 列不受影响。
+
+## 2026-08-19（补丁·76）
+
+### [修复] Todo-List：进行中状态图标「◑」改为橙色，与应用内"进行中"指示色一致
+- **现象**：进行中状态图标 ◑（列表视图任务卡状态按钮、子任务块状态按钮、详情页任务/子任务状态按钮）此前用 `var(--accent)`（蓝紫色系），而应用内其它"进行中"指示（列表树状态点、头部统计点、看板日期、项目统计色）已是橙色 `#f59e0b`，两者不一致。
+- **改动**：
+  - `src/pages/todoPage.js`：3 处内联样式（任务卡状态按钮 ×2、详情面板子任务状态按钮）的 in_progress 分支 `var(--accent)` → `#f59e0b`。
+  - `src/style.css`：`.todo-sub-block-status.sub-in_progress` 与 `.todo-sub-status-dot.todo-sub-status-in_progress` 由 `var(--accent)` → `#f59e0b`。
+- **效果**：所有"进行中"状态的 ◑ 图标与状态点统一为橙色（与待办灰色、已完成绿色并列三色语义清晰）；看板"进行中"列仍用 `tasking64.png` 图片（非 ◑ 字符），未改动。
+
+## 2026-08-19（补丁·75）
+
+### [修复] Todo-List：折叠/展开箭头统一为文本符号「▶｜▼」（追加 U+FE0E 强制文本呈现，避免渲染成 emoji）
+- **现象**：Todo 模块的折叠/展开箭头（列表树节点、父卡「子任务(x/y)」、嵌套子任务块）虽已用 `▶`/`▼` 字符，但 Windows 字体回退可能将其渲染成 emoji 风格（彩色/字体不一致），观感不佳。
+- **改动**：`src/pages/todoPage.js` 中全部 5 处折叠/展开箭头输出统一追加文本呈现选择符 `\uFE0E`（VARIATION SELECTOR-15）：列表树箭头（`renderTreeNode`）、父卡子任务折叠箭头（HTML + `toggleSubtasksCollapse`）、嵌套子任务块箭头（`renderSubBlocks` + `toggleSubBlockCollapse`）。`▶\uFE0E`/`▼\uFE0E` 强制 Chromium 按文本符号渲染，不再落入 emoji 字体。
+- **说明**：详情弹窗子任务树的「▲/▼」上移/下移按钮属排序控件、非折叠符号，未改动（如需同样强制文本渲染可再加）。
+
+## 2026-08-19（补丁·74）
+
+### [新增] Todo-List：嵌套子任务块（子任务的子任务）支持折叠 / 展开
+- **需求**：任务列表卡片中，有子任务的子任务块要能折叠 / 展开其嵌套子任务。
+- **改动**：
+  - `src/pages/todoPage.js`：`renderSubBlocks` 对含子任务的块渲染行首箭头按钮 `.todo-sub-block-toggle`（`data-t="subtoggle"`，展开 ▼ / 折叠 ▶；叶子子任务无箭头）；折叠状态存会话级 `subCollapsedIds`（Set，重绘不丢、不落库）。卡片点击委托新增 `toggleSubBlockCollapse` 分支（与父卡「子任务(x/y)」折叠按钮区分，按 class 判断）。
+  - `src/style.css`：新增 `.todo-sub-block-toggle` 小箭头样式 + `.todo-sub-block.collapsed > .todo-sub-block-children { display:none }` 隐藏嵌套子树。
+- **效果**：任意层级的子任务块只要含下级子任务，行首即出现折叠箭头，可独立折叠/展开该子树；父卡「子任务(x/y)」折叠整块的功能保持不变。
+
+## 2026-08-19（补丁·73）
+
+### [新增] Todo-List 列表视图：标题行标签紧贴标题后；子任务时间标签移到子标题后同一行（仅列表视图，看板不变）
+- **需求**：① 任务卡片标题行的「所属项目名称 / 时间 / 优先级」三个标签从行尾移到标题右侧（与标题同一行、紧贴其后）；② 子任务块中的时间标签移到子任务标题后面（与子标题同一行）。**仅限列表视图**，看板视图排列方式不动。
+- **根因**：`.todo-card-title` 与 `.todo-sub-block-title` 均为 `flex:1`，把标签推到行尾。
+- **改动**：
+  - `src/pages/todoPage.js`：`renderSubBlocks(subs, depth, dateAfterTitle)` 增加参数——`dateAfterTitle=true`（列表视图卡片）时时间标签渲染进子任务标题行（紧跟标题），meta 行只留标签；看板（`inKanbanCol=true`）传 `false` 保持原样；递归传递同一标志。调用处 `renderSubBlocks(orderedSubs, 0, !inKanbanCol)`。
+  - `src/style.css`：列表视图作用域 `.todo-tree-row` 内，`.todo-card-title` 与 `.todo-sub-block-title` 改 `flex:0 1 auto; min-width:0`（标题不再撑满，标签紧贴其后，长标题自动省略号）；`.todo-sub-block-actions` 加 `margin-left:auto` 让 ✎ 仍靠右。看板视图（作用域外）完全不受影响。
+- **效果**：列表视图中标题行「标题 + 项目 + 日期 + 优先级」紧凑排在左侧，子任务「标题 + 时间」同行；看板视图排列与之前一致。
+
+## 2026-08-19（补丁·72）
+
+### [修复] Todo-List：子任务编辑窗口输入框内拖选文字被"拖拽移动卡片"抢占
+- **现象**：详情弹窗「子任务」tab 中，鼠标聚焦在输入框（备注/添加步骤等）内拖选文字时，会触发子任务的拖拽移动而不是文字选择。
+- **根因**：`.todo-sub-node` 设了 `draggable="true"`；Chromium 中在输入框内按下并拖动时，拖拽源是节点本身（`dragstart` 的 `e.target` 是 `.todo-sub-node` 而非输入框），原有 `e.target.closest('input,…')` 守卫判断不到 → 拖拽移动抢占文字选择。
+- **改动**：`attachTreeDnD` 给每个节点新增 `mousedown` 监听——若鼠标按下起点落在 `input/select/textarea/button/[contenteditable]` 内，则把该节点本次交互的 `draggable` 置为 `false`（浏览器根本不启动拖拽，原生文字选择自然生效）；按下起点在其它区域则恢复 `true`（拖拽重排照常）。原有 `dragstart` 守卫保留作双保险。
+- **效果**：输入框内可正常拖选文字；节点拖拽重排/改父级功能不受影响。
+
+## 2026-08-19（补丁·71）
+
+### [修复] Todo-List：卡片浮动工具条改为透明背景，被遮挡文字可大致透出
+- **现象**：补丁·70 的浮动工具条（＋ ✎ ⋮）容器带不透明 `bg4` 背景 + 边框 + 阴影，悬停时完全盖住右上角文字。
+- **改动**：`style.css` `.todo-card-actions` 容器改为 `background:transparent`（去掉边框/阴影/padding）；三个按钮改用 `color-mix(in srgb, var(--bg4) 45%, transparent)` 半透明背景，被遮挡的文字可大致看清；鼠标悬停到某按钮时增强为 `85%` 不透明度作为强调（作用域限定 `.todo-card-actions`，不影响其它 `.todo-icon-btn`）。
+- **效果**：悬停母卡时工具条浮在右上角且半透明，标题/子任务文字透出可见，按钮本身仍清晰可点。
+
+## 2026-08-19（补丁·70）
+
+### [修复] Todo-List：卡片悬停操作按钮（＋ ✎ ⋮）改为悬浮在卡片右上角，不再挤占内容宽度
+- **现象**：看板视图任务卡片（列表视图同理）中，悬停出现的「＋ ✎ ⋮」三个按钮以 `opacity` 显隐但仍参与 `.todo-card-row` 的 flex 行布局（约 75px 恒定占位），导致任务标题被挤压换行变多、内嵌子任务块变窄，卡片右侧可视区域未被利用。
+- **改动**：`style.css` `.todo-card-actions` 改为 `position:absolute; top:8px; right:8px` 悬浮于卡片右上角（卡片本身 `position:relative`），并加 `bg4` 背景 + 边框 + 阴影 + `z-index:5`，作为"浮动工具条"覆盖在内容之上；悬停母卡时才 `opacity:1`。按钮不再占 flex 行空间，标题与子任务块可充分利用整卡宽度。
+- **效果**：看板卡片标题换行减少、子任务块变宽，悬停按钮浮在右上角不挤压内容；列表视图行为一致。
+
+## 2026-08-19（补丁·69）
+
+### [修复] Todo-List：悬停母卡片时内嵌子任务块背景色与之明显偏深，改为相近色
+- **现象**：看板/列表视图中鼠标悬停在任务卡片上（未直接悬停在子任务块上）时，母卡片背景切换为 `var(--bg4)`（更亮）+ accent 边框，但内嵌的 `.todo-sub-block` 仍停留在 `var(--bg3)`（更深），二者色差明显、子任务块显得"陷下去一截"（见截图）。
+- **根因**：`style.css` `.todo-card:hover` 把卡片背景升为 `bg4`，但 `.todo-sub-block` 没有跟随父级的悬停状态做联动。
+- **改动**：新增 `.todo-card:hover .todo-sub-block { background: var(--bg4); }` —— 父级悬停时所有内嵌子任务块背景同步升为 `bg4`，与母卡片保持相近色（子任务块边框仍保留 `var(--border)` 以保持层级区分；自身 `:hover` 仍走 accent 边框逻辑）。
+- **效果**：悬停母卡片时整体色调统一为亮色，子任务块不再"偏深"，视觉一致。
+
+## 2026-08-19（补丁·68）
+
+### [新增] Todo-List：统一"子任务"为单一数据模型（方向 X）+ 卡片内「＋」按钮
+- **背景**：此前存在两套"子任务"模型，显示方式不同——① 列表树节点悬停「+」打开新建任务弹窗、把 `parentTaskId` 预设为父任务，生成的是 `todo_tasks` 里的"子任务式 Task"（完整卡片，独立嵌套在列表树/看板）；② 详情弹窗「子任务」tab 的添加按钮 push 进 `task.subtasks[]`，生成 `todo_subtasks` 内嵌子任务（父卡片内的紧凑迷你块）。两者浑然不同、不符合直觉。
+- **改动 1（统一模型）**：卡片内新增「＋」按钮（`renderTaskCard` 的 `todo-card-actions`，紧邻编辑 ✎），点击直接在该任务 `subtasks[]` 内新增内嵌子任务（与「子任务」tab 同一数据模型），并打开详情弹窗定位到「子任务」tab 高亮新行。原列表树任务节点上的「+」已移除（项目 / 无项目节点的「+」保留，用于"在该项目下新建任务"）。
+- **改动 2（存量迁移）**：`state.js` 的 `loadState` 新增一次性迁移——把所有 `parent_task_id ≠ ''` 的 child-task 递归并入其父任务的 `subtasks[]`（根任务保持完整任务对象，仅 child-task 转为内嵌子任务；父缺失的孤儿任务保留为根）。迁移幂等：每次加载执行，转换后即不再有 child-task，故只在确有转换时 `saveState()`。落盘后数据从 `todo_tasks` 迁入 `todo_subtasks`，全库统一为内嵌子任务模型。
+- **效果**：无论用卡片「＋」还是详情「子任务」tab 添加的子任务，现在都显示为同一格式（父卡片内的 `.todo-sub-block` 迷你块 + 折叠/进度），彻底消除两套风格混用。
+- **验证**：`node` 单测覆盖单级 / 两级嵌套 / 内嵌+child 混合 / 孤儿 / 幂等 5 类场景共 11 项断言全 PASS；`npm run build` 通过（764 模块）。
 
 ## 2026-08-19（补丁·67）
 

@@ -245,7 +245,7 @@ app.whenReady().then(async () => {
       })()`);
       check('项目徽章', o.projChip === true);
       check('子任务块(补丁·61)数量 >= 2', o.subBlocks >= 2, 'subBlocks=' + o.subBlocks);
-      check('子任务块图标:完成✅/未完成⬜', o.subIconDone === '✅' && o.subIconTodo === '⬜', 'done=' + JSON.stringify(o.subIconDone) + ' todo=' + JSON.stringify(o.subIconTodo));
+      check('子任务块图标:完成✅/未完成🔳', o.subIconDone === '✅' && o.subIconTodo === '🔳', 'done=' + JSON.stringify(o.subIconDone) + ' todo=' + JSON.stringify(o.subIconTodo));
       check('项目筛选下拉', o.projFilter === true);
       check('折叠/展开图标字体>=20px(补丁·61)', o.toggleFontSize >= 20, 'fs=' + o.toggleFontSize);
       check('首个子任务块距折叠图标下沿 <= 8px(L 形起点贴近)', o.gapY != null && o.gapY <= 8, 'gapY=' + o.gapY);
@@ -289,7 +289,7 @@ app.whenReady().then(async () => {
         const p1 = (document.querySelector('.todo-card[data-task-id="${TASK_A}"] .todo-pri-btn') || {}).textContent || '';
         return { i0, i1, p0: p0.trim(), p1: p1.trim() };
       })()`);
-      check('状态循环 todo→in_progress', o.i0 === '⬜' && o.i1 === '◑', o.i0 + '→' + o.i1);
+      check('状态循环 todo→in_progress', o.i0 === '🔳' && o.i1 === '◑', o.i0 + '→' + o.i1);
       check('优先级循环 high→medium', o.p0 === '高' && o.p1 === '中', o.p0 + '→' + o.p1);
 
       // 补丁·64:切换任务状态不应重建整页(列表滚动容器身份不变 + 滚动位置不变),避免页面跳动/视觉抖动

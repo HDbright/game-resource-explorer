@@ -57,7 +57,7 @@ const LANGS = {
     priorityLabel: '优先级', statusLabel: '状态', projectLabel: '项目',
     deadlineLabel: '截止日期', tagsLabel: '标签', tagPh: '输入标签,回车添加', add: '添加',
     cancel: '取消', createTask: '创建任务', saveChanges: '保存修改',
-    newTaskUnderProject: '在此项目下新建任务', newSubtaskUnderTask: '在此任务下新建子任务', newTaskUnderNone: '新建无项目任务',
+    newTaskUnderProject: '在此项目下新建任务', newSubtaskUnderTask: '在此任务下新建子任务', newTaskUnderNone: '新建无项目任务', addSubtask: '添加子任务',
     titleRequired: '标题不能为空', saved: '已保存', close: '关闭',
     progress: '进度', addStepPh: '添加一个步骤…', dragToReorder: '拖拽重排 / 改父级',
     subDndHint: '拖拽子任务：上/下边缘 = 同级前后换位，中间 = 作为子项（改父级）',
@@ -149,7 +149,7 @@ const LANGS = {
     priorityLabel: 'Priority', statusLabel: 'Status', projectLabel: 'Project',
     deadlineLabel: 'Deadline', tagsLabel: 'Tags', tagPh: 'Add tag, press Enter', add: 'Add',
     cancel: 'Cancel', createTask: 'Create Task', saveChanges: 'Save Changes',
-    newTaskUnderProject: 'New task under this project', newSubtaskUnderTask: 'New subtask under this task', newTaskUnderNone: 'New task (no project)',
+    newTaskUnderProject: 'New task under this project', newSubtaskUnderTask: 'New subtask under this task', newTaskUnderNone: 'New task (no project)', addSubtask: 'Add subtask',
     titleRequired: 'Title is required', saved: 'Saved', close: 'Close',
     progress: 'Progress', addStepPh: 'Add a step…', dragToReorder: 'Drag to reorder / re-parent',
     subDndHint: 'Drag a subtask: top/bottom edge = reorder as sibling; middle = nest (change parent)',
@@ -213,7 +213,7 @@ const PRIORITY_CONFIG = {
 function priLabel(p) { return T('pri_' + p); }
 const PRIORITY_CYCLE = { urgent: 'high', high: 'medium', medium: 'low', low: 'urgent' };
 const STATUS_CONFIG = {
-  todo: { icon: '⬜' },
+  todo: { icon: '🔳' },
   in_progress: { icon: '◑' },
   done: { icon: '✅' },
 };
@@ -774,6 +774,8 @@ function isFilterActive() {
 // ---------------- 合并树(补丁·46:项目层级为主干 + 任务同树嵌套 + 三色状态统计) ----------------
 const TREE_COLLAPSED_KEY = 'todo_tree_collapsed';
 let collapsedNodes = (() => { try { return new Set(JSON.parse(localStorage.getItem(TREE_COLLAPSED_KEY) || '[]')); } catch { return new Set(); } })();
+// 补丁·78/79:子任务折叠状态持久化——改为存入任务/子任务对象字段(subsCollapsed / collapsed),
+// 随 saveState 写入 SQLite。不依赖 localStorage(渲染端本地 HTTP 端口变化会按 origin 隔离导致状态丢失)
 function persistCollapsed() { try { localStorage.setItem(TREE_COLLAPSED_KEY, JSON.stringify([...collapsedNodes])); } catch {} }
 function toggleNode(id) {
   if (collapsedNodes.has(id)) collapsedNodes.delete(id); else collapsedNodes.add(id);
@@ -1024,7 +1026,7 @@ function renderTreeNode(node, depth, isLast) {
 
   const arrow = document.createElement('button');
   arrow.className = 'todo-tree-arrow';
-  arrow.textContent = hasChildren ? (collapsed ? '▶' : '▼') : '';
+  arrow.textContent = hasChildren ? (collapsed ? '▶\uFE0E' : '▼\uFE0E') : '';
   arrow.style.visibility = hasChildren ? 'visible' : 'hidden';
   if (hasChildren) arrow.addEventListener('click', (e) => { e.stopPropagation(); toggleNode(node.id); });
   row.appendChild(arrow);
@@ -1065,20 +1067,21 @@ function renderTreeNode(node, depth, isLast) {
     row.addEventListener('dragover', (e) => onDragOverTree(row, node, e));
     row.addEventListener('drop', (e) => onDropTree(row, node, e));
   }
-  // hover 浮现「+」:在该级(项目/任务)下新建任务/子任务
-  const addBtn = document.createElement('button');
-  addBtn.className = 'todo-tree-add';
-  addBtn.textContent = '+';
-  addBtn.title = node.kind === 'task' ? T('newSubtaskUnderTask') : (node.id === '__none__' ? T('newTaskUnderNone') : T('newTaskUnderProject'));
-  addBtn.addEventListener('mousedown', (e) => e.stopPropagation()); // 避免触发行拖拽
-  addBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    if (node.kind === 'task') modalNewParent = { projectId: node.projectId || '', parentTaskId: node.id };
-    else if (node.id === '__none__') modalNewParent = { projectId: '', parentTaskId: '' };
-    else modalNewParent = { projectId: node.id, parentTaskId: '' };
-    taskModalOpen = true; modalTaskId = null; detailTaskId = null; render();
-  });
-  row.appendChild(addBtn);
+  // hover 浮现「+」:在项目 / 无项目节点下新建任务(任务节点的子任务改为卡片内「＋」按钮创建,见 addInlineSubtask,方向 X 统一为内嵌子任务)
+  if (node.kind !== 'task') {
+    const addBtn = document.createElement('button');
+    addBtn.className = 'todo-tree-add';
+    addBtn.textContent = '+';
+    addBtn.title = node.id === '__none__' ? T('newTaskUnderNone') : T('newTaskUnderProject');
+    addBtn.addEventListener('mousedown', (e) => e.stopPropagation()); // 避免触发行拖拽
+    addBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (node.id === '__none__') modalNewParent = { projectId: '', parentTaskId: '' };
+      else modalNewParent = { projectId: node.id, parentTaskId: '' };
+      taskModalOpen = true; modalTaskId = null; detailTaskId = null; render();
+    });
+    row.appendChild(addBtn);
+  }
   // 从属连接线:根级(深度0)无缩进线;深度>=1 只画「本级分支线」(L 形,父列竖线 + 横向连接),
   // 不再画祖辈列的贯穿竖线,让分支关系靠 L 形直观表达(补丁·56)
   if (depth >= 1) {
@@ -1898,6 +1901,24 @@ function cardStatusDate(task) {
   }
   return null;
 }
+
+// 方向 X:任务卡片内「＋」按钮 → 直接在该任务下创建内嵌子任务(与详情弹窗「子任务」tab 同一数据模型),
+// 并打开详情弹窗定位到「子任务」tab、高亮新行。统一后不再生成 child-task 式的 todo_tasks 行。
+function addInlineSubtask(task) {
+  if (!task) return;
+  task.subtasks = Array.isArray(task.subtasks) ? task.subtasks : [];
+  const sub = {
+    id: uid('s'), title: '新子任务', status: 'todo', done: false,
+    sort: task.subtasks.length, notes: '', doneAt: null, createdAt: now(), subtasks: [],
+  };
+  task.subtasks.push(sub);
+  task.updatedAt = now();
+  saveState();
+  modalInitialTab = 'subtasks';
+  modalHighlightSub = sub.id;
+  taskModalOpen = true; modalTaskId = task.id;
+  render();
+}
 function renderTaskCard(task, compact = false, colStatus = null) {
   const inKanbanCol = colStatus !== null;
   const card = document.createElement('div');
@@ -1915,9 +1936,8 @@ function renderTaskCard(task, compact = false, colStatus = null) {
   const dl = deadlineInfo(task);
   const dateSuffix = cardStatusDate(task);
 
-  const statusBtn = (inKanbanCol && colStatus === 'in_progress')
-    ? `<button class="todo-status-btn" data-t="status" title="${stLabel(task.status)} · ${T('clickToggle')}"><img src="tasking64.png" class="todo-status-img" style="width:18px;height:18px;max-width:18px;max-height:18px" alt="◑"></button>`
-    : `<button class="todo-status-btn" data-t="status" title="${stLabel(task.status)} · ${T('clickToggle')}" style="border-color:${task.status === 'done' ? '#22c55e' : task.status === 'in_progress' ? 'var(--accent)' : 'var(--border)'};color:${task.status === 'done' ? '#22c55e' : task.status === 'in_progress' ? 'var(--accent)' : 'var(--text2)'}">${st.icon}</button>`;
+  // 补丁·77:看板「进行中」列状态按钮不再用 tasking64.png 图片,统一为橙色 ◑ 文本图标(与列表视图一致)
+  const statusBtn = `<button class="todo-status-btn" data-t="status" title="${stLabel(task.status)} · ${T('clickToggle')}" style="border-color:${task.status === 'done' ? '#22c55e' : task.status === 'in_progress' ? '#f59e0b' : 'var(--border)'};color:${task.status === 'done' ? '#22c55e' : task.status === 'in_progress' ? '#f59e0b' : 'var(--text2)'}">${st.icon}</button>`;
   let html = `
     <div class="todo-card-row">
       ${statusBtn}
@@ -1933,16 +1953,17 @@ function renderTaskCard(task, compact = false, colStatus = null) {
         ${task.notes ? `<div class="todo-card-notes">${escHtml(task.notes)}</div>` : ''}`;
 
   if (subs.length) {
+    const subsCollapsed = !!task.subsCollapsed; // 补丁·78/79:父卡子任务区折叠状态(存 SQLite)
     html += `
-      <div class="todo-card-subs">
+      <div class="todo-card-subs${subsCollapsed ? ' collapsed' : ''}">
         <button class="todo-sub-toggle" data-t="subtoggle" title="${T('toggleSubtasks')}">
-          <span class="todo-sub-toggle-arrow">▼</span>
+          <span class="todo-sub-toggle-arrow">${subsCollapsed ? '▶\uFE0E' : '▼\uFE0E'}</span>
           <span class="todo-sub-toggle-text">${T('subtasksPrefix', doneSubs, totalSubs)}</span>
           <span class="todo-sub-toggle-pct">${Math.round(doneSubs / totalSubs * 100)}%</span>
         </button>
         <div class="todo-card-sub-body">
           <div class="todo-card-sub-blocks">
-            ${renderSubBlocks(orderedSubs, 0)}
+            ${renderSubBlocks(orderedSubs, 0, !inKanbanCol)}
           </div>
           <div class="todo-card-sub-bar">
             <div class="todo-card-sub-track"><div class="todo-card-sub-fill" style="width:${totalSubs ? (doneSubs / totalSubs) * 100 : 0}%"></div></div>
@@ -1959,6 +1980,7 @@ function renderTaskCard(task, compact = false, colStatus = null) {
         </div>
       </div>
       <div class="todo-card-actions">
+        <button class="todo-icon-btn" data-t="addsub" title="${T('addSubtask')}">＋</button>
         <button class="todo-icon-btn" data-t="edit" title="${T('edit')}">✎</button>
         <button class="todo-icon-btn" data-t="menu" title="${T('more')}">⋮</button>
       </div>
@@ -2077,7 +2099,8 @@ function renderTaskCard(task, compact = false, colStatus = null) {
     }
     else if (t === 'substatus') { toggleSubtask(real, b.dataset.sub); } // 补丁·61:子任务块的状态按钮
     else if (t === 'sub') { toggleSubtask(real, b.dataset.sub); }
-    else if (t === 'subtoggle') { toggleSubtasksCollapse(real, b); }
+    else if (t === 'subtoggle') { if (b.classList.contains('todo-sub-block-toggle')) toggleSubBlockCollapse(b); else toggleSubtasksCollapse(real, b); }
+    else if (t === 'addsub') { addInlineSubtask(real); }
     else if (t === 'edit') { taskModalOpen = true; modalTaskId = real.id; render(); }
     else if (t === 'menu') {
       // ⋮ 按钮:菜单出现在按钮左下方(贴近按钮)
@@ -2093,7 +2116,7 @@ function renderTaskCard(task, compact = false, colStatus = null) {
 // 嵌套子任务通过 .todo-sub-block-children 容器递归堆叠,与 .todo-sub-block::before
 // 的 L 形 ├ 边框共同形成连贯的树状层级连线(起点接近父级折叠图标下沿)。
 // 旧 renderSubChips(内联 chip)已废弃——HTML/CSS 仍保留兼容代码,但实际不再被调用。
-function renderSubBlocks(subs, depth) {
+function renderSubBlocks(subs, depth, dateAfterTitle = false) {
   if (!Array.isArray(subs) || !subs.length) return '';
   return subs.map((s) => {
     const st = subStatus(s);
@@ -2102,22 +2125,32 @@ function renderSubBlocks(subs, depth) {
     const dateHTML = (s.deadline || s.doneAt)
       ? `<span class="todo-card-date is-${st}">${escHtml(s.deadline ? (fmtShortDate(s.deadline) || '') : (fmtShortDate(s.doneAt) || ''))}</span>`
       : '';
+    // 补丁·73:列表视图(dateAfterTitle=true)时间标签移到子任务标题后同一行;看板视图保持原样(时间标签仍在 meta 行)
+    const titleDateHTML = dateAfterTitle ? dateHTML : '';
+    const metaDateHTML = dateAfterTitle ? '' : dateHTML;
     const titleTip = escHtml(s.title)
       + (s.notes ? '\n' + escHtml(s.notes) : '')
       + (s.deadline ? '\n截止:' + fmtDateTime(s.deadline) : '')
       + (s.doneAt ? '\n完成:' + fmtDateTime(s.doneAt) : '');
     const hasChildren = Array.isArray(s.subtasks) && s.subtasks.length > 0;
-    return `<div class="todo-sub-block sub-status-${st} depth-${depth}${hasChildren ? '' : ' no-children'}" data-t="sub" data-sub="${s.id}" data-depth="${depth}" title="${titleTip}">
+    // 补丁·74/79:有子任务的子任务块支持折叠/展开(行首箭头;叶子子任务无箭头);折叠状态存子任务对象 collapsed(随 saveState 落库)
+    const isCollapsed = !!s.collapsed;
+    const toggleHTML = hasChildren
+      ? `<button class="todo-sub-block-toggle" data-t="subtoggle" data-sub="${s.id}" title="${T('toggleSubtasks')}">${isCollapsed ? '▶\uFE0E' : '▼\uFE0E'}</button>`
+      : '';
+    return `<div class="todo-sub-block sub-status-${st} depth-${depth}${hasChildren ? '' : ' no-children'}${isCollapsed ? ' collapsed' : ''}" data-t="sub" data-sub="${s.id}" data-depth="${depth}" title="${titleTip}">
       <div class="todo-sub-block-row">
+        ${toggleHTML}
         <button class="todo-sub-block-status sub-${st}" data-t="substatus" data-sub="${s.id}" title="${T('clickToggle')}">${subStatusIcon(s)}</button>
         <span class="todo-sub-block-pri" style="background:${pri.color}" title="${priLabel(s.priority)}"></span>
         <span class="todo-sub-block-title">${escHtml(s.title)}</span>
+        ${titleDateHTML}
         <div class="todo-sub-block-actions">
           <button class="todo-icon-btn" data-t="subedit" data-sub="${s.id}" title="${T('editSubtask')}">✎</button>
         </div>
       </div>
-      ${(tagsHTML || dateHTML) ? `<div class="todo-sub-block-meta">${tagsHTML}${dateHTML}</div>` : ''}
-      ${hasChildren ? `<div class="todo-sub-block-children">${renderSubBlocks(s.subtasks, depth + 1)}</div>` : ''}
+      ${(tagsHTML || metaDateHTML) ? `<div class="todo-sub-block-meta">${tagsHTML}${metaDateHTML}</div>` : ''}
+      ${hasChildren ? `<div class="todo-sub-block-children">${renderSubBlocks(s.subtasks, depth + 1, dateAfterTitle)}</div>` : ''}
     </div>`;
   }).join('');
 }
@@ -2132,7 +2165,7 @@ function renderDetailSubs(subs, depth) {
     const indent = depth > 0 ? ` style="margin-left:${depth * 16}px"` : '';
     const children = (s.subtasks && s.subtasks.length) ? renderDetailSubs(s.subtasks, depth + 1) : '';
     return `<div class="todo-detail-sub"${indent}>` +
-      `<button class="todo-status-btn" data-act="sub" data-sub="${s.id}" style="border-color:${st === 'done' ? '#22c55e' : st === 'in_progress' ? 'var(--accent)' : 'var(--border)'};color:${st === 'done' ? '#22c55e' : st === 'in_progress' ? 'var(--accent)' : 'var(--text2)'}">${subStatusIcon(s)}</button>` +
+      `<button class="todo-status-btn" data-act="sub" data-sub="${s.id}" style="border-color:${st === 'done' ? '#22c55e' : st === 'in_progress' ? '#f59e0b' : 'var(--border)'};color:${st === 'done' ? '#22c55e' : st === 'in_progress' ? '#f59e0b' : 'var(--text2)'}">${subStatusIcon(s)}</button>` +
       `<span class="${st === 'done' ? 'done' : ''}">${escHtml(s.title)}</span>` +
       (s.notes ? `<span class="todo-detail-sub-notes">📝 ${escHtml(s.notes)}</span>` : '') +
       (s.doneAt ? `<span class="todo-detail-sub-date">${T('subDoneAt')} ${fmtDateTime(s.doneAt)}</span>` : '') +
@@ -2245,13 +2278,32 @@ async function toggleSubtask(task, subId) {
   saveState();
   render();
 }
-// 折叠/展开卡片子任务区(chips + 进度条)
+// 折叠/展开卡片子任务区(chips + 进度条);折叠状态写 task.subsCollapsed 并 saveState 落库(补丁·78/79)
 function toggleSubtasksCollapse(task, btn) {
   const wrap = btn.closest('.todo-card-subs');
   if (!wrap) return;
+  task.subsCollapsed = !task.subsCollapsed;
   wrap.classList.toggle('collapsed');
   const arrow = btn.querySelector('.todo-sub-toggle-arrow');
-  if (arrow) arrow.textContent = wrap.classList.contains('collapsed') ? '▶' : '▼';
+  if (arrow) arrow.textContent = task.subsCollapsed ? '▶\uFE0E' : '▼\uFE0E';
+  task.updatedAt = now();
+  saveState();
+}
+// 补丁·74:折叠/展开嵌套子任务块(子任务的子任务);折叠状态写子任务对象 collapsed 并 saveState 落库(补丁·78/79)
+function toggleSubBlockCollapse(btn) {
+  const block = btn.closest('.todo-sub-block');
+  if (!block) return;
+  const id = btn.dataset.sub;
+  const card = btn.closest('.todo-card');
+  const task = card ? taskById(card.dataset.taskId) : null;
+  if (task) {
+    const f = findSub(task.subtasks || [], id);
+    if (f && f.sub) f.sub.collapsed = !f.sub.collapsed;
+    task.updatedAt = now();
+    saveState();
+  }
+  block.classList.toggle('collapsed');
+  btn.textContent = block.classList.contains('collapsed') ? '▶\uFE0E' : '▼\uFE0E';
 }
 
 // ---------------- 进度条 ----------------
@@ -2576,6 +2628,12 @@ function renderTaskModal() {
         };
         treeEl.querySelectorAll('.todo-sub-node').forEach((node) => {
           node.setAttribute('draggable', 'true');
+          // 补丁·72:编辑控件(输入框/下拉/文本域/按钮)内按下鼠标拖选文字时,把该次交互的节点 draggable 置 false,
+          // 否则 Chromium 会把拖拽源当作 .todo-sub-node 本身 → 拖选文字被抢占成"移动卡片"。
+          node.addEventListener('mousedown', (e) => {
+            const editable = !!(e.target && e.target.closest && e.target.closest('input,select,textarea,button,[contenteditable]'));
+            node.setAttribute('draggable', editable ? 'false' : 'true');
+          });
           node.addEventListener('dragstart', (e) => {
             if (e.target.closest('input,select,textarea,button,[contenteditable]')) { e.preventDefault(); return; }
             e.stopPropagation(); // 关键:阻止冒泡到祖先 .todo-sub-node,否则祖先会覆盖 dataTransfer 的 id(嵌套子任务始终被当成顶层父节点,导致无法拖出)
@@ -2825,7 +2883,7 @@ function renderDetailPanel() {
   box.innerHTML = `
     <div class="todo-modal-head">
       <div class="todo-detail-title-wrap">
-        <button class="todo-status-btn" data-act="status" title="${T('clickToggleStatus')}" style="border-color:${task.status === 'done' ? '#22c55e' : task.status === 'in_progress' ? 'var(--accent)' : 'var(--border)'};color:${task.status === 'done' ? '#22c55e' : task.status === 'in_progress' ? 'var(--accent)' : 'var(--text2)'}">${st.icon}</button>
+        <button class="todo-status-btn" data-act="status" title="${T('clickToggleStatus')}" style="border-color:${task.status === 'done' ? '#22c55e' : task.status === 'in_progress' ? '#f59e0b' : 'var(--border)'};color:${task.status === 'done' ? '#22c55e' : task.status === 'in_progress' ? '#f59e0b' : 'var(--text2)'}">${st.icon}</button>
         <h2 class="todo-detail-title${task.status === 'done' ? ' done' : ''}">${escHtml(task.title)}</h2>
       </div>
       <div style="display:flex;align-items:center;gap:6px">
