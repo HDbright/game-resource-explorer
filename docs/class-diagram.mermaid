@@ -1,0 +1,164 @@
+%% 得乐学苑 v3 改造 · 类图(数据模型 + 服务类)
+%% 说明:本项目为单文件函数式 JS,类图以「数据模型类 + 功能服务类」表达,方法与现状函数一一对应
+classDiagram
+  direction LR
+
+  class StateS {
+    +int v
+    +string name
+    +string avatarId
+    +string themeMode
+    +bool parentMode
+    +string parentPwd
+    +number rewardMult
+    +number coins
+    +number diamonds
+    +number crowns
+    +number exp
+    +int totalTasks
+    +int streak
+    +int bestStreak
+    +string lastDoneDate
+    +int lastStreakDia
+    +int bestAllFour
+    +string lastAllFourDate
+    +string lastWeeklyCrown
+    +object medals
+    +Task[] tasks
+    +Plan plan
+    +ShopItem[] shop
+    +ClaimItem[] claimLog
+    +string lastEnterDate
+    +bool sampleLoaded
+    +RewardLogEntry[] rewardLog
+    +PlanLogEntry[] planLog
+  }
+
+  class Task {
+    +string id
+    +string date
+    +string cat
+    +string title
+    +string target
+    +string unit
+    +bool done
+    +bool started
+    +int stars
+    +int carryover
+    +string planItemId
+    +int doneAt
+    +bool rewarded
+  }
+
+  class Plan {
+    +bool enabled
+    +PlanItem[] weekly
+  }
+
+  class PlanItem {
+    +string id
+    +string cat
+    +string title
+    +string target
+    +number rewardMult
+  }
+
+  class ShopItem {
+    +string id
+    +string name
+    +number cost
+    +string cur
+    +string icon
+    +string note
+  }
+
+  class ClaimItem {
+    +string name
+    +string cur
+    +number cost
+    +int at
+  }
+
+  class RewardLogEntry {
+    +string id
+    +int at
+    +string type
+    +number amount
+    +string itemName
+    +string project
+    +string reason
+    +string source
+    +object meta
+  }
+
+  class PlanLogEntry {
+    +string id
+    +int at
+    +string summary
+    +object detail
+  }
+
+  class KidWorkspaceModule {
+    +renderKidWorkspaceTool(container)
+    +render()
+    +renderTopbar()
+    +renderToday()
+    +renderTabs()
+    +renderTodayTab()
+    +renderTaskCard(task)
+    +renderPlanTab()
+    +renderRewardTab()
+    +renderParentCenter()
+    +renderPlanManage()
+    +renderPlanLog()
+    +renderStreakStrip()
+    +openStarModal(taskId)
+    +openTaskModal()
+    +openPlanItemModal(day, item)
+    +openRewardLog()
+    +openParentGrantModal()
+    +openParentCenter()
+    +enterParentGate()
+    +openPwdModal(title, onSuccess)
+    +openSettings()
+  }
+
+  class StateManager {
+    +emptyState() StateS
+    +normalizeState(d) StateS
+    +loadState()
+    +persist()
+    +migrateClaimLog()
+    +exportData()
+    +importData()
+  }
+
+  class RewardCalculator {
+    +taskBase(rev, mult) number
+    +rewardFor(stars, task) object
+    +findPlanItem(planItemId) PlanItem
+    +appendRewardLog(entry) RewardLogEntry
+    +grantReward(task, stars)
+    +grantParentReward(type, amount, reason, note) bool
+    +claimItem(id)
+    +checkMedals()
+    +undoTask(id)
+    +deletePlanItemGuard(day, itemId) bool
+    +publishPlan()
+    +capturePlanSnapshot()
+    +diffPlan() array
+    +planChangeSummary(diff) string
+  }
+
+  StateS --> Task
+  StateS --> Plan
+  StateS --> ShopItem
+  StateS --> ClaimItem
+  StateS --> RewardLogEntry
+  StateS --> PlanLogEntry
+  Plan --> PlanItem
+
+  KidWorkspaceModule --> StateManager
+  KidWorkspaceModule --> RewardCalculator
+  RewardCalculator --> StateS
+  StateManager --> StateS

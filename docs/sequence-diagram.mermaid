@@ -1,0 +1,91 @@
+%% 得乐学苑 v3 改造 · 时序图
+%% 1) 首次加载/老数据迁移  2) 完成任务奖励(含任务倍率)  3) 兑换道具双写
+%% 4) 家长发放奖励  5) 家长中心计划管理-发布更新
+
+%% ============ 1) 首次加载 + 老数据迁移 ============
+sequenceDiagram
+  autonumber
+  participant U as 用户(打开得乐学苑)
+  participant R as renderKidWorkspaceTool
+  participant SM as StateManager
+  participant LS as localStorage(wb_kid_state_v1)
+
+  U->>R: 打开工具
+  R->>SM: loadState()
+  SM->>LS: getItem(LS_KEY)
+  LS-->>SM: 老 JSON(无 rewardLog/planLog,有 claimLog)
+  SM->>SM: normalizeState(d) = Object.assign(emptyState(), d) + 数组守卫
+  SM->>SM: migrateClaimLog(): rewardLog 空 && claimLog 非空 → 迁移 source=shop/type=item/amount=-cost
+  SM-->>R: S 就绪(claimLog 保留不删)
+  R->>SM: rollover() 补齐今日任务
+  R->>R: render() 渲染学生模式(无 parent-mode 类)
+
+%% ============ 2) 完成任务奖励(任务倍率叠加) ============
+sequenceDiagram
+  autonumber
+  participant C as 学生(任务卡)
+  participant RC as RewardCalculator
+  participant SM2 as StateManager
+  participant RL as rewardLog
+
+  C->>RC: openStarModal → [data-confirm]
+  RC->>RC: rewardFor(stars, task) = round2(10 × S.rewardMult × task.rewardMult) + stars × round2(5 × m)
+  RC->>RC: grantReward(task, stars): coins/exp += r; streak/bestStreak/里程碑判定
+  RC->>RL: appendRewardLog(source=task, type=coin, amount=r.coins, meta={stars, planItemId, taskId})
+  RC->>RL: 连胜钻石(3/7/14/30) → appendRewardLog(source=milestone, type=diamond, amount=5)
+  RC->>RL: 周皇冠达成 → appendRewardLog(source=milestone, type=crown, amount=1)
+  RC->>RC: checkMedals() 解锁 → appendRewardLog(source=milestone, type=medal, amount=1)
+  RC->>SM2: persist()
+  SM2-->>RC: 已落盘
+  RC-->>C: render() 任务卡显示 +N 金币/经验(与预览一致)
+
+%% ============ 3) 兑换道具(双写 claimLog + rewardLog) ============
+sequenceDiagram
+  autonumber
+  participant C2 as 学生(商城)
+  participant RC2 as RewardCalculator
+  participant CL as claimLog
+  participant RL2 as rewardLog
+
+  C2->>RC2: claimItem(id) → [确认兑换]
+  RC2->>RC2: 校验余额 ≥ cost
+  RC2->>RC2: coins/diamonds -= cost
+  RC2->>CL: claimLog.unshift({name, cur, cost, at})  ← 保留双写(方案A)
+  RC2->>RL2: appendRewardLog(source=shop, type=item, amount=-cost, itemName=道具名, meta={cur, cost})
+  RC2->>RC2: persist() + render() + toast
+
+%% ============ 4) 家长发放奖励 ============
+sequenceDiagram
+  autonumber
+  participant P as 家长(家长中心·奖励发放)
+  participant PC as renderParentCenter
+  participant G as grantParentReward
+  participant RL3 as rewardLog
+
+  P->>PC: 点击「＋ 发放金币/钻石」
+  PC->>PC: openParentGrantModal() 表单(类型/数量/原因必填/备注≤200)
+  P->>G: grantParentReward(type, amount, reason, note)
+  G->>G: 校验 1≤金币≤1000 / 1≤钻石≤100,原因非空
+  G->>G: coins/diamonds += amount
+  G->>RL3: appendRewardLog(source=parent, type, amount=+amount, itemName=reason, project=家长发放, reason=note)
+  G->>G: persist() + render() + toast
+  G-->>P: 返回 true,表单可连续发放
+
+%% ============ 5) 家长中心计划管理-发布更新 ============
+sequenceDiagram
+  autonumber
+  participant P2 as 家长(家长中心)
+  participant PC2 as renderParentCenter/renderPlanManage
+  participant M as openPlanItemModal(day, item)
+  participant PUB as publishPlan
+  participant PL as planLog
+
+  P2->>PC2: 进入家长中心 → capturePlanSnapshot() 记录基线
+  P2->>M: 编辑计划项(标题/目标/倍率 ×1→×1.5)
+  M->>M: 倍率下调 → confirmDialog 二次确认
+  M->>M: 保存立即生效: 更新 plan.weekly[day].items[].rewardMult + persist
+  P2->>PUB: 点击「📋 发布更新」
+  PUB->>PUB: diffPlan() 对比快照 → planChangeSummary() 生成摘要
+  PUB->>PL: planLog.unshift({summary}); 超过 50 条截断
+  PUB->>PUB: capturePlanSnapshot() 更新基线 + persist + render + toast
+  Note over P2,PUB: 学生视角:当天任务按新计划/新倍率即时生效(rollover 跨天补齐,当天已生成任务不受删除影响)
