@@ -292,6 +292,31 @@ app.whenReady().then(async () => {
       check('状态循环 todo→in_progress', o.i0 === '⬜' && o.i1 === '◑', o.i0 + '→' + o.i1);
       check('优先级循环 high→medium', o.p0 === '高' && o.p1 === '中', o.p0 + '→' + o.p1);
 
+      // 补丁·64:切换任务状态不应重建整页(列表滚动容器身份不变 + 滚动位置不变),避免页面跳动/视觉抖动
+      // 状态循环为 todo→in_progress→done→todo,从 in_progress 起需切换 3 次才还原,故点 3 次再比对
+      o = await js('noJumpStatus', `(async () => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const tree = document.querySelector('.todo-list-tree');
+        if (!tree) return { err: 'no list tree' };
+        tree.__smokeMarker = 'KEEP';
+        const beforeTop = tree.scrollTop;
+        const getIcon = () => { const b = document.querySelector('.todo-card[data-task-id="${TASK_A}"] .todo-status-btn'); return b ? b.textContent : ''; };
+        const clickIcon = () => { const b = document.querySelector('.todo-card[data-task-id="${TASK_A}"] .todo-status-btn'); if (b) b.click(); };
+        const i0 = getIcon();
+        clickIcon(); await sleep(250);   // 1: in_progress -> done
+        const i1 = getIcon();
+        clickIcon(); await sleep(250);   // 2: done -> todo
+        clickIcon(); await sleep(250);   // 3: todo -> in_progress(还原,避免影响后续断言)
+        const i3 = getIcon();
+        const tree2 = document.querySelector('.todo-list-tree');
+        return { sameTree: tree2 === tree && !!(tree2 && tree2.__smokeMarker === 'KEEP'),
+          i0, i1, i3, scrollKept: tree2 ? (tree2.scrollTop === beforeTop) : false };
+      })()`);
+      check('切换状态不重建列表(无整页重绘/无跳动)', o.sameTree === true, 'sameTree=' + o.sameTree + ' err=' + (o.err || ''));
+      check('切换状态图标确实改变', o.i0 && o.i1 && o.i0 !== o.i1, o.i0 + '→' + o.i1);
+      check('切换状态后列表滚动位置不变', o.scrollKept === true, 'scrollKept=' + o.scrollKept);
+      check('三次切换后状态还原(不影响后续断言)', o.i3 === o.i0, o.i1 + '→…→' + o.i3 + ' (期望还原为 ' + o.i0 + ')');
+
       // 4) 新建任务
       o = await js('newtask', `(async () => {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

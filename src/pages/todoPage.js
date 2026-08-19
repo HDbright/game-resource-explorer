@@ -545,6 +545,12 @@ function render() {
   if (!rootEl) return;
   // 菜单挂在 body 上(position:fixed),重绘前必须清掉,否则会浮空残留
   document.querySelectorAll('.todo-card-menu').forEach((el) => el.remove());
+  // 记录重绘前滚动位置(列表/看板/日历各自的滚动容器),渲染后还原,
+  // 避免点击状态/优先级图标、拖拽排序、归档等操作导致页面跳动/视觉抖动
+  const scrollSnap = {};
+  rootEl.querySelectorAll('.todo-list-tree, .todo-kanban, .todo-cal-grid, .todo-cal-year-grid').forEach((s) => {
+    scrollSnap[s.className] = { top: s.scrollTop, left: s.scrollLeft };
+  });
   rootEl.innerHTML = '';
   rootEl.appendChild(renderHeader());
   if (view === 'list') rootEl.appendChild(renderFiltersBar());
@@ -561,6 +567,11 @@ function render() {
   if (archiveOpen) rootEl.appendChild(renderArchiveModal());
   if (eventModal) rootEl.appendChild(renderEventModal());
   if (dayEventsModal) rootEl.appendChild(renderDayEventsModal());
+  // 还原滚动位置(类名稳定且唯一,按类名找回新容器并恢复偏移)
+  Object.keys(scrollSnap).forEach((cls) => {
+    const n = rootEl.querySelector('.' + cls.split(' ').join('.'));
+    if (n) { n.scrollTop = scrollSnap[cls].top; n.scrollLeft = scrollSnap[cls].left; }
+  });
 }
 
 // ---------------- 年度事件提醒(生日每年提醒;公历/农历) ----------------
@@ -2135,20 +2146,83 @@ function subLines(subs, depth) {
 
 function openDetail(id) { detailTaskId = id; render(); }
 
+// 是否可在「列表视图无筛选/无浮层」下就地刷新单卡(避免整页重绘造成页面跳动/视觉抖动)
+function canUpdateInPlace() {
+  return view === 'list'
+    && filters.status === 'all'
+    && filters.priority === 'all'
+    && !taskModalOpen
+    && detailTaskId === null
+    && !projectsOpen
+    && !archiveOpen
+    && !eventModal
+    && !dayEventsModal;
+}
+
+// 列表视图就地刷新单个任务卡片的视觉状态(状态点 + 卡片本体 + 所属项目三色统计 + 头部进度),
+// 不重建整页,从而避免切换状态/优先级时页面滚动跳动与视觉抖动。
+function updateTaskCardInPlace(task) {
+  const treeNode = [...rootEl.querySelectorAll('.todo-tree-task')]
+    .find((n) => n.getAttribute('data-task-id') === task.id);
+  if (!treeNode) { render(); return; }
+  const row = treeNode.querySelector(':scope > .todo-tree-row');
+  if (!row) { render(); return; }
+  // 左侧状态点颜色
+  const dot = row.querySelector('.todo-tree-task-dot');
+  if (dot) dot.style.background = task.status === 'done' ? '#22c55e' : task.status === 'in_progress' ? '#f59e0b' : '#6366f1';
+  // 重建卡片本体(替换节点,父行与滚动容器保持不变 → 不触发滚动重置/整页重绘)
+  const oldCard = row.querySelector(':scope > .todo-card');
+  if (oldCard && oldCard.parentNode) oldCard.parentNode.replaceChild(renderTaskCard(task), oldCard);
+  // 所属项目节点的三色状态统计徽章
+  updateProjectBadge(task.projectId);
+  // 头部「已完成 x/y」计数 + 底部进度条
+  updateHeaderProgress();
+}
+
+// 刷新某项目(含 __none__ 伪节点)的三色状态统计徽章
+function updateProjectBadge(pid) {
+  const key = pid || '__none__';
+  const projRow = rootEl.querySelector(`.todo-tree-proj[data-proj="${key}"] > .todo-tree-row`);
+  if (!projRow) return;
+  const stats = projRow.querySelectorAll('.todo-stat');
+  if (stats.length < 3) return;
+  let todo = 0, in_progress = 0, done = 0;
+  liveTasks().forEach((t) => {
+    if ((t.projectId || '') !== (pid || '')) return;
+    if (t.status === 'done') done++;
+    else if (t.status === 'in_progress') in_progress++;
+    else todo++;
+  });
+  const set = (el, v) => { const b = el.querySelector('b'); if (b) b.textContent = String(v); };
+  set(stats[0], todo); set(stats[1], in_progress); set(stats[2], done);
+}
+
+// 刷新头部「已完成 x/y」计数与底部进度条(不重建整页)
+function updateHeaderProgress() {
+  const all = liveTasks();
+  const done = all.filter((t) => t.status === 'done').length;
+  const sub = rootEl.querySelector('.todo-sub');
+  if (sub && sub.firstChild && sub.firstChild.nodeType === 3) sub.firstChild.nodeValue = T('completed', done, all.length);
+  const fill = rootEl.querySelector('.todo-progress-fill');
+  if (fill) fill.style.width = `${all.length ? (done / all.length) * 100 : 0}%`;
+}
+
 function cycleStatus(task) {
   const next = STATUS_CYCLE[task.status];
   task.status = next;
   if (next === 'done' && !task.completeAt) task.completeAt = now();
   task.updatedAt = now();
   saveState();
-  render();
+  if (canUpdateInPlace()) updateTaskCardInPlace(task);
+  else render();
 }
 function cyclePriority(task) {
   const next = PRIORITY_CYCLE[task.priority];
   task.priority = next;
   task.updatedAt = now();
   saveState();
-  render();
+  if (canUpdateInPlace()) updateTaskCardInPlace(task);
+  else render();
 }
 async function toggleSubtask(task, subId) {
   const found = findSub(task.subtasks || [], subId);

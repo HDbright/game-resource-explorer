@@ -3,7 +3,34 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.62`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.64`）。
+
+---
+
+## 2026-08-19（补丁·64）
+
+### [修复] 列表视图点击任务状态/优先级图标切换时页面跳动、视觉抖动
+- **现象**：在列表视图（☰）点击任务卡片上的状态圆标（或优先级）切换任务状态时，整个列表会被重绘，滚动容器 `.todo-list-tree` 复位到顶部，造成页面位置跳动与视觉抖动。
+- **根因**：`cycleStatus()` / `cyclePriority()` 每次都调用 `render()`，`render()` 执行 `rootEl.innerHTML=''` 后重建整页，新建的滚动容器 `scrollTop` 归零；即便内容高度不变，焦点也会跳回顶部。
+- **修复（两层，互为兜底）**：
+  1. **就地更新（首选）**：新增 `updateTaskCardInPlace(task)`——仅在原卡片所在行就地替换该卡片节点、刷新左侧状态点颜色、所属项目的三色状态统计徽章、头部「已完成 x/y」与底部进度条，**不重建整页**，因此滚动容器与页面位置完全不变；`cycleStatus`/`cyclePriority` 在「列表视图 + 无状态/优先级筛选 + 无浮层/模态」条件下走此路径。
+  2. **滚动兜底（render 安全网）**：`render()` 重绘前记录各滚动容器（`.todo-list-tree`/`.todo-kanban`/日历网格）的 `scrollTop`/`scrollLeft`，重绘后按类名还原，确保其它任何触发 `render()` 的操作（拖拽排序、子任务状态切换、归档等）也不会跳页。
+- **冒烟回归**：新增 3 条断言——切换状态不重建列表（滚动容器元素身份不变）、状态图标确实改变并还原、切换后列表滚动位置不变。
+
+---
+
+## 2026-08-19（补丁·63）
+
+### [修复] 系统设置「菜单管理」中设置的菜单隐藏，重启软件后失效（不隐藏）
+- **根因**：`electron/db.js` 的 `menu_nodes` 表是 SQL 列白名单模型，`hidden`（侧栏隐藏标记）字段此前**从未入库**——建表、旧库迁移、SELECT 读取、INSERT 写入四处都缺 `hidden` 列。
+  `updateMenuNode(patch)` 虽在内存里把 `node.hidden=true` 并 `saveState()`，但 `writeDb` 静态 INSERT 语句不含该列 → 静默丢弃；`readDb` 也不读 → 重启后 `hidden` 为 `undefined`(falsy) → 菜单又显示。
+- **修复（四处补齐，与上一次 `locked`/`show_items_in_tree` 字段同模式）**：
+  1. `CREATE TABLE menu_nodes` 增加 `hidden INTEGER DEFAULT 0`
+  2. 旧库迁移 `ALTER TABLE menu_nodes ADD COLUMN hidden INTEGER DEFAULT 0`（缺列才加）
+  3. `readDb` 的 `menu_nodes` SELECT 增加 `hidden`，读取后 `mn.hidden = !!mn.hidden` 转布尔
+  4. `writeDb` 的 `menu_nodes` INSERT 增加 `hidden` 列与参数 `mn.hidden ? 1 : 0`
+- **同类排查**：渲染层（`ui.js` 783 行根节点 `!n.hidden`、951 行子节点 `if (k.hidden) continue`）本就读取 `node.hidden`，仅持久化缺失；本次修复后隐藏状态可正常跨重启保留。
+- 冒烟建议：菜单管理勾选某节点「隐藏」→ 重启 → 该节点在侧栏不复出现，且 `hidden=1` 写入 `menu_nodes` 表。
 
 ---
 

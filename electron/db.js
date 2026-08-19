@@ -217,6 +217,7 @@ function open() {
       is_resource INTEGER DEFAULT 0,
       locked INTEGER DEFAULT 0,
       show_items_in_tree INTEGER DEFAULT 1,
+      hidden INTEGER DEFAULT 0,
       sort INTEGER DEFAULT 0,
       created_at INTEGER DEFAULT 0,
       updated_at INTEGER DEFAULT 0
@@ -337,8 +338,12 @@ function open() {
     if (!mnCols.includes('show_items_in_tree')) {
       db.exec('ALTER TABLE menu_nodes ADD COLUMN show_items_in_tree INTEGER DEFAULT 1');
     }
+    // 旧库迁移:menu_nodes 缺 hidden 列时补上(侧栏隐藏节点)
+    if (!mnCols.includes('hidden')) {
+      db.exec('ALTER TABLE menu_nodes ADD COLUMN hidden INTEGER DEFAULT 0');
+    }
   } catch (err) {
-    console.error('[db] migrate menu_nodes type_tags/is_resource/locked error:', err);
+    console.error('[db] migrate menu_nodes type_tags/is_resource/locked/hidden error:', err);
   }
   // 旧库迁移:todo_events 缺 calendar 列时补上(生日公历/农历)
   try {
@@ -492,7 +497,7 @@ function readDb() {
       'SELECT id, name, icon, parent_id AS parentId, tool_id AS toolId, sort, created_at AS createdAt, updated_at AS updatedAt FROM toolbox_folders ORDER BY sort'
     ).all();
     d.menuNodes = conn.prepare(
-      'SELECT id, name, icon, parent_id AS parentId, node_type AS nodeType, action_type AS actionType, action, tooltip, note, type_tags AS typeTags, is_resource AS isResource, locked, show_items_in_tree AS showItemsInTree, sort, created_at AS createdAt, updated_at AS updatedAt FROM menu_nodes ORDER BY sort'
+      'SELECT id, name, icon, parent_id AS parentId, node_type AS nodeType, action_type AS actionType, action, tooltip, note, type_tags AS typeTags, is_resource AS isResource, locked, show_items_in_tree AS showItemsInTree, hidden, sort, created_at AS createdAt, updated_at AS updatedAt FROM menu_nodes ORDER BY sort'
     ).all();
     // type_tags 列是 JSON 数组字符串 → 解析为数组;is_resource / locked 整数 → 布尔
     for (const mn of (d.menuNodes || [])) {
@@ -503,6 +508,7 @@ function readDb() {
       mn.isResource = !!mn.isResource;
       mn.locked = !!mn.locked;
       mn.showItemsInTree = mn.showItemsInTree == null ? true : !!mn.showItemsInTree;
+      mn.hidden = !!mn.hidden;
     }
     d.todoProjects = conn.prepare(
       'SELECT id, name, color, sort, parent_id AS parentId, notes, deadline, complete_at AS completeAt, created_at AS createdAt, updated_at AS updatedAt FROM todo_projects ORDER BY sort'
@@ -687,7 +693,7 @@ function writeDb(state) {
       insTf.run(tf.id, tf.name || '', tf.icon || '', tf.parentId || '', tf.toolId || '', tf.sort || 0, tf.createdAt || 0, tf.updatedAt || 0);
     }
     const insMenu = conn.prepare(
-      'INSERT INTO menu_nodes(id, name, icon, parent_id, node_type, action_type, action, tooltip, note, type_tags, is_resource, locked, show_items_in_tree, sort, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO menu_nodes(id, name, icon, parent_id, node_type, action_type, action, tooltip, note, type_tags, is_resource, locked, show_items_in_tree, hidden, sort, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     for (const mn of state.menuNodes || []) {
       insMenu.run(
@@ -697,6 +703,7 @@ function writeDb(state) {
         mn.isResource ? 1 : 0,
         mn.locked ? 1 : 0,
         mn.showItemsInTree ? 1 : 0,
+        mn.hidden ? 1 : 0,
         mn.sort || 0, mn.createdAt || 0, mn.updatedAt || 0
       );
     }
