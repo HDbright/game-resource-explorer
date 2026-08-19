@@ -317,6 +317,23 @@ app.whenReady().then(async () => {
       check('切换状态后列表滚动位置不变', o.scrollKept === true, 'scrollKept=' + o.scrollKept);
       check('三次切换后状态还原(不影响后续断言)', o.i3 === o.i0, o.i1 + '→…→' + o.i3 + ' (期望还原为 ' + o.i0 + ')');
 
+      // 补丁·65:列表视图任务卡片的"所属项目名称"与"日期"应内联到标题行(同一行),不再各自占一行
+      o = await js('projDateInline', `(() => {
+        const card = document.querySelector('.todo-card[data-task-id="${TASK_A}"]');
+        if (!card) return { err: 'no card' };
+        const row = card.querySelector('.todo-card-title-row');
+        const proj = card.querySelector('.todo-card-proj');
+        const date = card.querySelector('.todo-card-date');
+        const inRow = (el) => !!(el && row && row.contains(el));
+        return {
+          rowFound: !!row, projFound: !!proj, dateFound: !!date,
+          projInRow: inRow(proj), dateInRow: inRow(date),
+          projText: proj ? proj.textContent.trim() : '', dateText: date ? date.textContent.trim() : ''
+        };
+      })()`);
+      check('所属项目名称内联到标题行(同一行)', o.rowFound && o.projFound && o.projInRow === true, 'projInRow=' + o.projInRow + ' text=' + o.projText);
+      check('日期内联到标题行(同一行)', o.rowFound && o.dateFound && o.dateInRow === true, 'dateInRow=' + o.dateInRow + ' text=' + o.dateText);
+
       // 4) 新建任务
       o = await js('newtask', `(async () => {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

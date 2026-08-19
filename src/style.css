@@ -2874,7 +2874,7 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .todo-pri-btn { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 600; text-transform: uppercase; flex-shrink: 0; background: none; border: none; cursor: pointer; padding: 1px 4px; border-radius: 3px; }
 .todo-pri-btn:hover { background: var(--bg4); }
 .todo-pri-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
-.todo-card-proj { margin: 2px 0; }
+.todo-card-proj { display: inline-flex; align-items: center; flex-shrink: 0; margin: 0; }
 .todo-card-proj span { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 3px; font-weight: 600; border: 1px solid; }
 .todo-card-notes { font-size: 12px; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 2px 0 4px; }
 .todo-card-subs { margin: 6px 0 2px; }

@@ -1916,11 +1916,12 @@ function renderTaskCard(task, compact = false, colStatus = null) {
       <div class="todo-card-main">
         <div class="todo-card-title-row">
           <span class="todo-card-title">${escHtml(task.title)}</span>
+          ${proj ? `<span class="todo-card-proj"><span style="color:${proj.color};border-color:${proj.color}44;background:${proj.color}22">◆ ${escHtml(proj.name)}</span></span>` : ''}
+          ${dateSuffix ? `<span class="todo-card-date ${dateSuffix.cls}">${dateSuffix.text}</span>` : ''}
           <button class="todo-pri-btn" data-t="priority" title="${T('clickTogglePriority')}" style="color:${pri.color}">
             <span class="todo-pri-dot" style="background:${pri.color}"></span>${priLabel(task.priority)}
           </button>
         </div>
-        ${proj ? `<div class="todo-card-proj"><span style="color:${proj.color};border-color:${proj.color}44;background:${proj.color}22">◆ ${escHtml(proj.name)}</span></div>` : ''}
         ${task.notes ? `<div class="todo-card-notes">${escHtml(task.notes)}</div>` : ''}`;
 
   if (subs.length) {
@@ -1947,7 +1948,6 @@ function renderTaskCard(task, compact = false, colStatus = null) {
         <div class="todo-card-meta">
           ${task.tags.slice(0, 3).map((tag) => `<span class="todo-tag-chip">${escHtml(tag)}</span>`).join('')}
           ${dl ? `<span class="todo-deadline${dl.overdue ? ' overdue' : ''}${dl.warn ? ' warn' : ''}">${dl.overdue ? '⚠ ' : '📅 '}${dl.text}</span>` : ''}
-          ${dateSuffix ? `<span class="todo-card-date ${dateSuffix.cls}">${dateSuffix.text}</span>` : ''}
         </div>
       </div>
       <div class="todo-card-actions">
