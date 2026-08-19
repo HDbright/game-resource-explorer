@@ -2877,28 +2877,87 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .todo-card-proj { margin: 2px 0; }
 .todo-card-proj span { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 3px; font-weight: 600; border: 1px solid; }
 .todo-card-notes { font-size: 12px; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 2px 0 4px; }
-.todo-card-subs { margin: 4px 0; }
-.todo-sub-toggle { display: flex; align-items: center; gap: 5px; width: 100%; background: none; border: none; padding: 2px 0; cursor: pointer; font-family: var(--font); }
+.todo-card-subs { margin: 6px 0 2px; }
+.todo-sub-toggle { display: flex; align-items: center; gap: 6px; width: 100%; background: none; border: none; padding: 2px 0; cursor: pointer; font-family: var(--font); }
 .todo-sub-toggle:hover .todo-sub-toggle-text { color: var(--accent); }
-.todo-sub-toggle-arrow { font-size: 15px; font-weight: 700; color: var(--text); line-height: 1; transition: transform .15s; }
+/* 折叠/展开图标加大(补丁·61):从 15px → 22px,提升点击手感和可识别度 */
+.todo-sub-toggle-arrow { font-size: 22px; font-weight: 700; color: var(--text); line-height: 1; transition: transform .15s; width: 20px; text-align: center; }
 .todo-sub-toggle:hover .todo-sub-toggle-arrow { color: var(--accent); }
 .todo-card-subs.collapsed .todo-sub-toggle-arrow { transform: rotate(-90deg); }
 .todo-sub-toggle-text { font-size: 11px; font-weight: 600; color: var(--text2); }
 .todo-sub-toggle-pct { margin-left: auto; font-size: 10px; color: var(--text3); }
 .todo-card-subs.collapsed .todo-card-sub-body { display: none; }
-.todo-card-sub-chips { display: flex; gap: 5px; margin-bottom: 4px; flex-wrap: wrap; padding-right: 2px; }
-.todo-sub-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 4px; cursor: pointer; font-size: 11px; background: var(--bg4); border: 1px solid var(--border); color: var(--text2); max-width: 190px; transition: all .15s; }
-.todo-sub-chip.done { background: rgba(34,197,94,.12); border-color: rgba(34,197,94,.3); color: #22c55e; }
-.todo-sub-chip-icon { flex-shrink: 0; }
-.todo-sub-chip-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
-.todo-sub-chip.done .todo-sub-chip-text { text-decoration: line-through; }
-.todo-sub-chip-date { font-size: 9px; color: #22c55e; opacity: .85; margin-left: 2px; flex-shrink: 0; }
-/* 子任务悬停浮现编辑按钮(与主任务 .todo-card-actions 同款交互) */
-.todo-sub-chip-edit { width: 15px; height: 15px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
-  padding: 0; margin-left: 1px; border: none; border-radius: 3px; background: transparent; color: inherit;
-  font-size: 10px; line-height: 1; cursor: pointer; opacity: 0; transition: opacity .15s, background .15s; }
-.todo-sub-chip:hover .todo-sub-chip-edit { opacity: .75; }
-.todo-sub-chip-edit:hover { opacity: 1 !important; background: var(--bg); }
+/* ===== 子任务独立区块(补丁·61)=====
+   替代旧版 inline chip 布局,所有子任务(顶层/嵌套)统一用 .todo-sub-block
+   呈现:1) 迷你卡片外观 + 圆角边框;2) 每个块左边有 L 形连接线,
+   从父级 .todo-sub-toggle-arrow 下沿约 18px 处发出(对齐折叠图标位置);
+   3) depth>0 时逐步增加 margin-left + 连续竖线,形成完整的树状嵌套感。
+   悬停凸显整块,内置 ✎ 编辑按钮与主任务卡片同款交互。 */
+.todo-card-sub-blocks { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; padding-right: 2px; }
+.todo-sub-block {
+  position: relative;
+  display: flex; flex-direction: column;
+  margin-left: 18px;
+  padding: 6px 8px 6px 22px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background .12s, border-color .12s;
+}
+.todo-sub-block:hover { background: var(--bg4); border-color: var(--accent); }
+.todo-sub-block:hover .todo-sub-block-actions { opacity: 1; }
+.todo-sub-block.done { opacity: .8; }
+.todo-sub-block.done .todo-sub-block-title { text-decoration: line-through; color: var(--text2); }
+/* L 形 ├ 连接线:
+   └ 短竖线 从块顶到 50%, 然后 50% 处水平线 回到块 padding-left 起点。
+   这样从折叠图标下沿 → 水平短线 → 子任务块标题基线, 直观看是层级连线。 */
+.todo-sub-block::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -8px;
+  height: calc(50% + 2px);
+  width: 14px;
+  border-left: 1px solid var(--tree-line);
+  border-bottom: 1px solid var(--tree-line);
+  pointer-events: none;
+  z-index: 0;
+}
+/* 嵌套子任务容器: 在第一个块之前到最后一个块底之间画一条贯穿竖线,
+   让多个同级子任务的连线是连续的梳状, 而不只是一个孤立的 L 形 */
+.todo-sub-block-children {
+  position: relative;
+  display: flex; flex-direction: column; gap: 6px;
+  margin-top: 6px;
+}
+/* 容器左侧贯穿竖线,起点在第一个块顶,终点在最后一个块底 */
+.todo-sub-block-children.has-2plus > .todo-sub-block:first-child::before {
+  border-left: 1px solid var(--tree-line);
+}
+.todo-sub-block-children > .todo-sub-block:last-child::before {
+  /* 末子块底部的竖线到中点(而非贯通到底),形成 └ 形封口(补丁·56 同款) */
+  border-bottom: 1px solid var(--tree-line);
+}
+/* 子任务块内部行:状态点 + 标题 + 日期 + tags + 优先级点 */
+.todo-sub-block-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-height: 22px; position: relative; z-index: 1; }
+.todo-sub-block-status { flex-shrink: 0; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; border: 1.5px solid var(--border); background: transparent; color: var(--text2); font-size: 10px; cursor: pointer; padding: 0; transition: all .15s; }
+.todo-sub-block-status.sub-done { border-color: #22c55e; color: #22c55e; }
+.todo-sub-block-status.sub-in_progress { border-color: var(--accent); color: var(--accent); }
+.todo-sub-block-title { flex: 1; min-width: 100px; font-size: 12.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.todo-sub-block-pri { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+/* 子任务块底部 meta:tags + 截止日期 */
+.todo-sub-block-meta { display: flex; align-items: center; gap: 4px; margin-top: 4px; flex-wrap: wrap; position: relative; z-index: 1; }
+.todo-sub-block-meta .todo-tag-chip { font-size: 9px; padding: 0 5px; }
+.todo-sub-block-actions {
+  display: flex; align-items: center; gap: 3px;
+  opacity: 0; transition: opacity .15s;
+  flex-shrink: 0; margin-left: auto;
+}
+.todo-sub-block-actions .todo-icon-btn { width: 22px; height: 22px; font-size: 12px; }
+/* 单层 子任务折叠状态保留:hidden body 由父 .todo-card-subs.collapsed 统一控制 */
+/* ---- 旧 .todo-sub-chip 隐藏保留(不再渲染,但代码仍可引用) ---- */
+.todo-sub-chip { display: none !important; }
 .todo-card-sub-bar { display: flex; align-items: center; gap: 6px; }
 .todo-card-sub-track { flex: 1; height: 2px; background: var(--border); border-radius: 2px; max-width: 80px; }
 .todo-card-sub-fill { height: 100%; background: #22c55e; border-radius: 2px; transition: width .3s; }

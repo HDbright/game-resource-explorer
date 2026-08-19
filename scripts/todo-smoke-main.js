@@ -207,22 +207,36 @@ app.whenReady().then(async () => {
       check('提醒文字(今日待办+生日)', o.found === true && (o.text || '').includes('今日待办 1 项') && (o.text || '').includes('今日 1 人生日') && (o.text || '').includes('3 日内 1 人生日'), o.text);
       check('提醒悬停详情(公历+农历)', (o.title || '').includes('测试公历生日') && (o.title || '').includes('测试农历生日') && (o.title || '').includes('农历'), (o.title || '').split('\n').join(' | '));
 
-      // 2) 卡片内容
+      // 2) 卡片内容(补丁·61:子任务块从 .todo-sub-chip 改为 .todo-sub-block 独立区块)
       o = await js('card', `(() => {
         // 补丁·45:TASK_A 挂在子项目\"子项目\"下,卡片徽章应显示\"子项目\"
         const projChip = !![...document.querySelectorAll('.todo-card-proj span')].find((s) => (s.textContent || '').includes('子项目'));
-        const subChips = document.querySelectorAll('.todo-card .todo-sub-chip').length;
+        // 补丁·61:子任务块(独立区块)数量 + 折叠图标尺寸
+        const subBlocks = document.querySelectorAll('.todo-card .todo-sub-block').length;
         // 父项目\"游戏开发\"与子项目\"子项目\"都应出现在筛选下拉
         const projFilter = !![...document.querySelectorAll('.todo-select')].find((s) => [...s.options].some((x) => x.textContent === '游戏开发' || x.textContent === '子项目'));
         const cardA = document.querySelector('.todo-card[data-task-id="t_smoke_a"]');
-        const subIconDone = (document.querySelector('.todo-sub-chip.sub-status-done span:first-child') || {}).textContent || '';
-        const subIconTodo = (document.querySelector('.todo-sub-chip.sub-status-todo span:first-child') || {}).textContent || '';
-        return { projChip, subChips, projFilter, subIconDone, subIconTodo, cardAhtml: cardA ? cardA.innerHTML.slice(0, 700) : 'NO CARD' };
+        // 子任务块的状态按钮:补丁·61 用 .todo-sub-block-status(单字符图标)
+        const subIconDone = (document.querySelector('.todo-sub-block-status.sub-done') || {}).textContent || '';
+        const subIconTodo = (document.querySelector('.todo-sub-block-status:not(.sub-done):not(.sub-in_progress)') || {}).textContent || '';
+        // 折叠/展开图标尺寸 ≥ 20px(补丁·61:从 15px → 22px 加大)
+        const toggleArrow = document.querySelector('.todo-sub-toggle-arrow');
+        const toggleFontSize = toggleArrow ? parseFloat(getComputedStyle(toggleArrow).fontSize) : 0;
+        // 子任务折叠图标与首个子任务块之间的视觉间距(L 形连线从父级折叠图标下方发出)
+        const firstBlock = document.querySelector('.todo-card .todo-sub-block');
+        const arrowRect = toggleArrow ? toggleArrow.getBoundingClientRect() : null;
+        const blockRect = firstBlock ? firstBlock.getBoundingClientRect() : null;
+        const gapY = arrowRect && blockRect ? Math.round(blockRect.top - arrowRect.bottom) : null;
+        return { projChip, subBlocks, projFilter, subIconDone, subIconTodo, toggleFontSize, gapY,
+          cardAhtml: cardA ? cardA.innerHTML.slice(0, 700) : 'NO CARD' };
       })()`);
       check('项目徽章', o.projChip === true);
-      check('子任务 chips', o.subChips >= 2, 'chips=' + o.subChips);
-      check('子任务图标:完成✅/未完成⬜', o.subIconDone === '✅' && o.subIconTodo === '⬜', o.subIconDone + ' / ' + o.subIconTodo);
+      check('子任务块(补丁·61)数量 >= 2', o.subBlocks >= 2, 'subBlocks=' + o.subBlocks);
+      check('子任务块图标:完成✅/未完成⬜', o.subIconDone === '✅' && o.subIconTodo === '⬜', 'done=' + JSON.stringify(o.subIconDone) + ' todo=' + JSON.stringify(o.subIconTodo));
       check('项目筛选下拉', o.projFilter === true);
+      // 补丁·61 视觉硬约束:折叠图标尺寸 ≥ 20px,且与首个子任务块间距 ≤ 8px(让 L 形连线贴近父级图标下沿)
+      check('折叠/展开图标字体≥20px(补丁·61)', o.toggleFontSize >= 20, 'fs=' + o.toggleFontSize);
+      check('首个子任务块距折叠图标下沿 ≤ 8px(L 形起点贴近)', o.gapY != null && o.gapY <= 8, 'gapY=' + o.gapY);
       if (!o.projChip) console.log('  [debug] cardA html:', o.cardAhtml);
 
       // 3) 状态循环 + 优先级循环

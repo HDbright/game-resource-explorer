@@ -1072,11 +1072,13 @@ function renderTreeNode(node, depth, isLast) {
   // 不再画祖辈列的贯穿竖线,让分支关系靠 L 形直观表达(补丁·56)
   if (depth >= 1) {
     const segs = [];
-    // 本级竖线:向上连父(恒画);向下仅在非末子时继续(末子封口)
-    if (isLast) segs.push(`<i class="todo-tree-line tl-v" style="left:${(depth - 1) * 18 + 9}px;top:-2px;height:calc(50% + 3px)"></i>`);
-    else segs.push(`<i class="todo-tree-line tl-v" style="left:${(depth - 1) * 18 + 9}px;top:-2px;height:calc(100% + 4px)"></i>`);
-    // 本级分支横线:父级竖线 → 本级内容起点
-    segs.push(`<i class="todo-tree-line tl-h" style="left:${(depth - 1) * 18 + 9}px;top:50%;width:13px"></i>`);
+    // 本级竖线:向上连父(恒画);向下仅在非末子时继续(末子封口)。
+    // 补丁·61:连接线加长 + 横向连接线延长到 18px,确保视觉连贯(原 13px 过短,父子行间出现明显空隙)。
+    const lineX = (depth - 1) * 18 + 9;
+    if (isLast) segs.push(`<i class="todo-tree-line tl-v" style="left:${lineX}px;top:-2px;height:calc(50% + 4px)"></i>`);
+    else segs.push(`<i class="todo-tree-line tl-v" style="left:${lineX}px;top:-2px;height:calc(100% + 4px)"></i>`);
+    // 本级分支横线:父级竖线 → 本级内容起点(横线加长到 18px 让线条更连贯)。
+    segs.push(`<i class="todo-tree-line tl-h" style="left:${lineX}px;top:50%;width:18px"></i>`);
     row.insertAdjacentHTML('afterbegin', `<span class="todo-tree-guides" style="left:${-(depth * 18)}px;width:${depth * 18}px">${segs.join('')}</span>`);
   }
   el.appendChild(row);
@@ -1919,8 +1921,8 @@ function renderTaskCard(task, compact = false, colStatus = null) {
           <span class="todo-sub-toggle-pct">${Math.round(doneSubs / totalSubs * 100)}%</span>
         </button>
         <div class="todo-card-sub-body">
-          <div class="todo-card-sub-chips">
-            ${renderSubChips(orderedSubs, 0)}
+          <div class="todo-card-sub-blocks">
+            ${renderSubBlocks(orderedSubs, 0)}
           </div>
           <div class="todo-card-sub-bar">
             <div class="todo-card-sub-track"><div class="todo-card-sub-fill" style="width:${totalSubs ? (doneSubs / totalSubs) * 100 : 0}%"></div></div>
@@ -1944,8 +1946,8 @@ function renderTaskCard(task, compact = false, colStatus = null) {
     </div>`;
   card.innerHTML = html;
 
-  // 子任务右键菜单(编辑/删除)——阻止冒泡,避免触发卡片菜单
-  card.querySelectorAll('.todo-sub-chip').forEach((chip) => {
+  // 子任务右键菜单(编辑/删除)——阻止冒泡,避免触发卡片菜单(补丁·61:从 .todo-sub-chip 改为 .todo-sub-block)
+  card.querySelectorAll('.todo-sub-block').forEach((chip) => {
     chip.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -2054,6 +2056,7 @@ function renderTaskCard(task, compact = false, colStatus = null) {
       modalHighlightSub = b.dataset.sub;
       taskModalOpen = true; modalTaskId = real.id; render();
     }
+    else if (t === 'substatus') { toggleSubtask(real, b.dataset.sub); } // 补丁·61:子任务块的状态按钮
     else if (t === 'sub') { toggleSubtask(real, b.dataset.sub); }
     else if (t === 'subtoggle') { toggleSubtasksCollapse(real, b); }
     else if (t === 'edit') { taskModalOpen = true; modalTaskId = real.id; render(); }
@@ -2066,20 +2069,41 @@ function renderTaskCard(task, compact = false, colStatus = null) {
   return card;
 }
 
-// 递归渲染子任务 chip(支持嵌套 + 状态图标),depth 用于缩进(补丁·57)
-function renderSubChips(subs, depth) {
+// 递归渲染子任务"独立区块"(补丁·61)。
+// 每个子任务用 .todo-sub-block 迷你卡片呈现(状态按钮 + 标题 + tags + 截止日期 + 优先级点),
+// 嵌套子任务通过 .todo-sub-block-children 容器递归堆叠,与 .todo-sub-block::before
+// 的 L 形 ├ 边框共同形成连贯的树状层级连线(起点接近父级折叠图标下沿)。
+// 旧 renderSubChips(内联 chip)已废弃——HTML/CSS 仍保留兼容代码,但实际不再被调用。
+function renderSubBlocks(subs, depth) {
   if (!Array.isArray(subs) || !subs.length) return '';
   return subs.map((s) => {
     const st = subStatus(s);
-    const children = (s.subtasks && s.subtasks.length) ? renderSubChips(s.subtasks, depth + 1) : '';
-    const indent = depth > 0 ? ` style="margin-left:${depth * 16}px"` : '';
-    const datePart = s.doneAt ? `<span class="todo-sub-chip-date">${fmtShortDate(s.doneAt)}</span>` : '';
-    const titleTip = escHtml(s.title) + (s.notes ? '\n' + escHtml(s.notes) : '') + (s.doneAt ? '\n' + T('subDoneAt') + ' ' + fmtDateTime(s.doneAt) : '') + (s.createdAt ? '\n' + T('subCreatedOn', fmtFullDate(s.createdAt)) : '');
-    return `<span class="todo-sub-chip sub-status-${st}" data-t="sub" data-sub="${s.id}"${indent} title="${titleTip}">` +
-      `<span class="todo-sub-chip-icon">${subStatusIcon(s)}</span><span class="todo-sub-chip-text">${escHtml(s.title)}</span>${datePart}` +
-      `<button class="todo-sub-chip-edit" data-t="subedit" data-sub="${s.id}" title="${T('editSubtask')}">✎</button></span>${children}`;
+    const pri = PRIORITY_CONFIG[s.priority] || PRIORITY_CONFIG.medium;
+    const tagsHTML = (s.tags || []).slice(0, 3).map((tg) => `<span class="todo-tag-chip">${escHtml(tg)}</span>`).join('');
+    const dateHTML = (s.deadline || s.doneAt)
+      ? `<span class="todo-card-date is-${st}">${escHtml(s.deadline ? (fmtShortDate(s.deadline) || '') : (fmtShortDate(s.doneAt) || ''))}</span>`
+      : '';
+    const titleTip = escHtml(s.title)
+      + (s.notes ? '\n' + escHtml(s.notes) : '')
+      + (s.deadline ? '\n截止:' + fmtDateTime(s.deadline) : '')
+      + (s.doneAt ? '\n完成:' + fmtDateTime(s.doneAt) : '');
+    const hasChildren = Array.isArray(s.subtasks) && s.subtasks.length > 0;
+    return `<div class="todo-sub-block sub-status-${st} depth-${depth}${hasChildren ? '' : ' no-children'}" data-t="sub" data-sub="${s.id}" data-depth="${depth}" title="${titleTip}">
+      <div class="todo-sub-block-row">
+        <button class="todo-sub-block-status sub-${st}" data-t="substatus" data-sub="${s.id}" title="${T('clickToggle')}">${subStatusIcon(s)}</button>
+        <span class="todo-sub-block-pri" style="background:${pri.color}" title="${priLabel(s.priority)}"></span>
+        <span class="todo-sub-block-title">${escHtml(s.title)}</span>
+        <div class="todo-sub-block-actions">
+          <button class="todo-icon-btn" data-t="subedit" data-sub="${s.id}" title="${T('editSubtask')}">✎</button>
+        </div>
+      </div>
+      ${(tagsHTML || dateHTML) ? `<div class="todo-sub-block-meta">${tagsHTML}${dateHTML}</div>` : ''}
+      ${hasChildren ? `<div class="todo-sub-block-children">${renderSubBlocks(s.subtasks, depth + 1)}</div>` : ''}
+    </div>`;
   }).join('');
 }
+// 占位兼容旧函数名(避免 imports 报错)— 不会被调用
+function renderSubChips(subs, depth) { return renderSubBlocks(subs, depth); }
 
 // 详情面板递归渲染子任务(补丁·57)
 function renderDetailSubs(subs, depth) {
