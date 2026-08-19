@@ -411,6 +411,58 @@ app.whenReady().then(async () => {
       check('子任务完成态:doneAt 输入框启用', o.doneAtEnabled === true);
       check('子任务下可再建子任务(嵌套)', o.nestedCreated === true, 'before=' + o.beforeNodes + ' after=' + o.afterNodes);
 
+      // 5.4.5) 补丁·58:子任务拖拽 — 平级重排 + 改父级(三区:上/下缘=同级前后换位,中间=作为子项)
+      o = await js('subDnD', `(async () => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const cardA = document.querySelector('.todo-card[data-task-id="${TASK_A}"]');
+        if (!cardA) return { err: 'cardA missing' };
+        const editBtn = cardA.querySelector('[data-t="edit"]');
+        if (editBtn) { editBtn.click(); await sleep(350); }
+        const subTab = document.querySelector('[data-tab="subtasks"]');
+        if (subTab) { subTab.click(); await sleep(300); }
+        const getTree = () => document.querySelector('.todo-sub-tree');
+        if (!getTree()) return { err: 'no tree' };
+        // 注意:renderBody() 每次会整体替换 .todo-sub-tree 元素,必须每次重新查询,不能缓存旧引用
+        const topIds = () => { const t = getTree(); return t ? [...t.querySelectorAll(':scope > .todo-sub-node')].map((n) => n.dataset.subId) : []; };
+        const childIdsOf = (id) => { const t = getTree(); return t ? [...t.querySelectorAll('.todo-sub-node[data-sub-id="'+id+'"] > .todo-sub-children > .todo-sub-node')].map((n) => n.dataset.subId) : []; };
+        async function drag(srcId, tgtId, zone) {
+          const t = getTree();
+          const src = t && t.querySelector('.todo-sub-node[data-sub-id="'+srcId+'"]');
+          const tgt = t && t.querySelector('.todo-sub-node[data-sub-id="'+tgtId+'"]');
+          if (!src || !tgt) return { err: 'missing '+srcId+'/'+tgtId };
+          const dt = new DataTransfer();
+          src.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
+          await sleep(60); // 与看板拖拽一致:留一拍让 dataTransfer 就绪
+          const r = tgt.getBoundingClientRect();
+          const cy = zone === 'before' ? r.top + 2 : zone === 'after' ? r.bottom - 2 : r.top + r.height / 2;
+          const pt = { clientX: r.left + r.width / 2, clientY: cy };
+          tgt.dispatchEvent(new DragEvent('dragover', Object.assign({ bubbles: true, dataTransfer: dt }, pt)));
+          tgt.dispatchEvent(new DragEvent('drop', Object.assign({ bubbles: true, dataTransfer: dt }, pt)));
+          return {};
+        }
+        const before = topIds();
+        // 平级重排:把 s_smoke_1 拖到 s_smoke_2 之后 → 顶层顺序变为 [s_smoke_2, s_smoke_1]
+        const r1 = await drag('s_smoke_1', 's_smoke_2', 'after');
+        await sleep(60);
+        const afterReorder = topIds();
+        // 改父级:把 s_smoke_1 拖到 s_smoke_2 的嵌套子节点之前 → 成为 s_smoke_2 的子节点
+        const childOf2 = childIdsOf('s_smoke_2')[0];
+        let afterReparent = null, reparentErr = r1.err || (childOf2 ? '' : 'no nested child');
+        if (childOf2) {
+          const r2 = await drag('s_smoke_1', childOf2, 'before');
+          reparentErr = r2.err || reparentErr;
+          await sleep(60);
+          afterReparent = { top: topIds(), under2: childIdsOf('s_smoke_2') };
+        }
+        const saveBtn = document.querySelector('[data-save]');
+        if (saveBtn) { saveBtn.click(); await sleep(400); }
+        const closeBtn = document.querySelector('[data-act="close"]');
+        if (closeBtn) { closeBtn.click(); await sleep(200); }
+        return { err: reparentErr || '', before, afterReorder, afterReparent, childOf2: childOf2 || '' };
+      })()`);
+      check('子任务拖拽:平级重排生效(顺序变更)', !o.err && JSON.stringify(o.before) !== JSON.stringify(o.afterReorder) && o.afterReorder.indexOf('s_smoke_2') < o.afterReorder.indexOf('s_smoke_1'), 'before=' + JSON.stringify(o.before) + ' after=' + JSON.stringify(o.afterReorder));
+      check('子任务拖拽:改父级生效(s_smoke_1 归入 s_smoke_2 子级)', !o.err && o.afterReparent && o.afterReparent.top.length === 1 && o.afterReparent.top[0] === 's_smoke_2' && o.afterReparent.under2.includes('s_smoke_1'), 'under2=' + JSON.stringify(o.afterReparent && o.afterReparent.under2) + ' top=' + JSON.stringify(o.afterReparent && o.afterReparent.top) + ' err=' + o.err);
+
       // 5.5) 事件时间格式(now()现在返回秒,不再出现 year=58598)
       o = await js('eventTimeFormat', `(async () => {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -1194,10 +1246,11 @@ app.whenReady().then(async () => {
       await sleep(500);
       const d = dbm.readDb();
       const a = d.todoTasks.find((t) => t.id === TASK_A);
+      const flatSubs = (() => { const out = []; const w = (arr) => { for (const s of (arr || [])) { out.push(s); w(s.subtasks); } }; w(a && a.subtasks); return out; })();
       check('持久化:状态 in_progress', a && a.status === 'in_progress', a ? a.status : 'null');
       check('持久化:优先级 medium', a && a.priority === 'medium', a ? a.priority : 'null');
       check('持久化:归档恢复', a && a.archived === false, String(a && a.archived));
-      check('持久化:子任务保留', a && a.subtasks && a.subtasks.length === 2, String(a && a.subtasks && a.subtasks.length));
+      check('持久化:子任务保留(扁平总数=3)', a && flatSubs.length === 3, 'flat=' + flatSubs.length + ' top=' + (a && a.subtasks.length));
       // 补丁·40:startAt/completeAt/events + 子任务 notes/doneAt 之前根本没有数据库列,重启即丢
       check('持久化:startAt 落库', a && typeof a.startAt === 'number' && a.startAt > 0, 'startAt=' + (a && a.startAt));
       check('持久化:events 列存在(数组)', a && Array.isArray(a.events), 'events=' + JSON.stringify(a && a.events));
@@ -1205,11 +1258,16 @@ app.whenReady().then(async () => {
       check('持久化:子任务含 notes/doneAt/createdAt 字段', subCols.includes('notes') && subCols.includes('doneAt') && subCols.includes('createdAt'), 'cols=' + JSON.stringify(subCols));
       const sub0 = a && a.subtasks && a.subtasks[0];
       check('持久化:子任务 createdAt 为有效时间戳(补丁·44 显示创建时间)', !!sub0 && typeof sub0.createdAt === 'number' && sub0.createdAt > 0, 'createdAt=' + (sub0 && sub0.createdAt));
-      const doneSub = a && (a.subtasks || []).find((s) => s.done);
+      const doneSub = flatSubs.find((s) => s.done);
       check('持久化:已完成子任务保留 doneAt 列', !!doneSub && 'doneAt' in doneSub, 'sub=' + JSON.stringify(doneSub));
       // 补丁·57:嵌套子任务(子任务下再建子任务)必须能落库
-      const sub1 = a && a.subtasks && a.subtasks[1];
+      const sub1 = flatSubs.find((s) => s.id === 's_smoke_2');
       check('持久化:补丁·57 嵌套子任务落库', !!sub1 && Array.isArray(sub1.subtasks) && sub1.subtasks.length >= 1, 'sub1subs=' + JSON.stringify(sub1 && sub1.subtasks && sub1.subtasks.length));
+      // 补丁·58:拖拽改父级 + 平级重排落库(s_smoke_1 顶层移走,归入 s_smoke_2 子级)
+      const topIds = (a && a.subtasks || []).map((s) => s.id);
+      check('持久化:补丁·58 顶层子任务仅剩 s_smoke_2', JSON.stringify(topIds) === JSON.stringify(['s_smoke_2']), 'top=' + JSON.stringify(topIds));
+      const s2Persist = (a && a.subtasks || []).find((s) => s.id === 's_smoke_2');
+      check('持久化:补丁·58 s_smoke_1 改父级落库(parent 为 s_smoke_2)', !!s2Persist && s2Persist.subtasks.some((x) => x.id === 's_smoke_1'), 's2subs=' + JSON.stringify(s2Persist && s2Persist.subtasks.map((x) => x.id)));
       // 补丁·40:看板拖拽用分数序号(小数 sort),必须能存进 SQLite 且列内相对顺序被保留
       const bT = d.todoTasks.find((t) => t.id === TASK_B);
       const doneCol = d.todoTasks.filter((t) => !t.archived && t.status === (bT ? bT.status : 'done'))

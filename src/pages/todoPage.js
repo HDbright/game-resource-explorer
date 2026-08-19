@@ -59,7 +59,8 @@ const LANGS = {
     cancel: '取消', createTask: '创建任务', saveChanges: '保存修改',
     newTaskUnderProject: '在此项目下新建任务', newSubtaskUnderTask: '在此任务下新建子任务', newTaskUnderNone: '新建无项目任务',
     titleRequired: '标题不能为空', saved: '已保存', close: '关闭',
-    progress: '进度', addStepPh: '添加一个步骤…', dragToReorder: '拖拽排序',
+    progress: '进度', addStepPh: '添加一个步骤…', dragToReorder: '拖拽重排 / 改父级',
+    subDndHint: '拖拽子任务：上/下边缘 = 同级前后换位，中间 = 作为子项（改父级）',
     moveUp: '上移', moveDown: '下移', doubleClickRename: '双击重命名', del: '删除',
     toggleSubtasks: '折叠/展开子任务',
     // 开始/完成时间 + 子任务备注 + 事件日志
@@ -149,7 +150,8 @@ const LANGS = {
     cancel: 'Cancel', createTask: 'Create Task', saveChanges: 'Save Changes',
     newTaskUnderProject: 'New task under this project', newSubtaskUnderTask: 'New subtask under this task', newTaskUnderNone: 'New task (no project)',
     titleRequired: 'Title is required', saved: 'Saved', close: 'Close',
-    progress: 'Progress', addStepPh: 'Add a step…', dragToReorder: 'Drag to reorder',
+    progress: 'Progress', addStepPh: 'Add a step…', dragToReorder: 'Drag to reorder / re-parent',
+    subDndHint: 'Drag a subtask: top/bottom edge = reorder as sibling; middle = nest (change parent)',
     moveUp: 'Move up', moveDown: 'Move down', doubleClickRename: 'Double-click to edit', del: 'Delete',
     toggleSubtasks: 'Toggle subtasks',
     startAtLabel: 'Start time', completeAtLabel: 'Complete time',
@@ -2224,6 +2226,7 @@ function renderTaskModal() {
             <div class="todo-card-sub-track" style="flex:1;margin:0 8px"><div class="todo-card-sub-fill" style="width:${cc.total ? (cc.done / cc.total) * 100 : 0}%"></div></div>
           </div>` : ''}
         <div class="todo-sub-tree"></div>
+        <div class="todo-sub-dnd-hint">${T('subDndHint')}</div>
         <div class="todo-field" style="margin-top:8px">
           <div class="todo-tag-add">
             <input class="todo-input" data-sub-input placeholder="${T('addStepPh')}" style="flex:1">
@@ -2264,13 +2267,36 @@ function renderTaskModal() {
         }).join('');
       }
       function attachTreeDnD() {
+        const clearAll = () => treeEl.querySelectorAll('.todo-sub-node').forEach((n) => n.classList.remove('drag-before', 'drag-after', 'drag-child'));
+        const zoneOf = (node, e) => {
+          const r = node.getBoundingClientRect();
+          const y = e.clientY - r.top;
+          if (y < r.height * 0.34) return 'before';
+          if (y > r.height * 0.66) return 'after';
+          return 'child';
+        };
         treeEl.querySelectorAll('.todo-sub-node').forEach((node) => {
           node.setAttribute('draggable', 'true');
-          node.addEventListener('dragstart', (e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', node.dataset.subId); });
-          node.addEventListener('dragover', (e) => { e.preventDefault(); node.classList.add('drag-over'); });
-          node.addEventListener('dragleave', () => node.classList.remove('drag-over'));
-          node.addEventListener('drop', (e) => { e.preventDefault(); e.stopPropagation(); node.classList.remove('drag-over'); const dragId = e.dataTransfer.getData('text/plain'); reparentSubtask(dragId, node.dataset.subId); });
-          node.addEventListener('dragend', () => node.classList.remove('drag-over'));
+          node.addEventListener('dragstart', (e) => {
+            if (e.target.closest('input,select,textarea,button,[contenteditable]')) { e.preventDefault(); return; }
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', node.dataset.subId);
+          });
+          node.addEventListener('dragover', (e) => {
+            e.preventDefault(); e.stopPropagation();
+            const zone = zoneOf(node, e);
+            clearAll();
+            node.classList.add('drag-' + zone);
+          });
+          node.addEventListener('drop', (e) => {
+            e.preventDefault(); e.stopPropagation();
+            const dragId = e.dataTransfer.getData('text/plain');
+            const zone = zoneOf(node, e);
+            clearAll();
+            if (zone === 'child') reparentSubtask(dragId, node.dataset.subId); // 中间=作为子项(嵌套/改父)
+            else insertSubAsSibling(dragId, node.dataset.subId, zone); // 上/下缘=同级前后换位(平级重排/改父级)
+          });
+          node.addEventListener('dragend', clearAll);
         });
       }
       treeEl.innerHTML = subtreeHTML(draft.subtasks, 0);
@@ -2402,6 +2428,20 @@ function renderTaskModal() {
     if (to < 0 || to >= list.length) return;
     [list[idx], list[to]] = [list[to], list[idx]];
     list.forEach((x, i) => { x.sort = i; });
+    renderBody();
+  }
+  // 同级插入(补丁·58):把 dragId 插到 targetId 之前/之后,成为 target 的兄弟(共用父级)
+  // 既实现"平级拖拽改顺序",也实现"修改归属父级"(target 落在不同父级列表时即改父)
+  function insertSubAsSibling(dragId, targetId, position) {
+    if (dragId === targetId) return;
+    const df = findSub(draft.subtasks, dragId);
+    if (!df) return;
+    const moved = df.list.splice(df.index, 1)[0]; // 先从原列表移除,避免同列表时影响 target 索引
+    const tf = findSub(draft.subtasks, targetId); // 移除后重新定位(索引可能已变)
+    if (!tf) { df.list.push(moved); df.list.forEach((x, i) => { x.sort = i; }); renderBody(); return; }
+    const insertAt = position === 'before' ? tf.index : tf.index + 1;
+    tf.list.splice(insertAt, 0, moved);
+    tf.list.forEach((x, i) => { x.sort = i; }); // 重编号该兄弟序列
     renderBody();
   }
 
