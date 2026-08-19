@@ -463,6 +463,105 @@ app.whenReady().then(async () => {
       check('子任务拖拽:平级重排生效(顺序变更)', !o.err && JSON.stringify(o.before) !== JSON.stringify(o.afterReorder) && o.afterReorder.indexOf('s_smoke_2') < o.afterReorder.indexOf('s_smoke_1'), 'before=' + JSON.stringify(o.before) + ' after=' + JSON.stringify(o.afterReorder));
       check('子任务拖拽:改父级生效(s_smoke_1 归入 s_smoke_2 子级)', !o.err && o.afterReparent && o.afterReparent.top.length === 1 && o.afterReparent.top[0] === 's_smoke_2' && o.afterReparent.under2.includes('s_smoke_1'), 'under2=' + JSON.stringify(o.afterReparent && o.afterReparent.under2) + ' top=' + JSON.stringify(o.afterReparent && o.afterReparent.top) + ' err=' + o.err);
 
+      // 5.4.7) 补丁·58 修复验证:嵌套子任务可拖回顶层(拖出来)
+      o = await js('subDnDOut', `(async () => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const cardA = document.querySelector('.todo-card[data-task-id="${TASK_A}"]');
+        if (!cardA) return { err: 'cardA missing' };
+        const editBtn = cardA.querySelector('[data-t="edit"]');
+        if (editBtn) { editBtn.click(); await sleep(350); }
+        const subTab = document.querySelector('[data-tab="subtasks"]');
+        if (subTab) { subTab.click(); await sleep(300); }
+        const getTree = () => document.querySelector('.todo-sub-tree');
+        if (!getTree()) return { err: 'no tree' };
+        const topIds = () => { const t = getTree(); return t ? [...t.querySelectorAll(':scope > .todo-sub-node')].map((n) => n.dataset.subId) : []; };
+        const nestedUnder = (id) => { const t = getTree(); return t ? [...t.querySelectorAll('.todo-sub-node[data-sub-id="'+id+'"] > .todo-sub-children > .todo-sub-node')].map((n) => n.dataset.subId) : []; };
+        async function drag(srcId, tgtId, zone) {
+          const t = getTree();
+          const src = t && t.querySelector('.todo-sub-node[data-sub-id="'+srcId+'"]');
+          const tgt = t && t.querySelector('.todo-sub-node[data-sub-id="'+tgtId+'"]');
+          if (!src || !tgt) return { err: 'missing '+srcId+'/'+tgtId };
+          const dt = new DataTransfer();
+          src.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
+          await sleep(60);
+          const r = tgt.getBoundingClientRect();
+          const cy = zone === 'before' ? r.top + 2 : zone === 'after' ? r.bottom - 2 : r.top + r.height / 2;
+          const pt = { clientX: r.left + r.width / 2, clientY: cy };
+          tgt.dispatchEvent(new DragEvent('dragover', Object.assign({ bubbles: true, dataTransfer: dt }, pt)));
+          tgt.dispatchEvent(new DragEvent('drop', Object.assign({ bubbles: true, dataTransfer: dt }, pt)));
+          return {};
+        }
+        // 先确保 s_smoke_1 嵌套在 s_smoke_2 之下
+        if (!nestedUnder('s_smoke_2').includes('s_smoke_1')) {
+          await drag('s_smoke_1', 's_smoke_2', 'child');
+          await sleep(60);
+        }
+        const topBefore = topIds();
+        const nestedBefore = nestedUnder('s_smoke_2');
+        // 把 s_smoke_1 拖出:拖到 s_smoke_2 之前(同级前插)→ 成为顶层兄弟
+        await drag('s_smoke_1', 's_smoke_2', 'before');
+        await sleep(60);
+        const topAfter = topIds();
+        const saveBtn = document.querySelector('[data-save]');
+        if (saveBtn) { saveBtn.click(); await sleep(400); }
+        const closeBtn = document.querySelector('[data-act="close"]');
+        if (closeBtn) { closeBtn.click(); await sleep(200); }
+        return { err: '', topBefore, nestedBefore, topAfter };
+      })()`);
+      check('子任务拖拽:嵌套子任务可拖回顶层(拖出来)', !o.err && o.topAfter.length >= 2 && o.topAfter.includes('s_smoke_1') && o.topAfter.includes('s_smoke_2'), 'before=' + JSON.stringify(o.topBefore) + ' nestedBefore=' + JSON.stringify(o.nestedBefore) + ' after=' + JSON.stringify(o.topAfter));
+
+      // 5.4.9) 补丁·59:子任务 ✎ 编辑按钮 → 详情标签页对象切换为该子任务 + 底部返回按钮回上一级
+      o = await js('subDrillEdit', `(async () => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const cardA = document.querySelector('.todo-card[data-task-id="${TASK_A}"]');
+        if (!cardA) return { err: 'cardA missing' };
+        const eb = cardA.querySelector('[data-t="edit"]');
+        if (eb) { eb.click(); await sleep(350); }
+        const subTab = document.querySelector('[data-tab="subtasks"]');
+        if (subTab) { subTab.click(); await sleep(300); }
+        const tree = document.querySelector('.todo-sub-tree');
+        if (!tree) return { err: 'no tree' };
+        // s_smoke_2 应有子任务(5.4.4 自动建了一个),取其 id 用于嵌套钻取
+        const childNode = tree.querySelector('.todo-sub-node[data-sub-id="s_smoke_2"] > .todo-sub-children > .todo-sub-node');
+        const childId = childNode ? childNode.dataset.subId : '';
+        // 点 ✎ 进入 s_smoke_2 详情
+        const editBtn2 = tree.querySelector('.todo-sub-edit[data-sub-edit="s_smoke_2"]');
+        if (!editBtn2) return { err: 'no edit btn on s_smoke_2' };
+        editBtn2.click();
+        await sleep(200);
+        const subTitleIp = document.querySelector('[data-sub-d="title"]');
+        const backBtn = document.querySelector('[data-sub-back]');
+        const taskTitleIp = document.querySelector('[data-d="title"]');
+        const crumbTask = document.querySelector('.todo-crumb[data-crumb="__task__"]');
+        const drillTitle = subTitleIp ? subTitleIp.value : '';
+        // 改子任务标题,验证双向绑定
+        let changed = false;
+        if (subTitleIp) { subTitleIp.value = '补丁59_改标题'; subTitleIp.dispatchEvent(new Event('input', { bubbles: true })); changed = true; await sleep(80); }
+        // 钻取到子任务
+        let drilledChild = false, childSubTitle = '';
+        if (childId) {
+          const childEdit = document.querySelector('.todo-sub-edit[data-sub-edit="'+childId+'"]');
+          if (childEdit) { childEdit.click(); await sleep(180); drilledChild = true; const cIp = document.querySelector('[data-sub-d="title"]'); childSubTitle = cIp ? cIp.value : ''; }
+        }
+        // 返回:回到 s_smoke_2 详情(应保留刚才的标题修改)
+        let back1Title = '', back1HasBack = false;
+        const backBtn2 = document.querySelector('[data-sub-back]');
+        if (backBtn2) { backBtn2.click(); await sleep(150); const t = document.querySelector('[data-sub-d="title"]'); back1Title = t ? t.value : ''; back1HasBack = !!document.querySelector('[data-sub-back]'); }
+        // 再返回:回到任务详情
+        let taskTitleNow = '', subEditGone = false;
+        const backBtn3 = document.querySelector('[data-sub-back]');
+        if (backBtn3) { backBtn3.click(); await sleep(150); const t = document.querySelector('[data-d="title"]'); taskTitleNow = t ? t.value : ''; subEditGone = !document.querySelector('[data-sub-back]'); }
+        // 取消关闭(不落库,避免污染持久化断言)
+        const cancelBtn = document.querySelector('.todo-modal-foot [data-close]');
+        if (cancelBtn) { cancelBtn.click(); await sleep(200); }
+        return { err: '', childId, drillTitle, hasBack: !!backBtn, taskTitleIpNull: !taskTitleIp, hasCrumb: !!crumbTask, changed, back1Title, back1HasBack, drilledChild, childSubTitle, taskTitleNow, subEditGone };
+      })()`);
+      check('子任务编辑按钮:✎ 切详情且对象变为该子任务', !o.err && o.drillTitle === '跑测试' && o.hasBack && o.taskTitleIpNull && o.hasCrumb, 'title=' + o.drillTitle + ' hasBack=' + o.hasBack + ' taskIpNull=' + o.taskTitleIpNull + ' crumb=' + o.hasCrumb + ' err=' + o.err);
+      check('子任务详情:标题双向绑定生效', o.changed === true);
+      check('子任务钻取:可进入嵌套子任务详情', !o.err && o.drilledChild && o.childSubTitle && o.childSubTitle.length > 0, 'child=' + o.childSubTitle);
+      check('返回按钮:返回上一级(仍为子任务详情且保留修改)', !o.err && o.back1HasBack && o.back1Title === '补丁59_改标题', 'back1=' + o.back1Title + ' hasBack=' + o.back1HasBack);
+      check('返回按钮:再返回回到任务详情', !o.err && o.subEditGone && o.taskTitleNow === '完成 Spine 转换工具', 'taskNow=' + o.taskTitleNow + ' subEditGone=' + o.subEditGone);
+
       // 5.5) 事件时间格式(now()现在返回秒,不再出现 year=58598)
       o = await js('eventTimeFormat', `(async () => {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -1263,11 +1362,12 @@ app.whenReady().then(async () => {
       // 补丁·57:嵌套子任务(子任务下再建子任务)必须能落库
       const sub1 = flatSubs.find((s) => s.id === 's_smoke_2');
       check('持久化:补丁·57 嵌套子任务落库', !!sub1 && Array.isArray(sub1.subtasks) && sub1.subtasks.length >= 1, 'sub1subs=' + JSON.stringify(sub1 && sub1.subtasks && sub1.subtasks.length));
-      // 补丁·58:拖拽改父级 + 平级重排落库(s_smoke_1 顶层移走,归入 s_smoke_2 子级)
+      // 补丁·58:拖拽平级重排 + 改父级已落库(末态:s_smoke_1 被"拖出来"回到顶层兄弟,不再在 s_smoke_2 子级)
       const topIds = (a && a.subtasks || []).map((s) => s.id);
-      check('持久化:补丁·58 顶层子任务仅剩 s_smoke_2', JSON.stringify(topIds) === JSON.stringify(['s_smoke_2']), 'top=' + JSON.stringify(topIds));
       const s2Persist = (a && a.subtasks || []).find((s) => s.id === 's_smoke_2');
-      check('持久化:补丁·58 s_smoke_1 改父级落库(parent 为 s_smoke_2)', !!s2Persist && s2Persist.subtasks.some((x) => x.id === 's_smoke_1'), 's2subs=' + JSON.stringify(s2Persist && s2Persist.subtasks.map((x) => x.id)));
+      const s1UnderS2 = !!(s2Persist && s2Persist.subtasks && s2Persist.subtasks.some((x) => x.id === 's_smoke_1'));
+      check('持久化:补丁·58 改父级/拖出落库(s_smoke_1 不在 s_smoke_2 子级)', !s1UnderS2, 'top=' + JSON.stringify(topIds));
+      check('持久化:补丁·58 顶层含 s_smoke_1 与 s_smoke_2', topIds.includes('s_smoke_1') && topIds.includes('s_smoke_2'), 'top=' + JSON.stringify(topIds));
       // 补丁·40:看板拖拽用分数序号(小数 sort),必须能存进 SQLite 且列内相对顺序被保留
       const bT = d.todoTasks.find((t) => t.id === TASK_B);
       const doneCol = d.todoTasks.filter((t) => !t.archived && t.status === (bT ? bT.status : 'done'))

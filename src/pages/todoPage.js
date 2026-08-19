@@ -69,6 +69,7 @@ const LANGS = {
     eventsTab: '任务事件', addEvent: '添加事件', eventTextPh: '事件内容…', noEvents: '暂无任务事件',
     subDoneAt: '完成于', eventsSection: '任务事件',
     editSubtask: '编辑子任务', subDoneAtLabel: '完成日期', subDoneAtDisabledTip: '子任务未完成,勾选后才能填完成日期', subCreatedOn: '创建于 {0}',
+    subEdit: '编辑此子任务', backToTask: '← 返回上级', breadcrumbTask: '任务', noSubtasks: '暂无子任务',
     parentTaskLabel: '父任务', noParent: '无父任务', publishAtLabel: '发布时间', parentProjectLabel: '父项目', noParentProject: '无（顶级项目）', noParentTask: '无（顶级任务）',
     // 详情
     copy: '复制', copyTitle: '复制任务摘要', copied: '已复制到剪贴板', copyFailed: '复制失败',
@@ -159,6 +160,7 @@ const LANGS = {
     eventsTab: 'Task Events', addEvent: 'Add Event', eventTextPh: 'Event content…', noEvents: 'No task events yet',
     subDoneAt: 'Done on', eventsSection: 'Task Events',
     editSubtask: 'Edit subtask', subDoneAtLabel: 'Done at', subDoneAtDisabledTip: 'Subtask not done yet — check it first to set a completion date', subCreatedOn: 'Created {0}',
+    subEdit: 'Edit this subtask', backToTask: '← Back', breadcrumbTask: 'Task', noSubtasks: 'No subtasks',
     parentTaskLabel: 'Parent task', noParent: 'No parent', publishAtLabel: 'Publish time', parentProjectLabel: 'Parent project', noParentProject: 'None (top-level)', noParentTask: 'None (top-level)',
     copy: 'Copy', copyTitle: 'Copy task summary', copied: 'Copied to clipboard', copyFailed: 'Copy failed',
     overduePrefix: 'Overdue · ', descLabel: 'Description', createdOn: 'Created {0}', updatedOn: 'Updated {0}',
@@ -2123,6 +2125,25 @@ function renderTaskModal() {
   let tab = modalInitialTab || 'details';
   modalInitialTab = 'details';
   box.querySelectorAll('.todo-tab-btn').forEach((x) => x.classList.toggle('on', x.dataset.tab === tab));
+  // 钻取栈(补丁·59):栈顶为当前"被修改对象"。null=任务根;否则子任务 id(可多层)。
+  // 从子任务列表点 ✎ 入栈 → 详情标签页改为编辑该子任务;底部"返回"弹栈回到上一级(任务或父级子任务)。
+  let editSubStack = [null];
+  function pathToSub(id, subs, acc) {
+    subs = subs || [];
+    for (const s of subs) {
+      const cur = (acc || []).concat([s]);
+      if (s.id === id) return cur;
+      const r = pathToSub(id, s.subtasks, cur);
+      if (r) return r;
+    }
+    return null;
+  }
+  function currentEditTarget() {
+    const id = editSubStack[editSubStack.length - 1];
+    if (id == null) return { kind: 'task' };
+    const f = findSub(draft.subtasks, id);
+    return f ? { kind: 'sub', sub: f.sub } : { kind: 'task' };
+  }
   // 输入暂存(每次渲染细节 tab 后同步回来)
   const draft = {
     title: task ? task.title : '',
@@ -2142,9 +2163,60 @@ function renderTaskModal() {
   };
 
   const bodyEl = box.querySelector('[data-body]');
+  // 详情标签页编辑某个子任务(补丁·59):标题/备注/状态/完成时间/创建时间 + 子任务钻取列表 + 面包屑 + 返回
+  function renderSubDetails(sub) {
+    const st = subStatus(sub);
+    const statusOpts = Object.keys(STATUS_CONFIG).map((k) => `<option value="${k}"${st === k ? ' selected' : ''}>${stLabel(k)}</option>`).join('');
+    const path = pathToSub(sub.id, draft.subtasks) || [sub];
+    const crumbs = [`<button class="todo-crumb" data-crumb="__task__">${escHtml(draft.title || T('breadcrumbTask'))}</button>`]
+      .concat(path.slice(0, -1).map((p) => `<button class="todo-crumb" data-crumb="${p.id}">${escHtml(p.title)}</button>`))
+      .join('<span class="todo-crumb-sep">›</span>');
+    const childRows = (sub.subtasks && sub.subtasks.length)
+      ? sub.subtasks.map((c) => `<div class="todo-sub-drill-row">
+          <span class="todo-sub-status-dot todo-sub-status-${subStatus(c)}"></span>
+          <span class="todo-sub-drill-title">${escHtml(c.title)}</span>
+          <button class="todo-icon-btn todo-sub-edit" data-sub-edit="${c.id}" title="${T('subEdit')}">✎</button>
+        </div>`).join('')
+      : `<div class="todo-empty-desc">${T('noSubtasks')}</div>`;
+    bodyEl.innerHTML = `
+      <div class="todo-crumbs">${crumbs}</div>
+      <div class="todo-field"><label class="todo-label">${T('titleLabel')}</label>
+        <input class="todo-input" data-sub-d="title" value="${escHtml(sub.title)}"></div>
+      <div class="todo-field"><label class="todo-label">${T('notesLabel')}</label>
+        <textarea class="todo-input todo-textarea" data-sub-d="notes" rows="3">${escHtml(sub.notes || '')}</textarea></div>
+      <div class="todo-field-row">
+        <div class="todo-field" style="flex:1"><label class="todo-label">${T('statusLabel')}</label>
+          <select class="todo-input" data-sub-d="status">${statusOpts}</select></div>
+      </div>
+      <div class="todo-field"><label class="todo-label">${T('subDoneAtLabel')}</label>
+        <input type="datetime-local" class="todo-input" data-sub-d="doneAt" value="${sub.doneAt ? tsToDateTimeLocal(sub.doneAt) : ''}" ${st === 'done' ? '' : 'disabled'}></div>
+      <div class="todo-sub-created" title="${T('subCreatedOn', fmtFullDate(sub.createdAt))}">🕓 ${T('subCreatedOn', fmtShortDate(sub.createdAt))}</div>
+      <div class="todo-sub-drill-children">
+        <div class="todo-label" style="margin:6px 0 4px">${T('tabSubtasks')}</div>
+        ${childRows}
+      </div>
+      <div class="todo-drill-back"><button class="btn" data-sub-back>${T('backToTask')}</button></div>`;
+    bodyEl.querySelector('[data-sub-d="title"]').addEventListener('input', (e) => { sub.title = e.target.value; });
+    bodyEl.querySelector('[data-sub-d="notes"]').addEventListener('input', (e) => { sub.notes = e.target.value; });
+    bodyEl.querySelector('[data-sub-d="status"]').addEventListener('change', (e) => {
+      const ns = e.target.value; sub.status = ns; sub.done = ns === 'done';
+      if (ns === 'done' && !sub.doneAt) sub.doneAt = now(); if (ns !== 'done') sub.doneAt = null; renderBody();
+    });
+    bodyEl.querySelector('[data-sub-d="doneAt"]').addEventListener('change', (e) => { sub.doneAt = e.target.value ? dateTimeLocalToTs(e.target.value) : null; });
+    bodyEl.querySelectorAll('[data-sub-edit]').forEach((b) => b.addEventListener('click', () => { editSubStack.push(b.dataset.subEdit); renderBody(); }));
+    bodyEl.querySelectorAll('[data-crumb]').forEach((b) => b.addEventListener('click', () => {
+      const v = b.dataset.crumb;
+      if (v === '__task__') { editSubStack = [null]; }
+      else { const p2 = pathToSub(v, draft.subtasks); editSubStack = [null].concat((p2 || []).map((x) => x.id)); }
+      renderBody();
+    }));
+    bodyEl.querySelector('[data-sub-back]').addEventListener('click', () => { if (editSubStack.length > 1) { editSubStack.pop(); renderBody(); } });
+  }
   function renderBody() {
     bodyEl.innerHTML = '';
     if (tab === 'details') {
+      const tgt = currentEditTarget();
+      if (tgt.kind === 'sub') { renderSubDetails(tgt.sub); return; }
       const projects = state.todoProjects;
       bodyEl.innerHTML = `
         <div class="todo-field"><label class="todo-label">${T('titleLabel')}</label>
@@ -2251,6 +2323,7 @@ function renderTaskModal() {
               `</div>` +
               `<select class="todo-sub-status-select" data-sub-status="${s.id}" title="${T('statusLabel')}">${statusOpts}</select>` +
               `<span class="todo-sub-title${st === 'done' ? ' done' : ''}" data-sub-rename="${s.id}" title="${T('doubleClickRename')}">${escHtml(s.title)}</span>` +
+              `<button class="todo-icon-btn todo-sub-edit" data-sub-edit="${s.id}" title="${T('subEdit')}">✎</button>` +
               `<button class="todo-icon-btn todo-sub-addchild" data-sub-addchild="${s.id}" title="${T('newSubtaskUnderTask')}">➕</button>` +
               `<button class="todo-icon-btn" data-sub-del="${s.id}" title="${T('del')}">✕</button>` +
             `</div>` +
@@ -2279,6 +2352,7 @@ function renderTaskModal() {
           node.setAttribute('draggable', 'true');
           node.addEventListener('dragstart', (e) => {
             if (e.target.closest('input,select,textarea,button,[contenteditable]')) { e.preventDefault(); return; }
+            e.stopPropagation(); // 关键:阻止冒泡到祖先 .todo-sub-node,否则祖先会覆盖 dataTransfer 的 id(嵌套子任务始终被当成顶层父节点,导致无法拖出)
             e.dataTransfer.effectAllowed = 'move';
             e.dataTransfer.setData('text/plain', node.dataset.subId);
           });
@@ -2307,10 +2381,17 @@ function renderTaskModal() {
         const down = e.target.closest('[data-sub-down]');
         const addc = e.target.closest('[data-sub-addchild]');
         const del = e.target.closest('[data-sub-del]');
+        const ed = e.target.closest('[data-sub-edit]');
         if (up) moveSubtask(up.dataset.subUp, -1);
         else if (down) moveSubtask(down.dataset.subDown, 1);
         else if (addc) addChildSub(addc.dataset.subAddchild);
         else if (del) { const f = findSub(draft.subtasks, del.dataset.subDel); if (f) { f.list.splice(f.index, 1); renderBody(); } }
+        else if (ed) {
+          editSubStack.push(ed.dataset.subEdit);
+          tab = 'details';
+          box.querySelectorAll('.todo-tab-btn').forEach((x) => x.classList.toggle('on', x.dataset.tab === 'details'));
+          renderBody();
+        }
       });
       // 状态选择 / 完成日期
       treeEl.addEventListener('change', (e) => {
