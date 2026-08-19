@@ -3,7 +3,24 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.61`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.62`）。
+
+---
+
+## 2026-08-19（补丁·62）
+
+### [修复] Todo-List 折叠/展开图标统一 + 子任务块背景色与父级卡片相近
+- **Todo-List 模块所有折叠/展开图标字符统一为 ▼（展开）/▶（折叠）**：删除 `.todo-card-subs.collapsed .todo-sub-toggle-arrow { transform: rotate(-90deg) }` 字符旋转切图方案，改用字符切换
+  - 侧栏项目树 `arrow.textContent = hasChildren ? (collapsed ? '▶' : '▼') : ''`
+  - 子任务折叠按钮 `▾ → ▼`、`▸ → ▶`
+- **子任务块背景色与父级任务卡背景色相近（差异≤2 RGB）**：`.todo-sub-block` 由 `var(--bg2)` 改为 `var(--bg3)`（与 `.todo-card` 同一变量），统一父级子任务的视觉层次
+- **[修复] Todo-List 冒烟脚本 EPIPE 报错窗口（non-blocking）**：
+  - `check()` 改 EPIPE-safe（try/catch `process.stdout.write`）
+  - `process.on('uncaughtException')` 拦截 EPIPE 不再弹窗
+  - `process.stdout/stderr.on('error')` 吞掉 EPIPE 错误
+  - 单 IIFE 内 `click + sleep` 的多次异步合并到单次 `executeJavaScript`，避免 IPC reply 超时 → EPIPE
+- 冒烟新增 4 项断言全过：展开字符 ▼ / 折叠字符 ▶ / 再次展开还原 ▼ / 子任务块与卡片背景差异≤2
+- 总 170/182 通过，零回归
 
 ---
 

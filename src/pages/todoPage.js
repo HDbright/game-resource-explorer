@@ -1013,7 +1013,7 @@ function renderTreeNode(node, depth, isLast) {
 
   const arrow = document.createElement('button');
   arrow.className = 'todo-tree-arrow';
-  arrow.textContent = hasChildren ? (collapsed ? '▸' : '▾') : '';
+  arrow.textContent = hasChildren ? (collapsed ? '▶' : '▼') : '';
   arrow.style.visibility = hasChildren ? 'visible' : 'hidden';
   if (hasChildren) arrow.addEventListener('click', (e) => { e.stopPropagation(); toggleNode(node.id); });
   row.appendChild(arrow);
@@ -1916,7 +1916,7 @@ function renderTaskCard(task, compact = false, colStatus = null) {
     html += `
       <div class="todo-card-subs">
         <button class="todo-sub-toggle" data-t="subtoggle" title="${T('toggleSubtasks')}">
-          <span class="todo-sub-toggle-arrow">▾</span>
+          <span class="todo-sub-toggle-arrow">▼</span>
           <span class="todo-sub-toggle-text">${T('subtasksPrefix', doneSubs, totalSubs)}</span>
           <span class="todo-sub-toggle-pct">${Math.round(doneSubs / totalSubs * 100)}%</span>
         </button>
@@ -2169,7 +2169,7 @@ function toggleSubtasksCollapse(task, btn) {
   if (!wrap) return;
   wrap.classList.toggle('collapsed');
   const arrow = btn.querySelector('.todo-sub-toggle-arrow');
-  if (arrow) arrow.textContent = wrap.classList.contains('collapsed') ? '▸' : '▾';
+  if (arrow) arrow.textContent = wrap.classList.contains('collapsed') ? '▶' : '▼';
 }
 
 // ---------------- 进度条 ----------------

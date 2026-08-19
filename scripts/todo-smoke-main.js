@@ -139,10 +139,17 @@ ipcMain.handle('fs:writeFileBase64', (_e, filePath, dataUrl) => {
   } catch (err) { return { ok: false, error: err.message }; }
 });
 
+// 兜住任何写 stdout 的 EPIPE(管道被父进程关闭时常见),不让脚本因此崩掉
+process.on('uncaughtException', (e) => { if (e && e.code === 'EPIPE') return; console.error(e && e.stack || e); });
+process.stdout.on('error', (e) => { if (e && e.code === 'EPIPE') return; });
+process.stderr.on('error', (e) => { if (e && e.code === 'EPIPE') return; });
+
 let results = [];
 function check(name, ok, extra) {
   results.push({ name, ok, extra: extra || '' });
-  console.log(`${ok ? 'PASS' : 'FAIL'} - ${name}${extra ? ' | ' + extra : ''}`);
+  const line = `${ok ? 'PASS' : 'FAIL'} - ${name}${extra ? ' | ' + extra : ''}\n`;
+  // EPIPE-safe:管道关闭时静默
+  try { process.stdout.write(line); } catch (_) { /* EPIPE 等 */ }
 }
 
 app.whenReady().then(async () => {
@@ -208,35 +215,64 @@ app.whenReady().then(async () => {
       check('提醒悬停详情(公历+农历)', (o.title || '').includes('测试公历生日') && (o.title || '').includes('测试农历生日') && (o.title || '').includes('农历'), (o.title || '').split('\n').join(' | '));
 
       // 2) 卡片内容(补丁·61:子任务块从 .todo-sub-chip 改为 .todo-sub-block 独立区块)
-      o = await js('card', `(() => {
-        // 补丁·45:TASK_A 挂在子项目\"子项目\"下,卡片徽章应显示\"子项目\"
+//     补丁·62:折叠/展开图标统一为 ▼/▶,子任务块背景色与父级卡片相近
+//     注意:把 click+sleep 拆成 3 次独立 executeJavaScript,避免单 IIFE 内多次 click+sleep
+//     触发 IPC reply 超时(EPIPE 报错窗口已修复:check() EPIPE-safe + stdout error 监听)
+      o = await js('card', `(async () => {
         const projChip = !![...document.querySelectorAll('.todo-card-proj span')].find((s) => (s.textContent || '').includes('子项目'));
-        // 补丁·61:子任务块(独立区块)数量 + 折叠图标尺寸
         const subBlocks = document.querySelectorAll('.todo-card .todo-sub-block').length;
-        // 父项目\"游戏开发\"与子项目\"子项目\"都应出现在筛选下拉
         const projFilter = !![...document.querySelectorAll('.todo-select')].find((s) => [...s.options].some((x) => x.textContent === '游戏开发' || x.textContent === '子项目'));
         const cardA = document.querySelector('.todo-card[data-task-id="t_smoke_a"]');
-        // 子任务块的状态按钮:补丁·61 用 .todo-sub-block-status(单字符图标)
         const subIconDone = (document.querySelector('.todo-sub-block-status.sub-done') || {}).textContent || '';
         const subIconTodo = (document.querySelector('.todo-sub-block-status:not(.sub-done):not(.sub-in_progress)') || {}).textContent || '';
-        // 折叠/展开图标尺寸 ≥ 20px(补丁·61:从 15px → 22px 加大)
         const toggleArrow = document.querySelector('.todo-sub-toggle-arrow');
         const toggleFontSize = toggleArrow ? parseFloat(getComputedStyle(toggleArrow).fontSize) : 0;
-        // 子任务折叠图标与首个子任务块之间的视觉间距(L 形连线从父级折叠图标下方发出)
         const firstBlock = document.querySelector('.todo-card .todo-sub-block');
         const arrowRect = toggleArrow ? toggleArrow.getBoundingClientRect() : null;
         const blockRect = firstBlock ? firstBlock.getBoundingClientRect() : null;
         const gapY = arrowRect && blockRect ? Math.round(blockRect.top - arrowRect.bottom) : null;
-        return { projChip, subBlocks, projFilter, subIconDone, subIconTodo, toggleFontSize, gapY,
+        const arrowNow = (document.querySelector('.todo-sub-toggle-arrow') || {}).textContent || '';
+        const cardBg = getComputedStyle(document.querySelector('.todo-card')).backgroundColor;
+        const blockBg = getComputedStyle(document.querySelector('.todo-sub-block')).backgroundColor;
+        // 用 parseInt 解析前三个数字,避免数组短路 + map 配合时易掉进 -Infinity 的坑
+        const numbersOf = (s) => { const m = String(s).match(/\d+/g) || []; return [0,1,2].map((i) => parseInt(m[i] || '0', 10) || 0); };
+        const cR = numbersOf(cardBg), bR = numbersOf(blockBg);
+        const diff = Math.max(Math.abs(cR[0]-bR[0]), Math.abs(cR[1]-bR[1]), Math.abs(cR[2]-bR[2]));
+        const cardBgRGB = 'rgb(' + cR.join(',') + ')';
+        const blockBgRGB = 'rgb(' + bR.join(',') + ')';
+        return { projChip, subBlocks, projFilter, subIconDone, subIconTodo, toggleFontSize, gapY, arrowNow, cardBgRGB, blockBgRGB, diff,
           cardAhtml: cardA ? cardA.innerHTML.slice(0, 700) : 'NO CARD' };
       })()`);
       check('项目徽章', o.projChip === true);
       check('子任务块(补丁·61)数量 >= 2', o.subBlocks >= 2, 'subBlocks=' + o.subBlocks);
       check('子任务块图标:完成✅/未完成⬜', o.subIconDone === '✅' && o.subIconTodo === '⬜', 'done=' + JSON.stringify(o.subIconDone) + ' todo=' + JSON.stringify(o.subIconTodo));
       check('项目筛选下拉', o.projFilter === true);
-      // 补丁·61 视觉硬约束:折叠图标尺寸 ≥ 20px,且与首个子任务块间距 ≤ 8px(让 L 形连线贴近父级图标下沿)
-      check('折叠/展开图标字体≥20px(补丁·61)', o.toggleFontSize >= 20, 'fs=' + o.toggleFontSize);
-      check('首个子任务块距折叠图标下沿 ≤ 8px(L 形起点贴近)', o.gapY != null && o.gapY <= 8, 'gapY=' + o.gapY);
+      check('折叠/展开图标字体>=20px(补丁·61)', o.toggleFontSize >= 20, 'fs=' + o.toggleFontSize);
+      check('首个子任务块距折叠图标下沿 <= 8px(L 形起点贴近)', o.gapY != null && o.gapY <= 8, 'gapY=' + o.gapY);
+      // 补丁·62 数据 1:展开状态字符 + 背景色差异
+      check('补丁·62:展开状态字符 DOWN', o.arrowNow === '▼', 'got=' + JSON.stringify(o.arrowNow));
+      check('补丁·62:子任务块背景色与父级卡片背景色相近(差异<=2)', o.diff <= 2, 'card=' + o.cardBgRGB + ' block=' + o.blockBgRGB + ' diff=' + o.diff);
+
+      // 补丁·62 数据 2:折叠后字符(独立 js 调用,避免单 IIFE 内 click+sleep 触发 reply 超时)
+      o = await js('card-fold', `(async () => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const btn = document.querySelector('.todo-sub-toggle');
+        if (btn) btn.click();
+        await sleep(80);
+        return { arrowCollapsed: (document.querySelector('.todo-sub-toggle-arrow') || {}).textContent || '' };
+      })()`);
+      check('补丁·62:折叠状态字符 RIGHT', o.arrowCollapsed === '▶', 'got=' + JSON.stringify(o.arrowCollapsed));
+
+      // 补丁·62 数据 3:再次展开还原字符
+      o = await js('card-refold', `(async () => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const btn = document.querySelector('.todo-sub-toggle');
+        if (btn) btn.click();
+        await sleep(80);
+        return { arrowReopen: (document.querySelector('.todo-sub-toggle-arrow') || {}).textContent || '' };
+      })()`);
+      check('补丁·62:再次展开字符 DOWN', o.arrowReopen === '▼', 'got=' + JSON.stringify(o.arrowReopen));
+
       if (!o.projChip) console.log('  [debug] cardA html:', o.cardAhtml);
 
       // 3) 状态循环 + 优先级循环
@@ -1101,7 +1137,7 @@ app.whenReady().then(async () => {
         // 折叠后子项目节点不再出现在 DOM(统一树不渲染 children 包裹层)
         out.childHidden = !!(gameNode2 && !gameNode2.querySelector('.todo-tree-proj[data-proj="p_smoke_child"]'));
         out.arrowGlyph = gameNode2 ? (gameNode2.querySelector('.todo-tree-row .todo-tree-arrow') || {}).textContent : '';
-        out.arrowCollapsed = out.arrowGlyph.includes('▸');
+        out.arrowCollapsed = out.arrowGlyph.includes('▶');
         // 展开还原,避免影响后续归档
         const gRow2 = gameNode2 ? gameNode2.querySelector('.todo-tree-row') : null;
         if (gRow2) { gRow2.click(); await sleep(200); }
@@ -1140,7 +1176,7 @@ app.whenReady().then(async () => {
       check('树:项目内任务树嵌套(TASK_B 在 TASK_A 下)', o.aNodeFound === true && o.bNodeFound === true && o.bInsideA === true, 'a=' + o.aNodeFound + ' b=' + o.bNodeFound + ' inside=' + o.bInsideA);
       check('树:三色状态统计(待办/进行中/已完成)', o.statOk === true && (o.statTodo + o.statProg + o.statDone) >= 2, 'todo=' + o.statTodo + ' prog=' + o.statProg + ' done=' + o.statDone);
       check('树:折叠写入 localStorage(todo_tree_collapsed)', o.lsHasId === true, 'before=' + o.beforeLS + ' after=' + o.afterLS);
-      check('树:折叠后子项目从 DOM 移除 + ▸箭头', o.childHidden === true && o.arrowCollapsed === true, 'childHidden=' + o.childHidden + ' arrowGlyph=' + o.arrowGlyph);
+      check('树:折叠后子项目从 DOM 移除 + ▶箭头', o.childHidden === true && o.arrowCollapsed === true, 'childHidden=' + o.childHidden + ' arrowGlyph=' + o.arrowGlyph);
       check('树:再次点击可展开还原', o.expandedAfter === true);
       check('树(补丁·53):从属连接线存在(竖线+分支线)', o.guidesTotal > 0 && o.vlines > 0 && o.hlines > 0, 'guides=' + o.guidesTotal + ' v=' + o.vlines + ' h=' + o.hlines);
       check('树(补丁·53):子级节点有连接线 / 根级无连接线', o.childHasGuides === true && o.rootHasNoGuides === true, 'child=' + o.childHasGuides + ' root=' + o.rootHasNoGuides);
