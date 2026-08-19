@@ -1098,6 +1098,14 @@ function renderTreeNode(node, depth, isLast) {
     childWrap.className = 'todo-tree-children';
     node.children.forEach((ch, i) => childWrap.appendChild(renderTreeNode(ch, depth + 1, i === node.children.length - 1)));
     el.appendChild(childWrap);
+    // 补丁·66: 非末子节点且有子任务时,父列竖线必须贯穿整个子树(含孙级任务块),
+    // 否则当父级下方还有同级任务(更上级任务项)时,外层连接线会在子任务块处中断。
+    // 在子任务容器左侧父列位置补一条贯穿整块高度的竖线,与首尾行竖线接成连续线。
+    if (depth >= 1 && !isLast) {
+      childWrap.style.position = 'relative';
+      childWrap.insertAdjacentHTML('afterbegin',
+        `<i class="todo-tree-line tl-v" style="left:${(depth - 1) * 18 + 9}px;top:0;bottom:0;pointer-events:none;z-index:0"></i>`);
+    }
   }
   return el;
 }

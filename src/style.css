@@ -2871,6 +2871,9 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .todo-card-title-row { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
 .todo-card-title { font-size: 14px; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .todo-card.done .todo-card-title { text-decoration: line-through; color: var(--text2); }
+/* 看板视图:任务标题单独占一行以便完整显示,项目名/日期/优先级换行紧随其后 */
+.todo-card-kanban-col .todo-card-title-row { flex-wrap: wrap; align-items: flex-start; }
+.todo-card-kanban-col .todo-card-title { flex: 0 0 100%; max-width: 100%; white-space: normal; overflow: visible; text-overflow: clip; margin-bottom: 2px; }
 .todo-pri-btn { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 600; text-transform: uppercase; flex-shrink: 0; background: none; border: none; cursor: pointer; padding: 1px 4px; border-radius: 3px; }
 .todo-pri-btn:hover { background: var(--bg4); }
 .todo-pri-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
