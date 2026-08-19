@@ -227,6 +227,69 @@ function subStatus(s) {
 }
 function subDone(s) { return subStatus(s) === 'done'; }
 function subStatusIcon(s) { return STATUS_CONFIG[subStatus(s)].icon; }
+// 补丁·60:规范化子任务草稿(递归) — 老库缺 priority/projectId/parentTaskId/deadline/startAt/completeAt/tags/updatedAt 时补默认值。
+// 注意:parentTaskId 顶层子任务必须等于所在任务 id(否则保存时会被迁到对应任务下,出现重复 + 视图不符)。
+function normalizeSubDraft(s) {
+  if (!s || typeof s !== 'object') return s;
+  s.priority = s.priority || 'medium';
+  s.projectId = s.projectId || '';
+  if (!s.parentTaskId) s.parentTaskId = s.parentTaskId || '';
+  s.deadline = s.deadline || 0;
+  s.tags = Array.isArray(s.tags) ? [...s.tags] : [];
+  s.subtasks = (s.subtasks || []).map((c) => normalizeSubDraft(c));
+  return s;
+}
+// 给顶层子任务补 parentTaskId(新创建或迁移后)
+function fillSubParentTaskIds(subs, defaultParentTaskId) {
+  for (const s of (subs || [])) {
+    if (!s.parentTaskId) s.parentTaskId = defaultParentTaskId || '';
+    fillSubParentTaskIds(s.subtasks, s.parentTaskId || defaultParentTaskId);
+  }
+}
+// 补丁·60:跨任务迁移。在保存当前任务(含其 draft.subtasks)时,扫描所有 sub:
+//   - sub.parentTaskId 显式指向另一任务 → 把整个子节点树从当前任务 subtasks 移到目标任务的 subtasks 末尾
+//   - sub.parentTaskId 缺失 → 默认填 = 当前任务 id(防止成为孤儿)
+//   - 嵌套 sub:若其祖先被迁走,新位置在目标任务(本递归天然处理)
+// 注意:必须在 Object.assign(task, { subtasks: draft.subtasks }) 之后调用。
+function migrateSubtasksAcross(task) {
+  // 第一遍:把 task.subtasks 中所有 sub(递归)按 declared parent 重新归位
+  // 收集并清空 task.subtasks;把每个 sub 放到 declaredParent 对应的任务 subtasks 末尾
+  const collected = [];
+  const harvest = (subs) => {
+    if (!Array.isArray(subs)) return;
+    for (const s of subs) collected.push(s);
+    // 注意:harvest 仅收集顶层;嵌套 sub 已包含在 s.subtasks 里,无需再次收集
+  };
+  harvest(task.subtasks);
+  task.subtasks = [];
+  for (const s of collected) {
+    const owner = s.parentTaskId || task.id;
+    s.parentTaskId = owner;
+    if (owner === task.id) {
+      task.subtasks.push(s);
+    } else {
+      const target = state.todoTasks.find((tt) => tt.id === owner);
+      if (target) {
+        target.subtasks = target.subtasks || [];
+        target.subtasks.push(s);
+        target.updatedAt = now();
+      } else {
+        // 目标不存在(已被删):退回当前任务
+        s.parentTaskId = task.id;
+        task.subtasks.push(s);
+      }
+    }
+  }
+  // 嵌套 sub 的 parentTaskId 不直接用于树归属(用 parent_sub_id),但保留以供 read 显示
+  // 第二遍:处理其他任务的「残留」旧 sub(它们的 draft 不在 modal 内,但 db 旧数据可能仍挂在本任务 subtasks 下)
+  // 简化:不处理。如果有问题,由下次保存该任务时的迁移 pass 修复。
+  // 第三遍:重编号 sort 以便数据稳定
+  const renumber = (subs) => {
+    if (!Array.isArray(subs)) return;
+    subs.forEach((s, i) => { s.sort = i; renumber(s.subtasks); });
+  };
+  renumber(task.subtasks);
+}
 const SUB_STATUS_RANK = { todo: 0, in_progress: 1, done: 2 };
 const SUB_STATUS_NEXT = { todo: 'in_progress', in_progress: 'done', done: 'todo' };
 function countSubs(subs) {
@@ -2118,6 +2181,7 @@ function renderTaskModal() {
     </div>
     <div class="todo-modal-body" data-body></div>
     <div class="todo-modal-foot">
+      <button class="btn" data-sub-back hidden>${T('backToTask')}</button>
       <button class="btn" data-close>${T('cancel')}</button>
       <button class="btn primary" data-save>${isNew ? T('createTask') : T('saveChanges')}</button>
     </div>`;
@@ -2158,15 +2222,21 @@ function renderTaskModal() {
     tags: task ? [...task.tags] : [],
     tagInput: '',
     subtaskInput: '',
-    subtasks: task ? task.subtasks.map((s) => ({ ...s })) : [],
+    subtasks: task ? task.subtasks.map((s) => normalizeSubDraft({ ...s })) : [],
     events: task ? (task.events || []).map((e) => ({ ...e })) : [],
   };
 
   const bodyEl = box.querySelector('[data-body]');
-  // 详情标签页编辑某个子任务(补丁·59):标题/备注/状态/完成时间/创建时间 + 子任务钻取列表 + 面包屑 + 返回
+  // 详情标签页编辑某个子任务(补丁·59 + 补丁·60):
+  //   标题 / 备注 / 优先级 / 状态+项目+父任务(联动) / 截止日期 / 开始+完成时间 / 标签 / 钻取子任务 / 创建时间
+  //   返回按钮移到 foot(与取消/保存同行)
   function renderSubDetails(sub) {
     const st = subStatus(sub);
     const statusOpts = Object.keys(STATUS_CONFIG).map((k) => `<option value="${k}"${st === k ? ' selected' : ''}>${stLabel(k)}</option>`).join('');
+    const priOpts = Object.keys(PRIORITY_CONFIG).map((p) => `<button class="todo-pri-opt${sub.priority === p ? ' on' : ''}" data-sub-d-pri="${p}" style="${sub.priority === p ? `border-color:${PRIORITY_CONFIG[p].color};color:${PRIORITY_CONFIG[p].color};background:${PRIORITY_CONFIG[p].color}22` : ''}">${priLabel(p)}</button>`).join('');
+    const projects = state.todoProjects;
+    // 父任务候选:同项目下的任务 + 排除当前任务(防环)+ 排除 sub 自身(防环)。迁移到这些任务时由 saveTask 在保存时把 sub 从原归属任务移除。
+    const parentCandidates = state.todoTasks.filter((tt) => (tt.projectId || '') === (sub.projectId || '') && tt.id !== modalTaskId && tt.id !== sub.id);
     const path = pathToSub(sub.id, draft.subtasks) || [sub];
     const crumbs = [`<button class="todo-crumb" data-crumb="__task__">${escHtml(draft.title || T('breadcrumbTask'))}</button>`]
       .concat(path.slice(0, -1).map((p) => `<button class="todo-crumb" data-crumb="${p.id}">${escHtml(p.title)}</button>`))
@@ -2184,25 +2254,73 @@ function renderTaskModal() {
         <input class="todo-input" data-sub-d="title" value="${escHtml(sub.title)}"></div>
       <div class="todo-field"><label class="todo-label">${T('notesLabel')}</label>
         <textarea class="todo-input todo-textarea" data-sub-d="notes" rows="3">${escHtml(sub.notes || '')}</textarea></div>
+      <div class="todo-field"><label class="todo-label">${T('priorityLabel')}</label>
+        <div class="todo-pri-row">${priOpts}</div></div>
       <div class="todo-field-row">
         <div class="todo-field" style="flex:1"><label class="todo-label">${T('statusLabel')}</label>
           <select class="todo-input" data-sub-d="status">${statusOpts}</select></div>
+        <div class="todo-field" style="flex:1"><label class="todo-label">${T('projectLabel')}</label>
+          <select class="todo-input" data-sub-d="projectId">
+            <option value="">${T('noProject')}</option>
+            ${projects.map((p) => `<option value="${p.id}"${sub.projectId === p.id ? ' selected' : ''}>${escHtml(p.name)}</option>`).join('')}
+          </select></div>
+        <div class="todo-field" style="flex:1"><label class="todo-label">${T('parentTaskLabel')}</label>
+          <select class="todo-input" data-sub-d="parentTaskId">
+            <option value="">${T('noParentTask')}</option>
+            ${parentCandidates.map((tt) => `<option value="${tt.id}"${sub.parentTaskId === tt.id ? ' selected' : ''}>${escHtml(tt.title)}</option>`).join('')}
+          </select></div>
       </div>
-      <div class="todo-field"><label class="todo-label">${T('subDoneAtLabel')}</label>
-        <input type="datetime-local" class="todo-input" data-sub-d="doneAt" value="${sub.doneAt ? tsToDateTimeLocal(sub.doneAt) : ''}" ${st === 'done' ? '' : 'disabled'}></div>
-      <div class="todo-sub-created" title="${T('subCreatedOn', fmtFullDate(sub.createdAt))}">🕓 ${T('subCreatedOn', fmtShortDate(sub.createdAt))}</div>
+      <div class="todo-field"><label class="todo-label">${T('deadlineLabel')}</label>
+        <input type="date" class="todo-input" data-sub-d="deadline" value="${sub.deadline ? tsToDateInput(sub.deadline) : ''}"></div>
+      <div class="todo-field-row">
+        <div class="todo-field" style="flex:1"><label class="todo-label">${T('startAtLabel')}</label>
+          <input type="datetime-local" class="todo-input" data-sub-d="startAt" value="${sub.startAt ? tsToDateTimeLocal(sub.startAt) : ''}"></div>
+        <div class="todo-field" style="flex:1"><label class="todo-label">${T('completeAtLabel')}</label>
+          <input type="datetime-local" class="todo-input" data-sub-d="completeAt" value="${sub.completeAt ? tsToDateTimeLocal(sub.completeAt) : ''}"></div>
+      </div>
+      <div class="todo-field"><label class="todo-label">${T('tagsLabel')}</label>
+        <div class="todo-tags-edit">${sub.tags.map((tag) => `<span class="todo-tag-chip removable">${escHtml(tag)}<button class="todo-tag-x" data-sub-d-del-tag="${escHtml(tag)}">✕</button></span>`).join('')}</div>
+        <div class="todo-tag-add">
+          <input class="todo-input" data-sub-d="tagInput" placeholder="${T('tagPh')}" style="flex:1">
+          <button class="btn" data-sub-d-add-tag>${T('add')}</button>
+        </div></div>
       <div class="todo-sub-drill-children">
         <div class="todo-label" style="margin:6px 0 4px">${T('tabSubtasks')}</div>
         ${childRows}
       </div>
-      <div class="todo-drill-back"><button class="btn" data-sub-back>${T('backToTask')}</button></div>`;
+      <div class="todo-sub-created" title="${T('subCreatedOn', fmtFullDate(sub.createdAt))}">🕓 ${T('subCreatedOn', fmtShortDate(sub.createdAt))}</div>`;
+    // 字段事件绑定
     bodyEl.querySelector('[data-sub-d="title"]').addEventListener('input', (e) => { sub.title = e.target.value; });
     bodyEl.querySelector('[data-sub-d="notes"]').addEventListener('input', (e) => { sub.notes = e.target.value; });
     bodyEl.querySelector('[data-sub-d="status"]').addEventListener('change', (e) => {
       const ns = e.target.value; sub.status = ns; sub.done = ns === 'done';
-      if (ns === 'done' && !sub.doneAt) sub.doneAt = now(); if (ns !== 'done') sub.doneAt = null; renderBody();
+      if (ns === 'done' && !sub.completeAt) sub.completeAt = now();
+      if (ns !== 'done') { sub.completeAt = null; sub.doneAt = null; }
+      renderBody();
     });
-    bodyEl.querySelector('[data-sub-d="doneAt"]').addEventListener('change', (e) => { sub.doneAt = e.target.value ? dateTimeLocalToTs(e.target.value) : null; });
+    bodyEl.querySelector('[data-sub-d="projectId"]').addEventListener('change', (e) => {
+      sub.projectId = e.target.value; sub.parentTaskId = ''; renderBody();
+    });
+    bodyEl.querySelector('[data-sub-d="parentTaskId"]').addEventListener('change', (e) => { sub.parentTaskId = e.target.value; });
+    bodyEl.querySelector('[data-sub-d="deadline"]').addEventListener('change', (e) => { sub.deadline = dateInputToTs(e.target.value); });
+    bodyEl.querySelector('[data-sub-d="startAt"]').addEventListener('change', (e) => { sub.startAt = dateTimeLocalToTs(e.target.value); });
+    bodyEl.querySelector('[data-sub-d="completeAt"]').addEventListener('change', (e) => { sub.completeAt = dateTimeLocalToTs(e.target.value); });
+    bodyEl.querySelectorAll('[data-sub-d-pri]').forEach((b) => b.addEventListener('click', () => { sub.priority = b.dataset.subDPri; renderBody(); }));
+    bodyEl.querySelector('[data-sub-d="tagInput"]').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addSubTag(); }
+    });
+    bodyEl.querySelector('[data-sub-d-add-tag]').addEventListener('click', addSubTag);
+    bodyEl.querySelectorAll('[data-sub-d-del-tag]').forEach((b) => b.addEventListener('click', () => {
+      sub.tags = sub.tags.filter((t) => t !== b.dataset.subDDelTag);
+      renderBody();
+    }));
+    function addSubTag() {
+      const inp = bodyEl.querySelector('[data-sub-d="tagInput"]');
+      const v = inp.value.trim().toLowerCase();
+      if (v && !sub.tags.includes(v)) sub.tags.push(v);
+      inp.value = '';
+      renderBody();
+    }
     bodyEl.querySelectorAll('[data-sub-edit]').forEach((b) => b.addEventListener('click', () => { editSubStack.push(b.dataset.subEdit); renderBody(); }));
     bodyEl.querySelectorAll('[data-crumb]').forEach((b) => b.addEventListener('click', () => {
       const v = b.dataset.crumb;
@@ -2210,10 +2328,12 @@ function renderTaskModal() {
       else { const p2 = pathToSub(v, draft.subtasks); editSubStack = [null].concat((p2 || []).map((x) => x.id)); }
       renderBody();
     }));
-    bodyEl.querySelector('[data-sub-back]').addEventListener('click', () => { if (editSubStack.length > 1) { editSubStack.pop(); renderBody(); } });
   }
   function renderBody() {
     bodyEl.innerHTML = '';
+    // 补丁·60:子任务详情模式显示 foot 的「← 返回上级」按钮(与取消/保存同行)
+    const subBackBtn = box.querySelector('[data-sub-back]');
+    if (subBackBtn) subBackBtn.hidden = editSubStack.length <= 1;
     if (tab === 'details') {
       const tgt = currentEditTarget();
       if (tgt.kind === 'sub') { renderSubDetails(tgt.sub); return; }
@@ -2536,8 +2656,11 @@ function renderTaskModal() {
     let completeAt = dateTimeLocalToTs(draft.completeAt);
     if (draft.status === 'done' && !completeAt) completeAt = now();
     if (isNew) {
+      const newId = uid('t');
+      // 补丁·60:新建任务,顶层与嵌套 sub.parentTaskId 默认填为任务 id
+      fillSubParentTaskIds(draft.subtasks, newId);
       const t = {
-        id: uid('t'), title,
+        id: newId, title,
         notes: draft.notes, notesHtml: draft.notes,
         priority: draft.priority, status: draft.status,
         deadline: dateInputToTs(draft.deadline), startAt, completeAt, events: draft.events, reminderAt: null,
@@ -2554,6 +2677,8 @@ function renderTaskModal() {
         tags: draft.tags, projectId: draft.projectId, parentTaskId: draft.parentTaskId || '',
         subtasks: draft.subtasks, updatedAt: now(),
       });
+      // 补丁·60:跨任务迁移 — 当 sub.parentTaskId ≠ task.id 时,把整个子节点树从 task.subtasks 移到目标任务的 subtasks[]
+      migrateSubtasksAcross(task);
       saveState();
     }
     toast(T('saved'), 'ok');
@@ -2563,6 +2688,7 @@ function renderTaskModal() {
 
   box.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', close));
   box.querySelector('[data-save]').addEventListener('click', save);
+  box.querySelector('[data-sub-back]').addEventListener('click', () => { if (editSubStack.length > 1) { editSubStack.pop(); renderBody(); } });
   box.querySelectorAll('.todo-tab-btn').forEach((b) => b.addEventListener('click', () => {
     tab = b.dataset.tab;
     box.querySelectorAll('.todo-tab-btn').forEach((x) => x.classList.toggle('on', x === b));

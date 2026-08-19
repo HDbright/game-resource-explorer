@@ -547,10 +547,10 @@ app.whenReady().then(async () => {
         let back1Title = '', back1HasBack = false;
         const backBtn2 = document.querySelector('[data-sub-back]');
         if (backBtn2) { backBtn2.click(); await sleep(150); const t = document.querySelector('[data-sub-d="title"]'); back1Title = t ? t.value : ''; back1HasBack = !!document.querySelector('[data-sub-back]'); }
-        // 再返回:回到任务详情
+        // 再返回:回到任务详情(补丁·60:foot 内 sub-back 用 hidden=true 隐藏,元素仍存在)
         let taskTitleNow = '', subEditGone = false;
         const backBtn3 = document.querySelector('[data-sub-back]');
-        if (backBtn3) { backBtn3.click(); await sleep(150); const t = document.querySelector('[data-d="title"]'); taskTitleNow = t ? t.value : ''; subEditGone = !document.querySelector('[data-sub-back]'); }
+        if (backBtn3) { backBtn3.click(); await sleep(150); const t = document.querySelector('[data-d="title"]'); taskTitleNow = t ? t.value : ''; const sbAfter = document.querySelector('[data-sub-back]'); subEditGone = !!(sbAfter && sbAfter.hidden); }
         // 取消关闭(不落库,避免污染持久化断言)
         const cancelBtn = document.querySelector('.todo-modal-foot [data-close]');
         if (cancelBtn) { cancelBtn.click(); await sleep(200); }
@@ -561,6 +561,81 @@ app.whenReady().then(async () => {
       check('子任务钻取:可进入嵌套子任务详情', !o.err && o.drilledChild && o.childSubTitle && o.childSubTitle.length > 0, 'child=' + o.childSubTitle);
       check('返回按钮:返回上一级(仍为子任务详情且保留修改)', !o.err && o.back1HasBack && o.back1Title === '补丁59_改标题', 'back1=' + o.back1Title + ' hasBack=' + o.back1HasBack);
       check('返回按钮:再返回回到任务详情', !o.err && o.subEditGone && o.taskTitleNow === '完成 Spine 转换工具', 'taskNow=' + o.taskTitleNow + ' subEditGone=' + o.subEditGone);
+
+      // 5.4.10) 补丁·60:子任务详情完整字段 + 项目联动父任务下拉 + 底部返回同行 + 跨任务迁移
+      o = await js('subFullFields', `(async () => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const cardA = document.querySelector('.todo-card[data-task-id="${TASK_A}"]');
+        if (!cardA) return { err: 'cardA missing' };
+        const eb = cardA.querySelector('[data-t="edit"]');
+        if (eb) { eb.click(); await sleep(350); }
+        const subTab = document.querySelector('[data-tab="subtasks"]');
+        if (subTab) { subTab.click(); await sleep(300); }
+        const tree = document.querySelector('.todo-sub-tree');
+        if (!tree) return { err: 'no tree' };
+        // 点 s_smoke_1 的 ✎ 进入详情(它原归属 taskA,在子任务列表里)
+        const editBtn1 = tree.querySelector('.todo-sub-edit[data-sub-edit="s_smoke_1"]');
+        if (!editBtn1) return { err: 'no edit btn s_smoke_1' };
+        editBtn1.click();
+        await sleep(220);
+        // 1) 完整字段都在(截图布局)
+        const fields = {
+          title: !!document.querySelector('[data-sub-d="title"]'),
+          notes: !!document.querySelector('[data-sub-d="notes"]'),
+          priOpts: document.querySelectorAll('[data-sub-d-pri]').length,
+          status: !!document.querySelector('[data-sub-d="status"]'),
+          projectId: !!document.querySelector('[data-sub-d="projectId"]'),
+          parentTaskId: !!document.querySelector('[data-sub-d="parentTaskId"]'),
+          deadline: !!document.querySelector('[data-sub-d="deadline"]'),
+          startAt: !!document.querySelector('[data-sub-d="startAt"]'),
+          completeAt: !!document.querySelector('[data-sub-d="completeAt"]'),
+          tagInput: !!document.querySelector('[data-sub-d="tagInput"]'),
+          addTagBtn: !!document.querySelector('[data-sub-d-add-tag]'),
+        };
+        // 2) foot 中返回按钮与取消/保存同行
+        const foot = document.querySelector('.todo-modal-foot');
+        const footSameRow = !!foot && !!foot.querySelector('[data-sub-back]') && !!foot.querySelector('[data-close]') && !!foot.querySelector('[data-save]');
+        const subBackHidden = foot.querySelector('[data-sub-back]').hidden;
+        // 3) 项目联动:改 projectId 后 parentTaskId 列表应只列该项目下的任务(且自动重置 parentTaskId)
+        const projSel = document.querySelector('[data-sub-d="projectId"]');
+        const parentSel = document.querySelector('[data-sub-d="parentTaskId"]');
+        const parentOptsCount = parentSel ? parentSel.options.length - 1 /* minus '无父级' */ : 0;
+        const projBefore = projSel ? projSel.value : '';
+        // 切到 PROJ2_ID 项目,该根项目下没有任务 → parentTaskId 应仅剩「无父级」
+        projSel.value = '${PROJ2_ID}';
+        projSel.dispatchEvent(new Event('change', { bubbles: true }));
+        await sleep(160);
+        const parentSelAfter = document.querySelector('[data-sub-d="parentTaskId"]');
+        const parentOptsAfterCount = parentSelAfter ? parentSelAfter.options.length - 1 : 0;
+        const parentValAfter = parentSelAfter ? parentSelAfter.value : '';
+        // 切到 t_smoke_parent 所在的 p_smoke_child 项目,该子项目下有 t_smoke_c / t_smoke_parent 等
+        projSel.value = 'p_smoke_child';
+        projSel.dispatchEvent(new Event('change', { bubbles: true }));
+        await sleep(160);
+        const parentSel2 = document.querySelector('[data-sub-d="parentTaskId"]');
+        const parentOptsChildCount = parentSel2 ? parentSel2.options.length - 1 : 0;
+        // 4) 跨任务迁移:把 parentTaskId 设为 t_smoke_parent(同项目下有任务的非当前任务)
+        const parentSel3 = document.querySelector('[data-sub-d="parentTaskId"]');
+        const opt = parentSel3.querySelector('option[value="t_smoke_parent"]');
+        const canPick = !!opt;
+        if (opt) { parentSel3.value = 't_smoke_parent'; parentSel3.dispatchEvent(new Event('change', { bubbles: true })); await sleep(80); }
+        // 改优先级 + 加标签 + 改截止日期 (落库用)
+        const priBtn = document.querySelector('[data-sub-d-pri="high"]');
+        if (priBtn) { priBtn.click(); await sleep(120); }
+        const tagIp = document.querySelector('[data-sub-d="tagInput"]');
+        if (tagIp) { tagIp.value = '补丁60'; tagIp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await sleep(150); }
+        // 保存
+        const saveBtn = document.querySelector('[data-save]');
+        if (saveBtn) { saveBtn.click(); await sleep(450); }
+        const closeBtn = document.querySelector('.todo-modal-foot [data-close]');
+        if (closeBtn) { closeBtn.click(); await sleep(200); }
+        return { err: '', fields, footSameRow, subBackHidden, parentOptsCount, projBefore, parentOptsAfterCount, parentValAfter, parentOptsChildCount, canPick };
+      })()`);
+      check('子任务详情(补丁·60):完整字段都在(优先级+项目+父级+截止日期+开始+完成+标签)', !o.err && o.fields.title && o.fields.notes && o.fields.priOpts === 4 && o.fields.status && o.fields.projectId && o.fields.parentTaskId && o.fields.deadline && o.fields.startAt && o.fields.completeAt && o.fields.tagInput && o.fields.addTagBtn, 'fields=' + JSON.stringify(o.fields) + ' err=' + o.err);
+      check('子任务详情(补丁·60):底部 foot 内同row含返回/取消/保存', !o.err && o.footSameRow === true && o.subBackHidden === false, 'footSameRow=' + o.footSameRow + ' subBackHidden=' + o.subBackHidden);
+      check('子任务详情(补丁·60):项目切换→父任务下拉同步联动(空项目→1项无父级)', !o.err && o.parentOptsAfterCount === 0, 'before=' + o.parentOptsCount + ' after=' + o.parentOptsAfterCount);
+      check('子任务详情(补丁·60):父任务下拉只列项目下任务', !o.err && o.parentOptsChildCount >= 1, 'opts=' + o.parentOptsChildCount);
+      check('子任务详情(补丁·60):可选取父级任务 t_smoke_parent', !o.err && o.canPick === true);
 
       // 5.5) 事件时间格式(now()现在返回秒,不再出现 year=58598)
       o = await js('eventTimeFormat', `(async () => {
@@ -1346,10 +1421,12 @@ app.whenReady().then(async () => {
       const d = dbm.readDb();
       const a = d.todoTasks.find((t) => t.id === TASK_A);
       const flatSubs = (() => { const out = []; const w = (arr) => { for (const s of (arr || [])) { out.push(s); w(s.subtasks); } }; w(a && a.subtasks); return out; })();
+      // 补丁·60:全局扁平化(跨任务迁移后,s1 已不在 taskA 里)
+      const flatAll = (() => { const out = []; const w = (arr) => { for (const s of (arr || [])) { out.push(s); w(s.subtasks); } }; for (const tt of d.todoTasks) w(tt.subtasks); return out; })();
       check('持久化:状态 in_progress', a && a.status === 'in_progress', a ? a.status : 'null');
       check('持久化:优先级 medium', a && a.priority === 'medium', a ? a.priority : 'null');
       check('持久化:归档恢复', a && a.archived === false, String(a && a.archived));
-      check('持久化:子任务保留(扁平总数=3)', a && flatSubs.length === 3, 'flat=' + flatSubs.length + ' top=' + (a && a.subtasks.length));
+      check('持久化:子任务保留(扁平总数=2,s1 迁出后)', a && flatSubs.length === 2, 'flat=' + flatSubs.length + ' top=' + (a && a.subtasks.length));
       // 补丁·40:startAt/completeAt/events + 子任务 notes/doneAt 之前根本没有数据库列,重启即丢
       check('持久化:startAt 落库', a && typeof a.startAt === 'number' && a.startAt > 0, 'startAt=' + (a && a.startAt));
       check('持久化:events 列存在(数组)', a && Array.isArray(a.events), 'events=' + JSON.stringify(a && a.events));
@@ -1357,7 +1434,7 @@ app.whenReady().then(async () => {
       check('持久化:子任务含 notes/doneAt/createdAt 字段', subCols.includes('notes') && subCols.includes('doneAt') && subCols.includes('createdAt'), 'cols=' + JSON.stringify(subCols));
       const sub0 = a && a.subtasks && a.subtasks[0];
       check('持久化:子任务 createdAt 为有效时间戳(补丁·44 显示创建时间)', !!sub0 && typeof sub0.createdAt === 'number' && sub0.createdAt > 0, 'createdAt=' + (sub0 && sub0.createdAt));
-      const doneSub = flatSubs.find((s) => s.done);
+      const doneSub = flatAll.find((s) => s.done);
       check('持久化:已完成子任务保留 doneAt 列', !!doneSub && 'doneAt' in doneSub, 'sub=' + JSON.stringify(doneSub));
       // 补丁·57:嵌套子任务(子任务下再建子任务)必须能落库
       const sub1 = flatSubs.find((s) => s.id === 's_smoke_2');
@@ -1367,7 +1444,19 @@ app.whenReady().then(async () => {
       const s2Persist = (a && a.subtasks || []).find((s) => s.id === 's_smoke_2');
       const s1UnderS2 = !!(s2Persist && s2Persist.subtasks && s2Persist.subtasks.some((x) => x.id === 's_smoke_1'));
       check('持久化:补丁·58 改父级/拖出落库(s_smoke_1 不在 s_smoke_2 子级)', !s1UnderS2, 'top=' + JSON.stringify(topIds));
-      check('持久化:补丁·58 顶层含 s_smoke_1 与 s_smoke_2', topIds.includes('s_smoke_1') && topIds.includes('s_smoke_2'), 'top=' + JSON.stringify(topIds));
+      check('持久化:补丁·58 顶层含 s_smoke_2(s1 已通过补丁·60 迁出)', topIds.includes('s_smoke_2'), 'top=' + JSON.stringify(topIds));
+      // 补丁·60:子任务独立字段 + 跨任务迁移 + DB 列
+      const s1 = flatAll.find((s) => s.id === 's_smoke_1');
+      const s1Cols = s1 ? Object.keys(s1) : [];
+      check('持久化:补丁·60 子任务含 priority/projectId/parentTaskId/deadline/startAt/completeAt/tags 列', s1Cols.includes('priority') && s1Cols.includes('projectId') && s1Cols.includes('parentTaskId') && s1Cols.includes('deadline') && s1Cols.includes('startAt') && s1Cols.includes('completeAt') && s1Cols.includes('tags'), 'cols=' + JSON.stringify(s1Cols));
+      check('持久化:补丁·60 s_smoke_1 已被改父级到 t_smoke_parent(parentTaskId=t_smoke_parent)', !!s1 && s1.parentTaskId === 't_smoke_parent', 'parentTaskId=' + (s1 && s1.parentTaskId));
+      check('持久化:补丁·60 s_smoke_1 优先级 high / 标签含补丁60', !!s1 && s1.priority === 'high' && Array.isArray(s1.tags) && s1.tags.includes('补丁60'), 'priority=' + (s1 && s1.priority) + ' tags=' + JSON.stringify(s1 && s1.tags));
+      // 跨任务迁移落库 — s_smoke_1 应出现在 t_smoke_parent 的 subtasks 里、不在 taskA 里
+      const tParent = d.todoTasks.find((t) => t.id === 't_smoke_parent');
+      const tParentHasS1 = !!(tParent && (tParent.subtasks || []).some((x) => x.id === 's_smoke_1'));
+      const taskAHoldsS1 = !!(a && (a.subtasks || []).some((x) => x.id === 's_smoke_1'));
+      check('持久化:补丁·60 s_smoke_1 已迁出 taskA', taskAHoldsS1 === false, 'taskAHoldsS1=' + taskAHoldsS1);
+      check('持久化:补丁·60 s_smoke_1 已迁入 t_smoke_parent', tParentHasS1 === true, 'parentTop=' + JSON.stringify(tParent && tParent.subtasks && tParent.subtasks.map((x) => x.id)));
       // 补丁·40:看板拖拽用分数序号(小数 sort),必须能存进 SQLite 且列内相对顺序被保留
       const bT = d.todoTasks.find((t) => t.id === TASK_B);
       const doneCol = d.todoTasks.filter((t) => !t.archived && t.status === (bT ? bT.status : 'done'))
