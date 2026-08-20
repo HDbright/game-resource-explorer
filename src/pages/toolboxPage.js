@@ -461,7 +461,7 @@ function renderMarkdownTool(body) {
         <button class="btn sm" id="md-sync" title="同步关联:分栏模式下编辑与预览的滚动位置、选中文字双向联动">🔗 同步</button>
         <button class="btn sm" id="md-open" title="打开本地 Markdown 文件">📂 打开</button>
         <button class="btn sm" id="md-add-lib" title="把当前打开的文档加入资源库指定分类(如「文档资源」)">＋ 加入库</button>
-        <button class="btn sm primary" id="md-save" title="保存回写原文件(Ctrl+S)">💾 保存</button>
+        <button class="btn sm" id="md-save" title="保存回写原文件(Ctrl+S)">💾 保存</button>
         <button class="btn sm" id="md-copy" title="复制源码">📋</button>
         <span class="ctrl-sep"></span>
         <button class="btn sm" id="md-emoji" title="在光标处插入 emoji 图标">😀 emoji</button>

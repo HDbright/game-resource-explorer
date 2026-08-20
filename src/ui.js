@@ -457,6 +457,12 @@ export function initUI(pv) {
   document.addEventListener('library:changed', () => {
     try { renderTree(); } catch (e) { /* ignore */ }
   });
+  // MD/HTML 编辑器「另存为」成功 → 把新文件加入当前资源库分类(当前目录页/未分类),并更新
+  document.addEventListener('doc:save-as', (e) => {
+    const d = (e && e.detail) || {};
+    if (!d.path) return;
+    try { addSavedDocToCurrentCategory(d); } catch (err) { /* ignore */ }
+  });
   // Spine 转换工具「▶ 预览」→ 用资源预览页打开库中条目;记录返回标签,预览页返回时回到转换页面
   document.addEventListener('app:previewFromTool', (e) => {
     const id = e.detail && e.detail.itemId;
@@ -7825,28 +7831,30 @@ function editItemDialog(id, cat = null) {
 
 /**
  * 右键菜单「重命名」:
- * - 图片:重命名磁盘文件(扩展名不变),成功后更新 item.filePath
- * - 其它类型:重命名显示名称(纯元数据,避免破坏多文件资源的配套文件)
+ * - 有 filePath 的资源:重命名磁盘文件(扩展名不变,同目录),成功后更新 item.filePath + displayName;
+ *   仅重命名主文件,配套文件(atlas/贴图等)文件名不变(内部引用按名查找,不受影响)。
+ * - 无 filePath 的条目:仅重命名显示名称(纯元数据)。
  */
 function renameItemDialog(it) {
-  const isImage = it.type === 'image' && it.filePath;
+  const fp = it.filePath;
+  const canRenameFile = !!fp;
   const body = document.createElement('div');
   body.className = 'modal-body';
 
   let fileBase = null, fileExt = '', fileDir = '';
-  if (isImage) {
-    const nm = it.filePath.split(/[\\/]/).pop();
+  if (canRenameFile) {
+    const nm = fp.split(/[\\/]/).pop();
     const dot = nm.lastIndexOf('.');
     fileExt = dot > 0 ? nm.slice(dot) : '';
     fileBase = dot > 0 ? nm.slice(0, dot) : nm;
-    fileDir = it.filePath.slice(0, it.filePath.length - nm.length);
+    fileDir = fp.slice(0, fp.length - nm.length);
   }
 
   const row = document.createElement('div');
   row.className = 'form-row';
-  row.innerHTML = `<label class="f-label">${isImage ? '文件名' : '显示名称'}</label>`;
+  row.innerHTML = `<label class="f-label">${canRenameFile ? '文件名' : '显示名称'}</label>`;
   let input;
-  if (isImage) {
+  if (canRenameFile) {
     const wrap = document.createElement('div');
     wrap.className = 'file-name-wrap';
     input = document.createElement('input');
@@ -7867,7 +7875,8 @@ function renameItemDialog(it) {
   }
   body.appendChild(row);
 
-  const title = isImage ? '重命名图片文件' : `重命名${it.type === 'audio' ? '音频' : it.type === 'model' ? '3D 资源' : '动画'}`;
+  const typeName = it.type === 'audio' ? '音频' : it.type === 'model' ? '3D 资源' : it.type === 'image' ? '图片' : it.type === 'markdown' ? 'Markdown' : it.type === 'web' ? 'HTML' : it.type === 'video' ? '视频' : '动画';
+  const title = canRenameFile ? `重命名${typeName}文件` : `重命名${typeName}`;
   const { close } = openModal({
     title,
     body,
@@ -7878,18 +7887,19 @@ function renameItemDialog(it) {
         cls: 'primary',
         onClick: async () => {
           const want = input.value.trim();
-          if (!want) return toast(isImage ? '文件名不能为空' : '显示名称不能为空', 'error');
-          if (isImage) {
+          if (!want) return toast(canRenameFile ? '文件名不能为空' : '显示名称不能为空', 'error');
+          if (canRenameFile) {
             if (/[\\/]/.test(want)) return toast('文件名不能包含路径分隔符', 'error');
             const target = fileDir + want + fileExt;
-            if (target !== it.filePath) {
+            if (target !== fp) {
               try {
-                const r = await window.api.renameFile(it.filePath, target);
+                const r = await window.api.renameFile(fp, target);
                 if (!r || !r.ok) {
                   toast('重命名失败: ' + ((r && r.error) || '未知错误'), 'error', 4000);
                   return; // 不关闭,让用户修正
                 }
-                updateItem(it.id, { filePath: r.path });
+                const newName = r.path.split(/[\\/]/).pop().replace(/\.[^.]+$/, '');
+                updateItem(it.id, { filePath: r.path, displayName: newName });
                 thumbnailService.invalidate(it.id);
               } catch (err) {
                 toast('重命名异常: ' + err.message, 'error', 4000);
@@ -7904,7 +7914,9 @@ function renameItemDialog(it) {
           renderItems();
           renderMainArea();
           const ph = document.getElementById('pv-name');
-          if (ph && preview.currentItemId === it.id) ph.textContent = isImage ? it.displayName : want;
+          if (ph && preview.currentItemId === it.id) {
+            ph.textContent = itemById(it.id) ? itemById(it.id).displayName : want;
+          }
           toast('已重命名');
         },
       },
@@ -7913,28 +7925,95 @@ function renameItemDialog(it) {
   setTimeout(() => { input.focus(); input.select && input.select(); }, 0);
 }
 
+/**
+ * MD/HTML 编辑器「另存为」成功后,把新文件加入当前资源库分类目录:
+ * - 目标分类 = 当前打开的目录页分类(未打开目录页/未分类时加入未分类);
+ * - 若库中已有同 filePath 条目(如另存为覆盖了已有条目),则更新其 displayName;
+ * - 否则新增条目,并刷新侧栏/列表。
+ */
+function addSavedDocToCurrentCategory({ path, type }) {
+  if (!path) return;
+  const filePath = path;
+  const nm = String(filePath).split(/[\\/]/).pop().replace(/\.[^.]+$/, '') || '未命名';
+  const catId = (currentCategoryId && currentCategoryId !== 'all' && currentCategoryId !== '') ? currentCategoryId : '';
+  // 已存在同路径条目 → 更新名称(指向不变)
+  const existing = state.items.find((i) => i.filePath === filePath);
+  if (existing) {
+    if (existing.displayName !== nm) updateItem(existing.id, { displayName: nm });
+  } else {
+    addItem({
+      categoryId: catId,
+      type: type || 'markdown',
+      filePath,
+      displayName: nm,
+      remark: '',
+      size: null,
+      mtime: null,
+    });
+  }
+  try { document.dispatchEvent(new CustomEvent('library:changed')); } catch (e) { /* ignore */ }
+  renderTree();
+  renderMainArea();
+  toast('已保存并加入资源库' + (catId ? '「' + categoryPath(catId) + '」' : '(未分类)'), 'ok', 2600);
+}
+
 function deleteItemDialog(id) {
   const it = itemById(id);
   if (!it) return;
-  const title = it.type === 'image' ? '删除图片' : it.type === 'audio' ? '删除音频' : '删除动画';
-  confirmDialog({
-    title,
-    message: `确定从列表中删除「<b>${esc(it.displayName)}</b>」吗?<br/><br/>仅从列表移除,<b>不会删除</b>磁盘上的文件。`,
-    okText: '删除',
-    danger: true,
-    onOk: () => {
-      removeItem(id);
-      thumbnailService.invalidate(id); // 删除后清缩略图缓存
-      if (preview.currentItemId === id) {
-        preview.disposePlayer();
-        preview.currentItemId = null;
-        hidePreviewBody();
-      }
-      renderCategories();
-      renderItems();
-      renderMainArea();
-      toast('已删除');
-    },
+  // 弹窗:警示图标 + 提示 + 「同时删除磁盘文件」勾选(默认不勾选)
+  const body = document.createElement('div');
+  body.className = 'modal-body';
+  const warn = document.createElement('div');
+  warn.className = 'del-warn';
+  warn.innerHTML = '<span class="del-warn-icon">⚠️</span><span class="del-warn-title">删除文件</span>';
+  body.appendChild(warn);
+  const p = document.createElement('p');
+  p.className = 'del-msg';
+  p.innerHTML = `确定从列表中删除「<b>${esc(it.displayName)}</b>」吗?<br/><br/>仅从列表移除,<b>不会删除</b>磁盘上的文件;勾选下方选项可<b class="danger-text">同时删除磁盘文件</b>(不可恢复)。`;
+  body.appendChild(p);
+  const chkRow = document.createElement('label');
+  chkRow.className = 'del-chk';
+  const chk = document.createElement('input');
+  chk.type = 'checkbox';
+  chkRow.appendChild(chk);
+  chkRow.appendChild(document.createTextNode('同时删除磁盘上的文件'));
+  body.appendChild(chkRow);
+
+  const { close } = openModal({
+    title: '删除文件',
+    body,
+    foot: footButtons([
+      { text: '取消', cls: '', onClick: () => close() },
+      {
+        text: '删除',
+        cls: 'danger',
+        onClick: async () => {
+          const delDisk = chk.checked;
+          close();
+          let diskErr = null;
+          // 勾选 → 先删磁盘文件(失败则中止列表删除并提示,避免库指向已删文件)
+          if (delDisk && it.filePath) {
+            const r = await window.api.removeFile(it.filePath);
+            if (!r || !r.ok) diskErr = (r && r.error) || '删除文件失败';
+          }
+          if (diskErr) {
+            toast('磁盘文件删除失败: ' + diskErr, 'error', 4000);
+            return;
+          }
+          removeItem(id);
+          thumbnailService.invalidate(id); // 删除后清缩略图缓存
+          if (preview.currentItemId === id) {
+            preview.disposePlayer();
+            preview.currentItemId = null;
+            hidePreviewBody();
+          }
+          renderCategories();
+          renderItems();
+          renderMainArea();
+          toast(delDisk ? '已删除(含磁盘文件)' : '已从列表删除');
+        },
+      },
+    ]),
   });
 }
 

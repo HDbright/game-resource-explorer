@@ -651,6 +651,19 @@ input[type="color"] { width: 30px; height: 26px; border: 1px solid var(--border)
 .modal-body { padding: 16px 18px; overflow-y: auto; }
 .modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--border); position: relative; z-index: 50; }
 
+/* 删除文件确认框:警示图标 + 提示 + 勾选删除磁盘文件 */
+.del-warn { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.del-warn-icon { font-size: 26px; line-height: 1; }
+.del-warn-title { font-size: 16px; font-weight: 700; color: var(--danger, #e0573c); }
+.del-msg { font-size: 13px; color: var(--text, #eee); line-height: 1.7; margin: 0 0 12px; }
+.del-chk {
+  display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text2, #aaa);
+  padding: 8px 10px; border: 1px solid var(--border, #333); border-radius: 6px;
+  background: var(--bg2, #17181c); cursor: pointer; user-select: none;
+}
+.del-chk:hover { border-color: var(--danger, #e0573c); }
+.del-chk input { accent-color: var(--danger, #e0573c); margin: 0; }
+
 .form-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .form-row label.f-label { width: 74px; font-size: 13px; color: var(--text2); flex-shrink: 0; text-align: right; }
 /* 设置页区域标题:主标题居中,副标题(内置/自定义)换行字号更小 */

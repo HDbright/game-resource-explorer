@@ -9,8 +9,8 @@
  * - 未保存改动:文件名后出现小白点提示(dirty)。
  */
 import MarkdownIt from 'markdown-it';
-import { state, addItem, categoryPath, setSetting } from '../state.js';
-import { openModal, footButtons, toast, showContextMenu, pickEmojiModal } from '../dialogs.js';
+import { state, addItem, categoryPath, setSetting, updateItem } from '../state.js';
+import { openModal, footButtons, toast, showContextMenu, pickEmojiModal, promptDialog } from '../dialogs.js';
 
 /** 预览各级标题(H1–H6)默认颜色(用户可在「标题色」对话框覆盖;留空=使用默认文字色) */
 const DEFAULT_HEADING_COLORS = {
@@ -269,6 +269,8 @@ export class MarkdownEditorController {
       // 防抖自动存档(编辑时自动存档:仅已有落盘路径的文档)
       this.scheduleAutoSave();
     });
+    // 初始同步保存按钮高亮状态(新建/打开文件后应不高亮)
+    this.updateDirtyDot();
   }
 
   /** 编辑空闲自动存档(2.5s 无输入且脏 → 写回原文件) */
@@ -336,10 +338,10 @@ export class MarkdownEditorController {
     return text;
   }
 
-  /** 保存回写原文件(UTF-8);无文件路径或为新建的「未命名」文档 → 走另存为(提示输入文件名) */
+  /** 保存回写原文件(UTF-8);无文件路径或为新建的「未命名」文档 → 提示输入文件名(重命名原文件) */
   async save() {
     if (!this.filePath || this.untitled) {
-      this.saveAs();
+      await this.renameUntitled();
       return;
     }
     try {
@@ -349,6 +351,84 @@ export class MarkdownEditorController {
     } catch (e) {
       this.setStatus('保存失败: ' + e.message, true);
     }
+  }
+
+  /**
+   * 新建「未命名」文档的保存:把默认文件改名为用户输入的文件名,
+   * 并同步更新资源库中该条目的名称与文件路径(不残留旧名文件)。
+   */
+  async renameUntitled() {
+    const oldPath = this.filePath;
+    if (!oldPath) { this.saveAs(); return; } // 兜底:无路径仍走另存为
+    const oldName = basename(oldPath); // 如 未命名.md
+    const oldStem = oldName.replace(/\.[^.]+$/, '') || '未命名';
+    const dir = dirOf(oldPath);
+    // 弹输入框让用户输入新文件名(默认显示当前名,可带或不带扩展名)
+    const newName = await this._promptFileName(oldStem, this.defaultExt);
+    if (!newName) return; // 取消
+    const target = dir.replace(/[\\/]$/, '') + '\\' + newName;
+    if (target === oldPath) {
+      // 用户未改名(保持原名)→ 仅写回内容即可
+      try {
+        await writeTextFile(oldPath, this.ta.value);
+        this.markSaved(this.ta.value);
+        this.setStatus('已保存 ' + oldName);
+      } catch (e) {
+        this.setStatus('保存失败: ' + e.message, true);
+      }
+      return;
+    }
+    try {
+      // 1) 先写回内容(改名后原文件即消失,须先落盘)
+      await writeTextFile(oldPath, this.ta.value);
+      // 2) 重命名原文件为目标名(主进程仅允许同目录改名,且目标已存在会拒绝)
+      const r = await window.api.renameFile(oldPath, target);
+      if (!r || !r.ok) {
+        this.setStatus('保存失败: ' + ((r && r.error) || '重命名失败'), true);
+        return;
+      }
+      // 3) 更新编辑器内部状态
+      this.filePath = target;
+      this.currentPath = target;
+      this.loaded = true;
+      this.untitled = false;
+      this.defaultDir = dirOf(target);
+      this.markSaved(this.ta.value);
+      const nameEl = this.wrap.querySelector('#md-name');
+      if (nameEl) nameEl.textContent = basename(target);
+      // 4) 更新资源库条目(名称 + 文件路径;按旧路径匹配)
+      const item = state.items.find((i) => i.filePath === oldPath);
+      if (item) {
+        updateItem(item.id, {
+          displayName: newName.replace(/\.[^.]+$/, ''),
+          filePath: target,
+        });
+        try { document.dispatchEvent(new CustomEvent('library:changed')); } catch (e) { /* ignore */ }
+      }
+      this.setStatus('已保存为 ' + basename(target));
+    } catch (e) {
+      this.setStatus('保存失败: ' + e.message, true);
+    }
+  }
+
+  /** 弹输入框获取新文件名(校验非法字符/自动补扩展名;取消返回 null) */
+  _promptFileName(stem, ext) {
+    return new Promise((resolve) => {
+      promptDialog({
+        title: '保存为',
+        message: '输入文件名保存。当前默认文件将改名为你输入的名字(同一目录),资源库同步更新。',
+        fields: [{ key: 'name', label: '文件名', type: 'text', value: stem + '.' + ext }],
+        onOk: (values) => {
+          let name = String(values.name || '').trim().replace(/[\\/:*?"<>|]/g, '_');
+          if (!name) { this.setStatus('文件名不能为空', true); resolve(null); return; }
+          // 自动补扩展名(用户未输入或输入了别的扩展名时,按当前编辑器类型处理)
+          const hasExt = /\.[^.\\/]+$/.test(name);
+          if (!hasExt) name += '.' + ext;
+          resolve(name);
+        },
+        onCancel: () => resolve(null),
+      });
+    });
   }
 
   /** 另存为到指定路径(弹出保存对话框,默认当前文件目录 / 默认目录) */
@@ -371,6 +451,12 @@ export class MarkdownEditorController {
       const nameEl = this.wrap.querySelector('#md-name');
       if (nameEl) nameEl.textContent = basename(r.path);
       this.setStatus('已另存为 ' + basename(r.path));
+      // 另存为的新文件加入当前资源库分类目录(ui.js 监听处理;新增或更新条目)
+      try {
+        document.dispatchEvent(new CustomEvent('doc:save-as', {
+          detail: { path: r.path, type: 'markdown' },
+        }));
+      } catch (e) { /* ignore */ }
     } catch (e) {
       this.setStatus('另存为失败: ' + e.message, true);
     }
@@ -383,11 +469,13 @@ export class MarkdownEditorController {
     this.updateDirtyDot();
   }
 
-  /** 更新文件名后的小白点显隐 */
+  /** 更新「未保存」状态视觉:文件名后小白点 + 保存按钮高亮(默认普通样式,仅内容改动未保存时显示 primary 蓝色) */
   updateDirtyDot() {
     if (!this.wrap) return;
     const el = this.wrap.querySelector(this.dotSel);
     if (el) el.hidden = !this.dirty;
+    const saveBtn = this.wrap.querySelector('#md-save');
+    if (saveBtn) saveBtn.classList.toggle('primary', this.dirty);
   }
 
   setMode(mode) {

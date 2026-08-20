@@ -1304,6 +1304,19 @@ app.whenReady().then(async () => {
       return { ok: false, error: err.message };
     }
   });
+  // 删除磁盘文件(仅文件,不递归;不存在视为成功)
+  ipcMain.handle('fs:removeFile', (_e, p) => {
+    try {
+      if (!p) return { ok: false, error: '路径为空' };
+      if (!fs.existsSync(p)) return { ok: true, removed: false };
+      const st = fs.statSync(p);
+      if (!st.isFile()) return { ok: false, error: '目标不是文件' };
+      fs.unlinkSync(p);
+      return { ok: true, removed: true };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
 
   // ============ 资源工具箱:转换工具 ============
   ipcMain.handle('tool:astc2png', async (_e, { inputPath, outputPath }) => {

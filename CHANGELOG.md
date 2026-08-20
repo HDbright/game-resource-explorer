@@ -3,7 +3,76 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.3.7`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.4.2`）。
+
+---
+
+## 2026-08-21（补丁·112）
+
+### [优化] 保存按钮:默认普通样式,仅未保存改动时显示 primary 蓝色
+
+- **需求(用户)**：文件没有改动时保存按钮与其它按钮保持一致样式;仅在内容有未保存改动时才显示之前的 primary 蓝色。
+- **改动**(在补丁·111 基础上修正方向):
+  - `toolboxPage.js` / `index.html`(两处 MD 模板 + 预览页 HTML 模板):保存按钮移除硬编码 `primary` class,默认与其它按钮一致;
+  - `markdownEditor.js` / `htmlEditor.js` `updateDirtyDot()`:`classList.toggle('primary', this.dirty)`——内容有未保存改动时显示 primary 蓝色,否则恢复普通样式(替换补丁·111 的金色 `unsaved` 方案);
+  - `style.css`:移除不再使用的 `.btn.unsaved` 金色样式。
+- **验证**:`env -u NODE_OPTIONS npm run build` 通过;dist 检查:保存按钮无硬编码 primary、`classList.toggle('primary', this.dirty)` 就位、无 unsaved 残留;冒烟无 `[init]` 错误、`step home` pageVisible:true。
+- 版本 2.4.1 → **2.4.2**(package.json/lock 两处)+ CHANGELOG 顶部插入本条目;打包 → release/游戏资源管理器-v2.4.2-便携版.zip。
+
+---
+
+## 2026-08-21（补丁·111）
+
+### [优化] 编辑器保存按钮:仅内容改动未保存时高亮
+
+- **需求(用户)**：编辑文件时的保存按钮,只有在改变了文件内容并未保存时才高亮。
+- **改动**:
+  - `markdownEditor.js` / `htmlEditor.js` `updateDirtyDot()`:在原有「文件名后小白点」基础上,同步切换保存按钮(`#md-save`/`#html-save`)的 `unsaved` class——`dirty=true`(内容相对上次保存有改动)时加,保存/另存为/重命名保存/打开文件后(`dirty=false`)移除;`_bindInput()` 末尾补一次初始同步,确保新建/打开文件后按钮初始不高亮。
+  - `style.css`:新增 `.btn.unsaved`(金色边框+金色文字+光晕,hover 加深),与 `.btn.primary` 蓝色常态区分,视觉醒目提示「有未保存改动」。
+- **验证**:`env -u NODE_OPTIONS npm run build` 通过;冒烟无 `[init]` 错误、`step home` pageVisible:true(启动无回归)。
+- 版本 2.4.0 → **2.4.1**(package.json/lock 两处)+ CHANGELOG 顶部插入本条目;打包 → release/游戏资源管理器-v2.4.1-便携版.zip。
+
+---
+
+## 2026-08-21（补丁·110）
+
+### [优化] 删除资源确认框:改名「删除文件」+ 可选勾选删除磁盘文件 + 警示图标
+
+- **需求(用户)**：资源列表右键删除资源文件时,确认对话框名称改成「删除文件」,加入「删除磁盘文件」勾选项(默认不勾选),勾选后从库中列表删除的同时删除磁盘上的文件;提示文字也改,并加上警示图标。
+- **改动**:
+  - `ui.js` `deleteItemDialog()`:由 `confirmDialog` 改为 `openModal` 自定义 body——顶部警示条(⚠️ 图标 + 「删除文件」标题,红色),提示文字说明「仅从列表移除不会删除磁盘文件;勾选下方选项可同时删除磁盘文件(不可恢复)」,底部「同时删除磁盘上的文件」勾选(默认不勾选,红色强调边框);
+  - 勾选后:先调主进程删除磁盘文件(**失败则中止列表删除并提示**,避免库指向已删文件),成功再走原删除流程(removeItem + 失效缩略图 + 关闭预览 + 刷新),toast 区分「已删除(含磁盘文件)」/「已从列表删除」;
+  - `electron/main.js` 新增 `fs:removeFile` IPC(仅文件、不递归,不存在幂等返回成功,目录/空路径拒绝);`electron/preload.js` 暴露 `removeFile`。
+- **验证**:`env -u NODE_OPTIONS npm run build` 通过;Node 内联单测(删除存在文件/不存在幂等/目录拒绝/空路径拒绝/勾选可删→双删/勾选失败→中止列表/不勾选→仅删列表)全 PASS;冒烟无 `[init]` 错误、`step home` pageVisible:true。
+- 版本 2.3.9 → **2.4.0**(package.json/lock 两处)+ CHANGELOG 顶部插入本条目;打包 → release/游戏资源管理器-v2.4.0-便携版.zip。
+
+---
+
+## 2026-08-21（补丁·109）
+
+### [新增] 资源列表右键重命名磁盘文件 + 另存为自动加入当前分类
+
+- **需求(用户)**：①资源列表中右键菜单对资源文件重命名,重命名后更新资源库中的名称和指向新命名后的文件名;②点击另存为按钮保存时,将另存的新文件名的资源文件加入当前资源库分类目录并更新。
+- **改动**:
+  - **右键重命名升级(需求1)**：`ui.js` `renameItemDialog()` 原来仅图片重命名磁盘文件、其它类型只改显示名称;现在**所有有 filePath 的类型**(动画/图片/音频/3D/文档/HTML 等)统一重命名磁盘文件:文件名输入框(基本名+固定扩展名,如 `hero` + `.json`)、主进程 `fs:rename` 同目录改名、成功后 `updateItem` 同步更新 `filePath` 与 `displayName`,并失效缩略图缓存、刷新列表/主区/预览标题。仅重命名主文件,配套文件(atlas/贴图)文件名不变(内部引用按名查找不受影响);无 filePath 的条目仍仅改显示名称。
+  - **另存为加入当前分类(需求2)**：MD/HTML 编辑器 `saveAs()` 成功保存新文件后,派发 `doc:save-as` 自定义事件(detail 含 path/type);`ui.js` 新增监听与 `addSavedDocToCurrentCategory()`:目标分类 = 当前打开的目录页分类(`currentCategoryId`,未打开目录页/未分类 → 加入未分类);库中已有同路径条目 → 更新其 `displayName`(指向不变),否则 `addItem` 新增条目(type: markdown/web);随后刷新侧栏树/主区并 toast 提示。
+- **解耦说明**：编辑器不直接 import ui.js(避免循环依赖),用 document 事件 `doc:save-as` 通信,与既有 `library:changed`/`toolbox:navigate` 事件模式一致。
+- **验证**:`env -u NODE_OPTIONS npm run build` 通过;逻辑单测(spine.json/文档.md/音频/图片重命名、新文件加入当前分类、未打开目录页→未分类、已存在条目→更新名称)全 PASS;冒烟无 `[init]` 错误、`step home` pageVisible:true。
+- 版本 2.3.8 → **2.3.9**(package.json/lock 两处)+ CHANGELOG 顶部插入本条目;打包 → release/游戏资源管理器-v2.3.9-便携版.zip。
+
+---
+
+## 2026-08-21（补丁·108）
+
+### [优化] 新建文档保存 = 重命名默认文件 + 同步更新资源库
+
+- **需求(用户)**：新建的文件点击保存时,将新建的默认文件改名为用户输入的文件名,并更新资源库中的名称和指向新命名后的文件名。
+- **原行为**：新建「未命名.md/html」文档后点保存,走系统另存为对话框把内容写到**新路径**(新文件),原「未命名.*」文件残留,资源库条目仍指向旧路径/旧名称。
+- **新行为**：新建「未命名」文档保存时,改为**重命名原文件**语义——弹输入框让用户输入文件名(默认当前名,自动补扩展名,非法字符 `\ / : * ? " < > |` 自动替换为 `_`),主进程 `fs:rename`(仅同目录改名,目标已存在拒绝)把默认文件改名为目标名,随后 `updateItem` 同步更新资源库条目的 `displayName`(去扩展名)与 `filePath`,并派发 `library:changed` 刷新侧栏/列表;用户不改名直接确认时仅写回内容。
+- **改动**:
+  - `markdownEditor.js` / `htmlEditor.js`:import 增 `updateItem`(state.js)/`promptDialog`(dialogs.js);`save()` 在 `untitled` 分支改调 `renameUntitled()`(新增):写回内容 → `window.api.renameFile(oldPath,target)` → 更新编辑器内部状态(filePath/currentPath/untitled/defaultDir/markSaved/名称显示;HTML 额外 `registerPreviewRoot` 重注册新路径 + `renderPreview`) → 按旧路径查 `state.items` 并 `updateItem` 更新名称与路径 → `library:changed`;新增 `_promptFileName()`(输入框 + 文件名净化/补扩展名)。
+- **验证**:`env -u NODE_OPTIONS npm run build` 通过;逻辑单测(临时脚本)验证 旧文件消失/资源库名路径更新/内容落盘/扩展名自动补全/非法字符净化 全 PASS;冒烟无 `[init]` 错误、`step home` pageVisible:true。
+- 版本 2.3.7 → **2.3.8**(package.json/lock 两处)+ CHANGELOG 顶部插入本条目;打包 → release/游戏资源管理器-v2.3.8-便携版.zip。
 
 ---
 
