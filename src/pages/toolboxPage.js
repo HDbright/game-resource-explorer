@@ -458,11 +458,31 @@ function renderMarkdownTool(body) {
         <button class="md-mode-btn active" data-mode="split" id="md-mode-split" title="分栏:左侧编辑、右侧预览">分栏</button>
         <button class="md-mode-btn" data-mode="preview" id="md-mode-preview" title="仅预览渲染结果">预览</button>
         <button class="md-mode-btn" data-mode="edit" id="md-mode-edit" title="仅编辑源码">编辑</button>
+        <button class="btn sm" id="md-sync" title="同步关联:分栏模式下编辑与预览的滚动位置、选中文字双向联动">🔗 同步</button>
         <button class="btn sm" id="md-open" title="打开本地 Markdown 文件">📂 打开</button>
         <button class="btn sm" id="md-add-lib" title="把当前打开的文档加入资源库指定分类(如「文档资源」)">＋ 加入库</button>
         <button class="btn sm primary" id="md-save" title="保存回写原文件(Ctrl+S)">💾 保存</button>
         <button class="btn sm" id="md-copy" title="复制源码">📋</button>
+        <span class="ctrl-sep"></span>
+        <button class="btn sm" id="md-emoji" title="在光标处插入 emoji 图标">😀 emoji</button>
+        <button class="btn sm" id="md-table" title="插入指定行/列的表格">▦ 表格</button>
+        <button class="btn sm" id="md-text-color" title="为选中文字设置颜色">🖍 文字色</button>
+        <button class="btn sm" id="md-heading-color" title="设置预览各级标题(H1–H6)颜色">🎨 标题色</button>
+        <button class="btn sm" id="md-find" title="查找 / 替换(Ctrl+F)">🔍 查找</button>
         <span class="status" id="md-status"></span>
+      </div>
+      <div class="md-find-bar" id="md-find-bar" hidden>
+        <input type="text" id="md-find-q" class="find-input" placeholder="查找…" spellcheck="false" />
+        <span class="find-count" id="md-find-count"></span>
+        <button class="btn xs" id="md-find-prev" title="上一个(Shift+Enter)">↑</button>
+        <button class="btn xs" id="md-find-next" title="下一个(Enter)">↓</button>
+        <label class="find-opt" title="区分大小写"><input type="checkbox" id="md-find-case" /> Aa</label>
+        <label class="find-opt" title="全词匹配"><input type="checkbox" id="md-find-word" /> 全词</label>
+        <span class="find-sep"></span>
+        <input type="text" id="md-replace-q" class="find-input" placeholder="替换为…" spellcheck="false" />
+        <button class="btn xs" id="md-replace-one" title="替换当前匹配(Enter)">替换</button>
+        <button class="btn xs" id="md-replace-all" title="全部替换(Shift+Enter)">全部</button>
+        <button class="btn xs find-close" id="md-find-close" title="关闭(Esc)">✕</button>
       </div>
       <div class="md-body">
         <div class="md-col md-edit-col" id="md-edit-col">

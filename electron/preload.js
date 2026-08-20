@@ -151,6 +151,11 @@ contextBridge.exposeInMainWorld('api', {
   onDebugSourceResult: (cb) => ipcRenderer.on('debug:sourceResult', (_e, msg) => cb(msg)),
   // 用户在调试窗口点「×」关闭 → 主进程通知主窗口退出调试模式
   onDebugUserClosed: (cb) => ipcRenderer.on('debug:userClosed', () => cb()),
+  // 主进程 → 主窗口主动消息(补丁·96):托盘「计时日历」等快捷导航
+  onMainMsg: (cb) => ipcRenderer.on('main:msg', (_e, d) => { try { cb(d || {}); } catch (err) { /* ignore */ } }),
+  // 计时记录/类型(补丁·96):Todo 日历按类型统计用
+  timeRecList: () => ipcRenderer.invoke('timer:recList'),
+  timeTypeList: () => ipcRenderer.invoke('timer:typeList'),
 });
 
 // 冒烟测试标志(仅开发时传入 --smoke,通过 URL 参数传递,见 main.js)

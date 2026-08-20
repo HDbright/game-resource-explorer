@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: transparent;
+    font-family: "Microsoft YaHei", "Segoe UI", sans-serif; color: #e6e8ee; user-select: none; }
+  * { box-sizing: border-box; }
+  #card {
+    position: absolute; inset: 10px; border-radius: 12px; overflow: hidden;
+    background: linear-gradient(160deg, #2a2150 0%, #1d2027 70%);
+    border: 1px solid rgba(255,255,255,0.14);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    display: flex; flex-direction: column; padding: 12px 14px; gap: 8px;
+    animation: pop .18s ease-out;
+  }
+  @keyframes pop { from { transform: translateY(12px) scale(.96); opacity: 0; } to { transform: none; opacity: 1; } }
+  #top { display: flex; align-items: center; gap: 10px; }
+  #ico { font-size: 26px; line-height: 1; animation: shake 1s ease-in-out infinite; }
+  @keyframes shake { 0%,100% { transform: rotate(-8deg); } 50% { transform: rotate(8deg); } }
+  #txt { flex: 1; min-width: 0; }
+  #pLabel { font-size: 15px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #pTime { font-size: 12px; color: rgba(255,255,255,0.6); font-variant-numeric: tabular-nums; margin-top: 2px; }
+  #hint { font-size: 11px; color: rgba(255,255,255,0.5); }
+  #btns { display: flex; gap: 8px; margin-top: 4px; align-items: stretch; }
+  .btn { cursor: pointer; height: 34px; border-radius: 8px; font-size: 12px; font-family: inherit;
+    border: 1px solid rgba(255,255,255,0.16); background: #2a2e38; color: #e6e8ee;
+    display: flex; align-items: center; justify-content: center; gap: 4px; padding: 0 4px; }
+  .btn:hover { background: #343946; }
+  .btn.snooze { background: #2b5fd9; border-color: #2b5fd9; color: #fff; flex: 1; }
+  .btn.snooze:hover { background: #3a6fe6; }
+  .btn.stop { background: #4a4f5b; border-color: rgba(255,255,255,0.16); color: #e6e8ee; min-width: 72px; }
+  .btn.stop:hover { background: #5b6170; }
+  /* 补丁·107: 窄时间下拉(选延迟时长) + 延迟按钮(点才触发) */
+  #selSnooze {
+    flex: 0 0 auto; width: 104px; appearance: none; -webkit-appearance: none; padding: 0 26px 0 10px;
+    background: #2a2e38 url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2 4 L6 8 L10 4' fill='none' stroke='white' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>") no-repeat right 9px center;
+    background-size: 10px; color: #e6e8ee;
+    border-radius: 8px; height: 34px; font-size: 12px; font-family: inherit; cursor: pointer; outline: none;
+    border: 1px solid rgba(255,255,255,0.16);
+  }
+  #selSnooze:hover { background-color: #343946; }
+  #selSnooze:focus { box-shadow: 0 0 0 2px rgba(255,255,255,0.25); }
+  #selSnooze option { background: #1d2027; color: #e6e8ee; padding: 6px; }
+</style>
+</head>
+<body>
+  <div id="card">
+    <div id="top">
+      <div id="ico">⏰</div>
+      <div id="txt">
+        <div id="pLabel">闹钟时间到</div>
+        <div id="pTime"></div>
+      </div>
+    </div>
+    <div id="hint">响铃中 · 循环播放, 选好延迟时长后点「延迟」</div>
+    <div id="btns">
+      <select id="selSnooze" title="选择延迟多久再提醒">
+        <option value="5">5 分钟</option>
+        <option value="10" selected>10 分钟</option>
+        <option value="15">15 分钟</option>
+        <option value="20">20 分钟</option>
+        <option value="30">30 分钟</option>
+        <option value="60">1 小时</option>
+      </select>
+      <button class="btn snooze" id="btnSnooze" title="按上方选择的时间延迟提醒">延迟</button>
+      <button class="btn stop" id="btnClose" title="关闭本次闹钟并关闭弹窗">关闭</button>
+    </div>
+  </div>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const api = window.timerApi;
+  let curId = '';
+  let curPayload = null;
+  let audioEl = null;
+  let beepTimer = null;
+  let capTimer = null;
+
+  function builtinKey(s) { return String(s || '').startsWith('wav:') ? String(s).slice(4) : ''; }
+
+  function ringBeep() {
+    let ctx = null;
+    try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
+    const playOne = (freq, start, dur) => {
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.type = 'sine'; o.frequency.value = freq;
+      g.gain.setValueAtTime(0, ctx.currentTime + start);
+      g.gain.linearRampToValueAtTime(0.25, ctx.currentTime + start + 0.02);
+      g.gain.linearRampToValueAtTime(0, ctx.currentTime + start + dur);
+      o.connect(g).connect(ctx.destination);
+      o.start(ctx.currentTime + start);
+      o.stop(ctx.currentTime + start + dur + 0.05);
+    };
+    playOne(880, 0, 0.2); playOne(880, 0.3, 0.2); playOne(1175, 0.6, 0.35);
+  }
+  function stopSound() {
+    if (audioEl) { try { audioEl.pause(); audioEl.currentTime = 0; } catch (e) { /* ignore */ } audioEl = null; }
+    if (beepTimer) { clearInterval(beepTimer); beepTimer = null; }
+    if (capTimer) { clearTimeout(capTimer); capTimer = null; }
+  }
+  function startSound(d) {
+    stopSound();
+    if (d.sound === 'none') return;
+    const k = builtinKey(d.sound);
+    if ((d.sound === 'file' || k) && d.dataUrl) {
+      audioEl = new Audio(d.dataUrl);
+      audioEl.loop = true;
+      audioEl.volume = 1;
+      audioEl.play().catch(() => {});
+    } else {
+      // 三声短鸣: 循环合成(每 2 秒一次)
+      ringBeep();
+      beepTimer = setInterval(ringBeep, 2000);
+    }
+    // 循环播放 5 分钟后自动停止并关闭弹窗
+    capTimer = setTimeout(() => {
+      stopSound();
+      try { window.close(); } catch (e) { /* ignore */ }
+    }, 5 * 60 * 1000);
+  }
+
+  function finish() { stopSound(); try { window.close(); } catch (e) { /* ignore */ } }
+
+  api.onAlarmPopupInit((d) => {
+    curPayload = d || {};
+    curId = curPayload.id || '';
+    $('pLabel').textContent = curPayload.label ? curPayload.label : '闹钟时间到';
+    $('pTime').textContent = curPayload.time || '';
+    startSound(curPayload);
+  });
+
+  // 补丁·107: 选好下拉时长(默认 10 分钟)后, 点击「延迟」按钮才触发 snooze
+  $('btnSnooze').addEventListener('click', () => {
+    if (!curPayload) return;
+    const minutes = parseInt($('selSnooze').value, 10) || 10;
+    api.alarmSnooze({ id: curId, minutes, payload: curPayload });
+    finish();
+  });
+  $('btnClose').addEventListener('click', () => {
+    api.alarmStop({ id: curId });
+    finish();
+  });
+})();
+</script>
+</body>
+</html>

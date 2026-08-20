@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #17181d;
+    font-family: "Microsoft YaHei", "Segoe UI", sans-serif; color: #e6e8ee; user-select: none; }
+  * { box-sizing: border-box; }
+  #titlebar {
+    height: 32px; display: flex; align-items: center; padding: 0 4px 0 10px;
+    background: #23262e; border-bottom: 1px solid rgba(255,255,255,0.08);
+    -webkit-app-region: drag; user-select: none; cursor: move;
+  }
+  #titlebar .t-icon { font-size: 13px; margin-right: 6px; }
+  #titlebar .t-title { flex: 0 1 auto; font-size: 12px; color: rgba(255,255,255,0.85); }
+  #titlebar .t-spacer { flex: 1; }
+  #titlebar .t-btn {
+    -webkit-app-region: no-drag; cursor: pointer; width: 34px; height: 32px;
+    display: flex; align-items: center; justify-content: center;
+    border: none; background: transparent; color: rgba(255,255,255,0.85);
+    border-radius: 0; font-size: 13px; line-height: 1; padding: 0;
+  }
+  #titlebar .t-btn:hover { background: rgba(255,255,255,0.12); color: #fff; }
+  #titlebar .t-btn.close:hover { background: #d23f3f; color: #fff; }
+
+  #body { position: absolute; top: 32px; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; padding: 10px; gap: 8px; }
+  #nextCard { background: #1d2027; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 8px 12px; }
+  #nextCard .k { font-size: 11px; color: rgba(255,255,255,0.5); }
+  #nextCard .v { font-size: 15px; font-weight: 600; color: #5c9cff; font-variant-numeric: tabular-nums; }
+  .btn { cursor: pointer; height: 30px; padding: 0 14px; font-size: 12px;
+    border: 1px solid rgba(255,255,255,0.14); background: #2a2e38; color: #e6e8ee;
+    border-radius: 6px; font-family: inherit; }
+  .btn:hover { background: #343946; }
+  .btn.primary { background: #2b5fd9; border-color: #2b5fd9; color: #fff; }
+  .btn.danger { color: #ff9a9a; }
+  .btn.xs { height: 24px; padding: 0 8px; font-size: 11px; }
+  .btn.add { background: #1e8e5a; border-color: #1e8e5a; color: #fff; }
+
+  #list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+  .al-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px;
+    background: #1a1d24; border: 1px solid rgba(255,255,255,0.06); }
+  .al-row.off { opacity: 0.5; }
+  .al-time { font-size: 18px; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; min-width: 64px; }
+  .al-info { flex: 1; min-width: 0; font-size: 11px; color: rgba(255,255,255,0.55); }
+  .al-info .lbl { font-size: 12px; color: #e6e8ee; }
+  .al-actions { display: flex; gap: 6px; }
+  .switch { cursor: pointer; width: 36px; height: 20px; border-radius: 10px; background: #3a3f4b;
+    position: relative; flex: 0 0 auto; transition: background .15s; border: none; }
+  .switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+    border-radius: 50%; background: #e6e8ee; transition: left .15s; }
+  .switch.on { background: #2b5fd9; }
+  .switch.on::after { left: 18px; }
+  .empty-hint { flex: 1; display: flex; align-items: center; justify-content: center;
+    color: rgba(255,255,255,0.35); font-size: 12px; }
+
+  /* 弹窗 */
+  .mask { position: fixed; inset: 0; background: rgba(10,12,16,0.72); display: none;
+    align-items: center; justify-content: center; z-index: 60; }
+  .mask.show { display: flex; }
+  .dialog { width: min(94vw, 300px); background: #1d2027; border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .dialog h3 { margin: 0; font-size: 14px; color: #fff; }
+  .row { display: flex; align-items: center; gap: 8px; }
+  .row label { font-size: 12px; color: rgba(255,255,255,0.65); min-width: 44px; }
+  input[type="time"], input[type="text"], select {
+    background: #262a33; border: 1px solid rgba(255,255,255,0.14); color: #e6e8ee;
+    border-radius: 6px; padding: 5px 8px; font-size: 13px; font-family: inherit; outline: none;
+  }
+  input[type="time"] { flex: 1; }
+  input[type="text"] { flex: 1; min-width: 0; }
+  select { flex: 1; }
+  .days-row { display: flex; gap: 4px; }
+  .dow { cursor: pointer; width: 26px; height: 26px; border-radius: 50%; font-size: 12px;
+    border: 1px solid rgba(255,255,255,0.16); background: #2a2e38; color: #e6e8ee;
+    display: flex; align-items: center; justify-content: center; }
+  .dow.on { background: #2b5fd9; border-color: #2b5fd9; color: #fff; }
+  .dialog .actions { display: flex; gap: 8px; justify-content: flex-end; }
+  .hint { font-size: 11px; color: #ff9a9a; min-height: 14px; }
+</style>
+</head>
+<body>
+  <div id="titlebar">
+    <span class="t-icon">⏰</span>
+    <span class="t-title">闹钟</span>
+    <span class="t-spacer"></span>
+    <button class="t-btn pin" id="btn-pin" title="置顶" aria-label="置顶切换">📌</button>
+    <button class="t-btn" id="btn-min" title="最小化" aria-label="最小化">
+      <svg width="12" height="12" viewBox="0 0 12 12"><line x1="2" y1="9" x2="10" y2="9" stroke="currentColor" stroke-width="1.3"/></svg>
+    </button>
+    <button class="t-btn close" id="btn-close" title="关闭" aria-label="关闭">
+      <svg width="12" height="12" viewBox="0 0 12 12"><line x1="3" y1="3" x2="9" y2="9" stroke="currentColor" stroke-width="1.3"/><line x1="9" y1="3" x2="3" y2="9" stroke="currentColor" stroke-width="1.3"/></svg>
+    </button>
+  </div>
+  <div id="body">
+    <div id="nextCard">
+      <div class="k">下一个闹钟</div>
+      <div class="v" id="nextVal">—</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <span style="font-size:12px;color:rgba(255,255,255,0.6)">闹钟列表</span>
+      <span style="flex:1"></span>
+      <button class="btn add" id="btnAdd">＋ 新建闹钟</button>
+    </div>
+    <div id="list"></div>
+  </div>
+
+  <div class="mask" id="editMask">
+    <div class="dialog">
+      <h3 id="editTitle">新建闹钟</h3>
+      <div class="row"><label>时间</label><input type="time" id="edTime" value="08:00" /></div>
+      <div class="row"><label>重复</label>
+        <select id="edRepeat">
+          <option value="once">一次</option>
+          <option value="daily">每天</option>
+          <option value="weekdays">工作日(周一~五)</option>
+          <option value="weekly">每周(自定义)</option>
+        </select>
+      </div>
+      <div class="row"><label>每周</label><span class="days-row" id="edDays"></span></div>
+      <div class="row"><label>标签</label><input type="text" id="edLabel" maxlength="30" placeholder="可选, 如: 起床" /></div>
+      <div class="row"><label>声音</label>
+        <select id="edSound" style="flex:1;min-width:0"></select>
+        <button class="btn xs" id="edPreview" title="试听">▶</button>
+      </div>
+      <div class="hint" id="edHint"></div>
+      <div class="actions">
+        <button class="btn" id="edCancel">取消</button>
+        <button class="btn primary" id="edOk">保存</button>
+      </div>
+    </div>
+  </div>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const api = window.timerApi;
+  let alarms = [];
+  let editingId = null;
+  let edSound = 'beep';
+  let edSoundPath = '';
+  let edSoundName = '';
+  let edSoundDataUrl = '';
+  let edSelDays = new Set();
+
+  const DOW_CN = ['日', '一', '二', '三', '四', '五', '六'];
+  function pad(n) { return String(n).padStart(2, '0'); }
+  function nowSec() { return Math.floor(Date.now() / 1000); }
+  let builtinSounds = []; // 补丁·100:Windows 内置闹钟声清单
+
+  function builtinKey(s) { return String(s || '').startsWith('wav:') ? String(s).slice(4) : ''; }
+  function repeatLabel(a) {
+    if (a.repeat === 'daily') return '每天';
+    if (a.repeat === 'weekdays') return '工作日';
+    if (a.repeat === 'weekly') return '每周 ' + ((a.days || []).map((d) => '周' + DOW_CN[d]).join(' '));
+    return '一次';
+  }
+  function soundLabel(a) {
+    const k = builtinKey(a.sound);
+    if (k) {
+      const it = builtinSounds.find((x) => x.key === k);
+      return it ? ('🔔 ' + it.label) : ('🔔 ' + k);
+    }
+    if (a.sound === 'file') return '🎵 ' + (a.sound_name || '音乐');
+    if (a.sound === 'none') return '🔇';
+    return '🔊 三声短鸣';
+  }
+
+  async function load() {
+    try { alarms = (await api.alarmList()) || []; } catch (e) { alarms = []; }
+    renderList();
+    renderNext();
+  }
+
+  function renderNext() {
+    const now = new Date();
+    const curMin = now.getHours() * 60 + now.getMinutes();
+    let best = null;
+    for (const a of alarms) {
+      if (!a.enabled) continue;
+      const hm = (a.time || '00:00').split(':');
+      const tMin = Number(hm[0]) * 60 + Number(hm[1]);
+      // 简单估算: 今天该时间未过则今天, 否则明天(重复类); once 过期跳过
+      let dueMin = tMin;
+      if (a.repeat === 'once') {
+        if (tMin <= curMin) continue;
+      } else if (tMin <= curMin) {
+        dueMin = tMin + 1440;
+      }
+      if (!best || dueMin < best.due) best = { due: dueMin, a };
+    }
+    if (!best) { $('nextVal').textContent = '无'; return; }
+    const mins = best.due - curMin;
+    const h = Math.floor(mins / 60), m = mins % 60;
+    $('nextVal').textContent = `${best.a.time} · ${h > 0 ? h + ' 小时 ' : ''}${m} 分后`;
+  }
+
+  function renderList() {
+    const box = $('list');
+    box.innerHTML = '';
+    if (!alarms.length) {
+      box.innerHTML = '<div class="empty-hint">暂无闹钟<br/>点「＋ 新建闹钟」添加</div>';
+      return;
+    }
+    for (const a of alarms) {
+      const row = document.createElement('div');
+      row.className = 'al-row' + (a.enabled ? '' : ' off');
+      row.innerHTML = `
+        <span class="al-time">${a.time}</span>
+        <div class="al-info"><span class="lbl">${a.label ? esc(a.label) + ' · ' : ''}${repeatLabel(a)}</span> · ${soundLabel(a)}</div>
+        <button class="switch${a.enabled ? ' on' : ''}" data-act="toggle" data-id="${a.id}" title="${a.enabled ? '关闭' : '开启'}"></button>
+        <div class="al-actions">
+          <button class="btn xs" data-act="edit" data-id="${a.id}">编辑</button>
+          <button class="btn xs danger" data-act="del" data-id="${a.id}">删除</button>
+        </div>`;
+      box.appendChild(row);
+    }
+  }
+  function esc(s) { return String(s || '').replace(/</g, '&lt;'); }
+
+  // ---- 新建/编辑 ----
+  function openEdit(id) {
+    editingId = id || null;
+    const a = id ? alarms.find((x) => x.id === id) : null;
+    $('editTitle').textContent = id ? '编辑闹钟' : '新建闹钟';
+    $('edTime').value = a ? (a.time || '08:00') : '08:00';
+    $('edRepeat').value = a ? (a.repeat || 'once') : 'once';
+    edSelDays = new Set(a && Array.isArray(a.days) ? a.days : []);
+    renderDays();
+    $('edLabel').value = a ? (a.label || '') : '';
+    edSound = a ? (a.sound || 'beep') : 'beep';
+    edSoundPath = a ? (a.sound_path || '') : '';
+    edSoundName = a ? (a.sound_name || '') : '';
+    populateSoundSelect();
+    $('edHint').textContent = '';
+    $('editMask').classList.add('show');
+  }
+  function renderDays() {
+    const box = $('edDays');
+    box.innerHTML = '';
+    for (let d = 0; d < 7; d++) {
+      const b = document.createElement('div');
+      b.className = 'dow' + (edSelDays.has(d) ? ' on' : '');
+      b.textContent = DOW_CN[d];
+      b.addEventListener('click', () => {
+        if (edSelDays.has(d)) edSelDays.delete(d); else edSelDays.add(d);
+        b.classList.toggle('on');
+      });
+      box.appendChild(b);
+    }
+  }
+  function populateSoundSelect() {
+    const sel = $('edSound');
+    sel.innerHTML = '';
+    const add = (val, label, disabled) => {
+      const o = document.createElement('option');
+      o.value = val; o.textContent = label;
+      if (disabled) o.disabled = true;
+      if (val === edSound) o.selected = true;
+      sel.appendChild(o);
+    };
+    add('beep', '三声短鸣');
+    add('none', '静音');
+    for (const it of builtinSounds) {
+      add('wav:' + it.key, (it.available ? '' : '⚠ ') + it.label + (it.available ? '' : ' (缺失)'), !it.available);
+    }
+    add('file', '选择音乐文件…');
+    sel.value = edSound;
+    $('edPreview').disabled = (edSound === 'none') || (edSound === 'file' && !edSoundDataUrl);
+  }
+  function closeEdit() { $('editMask').classList.remove('show'); }
+  async function saveEdit() {
+    const time = $('edTime').value;
+    if (!time) { $('edHint').textContent = '请选择时间'; return; }
+    const repeat = $('edRepeat').value;
+    // 补丁·105: once 闹钟若时间今天已过, 永远不会响, 直接提示阻止
+    if (repeat === 'once') {
+      const nw = new Date();
+      const cur = nw.getHours() * 60 + nw.getMinutes();
+      const hm = time.split(':');
+      const target = Number(hm[0]) * 60 + Number(hm[1]);
+      if (target <= cur) { $('edHint').textContent = '该时间今天已过,一次闹钟将不会响,请改时间或选重复'; return; }
+    }
+    const days = repeat === 'weekly' ? Array.from(edSelDays).sort((x, y) => x - y) : [];
+    if (repeat === 'weekly' && !days.length) { $('edHint').textContent = '请至少选择一天'; return; }
+    const payload = {
+      time, repeat, days, label: $('edLabel').value.trim(),
+      sound: edSound,
+      sound_path: builtinKey(edSound) ? '' : edSoundPath,
+      sound_name: builtinKey(edSound) ? (builtinSounds.find((x) => x.key === builtinKey(edSound)) || {}).label || edSound : edSoundName,
+    };
+    let res;
+    if (editingId) res = await api.alarmUpdate(editingId, payload);
+    else res = await api.alarmAdd(payload);
+    if (res && res.ok) { closeEdit(); await load(); }
+    else $('edHint').textContent = '保存失败: ' + ((res && res.error) || '未知');
+  }
+  async function setSound(s) {
+    // 下拉选中后设定声音;file 走文件选择器;全部可经 ▶ 试听
+    const k = builtinKey(s);
+    if (k) {
+      const it = builtinSounds.find((x) => x.key === k);
+      if (!it || !it.available) { $('edHint').textContent = '该系统声音不可用(文件缺失)'; populateSoundSelect(); return; }
+      edSound = s; edSoundPath = ''; edSoundName = it.label; edSoundDataUrl = '';
+      api.builtinPreview(k);
+    } else if (s === 'file') {
+      const r = await api.soundPick();
+      if (!r || r.canceled) { populateSoundSelect(); return; }
+      if (r.error) { $('edHint').textContent = '读取失败: ' + r.error; populateSoundSelect(); return; }
+      edSound = 'file'; edSoundPath = r.path; edSoundName = r.name; edSoundDataUrl = r.dataUrl || '';
+    } else {
+      edSound = s; edSoundPath = ''; edSoundName = ''; edSoundDataUrl = '';
+    }
+    populateSoundSelect();
+  }
+  // 三声短鸣(试听用, 单次)
+  function ringBeep() {
+    let ctx = null;
+    try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
+    const playOne = (freq, start, dur) => {
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.type = 'sine'; o.frequency.value = freq;
+      g.gain.setValueAtTime(0, ctx.currentTime + start);
+      g.gain.linearRampToValueAtTime(0.25, ctx.currentTime + start + 0.02);
+      g.gain.linearRampToValueAtTime(0, ctx.currentTime + start + dur);
+      o.connect(g).connect(ctx.destination);
+      o.start(ctx.currentTime + start);
+      o.stop(ctx.currentTime + start + dur + 0.05);
+    };
+    playOne(880, 0, 0.2); playOne(880, 0.3, 0.2); playOne(1175, 0.6, 0.35);
+  }
+  function previewSound(v) {
+    const k = builtinKey(v);
+    if (k) { api.builtinPreview(k); return; }
+    if (v === 'file') {
+      if (edSoundDataUrl) { const a = new Audio(edSoundDataUrl); a.play().catch(() => {}); }
+      return;
+    }
+    if (v === 'beep') { ringBeep(); return; }
+    // none: 静音,不试听
+  }
+
+  // 补丁·100: 拉取 Windows 内置声音清单(供下拉填充)
+  async function loadBuiltins() {
+    try { builtinSounds = (await api.builtinList()) || []; } catch (e) { builtinSounds = []; }
+  }
+
+  // ---- 事件 ----
+  $('btnAdd').addEventListener('click', () => openEdit(null));
+  $('btn-min').addEventListener('click', () => api.minimize());
+  $('btn-close').addEventListener('click', () => api.close());
+  $('btn-pin').addEventListener('click', () => {
+    const on = !$('btn-pin').classList.contains('on');
+    $('btn-pin').classList.toggle('on', on);
+    $('btn-pin').title = on ? '取消置顶' : '置顶';
+    api.setTop(on);
+  });
+  $('edCancel').addEventListener('click', closeEdit);
+  $('edOk').addEventListener('click', saveEdit);
+  $('editMask').addEventListener('click', (e) => { if (e.target === $('editMask')) closeEdit(); });
+  $('edRepeat').addEventListener('change', () => {
+    const weekly = $('edRepeat').value === 'weekly';
+    $('edDays').style.display = weekly ? 'flex' : 'none';
+  });
+  $('edSound').addEventListener('change', () => setSound($('edSound').value));
+  $('edPreview').addEventListener('click', () => previewSound($('edSound').value));
+  $('list').addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-act]');
+    if (!btn) return;
+    if (btn.dataset.act === 'edit') openEdit(btn.dataset.id);
+    else if (btn.dataset.act === 'del') {
+      if (!confirm('确定删除该闹钟?')) return;
+      await api.alarmDelete(btn.dataset.id);
+      await load();
+    } else if (btn.dataset.act === 'toggle') {
+      const a = alarms.find((x) => x.id === btn.dataset.id);
+      if (a) { await api.alarmUpdate(a.id, { enabled: a.enabled ? 0 : 1 }); await load(); }
+    }
+  });
+
+  // 补丁·100: 初次打开时拉取 Windows 内置声音清单(失败也不阻塞)
+  loadBuiltins().catch(() => {});
+  load();
+  setInterval(renderNext, 30000);
+})();
+</script>
+</body>
+</html>

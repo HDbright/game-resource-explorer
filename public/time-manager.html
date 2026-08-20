@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #17181d;
+    font-family: "Microsoft YaHei", "Segoe UI", sans-serif; color: #e6e8ee; user-select: none; }
+  * { box-sizing: border-box; }
+  #titlebar {
+    height: 32px; display: flex; align-items: center; padding: 0 4px 0 10px;
+    background: #23262e; border-bottom: 1px solid rgba(255,255,255,0.08);
+    -webkit-app-region: drag; user-select: none; cursor: move;
+  }
+  #titlebar .t-icon { font-size: 13px; margin-right: 6px; }
+  #titlebar .t-title { flex: 0 1 auto; font-size: 12px; color: rgba(255,255,255,0.85); }
+  #titlebar .t-spacer { flex: 1; }
+  #titlebar .t-btn {
+    -webkit-app-region: no-drag; cursor: pointer; width: 34px; height: 32px;
+    display: flex; align-items: center; justify-content: center;
+    border: none; background: transparent; color: rgba(255,255,255,0.85);
+    border-radius: 0; font-size: 13px; line-height: 1; padding: 0;
+  }
+  #titlebar .t-btn:hover { background: rgba(255,255,255,0.12); color: #fff; }
+  #titlebar .t-btn.close:hover { background: #d23f3f; color: #fff; }
+
+  #body { position: absolute; top: 32px; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; }
+  .toolbar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; flex-wrap: wrap; }
+  .stat-card {
+    background: #1d2027; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px;
+    padding: 6px 14px; display: flex; flex-direction: column; min-width: 96px;
+  }
+  .stat-card .k { font-size: 11px; color: rgba(255,255,255,0.5); }
+  .stat-card .v { font-size: 16px; font-weight: 600; color: #5c9cff; font-variant-numeric: tabular-nums; }
+  .btn {
+    cursor: pointer; height: 30px; padding: 0 12px;
+    border: 1px solid rgba(255,255,255,0.14); background: #2a2e38; color: #e6e8ee;
+    border-radius: 6px; font-size: 12px; font-family: inherit;
+  }
+  .btn:hover { background: #343946; }
+  .btn.primary { background: #2b5fd9; border-color: #2b5fd9; color: #fff; }
+  .btn.danger { color: #ff9a9a; }
+  .btn.danger:hover { background: #4a2a2a; }
+  .btn.xs { height: 24px; padding: 0 8px; font-size: 11px; }
+  select, input[type="text"], input[type="datetime-local"], input[type="number"] {
+    background: #262a33; border: 1px solid rgba(255,255,255,0.14); color: #e6e8ee;
+    border-radius: 6px; padding: 5px 8px; font-size: 12px; font-family: inherit; outline: none;
+  }
+  select:focus, input:focus { border-color: #5c9cff; }
+
+  /* 统计区(按类型) */
+  #statPanel { margin: 0 14px 8px; background: #1a1d24; border: 1px solid rgba(255,255,255,0.07); border-radius: 8px; padding: 10px; }
+  .stat-tabs { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; align-items: center; }
+  .stat-tab { cursor: pointer; padding: 3px 12px; border-radius: 12px; font-size: 12px;
+    border: 1px solid rgba(255,255,255,0.14); background: #23262e; color: #d6d9e0; }
+  .stat-tab.on { background: #2b5fd9; border-color: #2b5fd9; color: #fff; }
+  .stat-rows { display: flex; flex-direction: column; gap: 4px; max-height: 132px; overflow-y: auto; }
+  .stat-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  .stat-row .nm { min-width: 90px; color: #e6e8ee; }
+  .stat-row .bar { flex: 1; height: 8px; background: #262a33; border-radius: 4px; overflow: hidden; }
+  .stat-row .bar i { display: block; height: 100%; border-radius: 4px; }
+  .stat-row .tm { min-width: 80px; text-align: right; color: #5c9cff; font-variant-numeric: tabular-nums; }
+  .stat-empty { font-size: 12px; color: rgba(255,255,255,0.4); padding: 8px 0; }
+
+  /* 记录列表 */
+  #listWrap { flex: 1; overflow-y: auto; padding: 0 14px 14px; }
+  .rec-row {
+    display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 8px;
+    background: #1a1d24; border: 1px solid rgba(255,255,255,0.06); margin-bottom: 6px;
+  }
+  .rec-main { flex: 1; min-width: 0; }
+  .rec-time { font-size: 12px; color: rgba(255,255,255,0.75); font-variant-numeric: tabular-nums; }
+  .rec-dur { font-size: 13px; font-weight: 600; color: #fff; margin: 2px 0; font-variant-numeric: tabular-nums; }
+  .rec-note { font-size: 11px; color: rgba(255,255,255,0.45); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; }
+  .rec-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 3px; }
+  .rtag { font-size: 11px; padding: 1px 8px; border-radius: 10px; border: 1px solid; }
+  .rec-meta { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; font-size: 11px; color: rgba(255,255,255,0.5); }
+  .rec-meta .mode { padding: 1px 8px; border-radius: 10px; background: #23262e; border: 1px solid rgba(255,255,255,0.1); }
+  .rec-actions { display: flex; gap: 6px; }
+  .cal-off { opacity: 0.55; }
+  .cal-off .rec-dur { color: rgba(255,255,255,0.5); }
+
+  /* 弹窗 */
+  .mask { position: fixed; inset: 0; background: rgba(10,12,16,0.72); display: none;
+    align-items: center; justify-content: center; z-index: 60; }
+  .mask.show { display: flex; }
+  .dialog {
+    width: min(94vw, 480px); max-height: 90vh; overflow-y: auto;
+    background: #1d2027; border: 1px solid rgba(255,255,255,0.12); border-radius: 10px;
+    padding: 16px; display: flex; flex-direction: column; gap: 10px;
+  }
+  .dialog h3 { margin: 0; font-size: 14px; color: #fff; }
+  .dialog .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .dialog .row label { font-size: 12px; color: rgba(255,255,255,0.65); min-width: 60px; }
+  .dialog .row input[type="datetime-local"] { flex: 1; min-width: 140px; }
+  .dialog .row input[type="text"] { flex: 1; min-width: 0; }
+  .lbl { font-size: 12px; color: rgba(255,255,255,0.65); margin: 2px 0; }
+  #typeChips { display: flex; flex-wrap: wrap; gap: 6px; }
+  #typeChips .chip {
+    cursor: pointer; padding: 4px 10px; border-radius: 14px; font-size: 12px;
+    border: 1px solid rgba(255,255,255,0.18); background: #2a2e38; color: #e6e8ee;
+  }
+  #typeChips .chip.on { border-color: var(--tc, #5c9cff); color: var(--tc, #5c9cff); background: var(--tc, #5c9cff)22; }
+  .check-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: rgba(255,255,255,0.75); }
+  .check-row input { accent-color: #5c9cff; }
+  .dialog-actions { display: flex; gap: 8px; justify-content: flex-end; }
+  .hint { font-size: 11px; color: #ff9a9a; min-height: 14px; }
+
+  /* 类型管理 */
+  .type-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+  .type-row .tname { flex: 1; min-width: 0; font-size: 13px; }
+  .type-row input[type="color"] { width: 34px; height: 24px; padding: 0; border: none; background: transparent; cursor: pointer; }
+  .type-row .tcount { font-size: 11px; color: rgba(255,255,255,0.45); min-width: 60px; text-align: right; }
+  .type-add { display: flex; gap: 6px; margin-top: 8px; }
+  .type-add input { flex: 1; min-width: 0; }
+</style>
+</head>
+<body>
+  <div id="titlebar">
+    <span class="t-icon">📊</span>
+    <span class="t-title">计时管理</span>
+    <span class="t-spacer"></span>
+    <button class="t-btn" id="btn-min" title="最小化" aria-label="最小化">
+      <svg width="12" height="12" viewBox="0 0 12 12"><line x1="2" y1="9" x2="10" y2="9" stroke="currentColor" stroke-width="1.3"/></svg>
+    </button>
+    <button class="t-btn close" id="btn-close" title="关闭" aria-label="关闭">
+      <svg width="12" height="12" viewBox="0 0 12 12"><line x1="3" y1="3" x2="9" y2="9" stroke="currentColor" stroke-width="1.3"/><line x1="9" y1="3" x2="3" y2="9" stroke="currentColor" stroke-width="1.3"/></svg>
+    </button>
+  </div>
+  <div id="body">
+    <div class="toolbar">
+      <div class="stat-card"><span class="k">今日</span><span class="v" id="stToday">00:00:00</span></div>
+      <div class="stat-card"><span class="k">本月</span><span class="v" id="stMonth">00:00:00</span></div>
+      <div class="stat-card"><span class="k">总计</span><span class="v" id="stTotal">00:00:00</span></div>
+      <span style="flex:1"></span>
+      <button class="btn" id="btnTypes">🏷️ 类型管理</button>
+    </div>
+    <div id="statPanel">
+      <div class="stat-tabs">
+        <span style="font-size:12px;color:rgba(255,255,255,0.6)">按类型统计:</span>
+        <span class="stat-tab on" data-range="today">今日</span>
+        <span class="stat-tab" data-range="month">本月</span>
+        <span class="stat-tab" data-range="year">今年</span>
+        <span class="stat-tab" data-range="total">总计</span>
+      </div>
+      <div class="stat-rows" id="statRows"></div>
+    </div>
+    <div class="toolbar" style="padding-top:0">
+      <select id="fltType"><option value="">全部类型</option></select>
+      <select id="fltMode">
+        <option value="">全部模式</option>
+        <option value="stopwatch">秒表</option>
+        <option value="countdown">倒计时</option>
+      </select>
+      <input type="text" id="fltNote" placeholder="搜索备注/时间…" style="width:160px" />
+      <button class="btn xs" id="btnFlush" title="刷新">⟳ 刷新</button>
+      <span style="flex:1"></span>
+      <span id="recCount" style="font-size:12px;color:rgba(255,255,255,0.5)"></span>
+    </div>
+    <div id="listWrap"></div>
+  </div>
+
+  <!-- 编辑记录弹窗 -->
+  <div class="mask" id="editMask">
+    <div class="dialog">
+      <h3 id="editTitle">编辑记录</h3>
+      <div class="row"><label>开始</label><input type="datetime-local" id="edStart" /></div>
+      <div class="row"><label>结束</label><input type="datetime-local" id="edEnd" /></div>
+      <div class="row"><label>时长</label><input type="text" id="edDur" style="flex:1" /></div>
+      <div class="lbl">计时类型(可多选)</div>
+      <div id="typeChips"></div>
+      <div class="check-row"><input type="checkbox" id="edCal" /><label for="edCal">在 Todo 日历中显示并按类型统计</label></div>
+      <div class="row"><label>备注</label><input type="text" id="edNote" maxlength="200" /></div>
+      <div class="dialog-actions">
+        <button class="btn" id="edCancel">取消</button>
+        <button class="btn primary" id="edOk">保存修改</button>
+      </div>
+      <div class="hint" id="edHint"></div>
+    </div>
+  </div>
+
+  <!-- 类型管理弹窗 -->
+  <div class="mask" id="typeMask">
+    <div class="dialog">
+      <h3>计时类型管理</h3>
+      <div id="typeList"></div>
+      <div class="type-add">
+        <input type="text" id="newTypeName" placeholder="新类型名称…" maxlength="20" />
+        <button class="btn primary" id="btnAddType">添加</button>
+      </div>
+      <div class="dialog-actions"><button class="btn" id="typeClose">关闭</button></div>
+      <div class="hint" id="typeHint"></div>
+    </div>
+  </div>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const api = window.timerApi;
+  let types = [];
+  let records = [];
+  let statRange = 'today';
+  let editingId = null;
+  let edSel = new Set();
+
+  function pad(n) { return String(n).padStart(2, '0'); }
+  function fmtHMS(sec) {
+    sec = Math.max(0, Math.floor(sec));
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    return `${pad(h)}:${pad(m)}:${pad(s)}`;
+  }
+  function fmtDT(ts) {
+    if (!ts) return '';
+    const d = new Date(ts * 1000);
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+  function toLocalInput(ts) {
+    if (!ts) return '';
+    const d = new Date(ts * 1000);
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+  function typeById(id) { return types.find((t) => t.id === id); }
+  function typeNames(ids) {
+    return (ids || []).map((id) => typeById(id)).filter(Boolean).map((t) => t.name).join(',') || '未分类';
+  }
+
+  async function load() {
+    try { types = (await api.typeList()) || []; } catch (e) { types = []; }
+    try { records = (await api.recList()) || []; } catch (e) { records = []; }
+    renderStats(); renderFilters(); renderList();
+  }
+
+  // ---- 统计 ----
+  function rangeBounds(range) {
+    const now = new Date();
+    let s, e;
+    if (range === 'today') {
+      s = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() / 1000;
+      e = now.getTime() / 1000;
+    } else if (range === 'month') {
+      s = new Date(now.getFullYear(), now.getMonth(), 1).getTime() / 1000;
+      e = now.getTime() / 1000;
+    } else if (range === 'year') {
+      s = new Date(now.getFullYear(), 0, 1).getTime() / 1000;
+      e = now.getTime() / 1000;
+    } else {
+      s = 0; e = Infinity;
+    }
+    return { s, e };
+  }
+  function renderStats() {
+    const now = Date.now() / 1000;
+    const sumOf = (recs) => recs.reduce((a, r) => a + (Number(r.duration_sec) || 0), 0);
+    $('stToday').textContent = fmtHMS(sumOf(records.filter((r) => r.start_ts >= rangeBounds('today').s && r.start_ts <= now)));
+    $('stMonth').textContent = fmtHMS(sumOf(records.filter((r) => r.start_ts >= rangeBounds('month').s && r.start_ts <= now)));
+    $('stTotal').textContent = fmtHMS(sumOf(records));
+    // 按类型分组(当前 range)
+    const { s, e } = rangeBounds(statRange);
+    const filtered = records.filter((r) => r.start_ts >= s && r.start_ts <= e);
+    const map = new Map();
+    for (const r of filtered) {
+      const ids = Array.isArray(r.type_ids) ? r.type_ids : [];
+      if (!ids.length) {
+        const key = '__none__';
+        map.set(key, { name: '未分类', color: '#888', sec: 0 });
+        map.get(key).sec += Number(r.duration_sec) || 0;
+      } else {
+        for (const id of ids) {
+          const t = typeById(id);
+          if (!t) continue;
+          if (!map.has(id)) map.set(id, { name: `${t.icon||''} ${t.name}`, color: t.color, sec: 0 });
+          map.get(id).sec += Number(r.duration_sec) || 0;
+        }
+      }
+    }
+    const rows = Array.from(map.values()).sort((a, b) => b.sec - a.sec);
+    const max = rows.length ? rows[0].sec : 0;
+    const box = $('statRows');
+    box.innerHTML = '';
+    if (!rows.length) {
+      box.innerHTML = '<div class="stat-empty">该时间段暂无计时记录</div>';
+      return;
+    }
+    for (const r of rows) {
+      const row = document.createElement('div');
+      row.className = 'stat-row';
+      const pct = max ? Math.round((r.sec / max) * 100) : 0;
+      row.innerHTML = `<span class="nm">${r.name}</span><span class="bar"><i style="width:${pct}%;background:${r.color}"></i></span><span class="tm">${fmtHMS(r.sec)}</span>`;
+      box.appendChild(row);
+    }
+  }
+
+  // ---- 筛选 ----
+  function renderFilters() {
+    const sel = $('fltType');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">全部类型</option>' + types.map((t) => `<option value="${t.id}">${t.icon||''} ${t.name}</option>`).join('');
+    sel.value = cur;
+  }
+  function filteredRecs() {
+    const ft = $('fltType').value;
+    const fm = $('fltMode').value;
+    const fn = $('fltNote').value.trim().toLowerCase();
+    return records.filter((r) => {
+      if (ft && !(Array.isArray(r.type_ids) && r.type_ids.includes(ft))) return false;
+      if (fm && r.mode !== fm) return false;
+      if (fn) {
+        const hay = (r.note || '') + fmtDT(r.start_ts) + typeNames(r.type_ids);
+        if (!hay.toLowerCase().includes(fn)) return false;
+      }
+      return true;
+    });
+  }
+  function renderList() {
+    const list = filteredRecs();
+    $('recCount').textContent = `共 ${list.length} 条`;
+    const box = $('listWrap');
+    box.innerHTML = '';
+    if (!list.length) {
+      box.innerHTML = '<div style="padding:30px;text-align:center;color:rgba(255,255,255,0.4);font-size:12px">暂无记录<br/>用秒表/倒计时计时并「保存」后, 记录会出现在这里</div>';
+      return;
+    }
+    for (const r of list) {
+      const row = document.createElement('div');
+      row.className = 'rec-row' + (r.show_calendar ? '' : ' cal-off');
+      const tags = (Array.isArray(r.type_ids) ? r.type_ids : []).map((id) => typeById(id)).filter(Boolean)
+        .map((t) => `<span class="rtag" style="color:${t.color};border-color:${t.color}55;background:${t.color}1a">${t.icon||''} ${t.name}</span>`).join('');
+      const modeLbl = r.mode === 'countdown' ? '⏳ 倒计时' : '⏱️ 秒表';
+      row.innerHTML = `
+        <div class="rec-main">
+          <div class="rec-time">${fmtDT(r.start_ts)} → ${fmtDT(r.end_ts)}</div>
+          <div class="rec-dur">时长 ${fmtHMS(r.duration_sec)}</div>
+          ${r.note ? `<div class="rec-note">${r.note.replace(/</g,'&lt;')}</div>` : ''}
+          <div class="rec-tags">${tags || '<span style="font-size:11px;color:rgba(255,255,255,0.4)">未分类</span>'}</div>
+        </div>
+        <div class="rec-meta">
+          <span class="mode">${modeLbl}${r.show_calendar ? ' · 📅' : ' · 🚫日历'}</span>
+        </div>
+        <div class="rec-actions">
+          <button class="btn xs" data-act="edit" data-id="${r.id}">编辑</button>
+          <button class="btn xs danger" data-act="del" data-id="${r.id}">删除</button>
+        </div>`;
+      box.appendChild(row);
+    }
+  }
+
+  // ---- 编辑 ----
+  function openEdit(id) {
+    const r = records.find((x) => x.id === id);
+    if (!r) return;
+    editingId = id;
+    $('edStart').value = toLocalInput(r.start_ts);
+    $('edEnd').value = toLocalInput(r.end_ts || r.start_ts + (Number(r.duration_sec) || 0));
+    $('edDur').value = fmtHMS(r.duration_sec);
+    $('edNote').value = r.note || '';
+    $('edCal').checked = !!r.show_calendar;
+    edSel = new Set(Array.isArray(r.type_ids) ? r.type_ids : []);
+    renderEditChips();
+    $('edHint').textContent = '';
+    $('editMask').classList.add('show');
+  }
+  function renderEditChips() {
+    const box = $('typeChips');
+    box.innerHTML = '';
+    types.forEach((t) => {
+      const c = document.createElement('div');
+      c.className = 'chip' + (edSel.has(t.id) ? ' on' : '');
+      c.style.setProperty('--tc', t.color || '#5c9cff');
+      c.textContent = `${t.icon || ''} ${t.name}`;
+      c.addEventListener('click', () => {
+        if (edSel.has(t.id)) edSel.delete(t.id); else edSel.add(t.id);
+        c.classList.toggle('on');
+      });
+      box.appendChild(c);
+    });
+  }
+  function closeEdit() { $('editMask').classList.remove('show'); }
+  function parseLocal(v) {
+    if (!v) return 0;
+    const d = new Date(v);
+    return isNaN(d.getTime()) ? 0 : Math.floor(d.getTime() / 1000);
+  }
+  async function saveEdit() {
+    const s = parseLocal($('edStart').value);
+    const e = parseLocal($('edEnd').value);
+    if (!s || !e || e < s) { $('edHint').textContent = '时间无效或结束早于开始'; return; }
+    const durStr = $('edDur').value.trim();
+    let dur = null;
+    if (durStr) {
+      const m = durStr.match(/^(?:(\d+):)?(\d+):(\d+)$/);
+      if (!m) { $('edHint').textContent = '时长格式应为 HH:MM:SS'; return; }
+      dur = Number(m[1] || 0) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+      if (dur <= 0) { $('edHint').textContent = '时长需大于 0'; return; }
+    }
+    const res = await api.recUpdate(editingId, {
+      start_ts: s, end_ts: e, duration_sec: dur === null ? (e - s) : dur,
+      type_ids: Array.from(edSel), show_calendar: $('edCal').checked ? 1 : 0, note: $('edNote').value.trim(),
+    });
+    if (res && res.ok) { closeEdit(); await load(); }
+    else $('edHint').textContent = '保存失败: ' + ((res && res.error) || '未知');
+  }
+  async function delRec(id) {
+    if (!confirm('确定删除这条计时记录?')) return;
+    const res = await api.recDelete(id);
+    if (res && res.ok) await load();
+  }
+
+  // ---- 类型管理 ----
+  async function openTypes() {
+    $('typeHint').textContent = '';
+    renderTypeList();
+    $('typeMask').classList.add('show');
+  }
+  function renderTypeList() {
+    const box = $('typeList');
+    box.innerHTML = '';
+    if (!types.length) { box.innerHTML = '<div style="font-size:12px;color:rgba(255,255,255,0.4)">暂无类型</div>'; return; }
+    const countOf = (id) => records.filter((r) => Array.isArray(r.type_ids) && r.type_ids.includes(id)).length;
+    for (const t of types) {
+      const row = document.createElement('div');
+      row.className = 'type-row';
+      row.innerHTML = `
+        <span style="font-size:15px">${t.icon || '⏱'}</span>
+        <span class="tname">${t.name.replace(/</g,'&lt;')}</span>
+        <input type="color" value="${t.color || '#5c9cff'}" data-role="color" data-id="${t.id}" title="改颜色" />
+        <span class="tcount">${countOf(t.id)} 条</span>
+        <button class="btn xs" data-role="del" data-id="${t.id}">删除</button>`;
+      box.appendChild(row);
+    }
+    box.querySelectorAll('[data-role="color"]').forEach((inp) => {
+      inp.addEventListener('change', async () => {
+        await api.typeUpdate(inp.dataset.id, { color: inp.value });
+      });
+    });
+    box.querySelectorAll('[data-role="del"]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!confirm(`删除类型「${typeById(btn.dataset.id)?.name}」?相关记录的类型标记会一并移除。`)) return;
+        const res = await api.typeDelete(btn.dataset.id);
+        if (res && res.ok) { await load(); renderTypeList(); renderFilters(); }
+      });
+    });
+  }
+  async function addType() {
+    const name = $('newTypeName').value.trim();
+    if (!name) { $('typeHint').textContent = '请输入名称'; return; }
+    if (types.some((t) => t.name === name)) { $('typeHint').textContent = '类型已存在'; return; }
+    const res = await api.typeAdd({ name });
+    if (res && res.ok) {
+      $('newTypeName').value = '';
+      $('typeHint').textContent = '';
+      await load();
+      renderTypeList(); renderFilters();
+    } else {
+      $('typeHint').textContent = '添加失败: ' + ((res && res.error) || '未知');
+    }
+  }
+
+  // ---- 事件 ----
+  $('btn-min').addEventListener('click', () => api.minimize());
+  $('btn-close').addEventListener('click', () => api.close());
+  $('btnTypes').addEventListener('click', openTypes);
+  $('typeClose').addEventListener('click', () => $('typeMask').classList.remove('show'));
+  $('btnAddType').addEventListener('click', addType);
+  $('newTypeName').addEventListener('keydown', (e) => { if (e.key === 'Enter') addType(); });
+  document.querySelectorAll('.stat-tab').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.stat-tab').forEach((t) => t.classList.remove('on'));
+      tab.classList.add('on');
+      statRange = tab.dataset.range;
+      renderStats();
+    });
+  });
+  $('fltType').addEventListener('change', renderList);
+  $('fltMode').addEventListener('change', renderList);
+  $('fltNote').addEventListener('input', renderList);
+  $('btnFlush').addEventListener('click', load);
+  $('edCancel').addEventListener('click', closeEdit);
+  $('edOk').addEventListener('click', saveEdit);
+  $('editMask').addEventListener('click', (e) => { if (e.target === $('editMask')) closeEdit(); });
+  $('typeMask').addEventListener('click', (e) => { if (e.target === $('typeMask')) $('typeMask').classList.remove('show'); });
+  $('edDur').addEventListener('change', () => {
+    // 手动填时长时, 若只填了开始, 结束 = 开始 + 时长
+    const s = parseLocal($('edStart').value);
+    const durStr = $('edDur').value.trim();
+    const m = durStr.match(/^(?:(\d+):)?(\d+):(\d+)$/);
+    if (s && m && !$('edEnd').value) {
+      const dur = Number(m[1] || 0) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+      const d = new Date((s + dur) * 1000);
+      $('edEnd').value = toLocalInput(s + dur);
+    }
+  });
+  $('listWrap').addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-act]');
+    if (!btn) return;
+    if (btn.dataset.act === 'edit') openEdit(btn.dataset.id);
+    else if (btn.dataset.act === 'del') await delRec(btn.dataset.id);
+  });
+
+  load();
+})();
+</script>
+</body>
+</html>

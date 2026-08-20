@@ -1,11 +1,11 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, screen, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, screen, nativeImage, Tray } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const { createServer } = require('./server');
-const { readDb, writeDb, migrateFromJson, dbStats, dbFile } = require('./db');
+const { readDb, writeDb, migrateFromJson, dbStats, dbFile, dbAlarms } = require('./db');
 const { scanDir, scanPath } = require('./scanner');
 const { encodePng } = require('./png');
 const { astcToPng } = require('./tools/astc');
@@ -19,6 +19,7 @@ const webPreviewWindow = require('./tools/webPreviewWindow');
 const bookmarkDialog = require('./tools/bookmarkDialog');
 const { apiTest } = require('./tools/apiTest');
 const devCdp = require('./tools/devCdp');
+const timerWindows = require('./tools/timerWindows');
 const crypto = require('crypto');
 
 // ---- Spine 骨骼格式/版本转换(C++ SpineSkeletonDataConverter,来自 SpineSkeletonDataConverter 项目) ----
@@ -317,12 +318,24 @@ async function createWindow() {
   win.once('ready-to-show', showWin);
   setTimeout(showWin, 5000);
 
-  // 主窗口关闭 → 清理附属窗口(悬浮预览窗 / 网页悬浮窗 / 内嵌浏览器)并彻底退出。
-  // ⚠ 不能只依赖 window-all-closed: 悬浮窗等仍开着时该事件不触发, 会导致进程残留。
+  // 关闭行为:
+  // - 未请求退出时(用户在标题栏点 × 或系统关闭)→ 拦截并隐藏到托盘, 保持进程常驻
+  //   (托盘图标 + 秒表/倒计时仍可使用, 再次双击托盘/右键"打开主程序窗口"可恢复)。
+  //   ⚠ 不能只靠 window-all-closed: 隐藏时主窗未销毁, 该事件不触发, 进程不退出。
+  // - 已请求退出时(托盘"退出"菜单 / 显式 app.quit)→ 不拦截, 走真实关闭,
+  //   触发 closed → 清理附属窗口并彻底退出。
+  win.on('close', (e) => {
+    if (!trayForceQuit) {
+      e.preventDefault();
+      try { win.hide(); } catch (err) { /* ignore */ }
+    }
+  });
+  // 主窗口真正销毁 → 清理附属窗口(悬浮预览窗 / 网页悬浮窗 / 内嵌浏览器 / 计时器窗)并彻底退出。
   win.on('closed', () => {
     try { webPreviewWindow.close(); } catch (e) { /* ignore */ }
     try { webGame.destroy(); } catch (e) { /* ignore */ } // 内部会销毁 floatWin
     try { if (debugWin && !debugWin.isDestroyed()) debugWin.close(); } catch (e) { /* ignore */ }
+    try { timerWindows.closeAll(); } catch (e) { /* ignore */ }
     try { app.quit(); } catch (e) { /* ignore */ }
   });
 
@@ -427,6 +440,224 @@ function closeDebugWindow() {
 }
 
 
+// ---- 系统托盘 + 秒表/倒计时悬浮窗 ----
+let tray = null;
+let trayForceQuit = false; // 托盘"退出"或显式 app.quit 时置 true,允许主窗口真正关闭
+let trayClickTimer = null;  // 单击防抖:与双击区分(Windows 顺序 click→click→double-click)
+
+/** 托盘日志: 同时写 userData/tray.log(打包版主进程 console 不可见, 出问题可查此文件) */
+function trayLog(msg) {
+  console.log(msg);
+  try {
+    const f = path.join(app.getPath('userData'), 'tray.log');
+    fs.appendFileSync(f, `[${new Date().toISOString()}] ${msg}\n`);
+  } catch (e) { /* ignore */ }
+}
+
+/**
+ * 加载托盘图标。候选顺序(优先 .ico, 用户指定 tray-icon.ico):
+ *  1) 打包版: resources/tray-icon.ico(asar 外磁盘真实文件, pack-manual 复制)
+ *  2) 打包版: resources/tray-icon.png(旧 png 兜底)
+ *  3) dev 版: dist/tray-icon.ico(public/ 构建时复制, 磁盘文件)
+ *  4) dev 版: dist/tray-icon.png(旧 png 兜底)
+ *  5) 最后:   build/icon.ico(应用图标)
+ *  每档都先 createFromPath, 空则 fs.readFileSync + createFromBuffer 兜底。
+ */
+function loadTrayIcon() {
+  const candidates = [];
+  if (process.resourcesPath) {
+    candidates.push(path.join(process.resourcesPath, 'tray-icon.ico'));
+    candidates.push(path.join(process.resourcesPath, 'tray-icon.png'));
+  }
+  candidates.push(path.join(__dirname, '..', 'dist', 'tray-icon.ico'));
+  candidates.push(path.join(__dirname, '..', 'dist', 'tray-icon.png'));
+  for (const p of candidates) {
+    try {
+      if (!fs.existsSync(p)) continue;
+      let img = nativeImage.createFromPath(p);
+      if (img && !img.isEmpty()) { trayLog('[tray] 图标: createFromPath ' + p); return img; }
+      // createFromPath 读不到 → 用 fs 读字节再 createFromBuffer
+      img = nativeImage.createFromBuffer(fs.readFileSync(p));
+      if (img && !img.isEmpty()) { trayLog('[tray] 图标: createFromBuffer ' + p); return img; }
+    } catch (e) { /* ignore */ }
+  }
+  try {
+    const ico = path.join(__dirname, '..', 'build', 'icon.ico');
+    if (fs.existsSync(ico)) {
+      let img = nativeImage.createFromPath(ico);
+      if (img && !img.isEmpty()) { trayLog('[tray] 图标: icon.ico'); return img; }
+      img = nativeImage.createFromBuffer(fs.readFileSync(ico));
+      if (img && !img.isEmpty()) { trayLog('[tray] 图标: icon.ico(buffer)'); return img; }
+    }
+  } catch (e) { /* ignore */ }
+  trayLog('[tray] 警告: 所有图标候选均失败, 使用空图');
+  return nativeImage.createEmpty();
+}
+
+// ---- 托盘图标闹钟叠加(补丁·99): 有启用闹钟时在图标右下角叠一个小时钟 ----
+let trayBaseIcon = null;   // 普通图标(缓存)
+let trayAlarmIcon = null;  // 叠加小时钟版本(缓存)
+let trayHasAlarm = false;  // 当前托盘是否显示闹钟角标
+
+/** 在 32×32 RGBA buffer 右下角画一个黄色小钟(中心 cx,cy, 半径 r) */
+function drawMiniClock(buf, cx, cy, r) {
+  const set = (x, y, R, G, B) => {
+    if (x < 0 || y < 0 || x >= 32 || y >= 32) return;
+    const i = (y * 32 + x) * 4;
+    buf[i] = R; buf[i + 1] = G; buf[i + 2] = B; buf[i + 3] = 255;
+  };
+  const dist = (x, y) => Math.sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy));
+  // 黄色实心圆 + 深色描边(形成小表盘)
+  for (let y = cy - r - 1; y <= cy + r + 1; y++) {
+    for (let x = cx - r - 1; x <= cx + r + 1; x++) {
+      const d = dist(x, y);
+      if (d <= r + 0.5) {
+        if (d <= r - 1.2) set(x, y, 255, 214, 64);      // 表盘黄
+        else set(x, y, 160, 120, 20);                    // 描边
+      }
+    }
+  }
+  // 指针(深棕): 12 点方向 + 3 点方向
+  const line = (x0, y0, x1, y1) => {
+    const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
+    for (let s = 0; s <= steps; s++) {
+      const x = Math.round(x0 + (x1 - x0) * s / steps);
+      const y = Math.round(y0 + (y1 - y0) * s / steps);
+      set(x, y, 120, 80, 20);
+    }
+  };
+  line(cx, cy - 1, cx, cy - r + 2);   // 时针(短, 指 12 点)
+  line(cx, cy, cx + r - 2, cy);       // 分针(长, 指 3 点)
+}
+
+/** 生成叠加小时钟的托盘图标(32×32, 原图标右下角小钟) */
+function buildAlarmTrayIcon() {
+  try {
+    if (!trayBaseIcon) trayBaseIcon = loadTrayIcon();
+    if (!trayBaseIcon || trayBaseIcon.isEmpty()) return trayBaseIcon;
+    const img = trayBaseIcon.resize({ width: 32, height: 32 });
+    const bmp = img.getBitmap(); // BGRA
+    const buf = Buffer.alloc(32 * 32 * 4);
+    for (let y = 0; y < 32; y++) {
+      for (let x = 0; x < 32; x++) {
+        const i = (y * 32 + x) * 4;
+        buf[i] = bmp[i + 2]; buf[i + 1] = bmp[i + 1]; buf[i + 2] = bmp[i]; buf[i + 3] = bmp[i + 3];
+      }
+    }
+    drawMiniClock(buf, 25, 25, 6); // 右下角小钟
+    const png = encodePng(32, 32, buf);
+    const out = nativeImage.createFromBuffer(png);
+    if (out && !out.isEmpty()) return out;
+    return trayBaseIcon;
+  } catch (e) {
+    trayLog('[tray] 闹钟角标合成失败: ' + (e && e.message || e));
+    return trayBaseIcon || nativeImage.createEmpty();
+  }
+}
+
+/** 刷新托盘图标: 有启用闹钟 → 叠加小时钟; 无 → 普通图标 */
+function refreshTrayAlarm() {
+  try {
+    if (!tray || tray.isDestroyed()) return;
+    let has = false;
+    try { has = dbAlarms().some((a) => a.enabled); } catch (e) { /* ignore */ }
+    if (has === trayHasAlarm && trayAlarmIcon) return; // 状态未变
+    trayHasAlarm = has;
+    if (has) {
+      if (!trayAlarmIcon) trayAlarmIcon = buildAlarmTrayIcon();
+      tray.setImage(trayAlarmIcon);
+      trayLog('[tray] 有启用闹钟 → 托盘叠加小时钟');
+    } else {
+      if (!trayBaseIcon) trayBaseIcon = loadTrayIcon();
+      tray.setImage(trayBaseIcon);
+    }
+  } catch (e) { trayLog('[tray] refreshTrayAlarm 失败: ' + (e && e.message || e)); }
+}
+
+/** 唤回主程序窗口(若已销毁则重建) */
+function showMainWindow() {
+  if (win && !win.isDestroyed()) {
+    if (win.isMinimized()) win.restore();
+    if (!win.isVisible()) win.show();
+    win.focus();
+    try { win.moveTop(); } catch (e) { /* ignore */ }
+  } else {
+    createWindow();
+  }
+}
+
+/** 打开主窗口并导航到 Todo-List 日历视图(托盘「计时日历」) */
+function openTodoCalendar() {
+  showMainWindow();
+  try {
+    // 等主窗口渲染端就绪后再发导航消息(重建窗口时等待 did-finish-load)
+    const sendNav = () => {
+      try { win.webContents.send('main:msg', { type: 'open-todo-calendar' }); } catch (e) { /* ignore */ }
+    };
+    if (win && !win.isDestroyed() && win.webContents.isLoading()) {
+      win.webContents.once('did-finish-load', sendNav);
+    } else {
+      sendNav();
+    }
+  } catch (e) { /* ignore */ }
+}
+
+/** 构建托盘右键菜单(每次弹出前重建,确保闭包指向最新 win/状态) */
+function buildTrayMenu() {
+  const template = [
+    { label: '🎮 打开主程序窗口', click: () => showMainWindow() },
+    { type: 'separator' },
+    { label: '⏱️ 打开秒表计时器', click: () => { try { timerWindows.openStopwatch(); } catch (e) { console.error('openStopwatch', e); } } },
+    {
+      label: '⏳ 倒计时',
+      submenu: [
+        { label: '10 分钟', click: () => { try { timerWindows.openCountdown({ seconds: 10 * 60, title: '倒计时 · 10 分' }); } catch (e) {} } },
+        { label: '15 分钟', click: () => { try { timerWindows.openCountdown({ seconds: 15 * 60, title: '倒计时 · 15 分' }); } catch (e) {} } },
+        { label: '25 分钟', click: () => { try { timerWindows.openCountdown({ seconds: 25 * 60, title: '倒计时 · 25 分' }); } catch (e) {} } },
+        { label: '45 分钟', click: () => { try { timerWindows.openCountdown({ seconds: 45 * 60, title: '倒计时 · 45 分' }); } catch (e) {} } },
+        { label: '60 分钟', click: () => { try { timerWindows.openCountdown({ seconds: 60 * 60, title: '倒计时 · 60 分' }); } catch (e) {} } },
+        { type: 'separator' },
+        { label: '自定义...', click: () => { try { timerWindows.openCountdown({ seconds: 5 * 60, title: '倒计时 · 自定义', focusInput: true }); } catch (e) {} } },
+      ],
+    },
+    { type: 'separator' },
+    { label: '📊 计时管理', click: () => { try { timerWindows.openManager(); } catch (e) { console.error('openManager', e); } } },
+    { label: '⏰ 闹钟', click: () => { try { timerWindows.openAlarm(); } catch (e) { console.error('openAlarm', e); } } },
+    { label: '📅 计时日历(Todo 日历视图)', click: () => openTodoCalendar() },
+    { type: 'separator' },
+    { label: '❌ 退出', click: () => { trayForceQuit = true; try { timerWindows.closeAll(); } catch (e) {} app.quit(); } },
+  ];
+  return Menu.buildFromTemplate(template);
+}
+
+function createTray() {
+  if (tray && !tray.isDestroyed()) return;
+  trayBaseIcon = loadTrayIcon();
+  tray = new Tray(trayBaseIcon);
+  tray.setToolTip('游戏资源管理器');
+  tray.setContextMenu(buildTrayMenu());
+  // 有启用闹钟 → 立即叠加小时钟角标(补丁·99)
+  refreshTrayAlarm();
+  // 左键单击(250ms 防抖)→ 打开秒表悬浮窗; 双击 → 唤回主程序窗口。
+  // Windows 触发顺序: click → click → double-click, 用 250ms 定时器在 click 时延迟动作,
+  // 若 250ms 内再来 click 或 double-click 则取消定时器,避免双击时把秒表打开两次再唤主窗。
+  tray.on('click', () => {
+    clearTimeout(trayClickTimer);
+    trayClickTimer = setTimeout(() => {
+      try { timerWindows.openStopwatch(); } catch (e) { console.error('tray click → stopwatch', e); }
+    }, 250);
+  });
+  tray.on('double-click', () => {
+    clearTimeout(trayClickTimer);
+    showMainWindow();
+  });
+  // 右键: 部分 Windows 主题不自动弹 menu(尤其已设置 contextMenu 后), 显式重建并弹出以保一致
+  tray.on('right-click', () => {
+    try { tray.setContextMenu(buildTrayMenu()); tray.popUpContextMenu(); } catch (e) { /* ignore */ }
+  });
+}
+
+
 async function runSmoke() {
   const out = path.join(app.getPath('temp'), 'skeleton-previewer-smoke');
   fs.rmSync(out, { recursive: true, force: true });
@@ -504,9 +735,14 @@ async function runSmoke() {
     ['ieoverwrite', 900],
     ['webgame', 900],
     ['crud', 400],
+    ['mtree', 1200],
   ];
+  // 定向冒烟:SKELETON_VIEWER_SMOKE_ONLY=步骤名 时只跑该步骤(如只验「移动到...」目录树弹窗)
+  const runSteps = process.env.SKELETON_VIEWER_SMOKE_ONLY
+    ? steps.filter(([s]) => s === process.env.SKELETON_VIEWER_SMOKE_ONLY)
+    : steps;
 
-  for (const [step, wait] of steps) {
+  for (const [step, wait] of runSteps) {
     let result = '';
     try {
       result = await win.webContents.executeJavaScript(`window.__smokeStep && window.__smokeStep('${step}')`, true);
@@ -558,6 +794,7 @@ if (!app.requestSingleInstanceLock()) {
     try {
       if (win && !win.isDestroyed()) {
         if (win.isMinimized()) win.restore();
+        if (!win.isVisible()) win.show(); // 隐藏到托盘时也唤回(重复启动 / 外部唤起)
         win.focus();
       }
     } catch (e) { /* ignore */ }
@@ -576,6 +813,11 @@ app.whenReady().then(async () => {
   _T('enrichItemsMeta');
   refreshRoots();
   _T('refreshRoots');
+
+  // 计时器(秒表/倒计时)窗口 IPC 提前注册(模块级, 整个 app 生命周期只注册一次)
+  timerWindows.initIpc();
+  // 闹钟启用状态变化 → 刷新托盘图标(叠加小时钟角标, 补丁·99)
+  try { timerWindows.setAlarmChangeListener(refreshTrayAlarm); } catch (e) { /* ignore */ }
 
   server = createServer({ dist: DIST_DIR, roots: () => roots, previewRoots: () => previewRoots, htmlRoots: () => htmlRoots });
   await server.ready;
@@ -1637,6 +1879,15 @@ app.whenReady().then(async () => {
 
   loadDebugWinBounds(); // 读取调试窗口上次位置/大小存档
   await createWindow();
+  // 创建系统托盘(macOS 保留系统 dock 行为, 不强制最小化到托盘; 其它平台启用托盘)
+  if (process.platform !== 'darwin') {
+    try {
+      createTray();
+      trayLog('[tray] 托盘已创建, 图标尺寸: ' + JSON.stringify(tray.getImage().getSize()));
+    } catch (e) {
+      trayLog('[tray] 创建失败: ' + (e && e.stack || e));
+    }
+  }
 });
 }
 

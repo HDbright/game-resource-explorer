@@ -35,3 +35,13 @@ Thumbs.db
 # 转换工具测试产物（laya→spine 等中间输出，非源码）
 sk2spine_test/
 electron/tools/out_*/
+
+# 本地运行时 / 打包临时产物（绝不入库）
+data/
+_pack_quarantine/
+.cache/
+
+# 根目录误放的开发残留副本（真实文件在 electron/ 与 public/ 下）
+/timerPreload.js
+/alarm-popup.html
+

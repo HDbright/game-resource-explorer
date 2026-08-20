@@ -4,6 +4,7 @@ import {
   getIconGroups, getIconItems, addIconItem, removeIconItem,
   renameIconGroup, removeIconGroup, addIconGroup,
   moveIconItem, updateIconItem, isImageIcon, EMOJI_NAMES,
+  getFavIconGroupId, iconEmojiKey,
 } from '../state.js';
 import { toast, confirmDialog, promptDialog, showContextMenu, pickEmojiModal, iconNode } from '../dialogs.js';
 
@@ -93,6 +94,18 @@ export function renderEmojiPage(container) {
     });
   });
 
+  // 把当前图标加入「常用」分组(允许与别的分类重复;组内已存在则提示)
+  function addIconToFav(it) {
+    const favId = getFavIconGroupId();
+    const ik = iconEmojiKey(it.icon);
+    const dup = getIconItems().some((x) => x.groupId === favId && iconEmojiKey(x.icon) === ik);
+    if (dup) { toast('已在常用组', 'ok', 1500); return; }
+    const name = it.name || EMOJI_NAMES[norm(it.icon)] || (isImageIcon(it.icon) ? '图片图标' : it.icon);
+    addIconItem({ groupId: favId, name, icon: it.icon });
+    toast('已添加到常用', 'ok', 1500);
+    render();
+  }
+
   function render() {
     const groups = getIconGroups();
     const items = getIconItems();
@@ -169,6 +182,7 @@ export function renderEmojiPage(container) {
             title: '编辑名称', fields: [{ key: 'name', label: '名称', value: it.name || '' }],
             onOk: (v) => { updateIconItem(it.id, { name: (v.name || '').trim() }); render(); },
           }) },
+          { label: '添加到常用', onClick: () => addIconToFav(it) },
           { label: '上移', onClick: () => { if (moveIconItem(it.id, -1)) render(); } },
           { label: '下移', onClick: () => { if (moveIconItem(it.id, 1)) render(); } },
           { label: '删除', danger: true, onClick: () => confirmDialog({

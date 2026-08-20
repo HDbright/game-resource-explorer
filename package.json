@@ -1,6 +1,6 @@
 {
   "name": "game-resource-explorer",
-  "version": "2.2.82",
+  "version": "2.3.7",
   "private": true,
   "description": "游戏资源管理器:管理并预览 Spine / DragonBones 骨骼动画、图片、音频、3D 模型游戏资源",
   "author": "game-resource-explorer",
@@ -12,7 +12,7 @@
     "dev": "node scripts/kill-dev.js && npm run start",
     "kill": "node scripts/kill-dev.js",
     "smoke": "npm run build && node scripts/launch-electron.js --smoke",
-    "dist": "npm run build && electron-builder --win portable"
+    "dist": "npm run build && electron-builder --win dir"
   },
   "build": {
     "appId": "com.gameresourceexplorer.app",
@@ -34,18 +34,15 @@
       }
     ],
     "win": {
-      "icon": "build/icon.png",
+      "icon": "build/icon.ico",
       "target": [
         {
-          "target": "portable",
+          "target": "dir",
           "arch": [
             "x64"
           ]
         }
       ]
-    },
-    "portable": {
-      "artifactName": "游戏资源管理器-${version}-portable.exe"
     },
     "asar": true
   },

@@ -411,15 +411,12 @@ export function initUI(pv) {
   htmlEditor = new HtmlEditorController();
   const htmlWrap = document.getElementById('pv-html-view');
   if (htmlWrap) htmlEditor.init(htmlWrap);
-  // 编辑器工具栏:新建空白文档(由 ui.js 的 newDocument 流程处理:建文件+入库+打开)/ 另存为
+  // 编辑器工具栏:新建空白文档(由 ui.js 的 newDocument 流程处理:建文件+入库+打开)
+  // ⚠️ 「另存为」按钮已在各自编辑器的 init() 内绑定,此处不要重复绑定(否则点一次弹两个保存对话框)
   const mdNew = document.getElementById('md-new');
   if (mdNew) mdNew.addEventListener('click', () => newDocument('md'));
-  const mdSaveAs = document.getElementById('md-save-as');
-  if (mdSaveAs) mdSaveAs.addEventListener('click', () => markdownEditor.saveAs());
   const htmlNew = document.getElementById('html-new');
   if (htmlNew) htmlNew.addEventListener('click', () => newDocument('html'));
-  const htmlSaveAs = document.getElementById('html-save-as');
-  if (htmlSaveAs) htmlSaveAs.addEventListener('click', () => htmlEditor.saveAs());
   // 视频播放器:倍速选择 → 播放器 playbackRate
   const videoRateSel = document.getElementById('video-rate');
   if (videoRateSel) {
@@ -444,6 +441,18 @@ export function initUI(pv) {
     const id = e.detail && e.detail.id;
     if (id) openTool(id);
   });
+  // 主进程快捷导航(补丁·96):托盘「计时日历」→ 打开 Todo 日历视图
+  if (window.api && typeof window.api.onMainMsg === 'function') {
+    window.api.onMainMsg((msg) => {
+      if (!msg || !msg.type) return;
+      if (msg.type === 'open-todo-calendar') {
+        openTool('todo');
+        setTimeout(() => {
+          document.dispatchEvent(new CustomEvent('todo:view', { detail: { view: 'calendar' } }));
+        }, 60);
+      }
+    });
+  }
   // 资源库条目变更(如 Spine 转换工具把文件加入分类)后刷新侧栏资源树
   document.addEventListener('library:changed', () => {
     try { renderTree(); } catch (e) { /* ignore */ }
@@ -2295,63 +2304,21 @@ function deleteToolboxFolderDialog(id) {
 
 /** 移动目录/工具链接到其它目录或顶级 */
 function moveToolboxFolderDialog(node) {
-  const exclude = new Set();
-  if (!node.toolId) {
-    exclude.add(node.id);
-    for (const d of getToolboxFolderDescendants(node.id)) exclude.add(d);
-  }
-  const body = document.createElement('div');
-  body.className = 'modal-body';
-  const tip = document.createElement('div');
-  tip.className = 'form-row';
-  tip.innerHTML = `<span class="ro">将「<b>${esc(node.name)}</b>」移动到:</span>`;
-  body.appendChild(tip);
-
-  const list = document.createElement('div');
-  list.className = 'fav-pick-list';
-  let checked = false;
-  const pick = (value, label) => {
-    const lb = document.createElement('label');
-    lb.className = 'fav-pick-item';
-    const rb = document.createElement('input');
-    rb.type = 'radio';
-    rb.name = 'movetb';
-    rb.value = value;
-    if (!checked) { rb.checked = true; checked = true; }
-    const sp = document.createElement('span');
-    sp.textContent = label;
-    lb.appendChild(rb);
-    lb.appendChild(sp);
-    list.appendChild(lb);
-  };
-  pick('', '移至顶级(不作为子目录)');
-  for (const f of state.toolboxFolders) {
-    if (f.toolId) continue; // 仅目录可作为目标
-    if (exclude.has(f.id)) continue;
-    pick(f.id, toolboxFolderPath(f.id));
-  }
-  body.appendChild(list);
-
-  const { close } = openModal({
-    title: '移动目录',
-    body,
-    foot: footButtons([
-      { text: '取消', cls: '', onClick: () => close() },
-      {
-        text: '确定',
-        cls: 'primary',
-        onClick: () => {
-          const selected = list.querySelector('input:checked');
-          if (!selected) return;
-          const target = selected.value;
-          updateToolboxFolder(node.id, { parentId: target });
-          close();
-          if (target) expandedCats.add(target);
-          renderTree();
-          toast('已移动');
-        },
-      },
-    ]),
+  // 目录:排除自身及子孙;工具链接:全部目录均可作目标
+  const exclude = [];
+  if (!node.toolId) exclude.push(node.id, ...getToolboxFolderDescendants(node.id));
+  moveTreeDialog({
+    title: '选择目的位置',
+    tipHtml: `将「<b>${esc(node.name)}</b>」移动到:`,
+    memKey: 'moveDialogTb',
+    exclude,
+    adapter: TB_MOVE_ADAPTER,
+    onPick: (target) => {
+      updateToolboxFolder(node.id, { parentId: target });
+      if (target) expandedCats.add(target);
+      renderTree();
+      toast('已移动');
+    },
   });
 }
 
@@ -3397,7 +3364,7 @@ function renderCatNode(parent, cat, depth, group = currentGroup()) {
 
   const icon = document.createElement('span');
   icon.className = 'cat-icon';
-  icon.textContent = '▣';
+  icon.textContent = '🗂️';
   node.appendChild(icon);
 
   const name = document.createElement('span');
@@ -3790,62 +3757,370 @@ function convertMenuNodeToCategoryDialog(node) {
   });
 }
 
-/** 移动目录到其它目录下(或顶级) */
-function moveCategoryDialog(cat) {
-  // 候选:顶级 + 其它非自身/非子孙目录
-  const exclude = new Set([cat.id, ...getCategoryDescendants(cat.id)]);
-  const body = document.createElement('div');
-  body.className = 'modal-body';
-  const tip = document.createElement('div');
-  tip.className = 'form-row';
-  tip.innerHTML = `<span class="ro">将目录「<b>${esc(cat.name)}</b>」移动到:</span>`;
-  body.appendChild(tip);
+// ================= 「移动到...」目标目录选择弹窗(可折叠目录树 + 定位搜索 + 最近记忆) =================
 
-  const list = document.createElement('div');
-  list.className = 'fav-pick-list';
-  let checked = false;
-  const pick = (value, label) => {
-    const lb = document.createElement('label');
-    lb.className = 'fav-pick-item';
-    const rb = document.createElement('input');
-    rb.type = 'radio';
-    rb.name = 'movecat';
-    rb.value = value;
-    if (!checked) { rb.checked = true; checked = true; }
-    const sp = document.createElement('span');
-    sp.textContent = label;
-    lb.appendChild(rb);
-    lb.appendChild(sp);
-    list.appendChild(lb);
-  };
-  pick('', '移至顶级(不作为子目录)');
-  for (const c of state.categories) {
-    if (exclude.has(c.id)) continue;
-    pick(c.id, categoryPath(c.id));
+/** 移动弹窗目录树的顶级行:仅资源类型根分组头(不可选;图标与左侧菜单树一致;无可见分类的空组不显示) */
+function moveResourceRootRows() {
+  const out = [];
+  for (const n of getMenuRoots()) {
+    if (n.hidden || n.nodeType !== 'dir') continue;
+    const g = menuNodeResourceGroup(n);
+    if (!g) continue;
+    const hasCat = getCategoryChildren('').some((c) => catVisibleInGroup(c, g));
+    if (!hasCat) continue;
+    out.push({
+      id: 'grp:' + g, label: n.name,
+      icon: n.icon || defaultMenuIcon(n),
+      group: g, kind: 'group', selectable: false, node: null,
+    });
   }
-  body.appendChild(list);
+  return out;
+}
+
+/** 资源类型根/分类的子行(分类目录,按资源类型过滤,含各层子分类;不显示未分类) */
+function moveResourceChildRows(row) {
+  if (row.kind === 'group') {
+    const out = [];
+    for (const c of getCategoryChildren('')) {
+      if (catVisibleInGroup(c, row.group)) out.push(moveCatRow(c, row.group));
+    }
+    return out;
+  }
+  if (row.kind === 'cat') {
+    return getCategoryChildren(row.id)
+      .filter((c) => catVisibleInGroup(c, row.group))
+      .map((c) => moveCatRow(c, row.group));
+  }
+  return [];
+}
+
+/** 分类目录行:目录图标用 🗂️(与左侧菜单树一致) */
+function moveCatRow(c, group) {
+  return { id: c.id, label: c.name, icon: '🗂️', group, kind: 'cat', selectable: true, node: c };
+}
+
+/** 资源分类树适配器(「移动到...」目标候选):顶级 = 资源类型根分组头,其下为该组的未分类 + 分类目录(含各层子分类) */
+const CAT_MOVE_ADAPTER = {
+  getNode: (id) => (id === '' ? null : categoryById(id)),
+  labelOf: (c) => c.name,
+  pathOf: (id) => (id === '' ? '未分类' : categoryPath(id)),
+  allNodes: () => state.categories,
+  rootLabel: '未分类(顶级)',
+  hasRoot: false, // 不提供「未分类(顶级)」顶级行
+  canTarget: () => true,
+  topRows: () => moveResourceRootRows(),
+  childRows: (row) => moveResourceChildRows(row),
+  iconOf: (row) => row.icon,
+};
+
+/** 资源工具箱树适配器(仅目录可作为目标,工具链接不可) */
+const TB_MOVE_ADAPTER = {
+  getNode: (id) => (id === '' ? null : toolboxFolderById(id)),
+  labelOf: (f) => f.name,
+  pathOf: (id) => (id === '' ? '工具箱根目录' : toolboxFolderPath(id)),
+  allNodes: () => state.toolboxFolders.filter((f) => !f.toolId),
+  rootLabel: '工具箱根目录',
+  hasRoot: true, // 提供「工具箱根目录」顶级行
+  canTarget: (id, node) => id === '' || !(node && node.toolId),
+  topRows: () => {
+    const out = [{ id: '', label: '工具箱根目录', icon: '📁', group: null, kind: 'root', selectable: true, node: null }];
+    for (const f of getToolboxChildren('')) {
+      out.push({ id: f.id, label: f.name, icon: null, group: null, kind: 'folder', selectable: !f.toolId, node: f });
+    }
+    return out;
+  },
+  childRows: (row) => {
+    if (!row.id) return [];
+    return getToolboxFolderChildren(row.id).map((f) => ({
+      id: f.id, label: f.name, icon: null, group: null, kind: 'folder', selectable: !f.toolId, node: f,
+    }));
+  },
+  iconOf: (row, hasKids, isOpen) => (row.kind === 'root' ? '📁' : (hasKids ? (isOpen ? '📂' : '📁') : '📄')),
+};
+
+/** 读取「移动到...」弹窗记忆(last 上次 / recent 最近10次 / expanded 展开状态),剔除已不存在的节点;keepRoot=false 时同时剔除顶级('') */
+function moveDlgMem(memKey, getNode, keepRoot = true) {
+  const s = (state.settings && state.settings[memKey]) || {};
+  const clean = (arr) => (Array.isArray(arr) ? arr : []).filter((id) => (keepRoot && id === '') || getNode(id));
+  return {
+    last: typeof s.last === 'string' && (s.last === '' ? keepRoot : getNode(s.last)) ? s.last : '',
+    recent: clean(s.recent).slice(0, 10),
+    expanded: clean(s.expanded),
+  };
+}
+
+/**
+ * 统一「移动到...」目标目录选择弹窗:
+ *  - 可折叠/展开目录树:▸/▾ 切换子级,点行选中;展开状态持久化(重开/重启恢复)
+ *  - 顶栏定位搜索框:输入实时过滤(树切换为匹配列表),回车选中首个匹配,聚焦弹出最近选择
+ *  - 🕘 弹出「上次 + 最近10次」选择记录,点选即定位
+ * opts: { title, tipHtml, okText, adapter, memKey, exclude:[id], initial, onPick }
+ */
+export function moveTreeDialog(opts) {
+  const { title, tipHtml, okText = '确定', adapter = CAT_MOVE_ADAPTER, memKey, onPick } = opts;
+  const exclude = new Set(opts.exclude || []);
+  const { getNode, labelOf, pathOf, allNodes, rootLabel, canTarget } = adapter;
+  const mem = moveDlgMem(memKey, getNode, adapter.hasRoot !== false);
+
+  // 初始目标:显式 initial > 上次记忆 > 顶级('')
+  let target = opts.initial !== undefined ? opts.initial : mem.last;
+  if (target && (!getNode(target) || exclude.has(target))) target = '';
+  // 展开集合:记忆 + 资源类型根分组头(默认展开) + 初始目标祖先(保证目标可见)
+  const expanded = new Set(mem.expanded.filter((id) => getNode(id)));
+  for (const r of adapter.topRows()) if (r.kind === 'group') expanded.add(r.id); // 资源类型根分组头默认展开
+  { let cur = getNode(target); while (cur && cur.parentId) { expanded.add(cur.parentId); cur = getNode(cur.parentId); } }
+  // 可选目标全集(定位搜索用)
+  const candidates = allNodes().filter((n) => !exclude.has(n.id) && canTarget(n.id, n));
+
+  const body = document.createElement('div');
+  body.className = 'modal-body mtree-body';
+  if (tipHtml) {
+    const tip = document.createElement('div');
+    tip.className = 'form-row mtree-tip';
+    tip.innerHTML = tipHtml;
+    body.appendChild(tip);
+  }
+
+  // ---- 顶栏:定位搜索 + 最近记忆 ----
+  const bar = document.createElement('div');
+  bar.className = 'mtree-bar';
+  const searchWrap = document.createElement('div');
+  searchWrap.className = 'mtree-search';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'mtree-input';
+  input.placeholder = '输入目录名快速定位(回车选中首个)';
+  input.autocomplete = 'off';
+  const recentBtn = document.createElement('button');
+  recentBtn.type = 'button';
+  recentBtn.className = 'btn sm mtree-recent-btn';
+  recentBtn.textContent = '🕘';
+  recentBtn.title = '最近选择(上次 + 最近10次)';
+  searchWrap.appendChild(input);
+  searchWrap.appendChild(recentBtn);
+  bar.appendChild(searchWrap);
+  const recentPop = document.createElement('div');
+  recentPop.className = 'mtree-recent-pop';
+  recentPop.hidden = true;
+  bar.appendChild(recentPop);
+  body.appendChild(bar);
+
+  // ---- 搜索结果(过滤模式时替代树) ----
+  const resultBox = document.createElement('div');
+  resultBox.className = 'mtree-results';
+  resultBox.hidden = true;
+  body.appendChild(resultBox);
+
+  // ---- 目录树 ----
+  const tree = document.createElement('div');
+  tree.className = 'mtree-tree';
+  body.appendChild(tree);
+
+  const showRecent = () => { renderRecent(); recentPop.hidden = false; };
+  const hideRecent = () => { recentPop.hidden = true; };
+
+  /** 选中目标:更新 target + 输入框 + 重建树高亮 */
+  const select = (id) => {
+    target = id;
+    input.value = id === '' ? (adapter.hasRoot !== false ? rootLabel : '') : pathOf(id);
+    renderTree();
+    renderRecent();
+  };
+
+  /** 递归构建树节点(row 为适配器产出的行描述:含 id/label/icon/group/kind/selectable) */
+  const buildNode = (row, depth) => {
+    const id = row.id;
+    const kids = adapter.childRows(row);
+    const isOpen = expanded.has(id);
+    const tr = treeRow(row, depth, kids.length > 0);
+    const frag = document.createDocumentFragment();
+    frag.appendChild(tr);
+    if (isOpen && kids.length) {
+      const wrap = document.createElement('div');
+      wrap.className = 'mtree-children';
+      for (const k of kids) wrap.appendChild(buildNode(k, depth + 1));
+      frag.appendChild(wrap);
+    }
+    return frag;
+  };
+
+  const treeRow = (row, depth, hasKids) => {
+    const { id, label, kind, selectable } = row;
+    const disabled = exclude.has(id) || !selectable;
+    const el = document.createElement('div');
+    el.className = 'mtree-row' + (kind === 'group' ? ' mtree-group' : '') + (disabled ? ' disabled' : '') + (id === target ? ' selected' : '');
+    el.style.setProperty('--mtree-depth', depth);
+    const caret = document.createElement('span');
+    caret.className = 'mtree-caret' + (hasKids ? '' : ' empty');
+    caret.textContent = hasKids ? (expanded.has(id) ? '▾' : '▸') : '';
+    const icon = document.createElement('span');
+    icon.className = 'mtree-icon';
+    icon.appendChild(treeIconNode(adapter.iconOf(row, hasKids, expanded.has(id)), 'cat-icon'));
+    const name = document.createElement('span');
+    name.className = 'mtree-name';
+    name.textContent = label;
+    name.title = kind === 'group' ? label : (id === '' ? rootLabel : pathOf(id));
+    el.appendChild(caret);
+    el.appendChild(icon);
+    el.appendChild(name);
+    if (hasKids) {
+      // 折叠/展开(状态即时落盘)
+      caret.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (expanded.has(id)) expanded.delete(id); else expanded.add(id);
+        setSetting(memKey, { ...moveDlgMem(memKey, getNode), expanded: [...expanded] });
+        renderTree();
+        renderRecent();
+      });
+    }
+    if (!disabled) {
+      el.addEventListener('click', () => { select(id); hideRecent(); });
+    } else if (hasKids) {
+      // 分组头(不可选):点击整行切换展开/折叠
+      el.addEventListener('click', () => {
+        hideRecent();
+        if (expanded.has(id)) expanded.delete(id); else expanded.add(id);
+        renderTree();
+      });
+    }
+    return el;
+  };
+
+  const renderTree = () => {
+    tree.innerHTML = '';
+    for (const row of adapter.topRows()) tree.appendChild(buildNode(row, 0));
+  };
+
+  /** 最近选择弹出内容(上次 + 最近10次,最新在前) */
+  const renderRecent = () => {
+    recentPop.innerHTML = '';
+    const list = [...mem.recent];
+    if (target !== '' && !list.includes(target)) list.unshift(target);
+    const shown = list.filter((id) => !exclude.has(id) && (id === '' || canTarget(id, getNode(id)))).slice(0, 10);
+    if (!shown.length) {
+      const empty = document.createElement('div');
+      empty.className = 'mtree-recent-empty';
+      empty.textContent = '暂无最近选择';
+      recentPop.appendChild(empty);
+      return;
+    }
+    shown.forEach((id, i) => {
+      const it = document.createElement('div');
+      it.className = 'mtree-recent-item' + (id === target ? ' selected' : '');
+      const tag = document.createElement('span');
+      tag.className = 'mtree-recent-tag';
+      tag.textContent = i === 0 ? '上次' : '最近' + (i + 1);
+      const nm = document.createElement('span');
+      nm.className = 'mtree-recent-path';
+      nm.textContent = id === '' ? rootLabel : pathOf(id);
+      it.appendChild(tag);
+      it.appendChild(nm);
+      it.addEventListener('click', (e) => {
+        e.stopPropagation();
+        select(id);
+        hideRecent();
+      });
+      recentPop.appendChild(it);
+    });
+  };
+
+  /** 定位搜索:输入过滤 → 匹配列表;回车选中首个 */
+  const renderResults = () => {
+    const q = input.value.trim().toLowerCase();
+    resultBox.innerHTML = '';
+    if (!q) {
+      resultBox.hidden = true;
+      tree.hidden = false;
+      return;
+    }
+    const hits = candidates.filter((c) => labelOf(c).toLowerCase().includes(q)).slice(0, 30);
+    if (!hits.length) {
+      const empty = document.createElement('div');
+      empty.className = 'mtree-results-empty';
+      empty.textContent = '未找到匹配目录';
+      resultBox.appendChild(empty);
+    } else {
+      for (const c of hits) {
+        const row = document.createElement('div');
+        row.className = 'mtree-result-row' + (c.id === target ? ' selected' : '');
+        const nm = document.createElement('span');
+        nm.className = 'mtree-result-name';
+        nm.textContent = labelOf(c);
+        const pt = document.createElement('span');
+        pt.className = 'mtree-result-path';
+        pt.textContent = pathOf(c.id);
+        row.appendChild(nm);
+        row.appendChild(pt);
+        row.addEventListener('click', () => { select(c.id); hideRecent(); });
+        resultBox.appendChild(row);
+      }
+    }
+    resultBox.hidden = false;
+    tree.hidden = true;
+  };
+
+  input.addEventListener('input', () => { renderResults(); hideRecent(); });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const q = input.value.trim().toLowerCase();
+      if (q) {
+        const hit = candidates.find((c) => labelOf(c).toLowerCase().includes(q));
+        if (hit) { select(hit.id); hideRecent(); }
+      }
+    } else if (e.key === 'Escape' && input.value) {
+      e.preventDefault();
+      input.value = '';
+      renderResults();
+      showRecent();
+    }
+  });
+  input.addEventListener('focus', () => { input.select(); showRecent(); });
+  input.addEventListener('blur', () => setTimeout(hideRecent, 160));
+  recentBtn.addEventListener('click', (e) => { e.stopPropagation(); recentPop.hidden ? showRecent() : hideRecent(); });
+  body.addEventListener('mousedown', (e) => {
+    if (!recentPop.contains(e.target) && !recentBtn.contains(e.target)) hideRecent();
+  });
 
   const { close } = openModal({
-    title: '移动目录',
+    title,
     body,
     foot: footButtons([
-      { text: '取消', cls: '', onClick: () => close() },
+      { text: '取消', cls: '', onClick: () => { setSetting(memKey, { ...moveDlgMem(memKey, getNode), expanded: [...expanded] }); close(); } },
       {
-        text: '确定',
+        text: okText,
         cls: 'primary',
         onClick: () => {
-          const selected = list.querySelector('input:checked');
-          if (!selected) return;
-          const target = selected.value;
-          updateCategory(cat.id, { parentId: target });
+          const t = target;
+          const recent = [t, ...mem.recent.filter((id) => id !== t)].slice(0, 10);
+          setSetting(memKey, { last: t, recent, expanded: [...expanded] });
           close();
-          if (target) expandedCats.add(target);
-          renderCategories();
-          renderMainArea();
-          toast('目录已移动');
+          if (onPick) onPick(t);
         },
       },
     ]),
+  });
+
+  // 初始化:回填上次目标 + 渲染树(不自动聚焦输入框,避免最近弹出层打开即覆盖目录树)
+  select(target);
+}
+
+/** 移动目录到其它目录下(或顶级) */
+function moveCategoryDialog(cat) {
+  // 目标排除:自身及其子孙
+  moveTreeDialog({
+    title: '选择目的位置',
+    tipHtml: `将目录「<b>${esc(cat.name)}</b>」移动到:`,
+    memKey: 'moveDialog',
+    exclude: [cat.id, ...getCategoryDescendants(cat.id)],
+    adapter: CAT_MOVE_ADAPTER,
+    onPick: (target) => {
+      updateCategory(cat.id, { parentId: target });
+      if (target) expandedCats.add(target);
+      renderCategories();
+      renderMainArea();
+      toast('目录已移动');
+    },
   });
 }
 
@@ -3878,63 +4153,23 @@ function batchMoveCategoriesDialog(ids) {
   const cats = ids.map((id) => categoryById(id)).filter(Boolean);
   if (!cats.length) return;
   // 目标排除: 选中的目录本身及其子孙
-  const exclude = new Set();
+  const exclude = [];
   for (const c of cats) {
-    exclude.add(c.id);
-    for (const d of getCategoryDescendants(c.id)) exclude.add(d);
+    exclude.push(c.id, ...getCategoryDescendants(c.id));
   }
-  const body = document.createElement('div');
-  body.className = 'modal-body';
-  const tip = document.createElement('div');
-  tip.className = 'form-row';
-  tip.innerHTML = `<span class="ro">将选中的 <b>${cats.length}</b> 个目录移动到:</span>`;
-  body.appendChild(tip);
-
-  const list = document.createElement('div');
-  list.className = 'fav-pick-list';
-  let checked = false;
-  const pick = (value, label) => {
-    const lb = document.createElement('label');
-    lb.className = 'fav-pick-item';
-    const rb = document.createElement('input');
-    rb.type = 'radio';
-    rb.name = 'batch-movecat';
-    rb.value = value;
-    if (!checked) { rb.checked = true; checked = true; }
-    const sp = document.createElement('span');
-    sp.textContent = label;
-    lb.appendChild(rb);
-    lb.appendChild(sp);
-    list.appendChild(lb);
-  };
-  pick('', '移至顶级(不作为子目录)');
-  for (const c of state.categories) {
-    if (exclude.has(c.id)) continue;
-    pick(c.id, categoryPath(c.id));
-  }
-  body.appendChild(list);
-
-  const { close } = openModal({
+  moveTreeDialog({
     title: '移动目录',
-    body,
-    foot: footButtons([
-      { text: '取消', cls: '', onClick: () => close() },
-      {
-        text: '确定',
-        cls: 'primary',
-        onClick: () => {
-          const selected = list.querySelector('input:checked');
-          if (!selected) return;
-          const target = selected.value;
-          for (const c of cats) updateCategory(c.id, { parentId: target });
-          close();
-          if (target) expandedCats.add(target);
-          renderCategories();
-          renderMainArea();
-          toast(`已移动 ${cats.length} 个目录`);
-        },
-      },
-    ]),
+    tipHtml: `将选中的 <b>${cats.length}</b> 个目录移动到:`,
+    memKey: 'moveDialog',
+    exclude,
+    adapter: CAT_MOVE_ADAPTER,
+    onPick: (target) => {
+      for (const c of cats) updateCategory(c.id, { parentId: target });
+      if (target) expandedCats.add(target);
+      renderCategories();
+      renderMainArea();
+      toast(`已移动 ${cats.length} 个目录`);
+    },
   });
 }
 
@@ -4406,64 +4641,25 @@ function openFavCategoryMenu(x, y, fc) {
 
 /** 移动动画到其它分类(或未分类) */
 function moveItemDialog(it) {
-  const body = document.createElement('div');
-  body.className = 'modal-body';
-  const tip = document.createElement('div');
-  tip.className = 'form-row';
-  tip.innerHTML = `<span class="ro">将「<b>${esc(it.displayName)}</b>」移动到:</span>`;
-  body.appendChild(tip);
-
-  const list = document.createElement('div');
-  list.className = 'fav-pick-list';
-  let checked = false;
-  const pick = (value, label) => {
-    const lb = document.createElement('label');
-    lb.className = 'fav-pick-item';
-    const rb = document.createElement('input');
-    rb.type = 'radio';
-    rb.name = 'moveitem';
-    rb.value = value;
-    if (!checked) { rb.checked = true; checked = true; }
-    const sp = document.createElement('span');
-    sp.textContent = label;
-    lb.appendChild(rb);
-    lb.appendChild(sp);
-    list.appendChild(lb);
-  };
-  pick('', '未分类');
-  for (const c of state.categories) {
-    if (c.id === it.categoryId) continue;
-    pick(c.id, categoryPath(c.id));
-  }
-  body.appendChild(list);
-
-  const { close } = openModal({
-    title: '移动动画',
-    body,
-    foot: footButtons([
-      { text: '取消', cls: '', onClick: () => close() },
-      {
-        text: '确定',
-        cls: 'primary',
-        onClick: () => {
-          const selected = list.querySelector('input:checked');
-          if (!selected) return;
-          const target = selected.value;
-          const moved = target !== (it.categoryId || '');
-          updateItem(it.id, { categoryId: target });
-          thumbnailService.invalidate(it.id);
-          close();
-          renderCategories();
-          renderItems();
-          renderMainArea();
-          if (moved && preview.currentItemId === it.id) {
-            preview.disposePlayer();
-            hidePreviewBody();
-          }
-          toast('动画已移动');
-        },
-      },
-    ]),
+  moveTreeDialog({
+    title: '选择目的位置',
+    tipHtml: `将「<b>${esc(it.displayName)}</b>」移动到:`,
+    memKey: 'moveDialog',
+    exclude: it.categoryId ? [it.categoryId] : [],
+    adapter: CAT_MOVE_ADAPTER,
+    onPick: (target) => {
+      const moved = target !== (it.categoryId || '');
+      updateItem(it.id, { categoryId: target });
+      thumbnailService.invalidate(it.id);
+      renderCategories();
+      renderItems();
+      renderMainArea();
+      if (moved && preview.currentItemId === it.id) {
+        preview.disposePlayer();
+        hidePreviewBody();
+      }
+      toast('动画已移动');
+    },
   });
 }
 
@@ -6210,6 +6406,9 @@ async function newDocument(kind) {
   renderCategories();
   // 打开进入编辑器(切到预览页 + 加载空白文件,后续编辑即自动存档)
   await selectItem(item.id);
+  // 标记为新建的「未命名」文档:点保存时提示输入文件名(走另存为,而非直接写回 未命名.*)
+  const ed = kind === 'md' ? markdownEditor : htmlEditor;
+  if (ed) ed.untitled = true;
   toast('已新建 ' + base + '（' + dir + '）', 'ok', 2600);
 }
 
@@ -7776,62 +7975,24 @@ function batchMoveItems(ids) {
     toast('请先选择要移动的资源', 'error');
     return;
   }
-  const body = document.createElement('div');
-  body.className = 'modal-body';
-  const tip = document.createElement('div');
-  tip.className = 'form-row';
-  tip.innerHTML = `<span class="ro">将选中的 <b>${valid.length}</b> 个资源移动到:</span>`;
-  body.appendChild(tip);
-
-  const list = document.createElement('div');
-  list.className = 'fav-pick-list';
-  let checked = false;
-  const pick = (value, label) => {
-    const lb = document.createElement('label');
-    lb.className = 'fav-pick-item';
-    const rb = document.createElement('input');
-    rb.type = 'radio';
-    rb.name = 'batchmove';
-    rb.value = value;
-    if (!checked) { rb.checked = true; checked = true; }
-    const sp = document.createElement('span');
-    sp.textContent = label;
-    lb.appendChild(rb);
-    lb.appendChild(sp);
-    list.appendChild(lb);
-  };
-  pick('', '未分类');
-  for (const c of state.categories) {
-    if (c.id === currentCategoryId) continue; // 已在当前目录的不需要移动
-    pick(c.id, categoryPath(c.id));
-  }
-  body.appendChild(list);
-
-  const { close } = openModal({
-    title: '批量移动资源',
-    body,
-    foot: footButtons([
-      { text: '取消', cls: '', onClick: () => close() },
-      {
-        text: '移动',
-        cls: 'primary',
-        onClick: () => {
-          const selected = list.querySelector('input:checked');
-          if (!selected) return;
-          const target = selected.value;
-          for (const it of valid) {
-            updateItem(it.id, { categoryId: target });
-            thumbnailService.invalidate(it.id);
-          }
-          close();
-          editSelected.clear();
-          renderCategories();
-          renderItems();
-          renderMainArea();
-          toast(`已将 ${valid.length} 个资源移动至「${target ? categoryPath(target) : '未分类'}」`);
-        },
-      },
-    ]),
+  moveTreeDialog({
+    title: '选择目的位置',
+    tipHtml: `将选中的 <b>${valid.length}</b> 个资源移动到:`,
+    memKey: 'moveDialog',
+    exclude: currentCategoryId ? [currentCategoryId] : [], // 已在当前目录的不需要移动
+    adapter: CAT_MOVE_ADAPTER,
+    okText: '移动',
+    onPick: (target) => {
+      for (const it of valid) {
+        updateItem(it.id, { categoryId: target });
+        thumbnailService.invalidate(it.id);
+      }
+      editSelected.clear();
+      renderCategories();
+      renderItems();
+      renderMainArea();
+      toast(`已将 ${valid.length} 个资源移动至「${target ? categoryPath(target) : '未分类'}」`);
+    },
   });
 }
 

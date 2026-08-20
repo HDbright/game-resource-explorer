@@ -379,6 +379,11 @@ let exportOpen = false;
 let dragTaskId = null;
 let dragNode = null;     // 树内拖拽源:{ kind:'task'|'proj', id }
 let eventModal = null;    // 日历事件弹窗:{id} 编辑 / {date:'YYYY-MM-DD'} 新建
+let timeRecords = [];     // show_calendar=1 的计时记录(补丁·96)
+let timeTypes = [];       // 计时类型表 id→{name,color,icon}
+let timeEvBound = false;  // todo:view 事件是否已绑定(只绑一次)
+let timeStatOpen = false; // 计时统计面板开关
+let timeStatRange = 'day'; // 计时统计范围: day(每日/当月) | month(每月/本年) | year(每年) | total(总计)
 let dayEventsModal = null; // 当日事件列表弹窗:{date:'YYYY-MM-DD'}
 let dayEvTab = 'list';    // 当日事件弹窗标签:'list'(事件列表) | 'new'(新建事件)
 let pendingDayReturn = null; // 从当日事件弹窗进入编辑弹窗的返回状态:{date:'YYYY-MM-DD'},编辑关闭时还原当日弹窗
@@ -538,7 +543,200 @@ export function renderTodoTool(container) {
   rootEl = document.createElement('div');
   rootEl.className = 'todo-root';
   container.appendChild(rootEl);
+  // 外部快捷打开(托盘「计时日历」等): 监听一次即切到日历/统计视图
+  if (!timeEvBound) {
+    timeEvBound = true;
+    document.addEventListener('todo:view', (e) => {
+      const v = e.detail && e.detail.view;
+      if (v === 'calendar') view = 'calendar';
+      else if (v === 'list') view = 'list';
+      else if (v === 'kanban') view = 'kanban';
+      else if (v === 'time-stat') { view = 'calendar'; timeStatOpen = true; }
+      render();
+    });
+  }
+  loadTimeData();
   render();
+}
+
+/** 加载计时记录(仅 show_calendar=1)与类型表(补丁·96) */
+async function loadTimeData() {
+  try {
+    const [recs, types] = await Promise.all([window.api.timeRecList(), window.api.timeTypeList()]);
+    timeRecords = (recs || []).filter((r) => r.show_calendar);
+    timeTypes = types || [];
+  } catch (e) { timeRecords = []; timeTypes = []; }
+}
+
+// ---- 计时统计(补丁·96) ----
+function timeTypeById(id) { return timeTypes.find((t) => t.id === id); }
+function fmtDur(sec) {
+  sec = Math.max(0, Math.floor(sec));
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  if (h > 0) return `${h}h${m > 0 ? m + 'm' : ''}`;
+  if (m > 0) return `${m}m${s > 0 ? s + 's' : ''}`;
+  return `${s}s`;
+}
+function fmtDurFull(sec) {
+  sec = Math.max(0, Math.floor(sec));
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  return h > 0 ? `${h} 时 ${m} 分` : m > 0 ? `${m} 分 ${s} 秒` : `${s} 秒`;
+}
+function timeRangeBounds(range) {
+  const now = new Date();
+  if (range === 'day') return { s: new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() / 1000, e: Infinity };
+  if (range === 'month') return { s: new Date(now.getFullYear(), now.getMonth(), 1).getTime() / 1000, e: Infinity };
+  if (range === 'year') return { s: new Date(now.getFullYear(), 0, 1).getTime() / 1000, e: Infinity };
+  return { s: 0, e: Infinity };
+}
+/** 记录按日(y-m-d)累计秒 */
+function timeSecByDay() {
+  const map = new Map();
+  for (const r of timeRecords) {
+    const d = new Date((r.start_ts || 0) * 1000);
+    const k = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    if (!map.has(k)) map.set(k, 0);
+    map.set(k, map.get(k) + (Number(r.duration_sec) || 0));
+  }
+  return map;
+}
+/** 记录按月(y-m)累计秒 */
+function timeSecByMonth() {
+  const map = new Map();
+  for (const r of timeRecords) {
+    const d = new Date((r.start_ts || 0) * 1000);
+    const k = `${d.getFullYear()}-${d.getMonth()}`;
+    if (!map.has(k)) map.set(k, 0);
+    map.set(k, map.get(k) + (Number(r.duration_sec) || 0));
+  }
+  return map;
+}
+/** 记录按类型累计秒(可传入过滤函数) */
+function timeSecByType(filter) {
+  const map = new Map();
+  for (const r of timeRecords) {
+    if (filter && !filter(r)) continue;
+    const ids = Array.isArray(r.type_ids) && r.type_ids.length ? r.type_ids : [null];
+    for (const id of ids) {
+      if (!map.has(id)) map.set(id, 0);
+      map.set(id, map.get(id) + (Number(r.duration_sec) || 0));
+    }
+  }
+  return map;
+}
+function timeTypeLabel(id) {
+  if (id === null) return '未分类';
+  const t = timeTypeById(id);
+  return t ? `${t.icon || ''} ${t.name}` : '未知类型';
+}
+function timeTypeColor(id) {
+  if (id === null) return '#888';
+  const t = timeTypeById(id);
+  return (t && t.color) || '#888';
+}
+
+/** 计时统计面板(每日/每月/每年/总计, 按类型累计) */
+function renderTimeStat() {
+  const wrap = document.createElement('div');
+  wrap.className = 'todo-calendar todo-timestat';
+  const head = document.createElement('div');
+  head.className = 'todo-cal-head';
+  head.innerHTML = `
+    <button class="btn" data-ts="back" title="返回日历">← 返回日历</button>
+    <span class="todo-cal-title" style="cursor:default">⏱ 计时统计</span>
+    <span style="flex:1"></span>
+    <span style="font-size:11px;color:rgba(255,255,255,0.5)">共 ${timeRecords.length} 条记录 · 总计 ${fmtDur(timeSecByType().size ? Array.from(timeSecByType().values()).reduce((a, b) => a + b, 0) : 0)}</span>`;
+  head.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-ts]');
+    if (b && b.dataset.ts === 'back') { timeStatOpen = false; render(); }
+  });
+  wrap.appendChild(head);
+  // 范围 tabs
+  const tabs = document.createElement('div');
+  tabs.className = 'todo-cal-head' ;
+  tabs.style.gap = '6px';
+  tabs.innerHTML = ['day', 'month', 'year', 'total'].map((rg) =>
+    `<button class="btn${timeStatRange === rg ? ' primary' : ''}" data-ts-range="${rg}">${rg === 'day' ? '每日(本月)' : rg === 'month' ? '每月(今年)' : rg === 'year' ? '每年' : '总计'}</button>`).join('');
+  tabs.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-ts-range]');
+    if (!b) return;
+    timeStatRange = b.dataset.tsRange;
+    const content = rootEl.querySelector('.todo-content');
+    if (content) { content.innerHTML = ''; content.appendChild(renderTimeStat()); }
+  });
+  wrap.appendChild(tabs);
+
+  const body = document.createElement('div');
+  body.className = 'todo-timestat-body';
+  const now = new Date();
+  if (timeStatRange === 'day') {
+    // 当月每天
+    const y = now.getFullYear(), m = now.getMonth();
+    const dim = new Date(y, m + 1, 0).getDate();
+    const dayMap = timeSecByDay();
+    const rows = [];
+    for (let d = 1; d <= dim; d++) {
+      const key = `${y}-${m}-${d}`;
+      rows.push({ label: `${m + 1}/${d}`, key });
+    }
+    body.appendChild(renderTimeStatRows(rows.map((r) => ({ label: r.label, sec: dayMap.get(r.key) || 0, recs: timeRecords.filter((rec) => { const dd = new Date((rec.start_ts || 0) * 1000); return `${dd.getFullYear()}-${dd.getMonth()}-${dd.getDate()}` === r.key; }) }))));
+  } else if (timeStatRange === 'month') {
+    const y = now.getFullYear();
+    const monthMap = timeSecByMonth();
+    const rows = [];
+    for (let m = 0; m < 12; m++) {
+      const key = `${y}-${m}`;
+      rows.push({ label: `${m + 1} 月`, key });
+    }
+    body.appendChild(renderTimeStatRows(rows.map((r) => ({ label: r.label, sec: monthMap.get(r.key) || 0, recs: timeRecords.filter((rec) => { const dd = new Date((rec.start_ts || 0) * 1000); return `${dd.getFullYear()}-${dd.getMonth()}` === r.key; }) }))));
+  } else if (timeStatRange === 'year') {
+    const years = new Set(timeRecords.map((r) => new Date((r.start_ts || 0) * 1000).getFullYear()));
+    const yearRows = Array.from(years).sort((a, b) => b - a);
+    body.appendChild(renderTimeStatRows(yearRows.map((yy) => ({ label: `${yy} 年`, sec: timeRecords.filter((r) => new Date((r.start_ts || 0) * 1000).getFullYear() === yy).reduce((a, r) => a + (Number(r.duration_sec) || 0), 0), recs: timeRecords.filter((r) => new Date((r.start_ts || 0) * 1000).getFullYear() === yy) }))));
+  } else {
+    // 总计: 按类型
+    const typeMap = timeSecByType();
+    const totalSec = Array.from(typeMap.values()).reduce((a, b) => a + b, 0);
+    const rows = Array.from(typeMap.entries()).sort((a, b) => b[1] - a[1]);
+    const panel = document.createElement('div');
+    panel.className = 'todo-timestat-total';
+    panel.innerHTML = `<div style="font-size:20px;font-weight:700;color:#5c9cff;margin-bottom:10px">累计 ${fmtDurFull(totalSec)}</div>`;
+    rows.forEach(([id, sec]) => {
+      const row = document.createElement('div');
+      row.className = 'todo-ts-row';
+      row.innerHTML = `<span class="todo-ts-nm" style="color:${timeTypeColor(id)}">${timeTypeLabel(id)}</span><span class="todo-ts-bar"><i style="width:${totalSec ? Math.round(sec / totalSec * 100) : 0}%;background:${timeTypeColor(id)}"></i></span><span class="todo-ts-tm">${fmtDurFull(sec)}</span>`;
+      panel.appendChild(row);
+    });
+    body.appendChild(panel);
+  }
+  wrap.appendChild(body);
+  return wrap;
+}
+/** 通用行: 期间 + 总时长 + 按类型细分 */
+function renderTimeStatRows(rows) {
+  const panel = document.createElement('div');
+  panel.className = 'todo-timestat-table';
+  for (const row of rows) {
+    if (!row.sec && row.recs.length === 0) continue;
+    const typeMap = new Map();
+    for (const r of row.recs) {
+      const ids = Array.isArray(r.type_ids) && r.type_ids.length ? r.type_ids : [null];
+      for (const id of ids) {
+        if (!typeMap.has(id)) typeMap.set(id, 0);
+        typeMap.set(id, typeMap.get(id) + (Number(r.duration_sec) || 0));
+      }
+    }
+    const line = document.createElement('div');
+    line.className = 'todo-ts-line';
+    const detail = Array.from(typeMap.entries()).sort((a, b) => b[1] - a[1]).map(([id, sec]) =>
+      `<span style="color:${timeTypeColor(id)}">${timeTypeLabel(id)} ${fmtDur(sec)}</span>`).join('<span class="todo-ts-sep">·</span>');
+    line.innerHTML = `<span class="todo-ts-date">${row.label}</span><span class="todo-ts-dur">${fmtDur(row.sec)}</span><span class="todo-ts-detail">${detail || '—'}</span>`;
+    panel.appendChild(line);
+  }
+  if (!panel.children.length) {
+    panel.innerHTML = '<div style="padding:24px;text-align:center;color:rgba(255,255,255,0.4);font-size:12px">该范围内暂无计时记录(可在秒表/倒计时中保存, 或到「计时管理」开启日历显示)</div>';
+  }
+  return panel;
 }
 
 function render() {
@@ -556,7 +754,7 @@ function render() {
   if (view === 'list') rootEl.appendChild(renderFiltersBar());
   const content = document.createElement('div');
   content.className = 'todo-content';
-  content.appendChild(view === 'kanban' ? renderKanban() : (view === 'calendar' ? renderCalendar() : renderList()));
+  content.appendChild(view === 'kanban' ? renderKanban() : (view === 'calendar' ? (timeStatOpen ? renderTimeStat() : renderCalendar()) : renderList()));
   rootEl.appendChild(content);
   if (view === 'list') rootEl.appendChild(renderProgressBar());
 
@@ -1372,6 +1570,8 @@ function renderCalendar() {
     if (!eventMap.has(k)) eventMap.set(k, []);
     eventMap.get(k).push(ev);
   }
+  // 计时记录按日累计(补丁·96)
+  const dayTimeMap = timeSecByDay();
   const today = new Date();
   const todayKey = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`;
 
@@ -1383,10 +1583,13 @@ function renderCalendar() {
   head.innerHTML = `
     <button class="btn" data-cal="prev" title="${T('prevMonth')}">←</button>
     <button class="todo-cal-title" data-cal="year" title="${T('viewYear')}">${escHtml(monthLabel(y, m))}</button>
-    <button class="btn" data-cal="next" title="${T('nextMonth')}">→</button>`;
+    <button class="btn" data-cal="next" title="${T('nextMonth')}">→</button>
+    <span style="flex:1"></span>
+    <button class="btn" data-cal="timestat" title="按类型累计时长统计">⏱ 计时统计</button>`;
   head.addEventListener('click', (e) => {
     const b = e.target.closest('[data-cal]');
     if (!b) return;
+    if (b.dataset.cal === 'timestat') { timeStatOpen = true; render(); return; }
     if (b.dataset.cal === 'year') { calView = 'year'; }
     else { calCursor = new Date(y, m + (b.dataset.cal === 'prev' ? -1 : 1), 1); }
     const content = rootEl.querySelector('.todo-content');
@@ -1487,6 +1690,27 @@ function renderCalendar() {
       more.className = 'todo-cal-more';
       more.textContent = T('more', dayTasks.length - 3);
       cell.appendChild(more);
+    }
+    // 当日计时累计(补丁·96): show_calendar=1 的记录按日汇总
+    const dayTimeSec = dayTimeMap.get(dayKey) || 0;
+    if (dayTimeSec > 0) {
+      const dayRecs = timeRecords.filter((r) => {
+        const d = new Date((r.start_ts || 0) * 1000);
+        return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}` === dayKey;
+      });
+      const tEl = document.createElement('div');
+      tEl.className = 'todo-cal-time';
+      tEl.textContent = '⏱ ' + fmtDur(dayTimeSec);
+      // 按类型明细(按累计降序)
+      const tMap = new Map();
+      for (const r of dayRecs) {
+        const ids = Array.isArray(r.type_ids) && r.type_ids.length ? r.type_ids : [null];
+        for (const id of ids) { if (!tMap.has(id)) tMap.set(id, 0); tMap.set(id, tMap.get(id) + (Number(r.duration_sec) || 0)); }
+      }
+      const detail = Array.from(tMap.entries()).sort((a, b) => b[1] - a[1]).map(([id, sec]) => `${timeTypeLabel(id)} ${fmtDurFull(sec)}`).join('\n');
+      tEl.title = (detail || '') + '\n点击查看计时统计';
+      tEl.addEventListener('click', (e) => { e.stopPropagation(); timeStatOpen = true; render(); });
+      cell.appendChild(tEl);
     }
     // 右键单元格 → 新建事件
     cell.addEventListener('contextmenu', (e) => {
@@ -1592,6 +1816,16 @@ function renderYearCalendar() {
     stat.className = 'todo-cal-year-stat';
     stat.textContent = T('yearStat', evCount[m], taskCount[m]);
     cell.appendChild(stat);
+    // 当月计时累计(补丁·96)
+    const monthKey = `${y}-${m}`;
+    const monthSec = timeSecByMonth().get(monthKey) || 0;
+    if (monthSec > 0) {
+      const tEl = document.createElement('div');
+      tEl.className = 'todo-cal-year-time';
+      tEl.textContent = '⏱ ' + fmtDur(monthSec);
+      tEl.title = `${m + 1} 月计时累计 ${fmtDurFull(monthSec)}`;
+      cell.appendChild(tEl);
+    }
     cell.addEventListener('click', () => {
       calCursor = new Date(y, m, 1);
       calView = 'month';

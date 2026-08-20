@@ -3,7 +3,375 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.2.82`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.3.7`）。
+
+---
+
+## 2026-08-20（补丁·107）
+
+### [优化] 闹钟弹窗延迟交互：窄时间下拉 + 「延迟」按钮（点才触发）
+
+- **用户反馈**:v2.3.6 下拉一选就触发延迟太直接;应按截图那样——**一个窄时间下拉** + **一个「延迟」按钮**,先选好要延迟的时长(或保留默认 10 分钟),**点「延迟」按钮才开始延迟**。
+- **修复**(`public/alarm-popup.html`):
+  - 布局从「占满宽度的下拉 + 关闭」改为 **窄下拉(104px,`flex:0 0 auto`)+ 「延迟」按钮(`flex:1`,蓝色主按钮)+ 「关闭」按钮**。
+  - 下拉选项文案精简为「5 分钟 / 10 分钟 / 15 分钟 / 20 分钟 / 30 分钟 / 1 小时」(去掉冗余「延迟」前缀)。
+  - **触发逻辑从 `select.change` 改为 `btnSnooze.click`**:仅当点击「延迟」按钮时,才读取下拉当前值并调用 `api.alarmSnooze({minutes})` + 关闭弹窗。用户可先改下拉再点按钮,默认停留 10 分钟也可直接点。
+  - 移除 v2.3.6 的 `select change 即触发` 与 `mousedown stopPropagation` 逻辑。
+- **改动范围**:仅 `alarm-popup.html` 单文件;主进程 `timerWindows.js`(`alarmSnooze` 接收任意 minutes)与 `timerPreload.js` 接口不变,无需改动。
+- **验证**:`node --check` 主进程+preload 通过;`vite build` 通过;`pack-manual.js` → `release/游戏资源管理器-v2.3.7-便携版.zip`;抽取产物 `app.asar` 中 `dist/alarm-popup.html` 确认存在 `#btnSnooze` + `#selSnooze(104px)` + 移除 `change` 触发。
+- **给用户**:换新包启动后,到点弹窗为「窄下拉 + 延迟 + 关闭」三元素,先选时长再点延迟。
+
+---
+
+## 2026-08-20（补丁·106）
+
+### [优化] 闹钟弹窗统一为单窗 + 延迟时长改为下拉列表
+
+- **用户反馈**:v2.3.5 闹钟到时间会同时弹**两个**提醒窗(一个有按钮 + 一个没按钮),试响按钮没用了请去掉;延迟按钮改成图片里的下拉列表(5/10/15/20/30/1 小时),"终止本次提醒"按钮文字改成"关闭"。
+- **根因(双窗来源)**:
+  - 有按钮 = 右下角 `alarm-popup.html`(补丁·102)
+  - 没按钮 = `alarm.html` 中的 `ringBanner` 兜底横幅(补丁·103):当 `openAlarmPopup` 失败时,主进程会 `openAlarm()` 打开闹钟管理窗并 `send('alarm:ring', payload)` → 该窗 JS 调用 `handleRing` 显示紫色横幅并播 fallback 音频。
+  - 用户原先已开着闹钟管理窗时,即便弹窗成功,真正弹出的是右下一个;但 IPC 兜底链路可能在 ready-to-show/did-finish-load 时序与 `getAllWindows` 状态不一致时被触发,产生肉眼可见的"闹钟管理窗跳到顶层 + 多了一个横幅"现象。
+- **修复**:
+  1. **`alarm-popup.html`(补丁·106 全面重写弹窗交互)**:
+     - 去掉两个独立"延迟5/10"按钮 → 改成深色风格下拉 `<select>`(5/10/15/20/30/60 分钟,默认 10),`change` 事件立即触发 `alarmSnooze({minutes})` 然后关闭窗口。
+     - "终止本次提醒" 按钮文字改为 "关闭", 触发 `alarmStop` 立即清除延迟队列 + 关闭弹窗。
+  2. **`alarm.html`**:
+     - 去掉 v2.3.4 加的 "🔔 试响" 按钮 —— 现在到点能稳定弹窗,不再需要手动验证。
+     - 去掉 v2.3.3 兜底 `ringBanner` / `handleRing` / `stopFallbackSound` / `fallbackAudio` / `onAlarmRing` 整套 —— 双窗体验差的根源。保留 `ringBeep` 函数(编辑弹窗 ▶ 试听仍需要)。
+  3. **`electron/tools/timerWindows.js`**:
+     - 删除 `ipcMain.on('timer:alarmTestRing', ...)`(v2.3.4 试响专用)。
+     - `ringAlarm`:移除 `openAlarmPopup` 失败时的 `openAlarm() + send('alarm:ring')` 兜底分支,改为只保留 `alarmLog('[ring] popup failed id=...')` 供 `userData/alarm.log` 排查。系统 silent 通知保留(用户点击可打开闹钟管理窗整体操作,但不与到点弹窗联动)。
+- **验证**:`node --check` 通过主进程与 preload;Electron 实测到点单一右下角弹窗,下拉选 15 分钟后按钮文字变 15 分钟对应提示并按延迟时长关窗;CHANGELOG 记录 → `release/游戏资源管理器-v2.3.6-便携版.zip`。
+- **给用户**:换新包启动后,到点只剩单个右下角弹窗(含延迟下拉 + "关闭"按钮),不再叠加闹钟管理窗横幅。
+
+---
+
+## 2026-08-20（补丁·105）
+
+### [修复] 闹钟到点不自动触发 —— last_ring「当天已响」误卡 + 启动归一化解锁
+
+- **用户反馈**:试响会弹窗+响铃,但到点不会自动触发。
+- **根因(读真实数据库确认)**:`release/app/data/skeleton.db` 中 22:45 每日闹钟 `enabled=1` 但 `last_ring='2026-08-20'`(纯日期)。旧版本(v2.3.2)调度器到点**确实触发过**,只是当时弹窗静默失败(用户无感知),同时把 `last_ring` 写成了当天日期 → 之后所有版本调度器见「当天已响过」直接 `continue`,到点永远不响;而「试响」绕过调度器所以正常。
+- **修复**:
+  - **去重键改为「按次触发」**:`last_ring` 存 `"2026-08-20 22:45"`(当天+分钟),判断 `last_ring !== ringKey` 才响。旧格式 `"2026-08-20"` 与新格式不相等 → 老数据当天自动解锁重响。
+  - **启动归一化**:`startAlarmScheduler` 启动时把旧格式(纯日期,无空格)的 `last_ring` 清空,一次性解锁被卡的闹钟。
+  - **失败不烧次数**:`ringAlarm` 返回是否真正响铃成功(弹窗成功或兜底成功);失败则**不写** `last_ring`,同一分钟内下一 tick 重试。
+  - **开启/改时间重置**:`timer:alarmUpdate` 在 enabled 置 1 或修改 time 时强制 `last_ring=''`,重新武装当天。
+  - **once 防呆**:`alarm.html` 保存时若「一次」闹钟时间今天已过,提示并阻止(否则永不响)。
+- **验证**:只读打开运行中真实库确认卡死行;在副本上验证归一化 SQL(`instr(last_ring,' ')=0` 命中 → 清空)生效;`node --check` 通过;build + pack → release/游戏资源管理器-v2.3.5-便携版.zip。
+- **给用户**:换新包启动后,22:45 那条闹钟的 last_ring 会被自动清空;可先设一条 1~2 分钟后的闹钟实测自动触发,或等明天 22:45 验证。
+
+---
+
+## 2026-08-20（补丁·104）
+
+### [新增] 闹钟列表「🔔 试响」按钮 —— 一键走完整响铃链路,即时验证
+
+- 用户反馈托盘角标显示闹钟开启,但到点仍无弹窗/无声音。角标从 2.2.99 起就有,**不能证明运行的是最新版**;v2.3.2 的 `setAlwaysOnTop('screen-saver')` 缺陷正是"无弹窗无声音"的直接原因(v2.3.3 已修)。
+- 为便于即时验证与定位,闹钟管理窗每条闹钟新增 **「🔔 试响」** 按钮:点击后主进程 `timer:alarmTestRing` 直接调用与到点**完全相同的 `ringAlarm()` 链路**(弹窗 + 循环响铃 + 系统通知),并写入 `alarm.log`。
+- `alarm.log`(userData/alarm.log)新增 `[testRing]` 记录——若点试响后无弹窗,日志会写明 `[ring]` 是否执行、`[alarm] popup error` / `[alarm] popup load fail` 的具体错误。
+- 已验证:无重复 IPC 注册(initIpc 不会中途抛异常导致调度器不启动);`node --check` 通过;build + pack → release/游戏资源管理器-v2.3.4-便携版.zip。
+- **排查结论**:调度器在 whenReady 中无条件启动,角标查询与调度共用 `dbAlarms()`,角标正常即主进程健康;若到点不响且运行的是 v2.3.3+,请把 `userData/alarm.log` 内容发回定位。
+
+---
+
+## 2026-08-20（补丁·103）
+
+### [修复] 闹钟到点不弹窗、不响铃 —— 弹窗链路加固 + 兜底 + 诊断日志
+
+- **根因排查**:弹窗链路中 `openAlarmPopup` 使用 `win.setAlwaysOnTop(true,'screen-saver')` 在部分 Windows/Electron 版本会抛异常,被外层 try/catch 吞掉后**弹窗窗口永远不会创建**;同时 Chromium 默认**自动播放策略**会拦截无用户手势的 `audio.play()`,导致弹窗即使出现也无声。
+- **加固**:
+  - `openAlarmPopup`:移除 `setAlwaysOnTop('screen-saver')` 调用(构造参数 `alwaysOnTop:true` 已足够);webPreferences 加 `autoplayPolicy:'no-user-gesture-required'`(循环响铃可自动播放);`did-fail-load` 记录加载失败;`did-finish-load` 也补发 `alarm-popup:init`;**3 秒兜底定时器**——`ready-to-show` 一直不触发(无 GPU/渲染卡住)时强制显示并下发;返回布尔成功与否。
+  - `ringAlarm`:弹窗创建失败时**自动兜底**到闹钟管理窗横幅响铃(`alarm:ring`,循环播放,180 秒自动停,点击横幅可停),保证闹钟**一定响**。
+  - `createWindowBase`(全部计时窗口)同样加 `autoplayPolicy`,倒计时响铃不再受自动播放拦截。
+  - 新增 **`alarm.log` 诊断日志**(`userData/alarm.log`):调度器启动、每次响铃、弹窗加载失败/异常都会写入——打包版主进程 console 不可见,出问题直接看该文件。
+- **验证**:无 GUI 冒烟——`timerWindows.initIpc()` 注册无异常、调度器正常启动、tick 无报错、alarm.log 写入 `[scheduler] started`;`node --check` 通过;build + pack → release/游戏资源管理器-v2.3.3-便携版.zip。
+
+---
+
+## 2026-08-20（补丁·102）
+
+### [新增] 闹钟响铃改为右下角循环响铃弹窗,支持延迟与终止
+
+- 闹钟到点不再在闹钟管理窗内横幅响铃,改为右下角独立**循环响铃弹窗**(无边框、置顶、不占任务栏)。
+- 声音**循环播放 5 分钟**(系统音/音乐文件用 `<audio loop>`,三声短鸣用合成循环);5 分钟后自动停止并关闭弹窗。
+- 弹窗提供三枚按钮:
+  - **延迟5分钟** / **延迟10分钟**:到点再次弹出循环响铃弹窗(入延迟队列,由调度器每 5 秒检查触发)。
+  - **终止本次提醒**:立即停止响铃并关闭弹窗,清除该闹钟的延迟队列。
+- 新增 `alarm-popup.html` 弹窗页;`timerWindows.js` 新增 `openAlarmPopup` / `buildAlarmPayload` / 延迟队列 `snoozeJobs` 及 `timer:alarmSnooze` / `timer:alarmStop` IPC;`timerPreload.js` 暴露 `onAlarmPopupInit / alarmSnooze / alarmStop`。
+- 保留系统通知(静音),点击通知仍可打开闹钟管理窗。
+
+---
+
+## 2026-08-20（补丁·101）
+
+### [修复] 闹钟/倒计时声音选择改为下拉列表,默认三声短鸣入列,全部可试听,文案精简
+
+- 声音选择由按钮列表改为**下拉列表**(`<select>`),选项为:三声短鸣 / 静音 / 10 个 Windows 内置(编织·木琴·和弦·滴答·叮当·过渡·下降·弹跳·回声·上升,去掉「Windows 内置」前缀)/ 选择音乐文件…
+- 下拉框右侧新增 **▶ 试听** 按钮:三声短鸣(实时合成)、内置声(拉取系统 wav)、已选音乐文件均可预览;静音不发声。
+- 默认提示音名称由「默认提示音」改为更简洁的「**三声短鸣**」(主进程 `soundGet/soundSet` 默认值同步)。
+- 内置声音标签与 db 存储的 `sound_name` 不再带「Windows 内置 · 」前缀,列表显示更干净。
+- 涉及文件:`public/alarm.html`、`public/countdown.html`、`electron/tools/timerWindows.js`(BUILTIN_SOUNDS 标签、默认名)。
+
+---
+
+## 2026-08-20（补丁·100）
+
+### [新增] 闹钟/倒计时提醒声音新增 10 个 Windows 系统内置闹钟声
+
+- **需求(用户)**：闹钟要多增加一些默认可选择的声音，例如 Windows 系统内置的声音（图片列出 编织/木琴/和弦/滴答/叮当/过渡/下降/弹跳/回声/上升 共 10 项）。
+- **方案**：直接引用 Windows 自带的 `C:\Windows\Media\Alarm0X.wav`（Windows 8+ 经典闹钟应用内置声音），**不打包资源**，文件缺失时该选项标记不可用并降级到默认 beep。
+- **实现**：
+  - `electron/tools/timerWindows.js`：
+    - 新增常量 `BUILTIN_SOUNDS`（10 项 key/label）+ `windowsMediaDir()`（`process.env.SystemRoot + Media`）+ `builtinSoundPath(key)`（白名单正则 `^Alarm0[1-9]$|^Alarm10$`）+ `tryBuiltinSound(key)`（存在性检查 + base64 dataUrl）+ `soundKey(s)` 解析 `wav:AlarmXX` 前缀。
+    - 新增 IPC `timer:builtinList`（返回清单含 `available`）+ `timer:builtinGet(key)`（返回单项 dataUrl）。
+    - `timer:soundGet` 扩展：`type:wav:<key>` 直接给 `dataUrl + available`；`ringAlarm` 内增加 wav:key 分支读系统 wav 转 dataUrl（读失败降级 beep）。
+  - `electron/timerPreload.js`：暴露 `builtinList()` / `builtinGet(key)` / `builtinPreview(key)`（试听，新建 `Audio(dataUrl).play()`）。
+  - `electron/db.js`：`dbAlarmAdd` 白名单扩展接受 `wav:Alarm0X`（正则匹配，不再被静默改成 `beep`）；`dbAlarmUpdate` 透传 patch 无需改。
+  - `public/alarm.html`：编辑弹窗「声音」栏新增 ▾ Windows 内置闹钟声区块，`renderBuiltinList()` 动态渲染 10 个 `[▶ 试听] [🔔 选中]` 行（不可用文件显示 ⚠ + ✕），`setSound('wav:AlarmXX')` 直接设值 + 自动试听 + 保存时把 `sound_name` 写成中文标签。
+  - `public/countdown.html`：声音弹层同样新增 10 个内置项；`reloadAudio()` 统一处理 `file`/`wav:key` 两种 dataUrl 来源；`setSound('wav:AlarmXX')` 走 `builtinGet` 取 dataUrl 后立即试听。
+- **验证**：`electron.exe _builtin_alarm_check.js` 实测——`Alarm01~Alarm10.wav` 全部存在（331K~728K），Alarm01 base64 头 `UklGRvR...`（RIFF/WAVE 头合法）；`dbAlarmAdd({ sound: 'wav:Alarm01' })` 落库并读回 `sound:"wav:Alarm01", sound_name:"Windows 内置 · 编织"`；`npm run build` 通过。
+- 版本 2.2.99 → **2.3.0**（package.json）+ CHANGELOG 顶部插入本条目；`node scripts/pack-manual.js` → release/游戏资源管理器-v2.3.0-便携版.zip。
+
+---
+
+## 2026-08-20（补丁·99）
+
+### [新增] 有启用闹钟时托盘图标叠加小时钟指示
+
+- **需求(用户)**：如果开启了闹钟，托盘图标要在现有图标上叠加一个小时钟指示。
+- **实现**：
+  - `electron/main.js`：新增 `buildAlarmTrayIcon()` —— 在基础托盘图标（`loadTrayIcon()` 候选链）上 `resize` 至 32×32，右下角用 `drawMiniClock()`（黄色表盘圆 + 深色描边 + 时针/分针）像素级叠加，`encodePng` 合成后 `nativeImage.createFromBuffer`，失败自动回退原图标。
+  - `refreshTrayAlarm()`：查询 `dbAlarms()` 是否有 `enabled` 闹钟 → `tray.setImage()` 切换 闹钟角标版/普通版（图标缓存，状态未变不重复合成）。
+  - 触发时机：`createTray()` 创建时立即检查；`timerWindows` 新增 `setAlarmChangeListener()`，闹钟 **新增/修改/删除**（IPC handler）以及 **once 响铃后自动禁用** 时通知刷新。
+- **验证**：Electron 实测合成逻辑 —— 32×32 bitmap 正确、右下角出现 60 个黄色表盘像素、指针着色生效、合成 PNG 非空可载；`node --check` 通过；`npm run build` 通过。
+- 版本 2.2.98 → **2.2.99**（package.json / lock 两处）+ CHANGELOG 顶部插入本条目；`node scripts/pack-manual.js` → release/游戏资源管理器-v2.2.99-便携版.zip。
+
+---
+
+## 2026-08-20（补丁·98）
+
+### [新增] 闹钟功能 + 倒计时提醒声音设置 + 计时窗口进一步收窄
+
+- **需求(用户)**：①秒表/倒计时窗口再窄一些、类型下拉缩短；②倒计时可设置结束提醒声音或音乐；③托盘菜单增加闹钟功能，闹钟也能设定提醒声音或音乐。
+- **窗口收窄**：秒表 300×208 → **240×208**（minWidth 216），倒计时 320×236 → **280×236**（minWidth 248）；类型下拉固定 **140px**（不再 flex 撑满）。
+- **倒计时提醒声音**：标题栏新增 🔔 按钮 → 声音弹层（🔊 默认提示音 / 🔇 静音 / 🎵 选择音乐文件…）；主进程 `timer:soundGet/Set/Pick` 持久化到 `userData/timer-sound.json`，自定义音乐主进程读文件转 **base64 dataURL** 下发渲染端播放；到点按设置播放（`ring()` 替代固定 beep）。
+- **闹钟功能**：
+  - `electron/db.js` 新增 `alarms` 表（time/repeat[once·daily·weekdays·weekly]/days/label/sound/sound_path/sound_name/enabled/last_ring）+ CRUD（`dbAlarms/Add/Update/Delete`，days JSON 解析为数组）。
+  - `timerWindows.js`：`openAlarm()` 闹钟窗口（单例）；**调度器** `setInterval` 每 5 秒检查：时间匹配 + 重复规则（once/daily/weekdays/weekly 周几）+ `last_ring` 当日去重 → `ringAlarm()`（系统通知 Notification + 打开/聚焦闹钟窗 + 下发 `alarm:ring` 带声音 dataUrl；once 响后自动禁用）；`closeAll` 清理调度器。
+  - `public/alarm.html` 闹钟窗口：下一个闹钟倒计时、闹钟列表（开关/编辑/删除）、新建/编辑弹窗（时间、重复一次·每天·工作日·每周[周几多选]、标签、声音设置）、响铃横幅 + 声音播放（可点击停止）。
+  - `timerPreload.js` 暴露 `alarmList/Add/Update/Delete/openAlarm/onAlarmRing`；托盘菜单新增「⏰ 闹钟」。
+- **验证**：`node --check` 全过；三个窗口脚本语法 OK；Electron 实测闹钟 CRUD（往返/更新 days 数组/enabled/时间匹配/删除）全过；`npm run build` 通过。
+- 版本 2.2.97 → **2.2.98**（package.json / lock 两处）+ CHANGELOG 顶部插入本条目；`node scripts/pack-manual.js` → release/游戏资源管理器-v2.2.98-便携版.zip。
+
+---
+
+## 2026-08-20（补丁·97）
+
+### [修复] 计时类型在管理窗口/日历显示为「未分类」 + [优化] 计时悬浮窗紧凑化
+
+- **修复(类型显示)**：根因 `electron/db.js` 的 `dbTimeRecords()` 返回的 `type_ids` 是 **JSON 字符串**（如 `'["tt_xxx"]'`），渲染端（计时管理窗口 / Todo 日历统计 / 保存面板）用 `Array.isArray(r.type_ids)` 判断全部为 false → 一律显示「未分类」，编辑回读也选不中。修复：SELECT 后逐条 `JSON.parse` 为数组再返回（非法值兜底 `[]`）。已用 Electron 环境实测：`type_ids is Array: true`、包含新增类型 id、记录字段完整。
+- **秒表窗口紧凑化**（`public/stopwatch.html` + `electron/tools/timerWindows.js`）：窗口 320×420 → **300×208**；主界面直接**类型下拉**（含「未分类」+ 各类型 + 「🏷️ 管理类型」入口，选中即管理窗口）；控制按钮改**纯图标**（▶/⏸ 开始暂停、⏱ 计次、💾 保存、↺ 重置、➕ 新开）宽度 34px；保存直接落库（类型=下拉所选、日历开、备注空），不再弹保存面板；去掉计次列表与冗余空区。
+- **倒计时窗口紧凑化**（`public/countdown.html`）：窗口 340×380 → **320×236**；同样加类型下拉 + 纯图标按钮（▶/💾/↺/➕）+ 时长 -5/-1/+1/+5 行；归零提示音保留（去掉红色横幅，sub 显示「⏰ 时间到!」）。
+- **➕ 新开计时窗口**：秒表改**多实例**（`openStopwatch({force})`，内部 `stopwatchWins` 数组，级联偏移 24px 防重叠；托盘单击仍聚焦首个）；新 IPC `timer:newStopwatch` / `timer:newCountdown`，`timerPreload.js` 暴露 `newStopwatch()/newCountdown()`。
+- **验证**：`node --check` 全过；两个窗口脚本语法验证 OK；db 修复 Electron 实测通过；`npm run build` 通过。
+- 版本 2.2.96 → **2.2.97**（package.json / lock 两处）+ CHANGELOG 顶部插入本条目；`node scripts/pack-manual.js` → release/游戏资源管理器-v2.2.97-便携版.zip。
+
+---
+
+## 2026-08-20（补丁·96）
+
+### [新增] 计时记录系统：秒表/倒计时保存记录、计时类型、Todo 日历按类型统计
+
+- **需求(用户)**：秒表只记录小时/分钟/秒三种数值，每次计数可保存（记住开始、结束时间、时长），可记录计时类型（站桩/打坐/休息/工作/学习/烹饪 + 自定义），一次可标记多个类型；记录可编辑、删除；倒计时也要能记录计时类型；可设定是否在 Todo-list 日历中显示每日/每月/每年/总计的按类型累计时长；托盘右键菜单增加「计时管理」与「计时日历」。
+- **数据层**：`electron/db.js` 新增 `time_types`（id/name/color/icon/sort）与 `time_records`（id/type_ids/start_ts/end_ts/duration_sec/mode/show_calendar/note）两表 + 主进程级 CRUD（`dbTimeTypes/TypeAdd/TypeUpdate/TypeDelete`、`dbTimeRecords/RecordAdd/RecordUpdate/RecordDelete`）。计时数据由主进程持有（不经渲染端全量 writeDb），避免计时窗口新增记录被主窗口 saveState 覆盖。`dbStats()` 增加 timeTypes/timeRecords 计数。
+- **秒表** `public/stopwatch.html`：显示与记录改为 HH:MM:SS（去毫秒）；新增「保存」按钮 → 保存面板（类型多选 chips + 一键自定义新增类型 + Todo 日历显示开关 + 备注）；保存时写入 start_ts/end_ts/duration_sec/mode=stopwatch。
+- **倒计时** `public/countdown.html`：新增「保存」按钮 + 归零自动弹出保存面板（同上）；记录计划时长（duration_sec=total）、开始墙钟时间（startWallAt）。
+- **计时管理** `public/time-manager.html`（新窗口，托盘「📊 计时管理」打开，单例）：记录列表（按 类型/模式/备注 筛选，编辑起止时间/时长/类型/日历开关/备注，删除）+ 类型管理（新增/改名/改色/删除，删除时自动清理记录引用）+ 统计卡片（今日/本月/总计）+ 按类型统计面板（今日/本月/今年/总计）。
+- **Todo 日历集成** `src/pages/todoPage.js`：日历格子显示当日计时累计（`⏱ 1h20m`，悬停看按类型明细，点击进统计）；年视图月份格子显示当月累计；日历头部「⏱ 计时统计」按钮 → 统计面板（每日[本月] / 每月[今年] / 每年 / 总计，按类型条形累计）；`todo:view` 事件支持外部切换到日历/统计视图。
+- **托盘菜单** `electron/main.js`：新增「📊 计时管理」「📅 计时日历(Todo 日历视图)」；`openTodoCalendar()` 唤回主窗口并发送 `main:msg {type:'open-todo-calendar'}`，渲染端 `preload.js` 新增 `onMainMsg`/`timeRecList`/`timeTypeList`，`src/ui.js` 收到后 `openTool('todo')` + 切日历视图。
+- **验证**：`node --check` 全部通过；`npm run build` 通过（764 modules）；Electron 环境 db CRUD 实测全通过（记录往返/更新/类型删除级联清理/删除，`dbStats` 含新表计数）；三个计时窗口脚本语法验证 OK。
+- 版本 2.2.95 → **2.2.96**（package.json / lock 两处）+ CHANGELOG 顶部插入本条目；`node scripts/pack-manual.js` → release/游戏资源管理器-v2.2.96-便携版.zip。
+
+---
+
+## 2026-08-20（补丁·95）
+
+### [新增] 系统托盘 + 秒表/倒计时独立悬浮小窗
+
+- **需求(用户)**：给本项目增加托盘图标 —— 左键双击打开主程序窗口；左键单击打开秒表计时器独立悬浮小窗；右键弹出菜单：可打开主程序窗口 / 打开秒表计时器独立悬浮小窗 / 打开倒计时独立悬浮小窗(可选 10/15/25 分钟, 可手动调节倒计时时长)。
+- **改动**:
+  - **托盘(`Tray`)**:
+    - 图标: 新增 `public/tray-icon.png`(32×32 圆形表盘, 构建时随 `public/` 自动复制到 `dist/`, asar 内外均可加载; 主进程 `nativeImage.createFromPath` 读取, 兜底为 `build/icon.ico`)。
+    - 行为(Windows): 左键单击(250ms 防抖)→ 打开秒表; 双击 → 唤回主程序窗口(用 250ms 定时器在 `click` 时延迟动作, 若 250ms 内再收 `click` 或 `double-click` 则取消, 避免双击时秒表被连开两次再唤主窗); 右键 → 弹出菜单。
+    - 菜单项: 🎮 打开主程序窗口 / ⏱️ 打开秒表计时器 / ⏳ 倒计时(子菜单: 10 / 15 / 25 / 45 / 60 分钟 + 自定义...) / ❌ 退出。
+  - **最小化到托盘**: 主窗口标题栏点 × 时(`win.on('close', e => { if (!trayForceQuit) { e.preventDefault(); win.hide(); } })`)拦截并隐藏, 保持进程常驻; 仅当"退出"/`app.quit` 触发(`trayForceQuit=true`)才真正销毁并清理附属窗口(预览窗/网页窗/调试窗/计时器窗)。`second-instance` 同时补 `win.show()` 以唤回隐藏到托盘的主窗。`macOS` 保留原 dock 行为不启用。
+  - **秒表悬浮窗**(`public/stopwatch.html` + `electron/tools/timerWindows.js`):
+    - 无边框独立 `BrowserWindow`(默认 320×420, `skipTaskbar:true`, 位置/大小持久化到 `userData/timer-stopwatch-state.json`); 单例 — 重复打开聚焦已有窗口。
+    - 大号 `MM:SS.mmm`(≥1h 自动切 `HH:MM:SS.mmm` 格式) + 开始/暂停/计次(Lap)/重置; 计次列表显示分段/总计, 自动滚到底; 标题栏可拖拽 + 置顶切换(📌)+ 最小化/关闭。
+  - **倒计时悬浮窗**(`public/countdown.html`):
+    - 无边框独立 `BrowserWindow`(默认 340×380, `skipTaskbar:true`); 每次菜单点击**新建**一个独立窗口, 支持多个倒计时并行(级联偏移 24px 防重叠); 倒计时归零时窗口红色脉动 + "⏰ 时间到!"横幅 + Web Audio 三声正弦提示音(首次 Start 点击解锁 AudioContext)。
+    - 时长控制: 预设 10/15/25/45/60 分钟按钮(高亮当前) + `-5 / -1 / +1 / +5` 微调 + 直接键入分钟数(0-599, 失焦/Enter 提交); 运行中调整按比例缩放剩余时长。托盘"自定义..."菜单打开时自动聚焦并选中分钟输入框, 开窗即可键入自定义时长。
+  - **模块与 IPC**:
+    - 新增 `electron/tools/timerWindows.js`: `openStopwatch()` / `openCountdown({seconds, title, focusInput})` / `closeAll()` / `initIpc()`(注册 `timer:minimize / close / toggleMax / setTop`, 全部用 `BrowserWindow.fromWebContents(e.sender)` 精准定位对应悬浮窗, 避免误关其它计时窗口); 监听 `maximize`/`unmaximize` 推 `timer:maxState` 同步标题栏图标。
+    - 新增 `electron/timerPreload.js`: 暴露极简 `window.timerApi`(minimize/close/toggleMax/setTop/onInit/onMaxState), `contextIsolation:true` + `nodeIntegration:false`。
+  - **main.js**: 新增 `require('./tools/timerWindows')`; 顶部添加托盘状态/函数块; `whenReady` 早段 `timerWindows.initIpc()`, 末尾 `createWindow()` 后非 macOS 平台 `createTray()`。
+- **验证**: `env -u NODE_OPTIONS npm run build` 通过(新增 `public/` 文件被 Vite 原样复制到 `dist/`, 加载路径 `dist/stopwatch.html` / `dist/countdown.html` 可达); tray 入口/双击防抖/隐藏到托盘/秒表与多倒计时并行/置顶等行为符合需求。
+- 版本 2.2.94 → **2.2.95**(package.json / lock `packages[""]` 两处)+ CHANGELOG 顶部插入本条目。
+
+
+
+## 2026-08-20（补丁·94）
+
+### [新增] MD 编辑器文本查找 / 替换 + 同步联动选中匹配增强
+
+- **需求(用户)**：①同步联动模式时,预览窗选中文本,编辑窗也要同步选中对应文字;②增加文本查找和替换功能。
+- **改动**:
+  - **查找 / 替换(新增)**:
+    - 工具栏加 `🔍 查找` 按钮 + 查找条(`#md-find-bar`,位于工具栏下方,含:查找输入框、计数 `n/m`、上一个/下一个、区分大小写 Aa、全词匹配、替换输入框、替换/全部、关闭 ✕);`Ctrl+F` 唤起并聚焦查找框(自动预填当前选中文本),查找框 `Enter` 下一个 / `Shift+Enter` 上一个 / `Esc` 关闭;
+    - 匹配计算:正则转义特殊字符,支持区分大小写(`gi`/`g`)与全词(`(?<![\\w])…(?![\\w])` 负向断言),防零宽匹配死循环;
+    - 跳转:循环跳转(环绕),当前匹配在编辑区选中并滚动居中偏上;同步关联开启时分栏预览同步滚动到对应块并加 `.md-sync-hl` 描边;
+    - 替换当前:替换后派发 `input` 事件(脏标记+预览刷新+自动存档),重查并跳到下一处;全部替换:从后往前替换防索引错位,完成后清空匹配并提示替换数量。
+  - **同步联动选中增强(需求1)**:`_syncSelToEditor()` 匹配鲁棒性提升——匹配变体(原文 → trim → 折叠连续空白,渲染文本常合并/裁剪空白);优先在选区所在预览块对应的源码行范围内查找(命中率高),行内未命中再全文查找;仍失败则降级选中整行。新增 `_lineStartOffset`/`_lineEndOffset` 行定位辅助。
+  - `toolboxPage.js` + `index.html`(两处模板同步):工具栏加 `🔍 查找` 按钮 + 查找条 DOM。`style.css`:新增 `.md-find-bar/.find-input/.find-count/.find-opt/.find-sep/.find-close` 样式。
+- **验证**:`env -u NODE_OPTIONS npm run build` 通过;冒烟测试无 `[init]` 错误、`step ui` ok、`step home` pageVisible:true(启动无回归)。
+- 版本 2.2.93 → **2.2.94**(package.json/lock 两处)+ CHANGELOG 顶部插入本条目;打包 → release/游戏资源管理器-v2.2.94-便携版.zip。
+
+---
+
+## 2026-08-20（补丁·93）
+
+### [新增] Markdown 编辑器分栏「同步关联」:滚动位置 + 选中文字双向联动
+
+- **需求(用户)**：分栏模式下增加关联功能——开启同步关联时,编辑窗选中的文字在预览窗同步选中对应文字,反之亦然;翻页(滚动)显示也要同步。
+- **改动**:
+  - `markdownEditor.js`:
+    - 工具栏新增 `🔗 同步` 开关按钮(仅分栏模式生效;状态持久化 `settings.mdSync`,重启恢复);
+    - 滚动同步:编辑区按行号 → 预览块锚点双向映射。`renderPreview()` 改用 `md.parse` + `renderer.render` 渲染,同时收集顶层块 token 起始行号(`t.map[0]+1`),渲染后给预览顶层子元素标 `data-src-line` 并建立 `_pvBlocks` 锚点表;编辑区滚动按 `scrollTop/行高` 得行号 → 找最近块滚动预览;预览滚动按视口顶部块 → 反向设编辑区行位;
+    - 选中同步(双向):编辑区选中文本 → `plainMd()` 剥离 Markdown 标记得纯文本 → `TreeWalker` 在预览中精确匹配文本节点并 `Range` 选中(失败降级为块级高亮 `md-sync-hl`);预览选中文本 → 在源码 `indexOf` 回查选中(失败按选区所在块定位行并选中整行);
+    - 防回弹:滚动双向互斥锁 + 程序化设置目标值记录(`_expectTaTop`/`_expectPvTop`)吞掉由自身设置触发的事件;选中同步用 `_syncSelLock` + 60ms 防抖调度。
+  - `toolboxPage.js` + `index.html`(两处模板同步):MD 工具栏加 `#md-sync` 按钮。
+  - `style.css`:`#md-sync.active` 高亮态 + `.md-sync-hl` 块描边降级高亮。
+  - `state.js`:`DEFAULT_SETTINGS` 加 `mdSync: false`。
+- **验证**:`env -u NODE_OPTIONS npm run build` 通过;冒烟测试无 `[init]` 错误、`step ui` ok、`step home` pageVisible:true(启动无回归)。
+- 版本 2.2.92 → **2.2.93**(package.json/lock 两处)+ CHANGELOG 顶部插入本条目;打包 → release/游戏资源管理器-v2.2.93-便携版.zip。
+
+---
+
+## 2026-08-20（补丁·92）
+
+### [新增] 预览标题颜色对话框:每行预设色板,右键点击填入颜色
+
+- **需求(用户)**：「预览标题颜色」窗口中,要在色块上点击右键即可将该色块的颜色填入输入框;色块上要有 hover 提示「点击右键填入颜色」。
+- **改动**:
+  - `markdownEditor.js` `openHeadingColorDialog()`:每个 H1–H6 行在「默认」按钮后新增一排预设色板(`hc-swatches`,复用 `TEXT_COLOR_PRESETS` 8 色);右键点击色块(`contextmenu` + `preventDefault`,避免弹系统菜单)或左键点击,均把该色块颜色同时填入本行的取色器 `input[type=color]` 与十六进制输入框;每个色块 `title` 提示「右键点击填入颜色 #xxxxxx」(hover 显示)。
+  - `style.css`:新增 `.hc-swatches`(行内 flex 色板,允许换行)与 `.hc-swatches .swatch` 紧凑尺寸(18px);`.hc-row` 加 `flex-wrap: wrap` 防止色板撑破弹窗。
+- **验证**:`env -u NODE_OPTIONS npm run build` 通过;冒烟测试无 `[init]` 错误、`step ui` ok、`step home` pageVisible:true(启动无回归)。
+- 版本 2.2.91 → **2.2.92**(package.json/lock 两处)+ CHANGELOG 顶部插入本条目;打包 → release/游戏资源管理器-v2.2.92-便携版.zip。
+
+---
+
+## 2026-08-20（补丁·91）
+
+### [修复] 应用启动卡死:预览页 MD 编辑器工具栏缺按钮致 initUI 中断
+
+- **现象(用户)**：补丁·90 之后应用启动时一直停留在启动骨架屏。
+- **根因**：补丁·90 在工具箱页 Markdown 编辑器模板（`toolboxPage.js`）新增了 `md-emoji / md-table / md-text-color / md-heading-color` 四个按钮并绑定事件，但**预览页**的 MD 编辑器模板（`index.html` 的 `pv-markdown-view`）未同步添加这些按钮。`initUI()` 启动时会调用 `markdownEditor.init(mdWrap)`，其中 `wrap.querySelector('#md-emoji').addEventListener(...)` 对不存在的元素返回 `null` → 抛出 `TypeError: Cannot read properties of null (reading 'addEventListener')` → `main()` 中断，后续 `renderCategories / renderMainArea` 不执行 → 永远卡在启动骨架屏。
+- **修复**：
+  1. `index.html` 预览页 MD 工具栏补齐四个按钮（与工具箱页一致，含 `ctrl-sep` 分隔），预览页编辑 MD 时同样可用 emoji / 表格 / 文字色 / 标题色；
+  2. `markdownEditor.js` 的 `init()` 按钮绑定改为判空保护（`bind(id, fn)` 辅助），即使未来某一模板缺按钮也不会再拖垮整个启动流程。
+- **验证**：构建通过；冒烟测试 `[init]` 错误消失，`step home` 恢复 `pageVisible:true`、10 张统计卡齐全（修复前为 `pageVisible:false` 空白）。
+
+---
+
+## 2026-08-20（补丁·90）
+
+### [新增] Markdown 编辑器:插入 emoji / 指定行列表格 / 文字色 / 标题色
+
+- **需求(用户)**：编辑 md 文档时要可以:①插入 emoji 图标;②插入指定行/列的表格;③设置预览显示的各级标题(H1–H6)颜色;④为选定的文字设置指定颜色。
+- **实现**:
+  - **① 插入 emoji**：`工具栏「😀 emoji」`→ 复用全局 `pickEmojiModal` 选择面板(可多选/自定义),确认后拼接插入到编辑区光标处(`insertAtCursor` 复用脏标记 + 防抖预览 + 自动存档逻辑)。
+  - **② 插入表格**：`工具栏「▦ 表格」`→ 弹窗设置「行数(数据行)/ 列数」,对话框内用 markdown-it **实时预览**渲染结果,确认后生成标准 Markdown 表格(表头行 + 分隔行 + N 个数据行,前后补空行)插入光标处;行/列范围 1–50 / 1–20 钳制。
+  - **④ 文字色**：`工具栏「🖍 文字色」`→ 取色器 + 十六进制输入 + 8 色预设板;选中文字会被包成 `<span style="color:#rrggbb">…</span>`(选中文本做 `<>&` 转义防止破坏 HTML),无选区时插入空彩色标记并定位光标于标签之间。
+  - **③ 标题色**：`工具栏「🎨 标题色」`→ H1–H6 各一级取色器 + 十六进制 + 「默认」按钮;保存到 `state.settings.mdHeadingColors`(经 `setSetting` 自动落盘,重启仍生效);`renderPreview()` 注入作用域样式 `#md-preview hN{color:…!important}`,仅作用于 MD 预览、不污染其它视图;缺级恢复默认文字色。
+- **配套**:`DEFAULT_SETTINGS.mdHeadingColors = {}` 默认空(全部走默认文字色);工具栏新增 `.ctrl-sep` 分隔条及表格/取色器相关 CSS(`.num-input/.hex-input/.md-table-preview/.color-swatches/.swatch/.heading-color-grid/.hc-row/.btn.xs`)。
+- **验证**:`env -u NODE_OPTIONS npm run build` 通过(导入自检 + 764 模块)。
+- 版本 2.2.89 → **2.2.90**(package.json / package-lock.json 两处)。
+
+---
+
+## 2026-08-20（补丁·89）
+
+### [修复] 文档编辑器「另存为」双弹窗 + 新建未命名文档保存时提示输入文件名
+
+- **需求(用户)**：①另存为会弹出两个保存对话框，请修复；②新建的默认「未命名」文档保存时要提示输入文件名。
+- **修复 1（双弹窗根因）**：`src/ui.js` 初始化块与 `markdownEditor.js` / `htmlEditor.js` 的 `init()` **对 `#md-save-as` / `#html-save-as` 同一按钮重复绑定 click** → 点一次「另存为」触发两个 handler、各弹一次系统保存对话框。修复：移除 `ui.js` 中重复绑定（编辑器 `init()` 内已绑定；`ui.js` 仅保留「＋ 新建」按钮绑定）。经排查，保存/打开/复制/模式切换等按钮均无重复绑定。
+- **新增 2（未命名文档保存提示）**：编辑器新增 `untitled` 标记：
+  - `ui.js newDocument()` 新建「未命名.md / 未命名.html」并打开后置 `editor.untitled = true`（须在 `selectItem` 之后，避免被 `load()` 重置）。
+  - `save()` 改为 `if (!this.filePath || this.untitled) { this.saveAs(); return; }` → 新建未命名文档点「保存」（含 Ctrl+S）时**弹保存对话框**（默认文件名「未命名.*」），提示输入文件名。
+  - `saveAs()` 成功 / `load()` 打开真实文件时置 `untitled = false`，此后保存直接写回，不再弹窗。
+  - 自动存档（空闲 2.5s / 切页）仍写回「未命名.*」草稿文件，编辑内容不丢失。
+- **验证**：`env -u NODE_OPTIONS npm run build` 通过；grep dist 确认 `untitled` / `未命名` / `saveAs` 已打包；定向冒烟 `ui` 步骤启动正常、无渲染端报错、DB 备份还原。
+- 版本 2.2.88 → **2.2.89**（package.json / package-lock.json 两处）。
+
+---
+
+## 2026-08-20（补丁·88）
+
+### [新增] 文档编辑器「编辑模式」右键复制（MD / HTML）
+
+- **需求(用户)**：编辑模式也要有选择复制功能。
+- **背景**：补丁·87 已为 MD/HTML 预览页加入右键「复制选中文本 / 全选」；编辑模式的 textarea 选中与 Ctrl+C 原生可用，但缺少右键菜单（Electron 默认无右键菜单）。
+- **改动**：`src/viewers/markdownEditor.js` + `src/viewers/htmlEditor.js` 的 `init()` 为编辑区 `#md-edit` / `#html-edit`（textarea）绑定 `contextmenu`：
+  - 选中文本 → 「复制选中文本」（`navigator.clipboard.writeText`，取 `selectionStart~selectionEnd` 子串）+「全选」（`ta.select()`）
+  - 无选中 → 复制项禁用（置灰），仍提供「全选」，保证右键有反馈
+  - 与预览区交互一致；`showContextMenu` 支持 `disabled` 项
+- **验证**：`env -u NODE_OPTIONS npm run build` 通过；grep dist 确认 `复制选中文本` / `selectionStart` 已打包；定向冒烟 `ui` 步骤启动正常、无渲染端报错、DB 备份还原。
+- 版本 2.2.87 → **2.2.88**（package.json / package-lock.json 两处）。
+
+---
+
+## 2026-08-20（补丁·87）
+
+### [新增] 文档预览页可选择复制文本（MD / HTML）
+
+- **需求(用户)**：文档资源中的 html 和 md 格式文件的预览页要能选择复制文本。
+- **根因**：全局 `body { user-select: none }`（`src/style.css`）导致 **Markdown 预览列(`#md-preview`)无法选中文本**；HTML 预览是 `<iframe srcdoc>`（独立文档，UA 默认可选，但文档自身样式可能禁用）。
+- **改动**：
+  1. `src/style.css`：`.md-preview` 加 `user-select: text; cursor: text`（预览列可选中）；`.html-preview`（iframe 元素）加 `user-select: text` 兜底。
+  2. `src/viewers/htmlEditor.js`：`buildPreviewHtml()` 在注入 `<base>` 的同时注入 `<style>html,body{user-select:text!important}</style>`（优先插到 `</html>` 前，无则追加；强制预览内可选中，光标等交互样式仍由文档决定）。
+  3. `src/viewers/markdownEditor.js` + `src/viewers/htmlEditor.js`：两个预览区**右键菜单**——有选中文本时提供「复制选中文本 / 全选」，未选中则放行不干预；HTML 侧经 iframe `load` 后绑定 `contentDocument`（srcdoc 与父同源可访问），事件坐标从 iframe 视口转换为主文档坐标（`getBoundingClientRect` 偏移），捕获阶段监听。
+  4. 复制走 `navigator.clipboard`，Ctrl+C 亦原生可用（应用无全局拦截）。
+- **验证**：`env -u NODE_OPTIONS npm run build` 通过；grep dist 确认 `user-select:text` / `复制选中文本` 已打包；定向冒烟 `ui` 步骤启动正常、无渲染端报错、DB 备份还原。
+- 版本 2.2.86 → **2.2.87**（package.json / package-lock.json 两处）。
+
+---
+
+## 2026-08-20（补丁·86）
+
+### [维护] 例行打包发布 v2.2.86：版本号对齐 + 重新构建便携版
+
+- **版本对齐**：`package.json` / `package-lock.json` 顶层 / 根包条目（packages.""）统一升到 `2.2.86`；此前 `package-lock.json` 与 CHANGELOG 滞后于 `package.json`（停在 2.2.83），本次一并修正。
+- **重新构建打包**：`env -u NODE_OPTIONS npm run build` 通过 → `env -u NODE_OPTIONS node scripts/pack-manual.js` 输出 `release/游戏资源管理器-v2.2.86-便携版.zip`。
+- **验证**：check-imports 自检通过；asar 打包 + rcedit 图标注入成功。
+
+---
+
+## 2026-08-20（补丁·83）
+
+### [新增] 「移动到...」目标目录选择弹窗：可折叠目录树 + 定位搜索 + 上次/最近10次记忆 + 展开状态持久化
+
+- **背景**：原「移动到...」（资源条目/批量移动/目录移动/批量目录移动/资源工具箱目录移动）弹窗均为**扁平单选列表**，目录多了难以定位。
+- **统一新组件**（`src/ui.js` 新增 `moveTreeDialog()` + 适配器 `CAT_MOVE_ADAPTER`/`TB_MOVE_ADAPTER`）：
+  1. **可折叠/展开目录树**：▸/▾ 切换子级、📁/📂 图标区分折叠态，点行选中高亮；不可作为目标的节点（自身及其子孙等）置灰不可选。
+  2. **顶栏定位搜索栏**：输入目录名实时过滤（树切换为匹配列表，显示名称+完整路径，最多 30 条），回车选中首个匹配；Esc 清空搜索恢复树。
+  3. **记住上次 + 最近 10 次**：🕘 按钮/点击输入框弹出「上次 / 最近N」记录列表，点选即定位；每次确定移动后写入 `settings.moveDialog`（资源分类树）或 `settings.moveDialogTb`（工具箱树）。
+  4. **展开状态持久化**：树展开/折叠即时写入 settings（防抖 150ms 落库），重启程序/重开窗口恢复上次折叠|展开状态；初始目标自动展开其祖先路径保证可见。
+- **改造 5 处弹窗**：`moveItemDialog`（移动动画）/ `moveCategoryDialog`（移动目录）/ `batchMoveItems`（批量移动资源）/ `batchMoveCategoriesDialog`（批量移动目录）/ `moveToolboxFolderDialog`（工具箱移动目录），行为与原实现一致（排除自身/子孙、移动后刷新列表、toast 反馈）。
+- **数据兼容**：`state.js` `DEFAULT_SETTINGS` 新增 `moveDialog` / `moveDialogTb` 默认值；记忆按节点 id 存储并在读取时剔除已删除目录，旧库无该字段自动补默认值。
+- **验证**：`env -u NODE_OPTIONS npm run build` 通过；grep dist 确认 `mtree-` / `moveTreeDialog` 已打进包。
+- 版本 2.2.82 → **2.2.83**（package.json / package-lock.json 两处）。
 
 ---
 

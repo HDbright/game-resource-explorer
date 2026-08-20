@@ -142,6 +142,24 @@ async function main() {
     console.warn('[pack] 未找到 Spine 转换 EXE(跳过):', spineConvSrc);
   }
 
+  // 4.6 复制托盘图标 → resources/(asar 外磁盘真实文件)
+  //     ⚠️ 托盘图标必须置于 asar 外(nativeImage 读取最稳妥),否则打包版托盘可能不显示。
+  //     用户指定图标为 tray-icon.ico(public/ 构建时复制到 dist/),png 保留作兜底。
+  const trayIcoSrc = path.join(ROOT, 'dist', 'tray-icon.ico');
+  if (fs.existsSync(trayIcoSrc)) {
+    copyFileRetry(trayIcoSrc, path.join(resourcesDir, 'tray-icon.ico'));
+    console.log('托盘图标已复制 →', path.join(resourcesDir, 'tray-icon.ico'));
+  } else {
+    console.warn('[pack] 未找到托盘图标 ico(跳过):', trayIcoSrc);
+  }
+  const trayIconSrc = path.join(ROOT, 'dist', 'tray-icon.png');
+  if (fs.existsSync(trayIconSrc)) {
+    copyFileRetry(trayIconSrc, path.join(resourcesDir, 'tray-icon.png'));
+    console.log('托盘图标已复制 →', path.join(resourcesDir, 'tray-icon.png'));
+  } else {
+    console.warn('[pack] 未找到托盘图标 png(跳过):', trayIconSrc);
+  }
+
   // 5. rcedit 注入图标/版本(中文名 exe 需先复制成 ASCII 名再 rcedit,最后覆盖回来)
   //    临时 exe 用唯一名(含 stamp),避免反复覆盖旧文件被杀软扫描锁定(EBUSY);旧 tmp 文件保留但 zip 已排除。
   const exeName = `${APP_NAME}.exe`;
@@ -149,7 +167,8 @@ async function main() {
   const asciiTmp = path.join(appDir, `app_${VERSION.replace(/\./g, '')}_${stamp}_tmp.exe`);
   copyFileRetry(path.join(appDir, "electron.exe"), asciiTmp);
   const rcedit = path.join(ROOT, 'node_modules', 'electron-winstaller', 'vendor', 'rcedit.exe');
-  const iconPath = path.join(ROOT, 'build', 'icon.ico');
+  // 应用(exe)图标: 用户指定 tray-icon.ico(public/ 为源, 与托盘图标同一文件)
+  const iconPath = path.join(ROOT, 'public', 'tray-icon.ico');
   if (fs.existsSync(rcedit) && fs.existsSync(iconPath)) {
     // 刚复制大文件(含 spine-converter EXE ~3.4MB),Defender 可能正在扫描 app 目录并锁住 asciiTmp;
     // 先稍候,再带重试地 rcedit(本机常见 EBUSY: Unable to commit changes)。

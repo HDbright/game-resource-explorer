@@ -293,6 +293,43 @@ function open() {
     CREATE INDEX IF NOT EXISTS idx_todo_tasks_sort ON todo_tasks(sort);
     CREATE INDEX IF NOT EXISTS idx_todo_tasks_archived ON todo_tasks(archived);
     CREATE INDEX IF NOT EXISTS idx_todo_subtasks_task ON todo_subtasks(task_id);
+    -- 计时(补丁·96):自定义计时类型 + 秒表/倒计时保存的记录
+    CREATE TABLE IF NOT EXISTS time_types(
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      color TEXT DEFAULT '#5c9cff',
+      icon TEXT DEFAULT '⏱',
+      sort INTEGER DEFAULT 0,
+      created_at INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS time_records(
+      id TEXT PRIMARY KEY,
+      type_ids TEXT DEFAULT '[]',
+      start_ts INTEGER DEFAULT 0,
+      end_ts INTEGER DEFAULT 0,
+      duration_sec INTEGER DEFAULT 0,
+      mode TEXT DEFAULT 'stopwatch',
+      show_calendar INTEGER DEFAULT 1,
+      note TEXT DEFAULT '',
+      created_at INTEGER DEFAULT 0,
+      updated_at INTEGER DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_time_records_start ON time_records(start_ts);
+    -- 闹钟(补丁·98):到点提醒, 支持重复与自定义声音
+    CREATE TABLE IF NOT EXISTS alarms(
+      id TEXT PRIMARY KEY,
+      time TEXT NOT NULL,
+      repeat TEXT DEFAULT 'once',
+      days TEXT DEFAULT '[]',
+      label TEXT DEFAULT '',
+      sound TEXT DEFAULT 'beep',
+      sound_path TEXT DEFAULT '',
+      sound_name TEXT DEFAULT '',
+      enabled INTEGER DEFAULT 1,
+      last_ring TEXT DEFAULT '',
+      created_at INTEGER DEFAULT 0,
+      updated_at INTEGER DEFAULT 0
+    );
   `);
   // 旧库迁移:categories 缺 parent_id 列时补上(子分类支持)
   try {
@@ -823,10 +860,193 @@ function dbStats() {
       todoProjects: conn.prepare('SELECT COUNT(*) AS n FROM todo_projects').get().n,
       todoTasks: conn.prepare('SELECT COUNT(*) AS n FROM todo_tasks').get().n,
       settings: conn.prepare('SELECT COUNT(*) AS n FROM settings').get().n,
+      timeTypes: conn.prepare('SELECT COUNT(*) AS n FROM time_types').get().n,
+      timeRecords: conn.prepare('SELECT COUNT(*) AS n FROM time_records').get().n,
     };
   } catch (err) {
     return { error: err.message };
   }
 }
 
-module.exports = { readDb, writeDb, migrateFromJson, dbStats, dbFile, close };
+// ---------------- 计时记录 / 计时类型(补丁·96) ----------------
+// 计时数据由主进程直接持有(node:sqlite), 不走渲染端全量 writeDb,
+// 避免计时窗口新增记录被主窗口 saveState 的全量 DELETE+INSERT 覆盖。
+
+const TIME_TYPE_COLS = ['id', 'name', 'color', 'icon', 'sort', 'created_at'];
+const TIME_REC_COLS = ['id', 'type_ids', 'start_ts', 'end_ts', 'duration_sec', 'mode', 'show_calendar', 'note', 'created_at', 'updated_at'];
+
+/** 全部计时类型(按 sort 升序) */
+function dbTimeTypes() {
+  return open().prepare('SELECT * FROM time_types ORDER BY sort ASC, created_at ASC').all();
+}
+
+/** 新增计时类型(返回 { ok, id }) */
+function dbTimeTypeAdd({ id, name, color, icon, sort } = {}) {
+  const conn = open();
+  const rec = {
+    id: id || `tt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    name: String(name || '').trim() || '未命名',
+    color: color || '#5c9cff',
+    icon: icon || '⏱',
+    sort: Number.isFinite(Number(sort)) ? Number(sort) : 0,
+    created_at: Math.floor(Date.now() / 1000),
+  };
+  conn.prepare('INSERT INTO time_types (id,name,color,icon,sort,created_at) VALUES (?,?,?,?,?,?)')
+    .run(rec.id, rec.name, rec.color, rec.icon, rec.sort, rec.created_at);
+  return { ok: true, id: rec.id };
+}
+
+/** 更新计时类型(白名单列) */
+function dbTimeTypeUpdate(id, patch = {}) {
+  const allowed = ['name', 'color', 'icon', 'sort'];
+  const sets = [], vals = [];
+  for (const k of allowed) {
+    if (patch[k] !== undefined) { sets.push(k + '=?'); vals.push(patch[k]); }
+  }
+  if (!sets.length) return { ok: true };
+  vals.push(id);
+  open().prepare(`UPDATE time_types SET ${sets.join(',')} WHERE id=?`).run(...vals);
+  return { ok: true };
+}
+
+/** 删除计时类型(同时从所有记录的 type_ids 中移除) */
+function dbTimeTypeDelete(id) {
+  const conn = open();
+  conn.prepare('DELETE FROM time_types WHERE id=?').run(id);
+  // 清理引用:逐条检查 type_ids JSON, 移除该 id
+  for (const r of conn.prepare("SELECT id, type_ids FROM time_records WHERE type_ids LIKE '%" + id + "%'").all()) {
+    let arr = [];
+    try { arr = JSON.parse(r.type_ids || '[]'); } catch (e) { arr = []; }
+    const next = arr.filter((x) => x !== id);
+    if (next.length !== arr.length) {
+      conn.prepare('UPDATE time_records SET type_ids=?, updated_at=? WHERE id=?')
+        .run(JSON.stringify(next), Math.floor(Date.now() / 1000), r.id);
+    }
+  }
+  return { ok: true };
+}
+
+/** 全部计时记录(按开始时间倒序)。type_ids 解析为数组(渲染端 Array.isArray 判断用, 修复「未分类」显示) */
+function dbTimeRecords() {
+  const rows = open().prepare('SELECT * FROM time_records ORDER BY start_ts DESC, created_at DESC').all();
+  return rows.map((r) => {
+    let typeIds = [];
+    try { typeIds = JSON.parse(r.type_ids || '[]'); } catch (e) { typeIds = []; }
+    if (!Array.isArray(typeIds)) typeIds = [];
+    return { ...r, type_ids: typeIds };
+  });
+}
+
+/** 新增计时记录 */
+function dbTimeRecordAdd({ id, type_ids, start_ts, end_ts, duration_sec, mode, show_calendar, note } = {}) {
+  const nowSec = Math.floor(Date.now() / 1000);
+  const rec = {
+    id: id || `tr_${nowSec}_${Math.random().toString(36).slice(2, 8)}`,
+    type_ids: Array.isArray(type_ids) ? JSON.stringify(type_ids) : '[]',
+    start_ts: Math.max(0, Math.floor(Number(start_ts) || 0)),
+    end_ts: Math.max(0, Math.floor(Number(end_ts) || 0)),
+    duration_sec: Math.max(0, Math.floor(Number(duration_sec) || 0)),
+    mode: mode === 'countdown' ? 'countdown' : 'stopwatch',
+    show_calendar: show_calendar ? 1 : 0,
+    note: String(note || ''),
+    created_at: nowSec,
+    updated_at: nowSec,
+  };
+  open().prepare('INSERT INTO time_records (id,type_ids,start_ts,end_ts,duration_sec,mode,show_calendar,note,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
+    .run(rec.id, rec.type_ids, rec.start_ts, rec.end_ts, rec.duration_sec, rec.mode, rec.show_calendar, rec.note, rec.created_at, rec.updated_at);
+  return { ok: true, id: rec.id };
+}
+
+/** 更新计时记录(白名单列) */
+function dbTimeRecordUpdate(id, patch = {}) {
+  const allowed = ['type_ids', 'start_ts', 'end_ts', 'duration_sec', 'mode', 'show_calendar', 'note'];
+  const sets = [], vals = [];
+  for (const k of allowed) {
+    if (patch[k] !== undefined) {
+      if (k === 'type_ids' && Array.isArray(patch[k])) patch[k] = JSON.stringify(patch[k]);
+      if (k === 'show_calendar') patch[k] = patch[k] ? 1 : 0;
+      if (k === 'start_ts' || k === 'end_ts' || k === 'duration_sec') patch[k] = Math.max(0, Math.floor(Number(patch[k]) || 0));
+      sets.push(k + '=?'); vals.push(patch[k]);
+    }
+  }
+  if (!sets.length) return { ok: true };
+  sets.push('updated_at=?'); vals.push(Math.floor(Date.now() / 1000));
+  vals.push(id);
+  open().prepare(`UPDATE time_records SET ${sets.join(',')} WHERE id=?`).run(...vals);
+  return { ok: true };
+}
+
+/** 删除计时记录 */
+function dbTimeRecordDelete(id) {
+  open().prepare('DELETE FROM time_records WHERE id=?').run(id);
+  return { ok: true };
+}
+
+// ---------------- 闹钟(补丁·98) ----------------
+/** 全部闹钟(按时间排序) */
+function dbAlarms() {
+  const rows = open().prepare('SELECT * FROM alarms ORDER BY time ASC, created_at ASC').all();
+  return rows.map((r) => {
+    let days = [];
+    try { days = JSON.parse(r.days || '[]'); } catch (e) { days = []; }
+    if (!Array.isArray(days)) days = [];
+    return { ...r, days };
+  });
+}
+
+/** 新增闹钟 */
+function dbAlarmAdd({ id, time, repeat, days, label, sound, sound_path, sound_name, enabled } = {}) {
+  const nowSec = Math.floor(Date.now() / 1000);
+  // 补丁·100: 接受 'beep' | 'none' | 'file' | 'wav:Alarm0X'(Windows 内置)
+  let s = 'beep';
+  if (sound === 'beep' || sound === 'none' || sound === 'file') s = sound;
+  else if (typeof sound === 'string' && /^wav:Alarm0[1-9]$|^wav:Alarm10$/.test(sound)) s = sound;
+  const rec = {
+    id: id || `al_${nowSec}_${Math.random().toString(36).slice(2, 8)}`,
+    time: String(time || '08:00'),
+    repeat: ['once', 'daily', 'weekdays', 'weekly'].includes(repeat) ? repeat : 'once',
+    days: Array.isArray(days) ? JSON.stringify(days) : '[]',
+    label: String(label || ''),
+    sound: s,
+    sound_path: String(sound_path || ''),
+    sound_name: String(sound_name || ''),
+    enabled: enabled ? 1 : 0,
+    last_ring: '',
+    created_at: nowSec,
+    updated_at: nowSec,
+  };
+  open().prepare('INSERT INTO alarms (id,time,repeat,days,label,sound,sound_path,sound_name,enabled,last_ring,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
+    .run(rec.id, rec.time, rec.repeat, rec.days, rec.label, rec.sound, rec.sound_path, rec.sound_name, rec.enabled, rec.last_ring, rec.created_at, rec.updated_at);
+  return { ok: true, id: rec.id };
+}
+
+/** 更新闹钟(白名单列) */
+function dbAlarmUpdate(id, patch = {}) {
+  const allowed = ['time', 'repeat', 'days', 'label', 'sound', 'sound_path', 'sound_name', 'enabled', 'last_ring'];
+  const sets = [], vals = [];
+  for (const k of allowed) {
+    if (patch[k] !== undefined) {
+      if (k === 'days' && Array.isArray(patch[k])) patch[k] = JSON.stringify(patch[k]);
+      if (k === 'enabled') patch[k] = patch[k] ? 1 : 0;
+      sets.push(k + '=?'); vals.push(patch[k]);
+    }
+  }
+  if (!sets.length) return { ok: true };
+  sets.push('updated_at=?'); vals.push(Math.floor(Date.now() / 1000));
+  vals.push(id);
+  open().prepare(`UPDATE alarms SET ${sets.join(',')} WHERE id=?`).run(...vals);
+  return { ok: true };
+}
+
+/** 删除闹钟 */
+function dbAlarmDelete(id) {
+  open().prepare('DELETE FROM alarms WHERE id=?').run(id);
+  return { ok: true };
+}
+
+module.exports = {
+  readDb, writeDb, migrateFromJson, dbStats, dbFile, close,
+  dbTimeTypes, dbTimeTypeAdd, dbTimeTypeUpdate, dbTimeTypeDelete,
+  dbTimeRecords, dbTimeRecordAdd, dbTimeRecordUpdate, dbTimeRecordDelete,
+  dbAlarms, dbAlarmAdd, dbAlarmUpdate, dbAlarmDelete,
+};

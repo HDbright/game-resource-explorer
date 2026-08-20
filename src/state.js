@@ -69,6 +69,15 @@ export const DEFAULT_SETTINGS = {
   customTypes: [], // [{ id, name, group, exts: ['.png'], icon }]
   // 自定义资源分组(如 图标/数据/文件;分组自带扩展名,扫描时归 type=<分组id>,并作为分类标签/目录可选项)
   customTypeGroups: [], // [{ id, name, icon, exts }]
+  // 「移动到...」目标目录选择弹窗记忆(重启后恢复):
+  //   moveDialog   = 资源分类树 { last: 上次目标id(''=未分类), recent: 最近10次[最新在前], expanded: 展开的分类id[] }
+  //   moveDialogTb = 资源工具箱树(结构同上)
+  moveDialog: { last: '', recent: [], expanded: [] },
+  moveDialogTb: { last: '', recent: [], expanded: [] },
+  // Markdown 预览各级标题(H1–H6)颜色:settings.mdHeadingColors = { h1:'#rrggbb', ... } 缺级=默认文字色
+  mdHeadingColors: {},
+  // Markdown 编辑器分栏「同步关联」开关(滚动 / 选中双向联动;重启后恢复)
+  mdSync: false,
 };
 
 /** 默认图标库(首次启动无自定义数据时 seed;分组/图标可增删改序) */

@@ -268,6 +268,9 @@ const libLines = lib.map((g) => {
 const libBlock = `export const DEFAULT_ICON_LIBRARY = [\n${libLines}\n];`;
 
 // 生成 EMOJI_NAMES
+// 注意:key 必须以「去 U+FE0F 变体选择符」后的归一化字符生成,与所有按名称查找的路径
+// (seed / 迁移 / emojiPage 搜索与卡片名 / pickEmojiModal 提示 / 合并函数 iconEmojiKey)对齐;
+// 否则带选择符的 emoji 查不到名称,导致按名称搜索失效。
 const nameLines = [];
 for (const [, entries] of Object.entries(CATS)) {
   for (const [emoji, cn, en] of entries) {
@@ -275,7 +278,7 @@ for (const [, entries] of Object.entries(CATS)) {
     if (!nameLines._taken) nameLines._taken = new Set();
     if (nameLines._taken.has(k)) continue;
     nameLines._taken.add(k);
-    nameLines.push(`  ${JSON.stringify(emoji)}: ${JSON.stringify(cn + ' / ' + en)},`);
+    nameLines.push(`  ${JSON.stringify(k)}: ${JSON.stringify(cn + ' / ' + en)},`);
   }
 }
 delete nameLines._taken;

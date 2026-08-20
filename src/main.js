@@ -13,7 +13,7 @@ import {
   addWebBookmark, updateWebBookmark, removeWebBookmark,
 } from './state.js';
 import { PreviewController } from './preview/index.js';
-import { initUI, renderCategories, renderItems, renderMainArea, selectItem, updatePlaybackUI, updateStatusBar } from './ui.js';
+import { initUI, renderCategories, renderItems, renderMainArea, selectItem, updatePlaybackUI, updateStatusBar, moveTreeDialog } from './ui.js';
 import { thumbnailService } from './thumbnails.js';
 
 // 供 DragonBones UMD 运行时在全局访问 PIXI(由 pixiLazy.getPixi 首次加载时设置)
@@ -883,8 +883,10 @@ function installSmoke() {
           await sleep(250);
           const mask = document.querySelector('.modal-mask');
           out.moveTitle = mask ? (mask.querySelector('.modal-title') || {}).textContent || '' : '';
-          const radios = mask ? [...mask.querySelectorAll('input[type=radio]')] : [];
-          if (radios.length) radios[0].checked = true;
+          // 新目录树弹窗:无「未分类(顶级)」根行,首行为资源类型分组头(默认 target='' 即未分类)
+          const mtree = mask ? mask.querySelector('.mtree-tree') : null;
+          const rootRow = mtree ? mtree.querySelector('.mtree-row') : null;
+          if (rootRow && !rootRow.classList.contains('selected')) { rootRow.click(); await sleep(120); }
           const ok = mask && [...mask.querySelectorAll('.modal-foot .btn')].find((b) => b.textContent === '确定');
           if (ok) ok.click();
           await sleep(250);
@@ -974,10 +976,11 @@ function installSmoke() {
         await sleep(250);
         const mask2 = document.querySelector('.modal-mask');
         out.moveModalTitle = mask2 ? (mask2.querySelector('.modal-title') || {}).textContent || '' : '';
-        const radios = mask2 ? [...mask2.querySelectorAll('input[type=radio]')] : [];
-        out.moveOptions = radios.map((r) => (r.closest('label') || {}).textContent || '');
-        const targetRadio = radios.find((r) => ((r.closest('label') || {}).textContent || '').includes('__tree_A__'));
-        if (targetRadio) targetRadio.checked = true;
+        // 新目录树弹窗:选 __tree_A__ 作为目标(顶级行可见)
+        const mtree2 = mask2 ? mask2.querySelector('.mtree-tree') : null;
+        const tRow = mtree2 ? [...mtree2.querySelectorAll('.mtree-row')].find((r) => r.textContent.includes('__tree_A__')) : null;
+        out.moveRowFound = !!tRow;
+        if (tRow) { tRow.click(); await sleep(150); }
         const ok2 = mask2 && [...mask2.querySelectorAll('.modal-foot .btn')].find((b) => b.textContent === '确定');
         if (ok2) ok2.click();
         await sleep(200);
@@ -2172,6 +2175,91 @@ function installSmoke() {
       }
       case 'crud':
         return await runCrudSmoke();
+      case 'mtree': {
+        // 「移动到...」目录树弹窗冒烟: 建测试分类树 → 打开弹窗 → 验证树渲染/折叠持久化/搜索定位/最近记忆/选中确定 → 清理
+        try {
+          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+          const names = ['__mtree_root__', '__mtree_child__', '__mtree_grand__'];
+          const catRoot = addCategory({ name: names[0] });
+          const catChild = addCategory({ name: names[1], parentId: catRoot.id });
+          const catGrand = addCategory({ name: names[2], parentId: catChild.id });
+          setSetting('moveDialog', { last: '', recent: [], expanded: [] });
+          const out = {};
+          let picked = null;
+          moveTreeDialog({
+            title: 'MTREE冒烟',
+            tipHtml: '将测试目录移动到:',
+            memKey: 'moveDialog',
+            onPick: (id) => { picked = id; },
+          });
+          await sleep(180);
+          const q = (sel) => document.querySelector(sel);
+          const qa = (sel) => [...document.querySelectorAll(sel)];
+          const treeEl = q('.mtree-tree');
+          out.treeOpen = !!treeEl;
+          out.inputPresent = !!q('.mtree-input');
+          out.noTopUncat = !qa('.mtree-row').some((r) => r.textContent.includes('未分类(顶级)'));
+          out.rootRow = !!qa('.mtree-row').find((r) => r.textContent.includes(names[0]));
+          // 展开根目录 → 子级可见
+          const rootCaret = qa('.mtree-row').find((r) => r.textContent.includes(names[0]))?.querySelector('.mtree-caret');
+          out.rootCaret = !!rootCaret && !rootCaret.classList.contains('empty');
+          if (rootCaret) { rootCaret.click(); await sleep(120); }
+          out.childVisible = treeEl.textContent.includes(names[1]);
+          // 展开子目录 → 孙级可见
+          const childRow1 = qa('.mtree-row').find((r) => r.textContent.includes(names[1]));
+          if (childRow1) { childRow1.querySelector('.mtree-caret').click(); await sleep(120); }
+          const grandBefore = treeEl.textContent.includes(names[2]);
+          out.grandVisibleAfterExpand = grandBefore;
+          // 收起子目录 → 孙级隐藏,且展开状态落盘(root 仍在展开,child 已收起)
+          const childRow2 = qa('.mtree-row').find((r) => r.textContent.includes(names[1]));
+          if (childRow2) { childRow2.querySelector('.mtree-caret').click(); await sleep(120); }
+          out.grandToggle = grandBefore && !treeEl.textContent.includes(names[2]);
+          const expSaved = ((state.settings.moveDialog && state.settings.moveDialog.expanded) || []);
+          out.expandedPersisted = expSaved.includes(catRoot.id) && !expSaved.includes(catChild.id);
+          // 再展开子目录,为搜索定位准备
+          const childRow3 = qa('.mtree-row').find((r) => r.textContent.includes(names[1]));
+          if (childRow3) { childRow3.querySelector('.mtree-caret').click(); await sleep(100); }
+          // 搜索定位:输入孙级名 → 结果列表出现且命中
+          const input = q('.mtree-input');
+          input.value = names[2];
+          input.dispatchEvent(new Event('input'));
+          await sleep(120);
+          const resultBox = q('.mtree-results');
+          out.resultsShown = !!resultBox && !resultBox.hidden && resultBox.textContent.includes(names[2]);
+          const hitRow = resultBox && resultBox.querySelector('.mtree-result-row');
+          out.resultRow = !!hitRow;
+          if (hitRow) { hitRow.click(); await sleep(120); }
+          out.inputFilled = input.value.includes(names[2]);
+          // 最近记忆弹出:包含刚选中的孙级
+          const recentBtn = q('.mtree-recent-btn');
+          recentBtn.click(); await sleep(120);
+          const recentPop = q('.mtree-recent-pop');
+          out.recentShown = !!recentPop && !recentPop.hidden;
+          out.recentHasGrand = !!recentPop && recentPop.textContent.includes(names[2]);
+          // 确定 → onPick 收到孙级 id;recent 落盘
+          const okBtn = qa('.modal-foot .btn').find((b) => b.textContent.trim() === '确定');
+          if (okBtn) okBtn.click();
+          await sleep(150);
+          out.picked = picked;
+          out.okPickedGrand = picked === catGrand.id;
+          out.recentSaved = ((state.settings.moveDialog && state.settings.moveDialog.recent) || [])[0] === catGrand.id;
+          out.lastSaved = (state.settings.moveDialog && state.settings.moveDialog.last) === catGrand.id;
+          // 清理:移除弹窗残留 + 删除测试分类 + 复位记忆
+          document.querySelectorAll('.modal-mask').forEach((el) => el.remove());
+          removeCategory(catGrand.id);
+          removeCategory(catChild.id);
+          removeCategory(catRoot.id);
+          setSetting('moveDialog', { last: '', recent: [], expanded: [] });
+          renderCategories('all');
+          out.ok = out.treeOpen && out.inputPresent && out.noTopUncat && out.rootRow && out.rootCaret
+            && out.childVisible && out.grandToggle && out.expandedPersisted
+            && out.resultsShown && out.resultRow && out.inputFilled
+            && out.recentShown && out.recentHasGrand && out.okPickedGrand && out.recentSaved && out.lastSaved;
+          return out;
+        } catch (err) {
+          return { ok: false, error: err.message, stack: (err.stack || '').slice(0, 400) };
+        }
+      }
       case 'probe':
         return await probeState();
       case 'dbg': {

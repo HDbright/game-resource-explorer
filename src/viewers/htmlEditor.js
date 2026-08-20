@@ -10,7 +10,7 @@
  * - 未保存改动:文件名后出现小白点提示(dirty)。
  */
 import { state, addItem, categoryPath } from '../state.js';
-import { openModal, footButtons, toast } from '../dialogs.js';
+import { openModal, footButtons, toast, showContextMenu } from '../dialogs.js';
 import { b64ToText } from './markdownEditor.js';
 
 const HTML_EXTS = ['.html', '.htm', '.xhtml'];
@@ -53,6 +53,7 @@ export class HtmlEditorController {
     this.mode = 'split'; // split | preview | edit
     this.dotSel = '#html-dirty'; // 未保存小白点元素
     this.defaultExt = 'html'; // 本编辑器新建/另存为的扩展名
+    this.untitled = false; // 新建的默认「未命名」文档:保存时须提示输入文件名(走另存为)
     this.previewToken = null; // html:previewRegister 返回的目录 token(同源 http 加载相对资源)
     this.previewBase = ''; // <base href>(同源 http://host/html-pv/<token>/),优先于 file://
     // ---- 自动存档 / 脏标记状态 ----
@@ -94,6 +95,60 @@ export class HtmlEditorController {
         e.preventDefault();
         this.save();
       }
+    });
+
+    // 编辑区右键:复制选中文本 / 全选(与预览区一致的交互;无选中时复制项禁用,仍提供全选)
+    this.ta.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const sel = this.ta.value.substring(this.ta.selectionStart, this.ta.selectionEnd);
+      showContextMenu(e.clientX, e.clientY, [
+        {
+          label: '复制选中文本',
+          disabled: !sel,
+          onClick: () => {
+            navigator.clipboard.writeText(sel).then(() => toast('已复制')).catch(() => toast('复制失败', 'error'));
+          },
+        },
+        { label: '全选', onClick: () => { this.ta.select(); this.ta.focus(); } },
+      ]);
+    });
+
+    // 预览 iframe 内右键:选中文本时提供「复制选中文本 / 全选」(未选中则放行文档自身行为)
+    // srcdoc 每次变化 iframe 都会重新加载 → load 事件重新绑定;文档是 srcdoc(与父同源),可直接访问 contentDocument
+    this.preview.addEventListener('load', () => {
+      try {
+        const doc = this.preview.contentDocument;
+        if (!doc) return;
+        doc.addEventListener('contextmenu', (e) => {
+          const sel = (doc.getSelection ? doc.getSelection().toString() : '');
+          if (!sel.trim()) return; // 无选中文本 → 放行
+          e.preventDefault();
+          e.stopPropagation();
+          // iframe 内事件坐标相对 iframe 视口 → 转换为主文档坐标(菜单 append 到主文档 body, fixed 定位)
+          const r = this.preview.getBoundingClientRect();
+          const x = r.left + e.clientX;
+          const y = r.top + e.clientY;
+          showContextMenu(x, y, [
+            {
+              label: '复制选中文本',
+              onClick: () => {
+                navigator.clipboard.writeText(sel).then(() => toast('已复制')).catch(() => toast('复制失败', 'error'));
+              },
+            },
+            {
+              label: '全选',
+              onClick: () => {
+                const range = doc.createRange();
+                range.selectNodeContents(doc.body || doc.documentElement);
+                const s = doc.getSelection();
+                s.removeAllRanges();
+                s.addRange(range);
+              },
+            },
+          ]);
+        }, true); // 捕获阶段:先于文档自身处理,保证能拿到右键事件
+      } catch (err) { /* 跨源/异常:忽略,保留 Ctrl+C 复制 */ }
     });
   }
 
@@ -148,6 +203,7 @@ export class HtmlEditorController {
     this.filePath = filePath;
     this.currentPath = filePath;
     this.loaded = true;
+    this.untitled = false; // 打开真实文件 → 已命名,后续保存直接写回
     this.defaultDir = dirOf(filePath);
     // 注册文件所在目录到内部 http 服务,预览时 <base> 指向同源 http://host/html-pv/<token>/
     // 使相对 CSS/JS/图片 经 http 加载(规避 file:// 被 webSecurity 拦截导致的空白/破版)
@@ -188,9 +244,9 @@ export class HtmlEditorController {
     }
   }
 
-  /** 保存回写原文件(UTF-8);无文件路径则走另存为 */
+  /** 保存回写原文件(UTF-8);无文件路径或为新建的「未命名」文档 → 走另存为(提示输入文件名) */
   async save() {
-    if (!this.filePath) {
+    if (!this.filePath || this.untitled) {
       this.saveAs();
       return;
     }
@@ -217,6 +273,7 @@ export class HtmlEditorController {
       this.filePath = r.path;
       this.currentPath = r.path;
       this.loaded = true;
+      this.untitled = false; // 已另存为命名文件
       this.defaultDir = dirOf(r.path);
       await this.registerPreviewRoot(r.path); // 重新注册新路径目录,使相对资源可加载
       this.markSaved(this.ta.value);
@@ -266,17 +323,22 @@ export class HtmlEditorController {
   /** 构建注入 <base> 后的预览 HTML(相对资源经同源 http 解析;回退 file://) */
   buildPreviewHtml() {
     const html = this.ta.value || '';
+    // 预览页需支持选择复制文本:注入兜底 user-select:text(强制可选中,光标等交互样式仍由文档决定)
+    const SEL_STYLE = '<style>html,body{-webkit-user-select:text!important;user-select:text!important}</style>';
     // 优先用同源 http base(注册目录);未注册时回退 file:// 目录
     const base = this.previewBase || dirFileUrl(this.filePath);
-    if (!base || /<base[\s>]/i.test(html)) return html; // 已有 base 或不需解析则不注入
+    if (!base || /<base[\s>]/i.test(html)) {
+      // 已有 base 或不需解析则不注入 base,仅兜底可选中(优先插到 </html> 前,否则追加)
+      return /<\/html>/i.test(html) ? html.replace(/<\/html>/i, SEL_STYLE + '</html>') : html + SEL_STYLE;
+    }
     if (/<head>/i.test(html)) {
-      return html.replace(/<head>/i, '<head>\n<base href="' + escAttr(base) + '">');
+      return html.replace(/<head>/i, '<head>\n<base href="' + escAttr(base) + '">\n' + SEL_STYLE);
     }
     // 无 <head>:在 <html> 后或文档开头注入一个 <base>
     if (/<html[\s>]/i.test(html)) {
-      return html.replace(/<html([\s>])/i, '<html$1<base href="' + escAttr(base) + '">');
+      return html.replace(/<html([\s>])/i, '<html$1<base href="' + escAttr(base) + '">' + SEL_STYLE);
     }
-    return '<base href="' + escAttr(base) + '">' + html;
+    return '<base href="' + escAttr(base) + '">' + SEL_STYLE + html;
   }
 
   renderPreview() {
