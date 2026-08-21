@@ -2164,9 +2164,8 @@ function renderTaskCard(task, compact = false, colStatus = null) {
   const subs = task.subtasks || [];
   const subCount = countSubs(subs);
   const doneSubs = subCount.done, totalSubs = subCount.total || 1;
-  // 状态排序:待办 → 进行中 → 已完成(已完成置灰排在后面)
-  const statusRank = (s) => SUB_STATUS_RANK[subStatus(s)] ?? 0;
-  const orderedSubs = [...subs].sort((a, b) => statusRank(a) - statusRank(b));
+  // 补丁·82:保持手工顺序(不按状态重排),切换子任务状态时位置不变(手工顺序模式不重新排序)
+  const orderedSubs = [...subs].sort((a, b) => ((a.sort ?? 0) - (b.sort ?? 0)) || ((a.createdAt || 0) - (b.createdAt || 0)));
   const dl = deadlineInfo(task);
   const dateSuffix = cardStatusDate(task);
 
@@ -2331,7 +2330,13 @@ function renderTaskCard(task, compact = false, colStatus = null) {
       modalHighlightSub = b.dataset.sub;
       taskModalOpen = true; modalTaskId = real.id; render();
     }
-    else if (t === 'substatus') { toggleSubtask(real, b.dataset.sub); } // 补丁·61:子任务块的状态按钮
+    else if (t === 'substatus') { toggleSubtask(real, b.dataset.sub); } // 补丁·61:子任务块的状态按钮 → 切换状态(手工顺序模式不重排)
+    else if (t === 'subtitle') {
+      // 补丁·82:点击子任务标题 → 打开该子任务的编辑详情(不再切换状态)
+      modalInitialTab = 'subtasks';
+      modalHighlightSub = b.dataset.sub;
+      taskModalOpen = true; modalTaskId = real.id; render();
+    }
     else if (t === 'sub') { toggleSubtask(real, b.dataset.sub); }
     else if (t === 'subtoggle') { if (b.classList.contains('todo-sub-block-toggle')) toggleSubBlockCollapse(b); else toggleSubtasksCollapse(real, b); }
     else if (t === 'addsub') { addInlineSubtask(real); }
@@ -2377,7 +2382,7 @@ function renderSubBlocks(subs, depth, dateAfterTitle = false) {
         ${toggleHTML}
         <button class="todo-sub-block-status sub-${st}" data-t="substatus" data-sub="${s.id}" title="${T('clickToggle')}">${subStatusIcon(s)}</button>
         <span class="todo-sub-block-pri" style="background:${pri.color}" title="${priLabel(s.priority)}"></span>
-        <span class="todo-sub-block-title">${escHtml(s.title)}</span>
+        <span class="todo-sub-block-title" data-t="subtitle" data-sub="${s.id}" title="${T('editSubtask')}">${escHtml(s.title)}</span>
         ${titleDateHTML}
         <div class="todo-sub-block-actions">
           <button class="todo-icon-btn" data-t="subedit" data-sub="${s.id}" title="${T('editSubtask')}">✎</button>

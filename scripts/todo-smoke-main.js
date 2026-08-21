@@ -253,6 +253,38 @@ app.whenReady().then(async () => {
       check('补丁·62:展开状态字符 DOWN', o.arrowNow === '▼', 'got=' + JSON.stringify(o.arrowNow));
       check('补丁·62:子任务块背景色与父级卡片背景色相近(差异<=2)', o.diff <= 2, 'card=' + o.cardBgRGB + ' block=' + o.blockBgRGB + ' diff=' + o.diff);
 
+      // 补丁·82:子任务标题/状态图标点击区分 + 切换状态保持手工顺序(不重排)
+      o = await js('subtitle-vs-status', `(async () => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const cardSel = '.todo-card[data-task-id="${TASK_A}"]';
+        const subIds = () => [...document.querySelectorAll(cardSel + ' .todo-sub-block')].map((b) => b.getAttribute('data-sub')).join(',');
+        const orderBefore = subIds();
+        // 1) 状态图标点击 → 切换状态
+        const sb = document.querySelector(cardSel + ' .todo-sub-block .todo-sub-block-status');
+        const sbId = sb ? sb.getAttribute('data-sub') : null;
+        const iconBefore = sb ? sb.textContent : '';
+        if (sb) { sb.click(); await sleep(140); }
+        const sb2 = document.querySelector(cardSel + ' .todo-sub-block .todo-sub-block-status[data-sub="' + sbId + '"]');
+        const iconAfter = sb2 ? sb2.textContent : '';
+        const orderAfter = subIds();
+        if (sb2) { sb2.click(); await sleep(140); } // 还原状态,避免影响后续断言
+        // 2) 标题点击 → 打开编辑弹窗,且不应切换状态
+        const title = document.querySelector(cardSel + ' .todo-sub-block .todo-sub-block-title');
+        const sb3 = document.querySelector(cardSel + ' .todo-sub-block .todo-sub-block-status[data-sub="' + sbId + '"]');
+        const iconBeforeTitle = sb3 ? sb3.textContent : '';
+        let modalOpened = false;
+        if (title) { title.click(); await sleep(160); modalOpened = !!document.querySelector('.todo-overlay'); }
+        const sb4 = document.querySelector(cardSel + ' .todo-sub-block .todo-sub-block-status[data-sub="' + sbId + '"]');
+        const iconAfterTitle = sb4 ? sb4.textContent : '';
+        const closeBtn = document.querySelector('.todo-overlay [data-close]');
+        if (closeBtn) { closeBtn.click(); await sleep(120); }
+        return { orderBefore, orderAfter, iconBefore, iconAfter, modalOpened, iconBeforeTitle, iconAfterTitle };
+      })()`);
+      check('补丁·82:点击状态图标切换子任务状态', o.iconBefore && o.iconAfter && o.iconBefore !== o.iconAfter, o.iconBefore + '→' + o.iconAfter);
+      check('补丁·82:切换状态后子任务手工顺序不变(不重排)', o.orderBefore === o.orderAfter, 'before=' + o.orderBefore + ' after=' + o.orderAfter);
+      check('补丁·82:点击子任务标题打开编辑弹窗', o.modalOpened === true, 'modalOpened=' + o.modalOpened);
+      check('补丁·82:点击子任务标题不切换状态(与状态图标区分)', o.iconBeforeTitle === o.iconAfterTitle, o.iconBeforeTitle + '→' + o.iconAfterTitle);
+
       // 补丁·62 数据 2:折叠后字符(独立 js 调用,避免单 IIFE 内 click+sleep 触发 reply 超时)
       o = await js('card-fold', `(async () => {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
