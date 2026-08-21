@@ -38,6 +38,8 @@ import {
   resourceGroupIcon, resourceTypeIcon,
   typeBadgeIcon, typeColor, itemEffectiveType,
   customPages, customPageById, updateCustomPage,
+  getProjects, projectById, updateProject, removeProject, projectMenuNode,
+  getProjectFolders, projectNodeIcon, PROJECTS_ROOT_ID,
 } from './state.js';
 import { openModal, footButtons, confirmDialog, promptDialog, toast, showContextMenu, openEmojiPicker, iconNode, attachIconPreview, newPageDialog, treeIconNode, finalizeIcon } from './dialogs.js';
 import { initBgColorBar, customBgColor, BG_DARK, BG_LIGHT } from './bgColor.js';
@@ -45,6 +47,7 @@ import { runAddFlow, addPathsToCategory } from './addFlow.js';
 import { renderHomePage, renderFavHome, renderFilterHome } from './pages/homePage.js';
 import { renderFolderPage, renderFavFolderPage } from './pages/folderPage.js';
 import { renderToolboxPage, toolboxToolActions } from './pages/toolboxPage.js';
+import { renderProjectsPage, newProjectDialog, editProjectDialog, deleteProjectDialog, newProjectFolderDialog, renameProjectFolderDialog, deleteProjectFolderDialog, openProjectDetail } from './pages/projectsPage.js';
 import { renderSceneHome, renderSceneFolderPage, renderFguiPreviewPage, promptRegisterFgui, renderSceneSearchResults } from './pages/scenePage.js';
 import { renderFguiEditorPage } from './pages/fguiEditorPage.js';
 import { renderSettingsPage } from './pages/settingsPage.js';
@@ -99,6 +102,10 @@ let apiDocShown = false; // 开发工具箱 API 管理页是否显示
 let atlasShown = false; // 图片图集拆分浏览页是否显示
 let currentAtlasItemId = null; // 当前图集拆分浏览页对应的图片资源 id
 let currentCustomPageId = null; // 当前显示的自定义页面 id(终端节点目标页面)
+let projectsHomeShown = false; // 右侧是否显示项目管理中心主页(汇总视图)
+let currentProjectId = null; // 当前项目详情页的项目 id(null = 不在项目详情页)
+let currentProjectFolderId = null; // 项目详情页当前资源文档目录 id(null = 综述详情, '' = 项目根目录)
+let currentProjectDocTab = 'overview'; // 项目详情页子页签: 'overview' 综述详情 | 'docs' 资源文档
 let currentTypeFilter = null; // 资源浏览页类型过滤(自定义资源类型 id;null=不过滤)
 let currentGroupFilterSet = null; // 目录「允许显示的类型组」视图(分组标签数组;null=未启用)
 let currentGroupFilterTitle = ''; // 目录视图标题(来源目录名)
@@ -219,6 +226,15 @@ function applyTabState(t) {
     renderMainArea();
     return;
   }
+  if (t.kind === 'projects') {
+    projectsHomeShown = !t.params.projectId;
+    currentProjectId = t.params.projectId || null;
+    currentProjectFolderId = t.params.folderId || null;
+    currentProjectDocTab = t.params.docTab || 'overview';
+    renderMainArea();
+    renderCategories();
+    return;
+  }
   if (t.kind === 'settings') {
     settingsShown = true;
     renderMainArea();
@@ -297,6 +313,14 @@ function syncTabFromState() {
     tab = ensureTab('api-doc', { kind: 'api-doc', params: {}, label: 'API 管理', icon: '📖' });
   } else if (emojiShown) {
     tab = ensureTab('emoji', { kind: 'emoji', params: {}, label: 'emoji 图标管理', icon: '😀' });
+  } else if (projectsHomeShown || currentProjectId != null) {
+    const p = currentProjectId ? projectById(currentProjectId) : null;
+    tab = ensureTab(currentProjectId ? `project-${currentProjectId}` : 'projects-home', {
+      kind: 'projects',
+      params: { projectId: currentProjectId, folderId: currentProjectFolderId, docTab: currentProjectDocTab },
+      label: p ? '项目 · ' + p.name : '项目管理中心',
+      icon: p ? projectNodeIcon() : '🗂',
+    });
   } else if (currentTool || toolboxHomeShown) {
     tab = ensureTab(`toolbox-${currentTool || '__home__'}`, { kind: 'toolbox', params: { tool: currentTool }, label: currentTool ? toolLabel(currentTool) : '资源工具箱', icon: '🧰' });
   } else if (settingsShown) {
@@ -810,6 +834,45 @@ document.addEventListener('mm:request-new-top-cat', (e) => {
   if (grp) newTopCategoryDialog(grp);
 });
 
+/** 项目管理中心导航事件(projectsPage 对话框/右键菜单 → ui.js,解耦避免循环 import) */
+document.addEventListener('projects:navigate', (e) => {
+  const d = (e && e.detail) || {};
+  if (d.action === 'open' && d.projectId) {
+    if (!projectById(d.projectId)) return toast('项目不存在或已删除', 'error');
+    projectsHomeShown = false;
+    currentProjectId = d.projectId;
+    currentProjectFolderId = null;
+    currentProjectDocTab = 'overview';
+    const pn = projectMenuNode(d.projectId);
+    if (pn) expandedCats.add(pn.id);
+    expandedCats.add(PROJECTS_ROOT_ID);
+    renderTree();
+    renderMainArea();
+  } else if (d.action === 'folder' && d.projectId) {
+    if (!projectById(d.projectId)) return toast('项目不存在或已删除', 'error');
+    projectsHomeShown = false;
+    currentProjectId = d.projectId;
+    currentProjectFolderId = d.folderId || '';
+    currentProjectDocTab = 'docs';
+    if (d.folderId) expandedCats.add(d.folderId);
+    renderTree();
+    renderMainArea();
+  } else if (d.action === 'doctab') {
+    currentProjectDocTab = d.tab === 'docs' ? 'docs' : 'overview';
+    renderMainArea();
+  } else if (d.action === 'home') {
+    projectsHomeShown = true;
+    currentProjectId = null;
+    currentProjectFolderId = null;
+    currentProjectDocTab = 'overview';
+    renderTree();
+    renderMainArea();
+  } else if (d.action === 'refresh') {
+    renderTree();
+    renderMainArea();
+  }
+});
+
 /** 资源根是否为空(该资源组下无可见分类且无条目)→ 渲染时隐藏;内置四组与收藏夹等恒显 */
 function menuRootEmpty(node) {
   const a = node.action || '';
@@ -832,6 +895,8 @@ function menuNodeHasDynamic(node) {
   if (a === 'scene') return getSceneCategoryChildren('').length > 0;
   if (a === 'webgame') return true;
   if (a === 'toolbox') return getToolboxChildren('').length > 0;
+  // 项目管理中心:项目节点就在 menuNodes 里(parentId=根),由 renderMenuNode 的 menuKids 统一渲染,
+  // 不需要动态子内容(否则会与 menuKids 双重渲染导致节点重复)
   return false;
 }
 
@@ -848,6 +913,9 @@ function menuNodeActive(node) {
   if (a === 'scene') return sceneHomeShown || currentSceneCatId !== null;
   if (a === 'webgame') return webGameShown;
   if (a === 'toolbox') return !!currentTool || toolboxHomeShown || fguiEditorShown;
+  if (a === 'projects') return projectsHomeShown || currentProjectId != null;
+  if (a.startsWith('project:')) return currentProjectId === a.slice('project:'.length);
+  if (a.startsWith('projectfolder:')) return currentProjectId === a.slice('projectfolder:'.length);
   if (a === 'devtools') return apiDocShown;
   if (a === 'page:settings') return settingsShown;
   if (a === 'page:api') return apiDocShown;
@@ -875,6 +943,9 @@ function defaultMenuIcon(node) {
   if (a === 'scene') return '🎬';
   if (a === 'webgame') return '🌐';
   if (a === 'toolbox') return '🧰';
+  if (a === 'projects') return '🗂';
+  if (a.startsWith('project:')) return projectNodeIcon();
+  if (a.startsWith('projectfolder:')) return '📁';
   if (a === 'devtools') return '🛠';
   if (a === 'page:settings') return '⚙';
   if (a === 'page:api') return '📖';
@@ -968,7 +1039,7 @@ function renderMenuNode(parent, node, depth) {
   }
 }
 
-/** 渲染目录节点的内置动态子内容(分类树 / 场景树 / 收藏夹分类 / 工具箱树) */
+/** 渲染目录节点的内置动态子内容(分类树 / 场景树 / 收藏夹分类 / 工具箱树 / 项目树) */
 function renderMenuChildren(wrap, node) {
   const a = node.action || '';
   if (a === 'scene') {
@@ -982,6 +1053,8 @@ function renderMenuChildren(wrap, node) {
   } else if (a.startsWith('res:')) {
     renderResTypeChildren(wrap, a.slice(4));
   }
+  // 注意:项目管理中心(projects)的项目节点存放在 menuNodes 中(parentId=根),
+  // 由 renderMenuNode 的 menuKids 循环统一渲染;若在此分支再渲染会与 menuKids 重复。
 }
 
 /** 资源类型根节点的子内容(未分类 + 分类目录,按该类型过滤) */
@@ -1043,6 +1116,36 @@ function dispatchMenuDir(node) {
   } else if (a === 'toolbox') {
     toolboxHomeShown = true;
     currentTool = null;
+    renderTree();
+    renderMainArea();
+  } else if (a === 'projects') {
+    // 项目管理中心主页(汇总所有项目)
+    projectsHomeShown = true;
+    currentProjectId = null;
+    currentProjectFolderId = null;
+    currentProjectDocTab = 'overview';
+    renderTree();
+    renderMainArea();
+  } else if (a.startsWith('project:')) {
+    // 项目详情页
+    const pid = a.slice('project:'.length);
+    if (!projectById(pid)) return toast('项目不存在或已删除', 'error');
+    projectsHomeShown = false;
+    currentProjectId = pid;
+    currentProjectFolderId = null;
+    currentProjectDocTab = 'overview';
+    expandedCats.add(node.id);
+    renderTree();
+    renderMainArea();
+  } else if (a.startsWith('projectfolder:')) {
+    // 项目子目录 → 项目详情页「资源文档」页签并定位到该目录
+    const pid = a.slice('projectfolder:'.length);
+    if (!projectById(pid)) return toast('项目不存在或已删除', 'error');
+    projectsHomeShown = false;
+    currentProjectId = pid;
+    currentProjectFolderId = node.id;
+    currentProjectDocTab = 'docs';
+    expandedCats.add(node.id);
     renderTree();
     renderMainArea();
   } else if (a === 'devtools') {
@@ -1300,6 +1403,10 @@ function menuNodeResourceGroup(node) {
 function openMenuNodeMenu(x, y, node) {
   const items = [];
   const locked = isMenuNodeLocked(node.id);
+  const a = node.action || '';
+  const isProjRoot = a === 'projects';
+  const isProjNode = a.startsWith('project:');
+  const isProjFolder = a.startsWith('projectfolder:');
   if (node.nodeType === 'dir') {
     const grp = menuNodeResourceGroup(node);
     if (grp) {
@@ -1307,6 +1414,24 @@ function openMenuNodeMenu(x, y, node) {
       items.push({ label: '新建分类', onClick: () => newTopCategoryDialog(grp) });
       // 资源根目录设置:控制是否在菜单树中列出该根下的资源文件
       items.push({ label: '编辑资源根目录', onClick: () => editResRootDialog(node) });
+    } else if (isProjRoot) {
+      // 项目管理中心根:新建项目
+      items.push({ label: '新建项目…', onClick: () => newProjectDialog() });
+    } else if (isProjNode) {
+      // 项目节点:项目管理专用操作
+      items.push({ label: '打开项目详情', onClick: () => openProjectDetail(a.slice('project:'.length)) });
+      items.push({ label: '新建子目录(项目目录)', onClick: () => newProjectFolderDialog(a.slice('project:'.length), '') });
+      items.push({ label: '编辑项目…', onClick: () => editProjectDialog(a.slice('project:'.length)) });
+      items.push({ label: '删除项目…', danger: true, onClick: () => deleteProjectDialog(a.slice('project:'.length)) });
+      showContextMenu(x, y, items);
+      return;
+    } else if (isProjFolder) {
+      // 项目子目录:目录管理(建子目录/重命名/删除)
+      items.push({ label: '新建子目录', onClick: () => newProjectFolderDialog(a.slice('projectfolder:'.length), node.id) });
+      items.push({ label: '重命名目录', onClick: () => renameProjectFolderDialog(node.id) });
+      items.push({ label: '删除目录', danger: true, onClick: () => deleteProjectFolderDialog(node.id) });
+      showContextMenu(x, y, items);
+      return;
     } else if (!locked) {
       // 普通目录(非资源根):可整体转换为资源分类目录(锁定节点保持只读,不提供转换=删除重建)
       items.push({ label: '转换为资源分类', onClick: () => convertMenuNodeToCategoryDialog(node) });
@@ -2819,6 +2944,10 @@ function clearOverlays() {
   atlasShown = false;
   currentAtlasItemId = null;
   emojiShown = false;
+  projectsHomeShown = false;
+  currentProjectId = null;
+  currentProjectFolderId = null;
+  currentProjectDocTab = 'overview';
 }
 
 // ---- 场景分类/场景条目 操作对话框 ----
@@ -5189,6 +5318,7 @@ function showPage(pageId) {
     emoji: document.getElementById('page-emoji'),
     preview: document.getElementById('page-preview'),
     toolbox: document.getElementById('page-toolbox'),
+    projects: document.getElementById('page-projects'),
     scene: document.getElementById('page-scene'),
     'fgui-editor': document.getElementById('page-fgui-editor'),
     settings: document.getElementById('page-settings'),
@@ -5247,6 +5377,10 @@ export function openSettings() {
     favHomeShown,
     currentFavCategoryId,
     lastFolderTab,
+    projectsHomeShown,
+    currentProjectId,
+    currentProjectFolderId,
+    currentProjectDocTab,
   };
   // 清空所有覆盖式页面状态, 让 renderMainArea 能分发到 settings 分支
   currentTool = null;
@@ -5259,6 +5393,10 @@ export function openSettings() {
   apiDocShown = false;
   favHomeShown = false;
   currentFavCategoryId = null;
+  projectsHomeShown = false;
+  currentProjectId = null;
+  currentProjectFolderId = null;
+  currentProjectDocTab = 'overview';
   settingsShown = true;
   renderMainArea();
   renderCategories();
@@ -5279,6 +5417,10 @@ export function closeSettings() {
     favHomeShown = settingsReturn.favHomeShown;
     currentFavCategoryId = settingsReturn.currentFavCategoryId;
     lastFolderTab = settingsReturn.lastFolderTab;
+    projectsHomeShown = settingsReturn.projectsHomeShown;
+    currentProjectId = settingsReturn.currentProjectId;
+    currentProjectFolderId = settingsReturn.currentProjectFolderId;
+    currentProjectDocTab = settingsReturn.currentProjectDocTab;
     settingsReturn = null;
   }
   // 若之前在网页抓取页, 还原被浮出的原生视图(回到主窗口内嵌)
@@ -5305,6 +5447,50 @@ export function renderMainArea() {
   if (emojiShown) {
     showPage('emoji');
     renderEmojiPage(document.getElementById('page-emoji'));
+    renderBreadcrumb();
+    return;
+  }
+
+  // ---- 项目管理中心(主页汇总 / 项目详情页,含资源文档目录视图) ----
+  if (projectsHomeShown || currentProjectId != null) {
+    showPage('projects');
+    renderProjectsPage(document.getElementById('page-projects'), {
+      mode: projectsHomeShown ? 'home' : 'detail',
+      projectId: currentProjectId,
+      folderId: currentProjectFolderId,
+      docTab: currentProjectDocTab,
+      actions: {
+        onOpenProject: (pid) => {
+          projectsHomeShown = false;
+          currentProjectId = pid;
+          currentProjectFolderId = null;
+          currentProjectDocTab = 'overview';
+          renderTree();
+          renderMainArea();
+        },
+        onOpenFolder: (pid, folderId) => {
+          projectsHomeShown = false;
+          currentProjectId = pid;
+          currentProjectFolderId = folderId;
+          currentProjectDocTab = 'docs';
+          renderTree();
+          renderMainArea();
+        },
+        onHome: () => {
+          projectsHomeShown = true;
+          currentProjectId = null;
+          currentProjectFolderId = null;
+          currentProjectDocTab = 'overview';
+          renderTree();
+          renderMainArea();
+        },
+        setDocTab: (tab) => {
+          currentProjectDocTab = tab === 'docs' ? 'docs' : 'overview';
+          renderMainArea();
+        },
+        onRefresh: () => renderMainArea(),
+      },
+    });
     renderBreadcrumb();
     return;
   }

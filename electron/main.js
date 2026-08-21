@@ -20,6 +20,7 @@ const bookmarkDialog = require('./tools/bookmarkDialog');
 const { apiTest } = require('./tools/apiTest');
 const devCdp = require('./tools/devCdp');
 const timerWindows = require('./tools/timerWindows');
+const projectRunner = require('./projectRunner'); // 项目管理中心:服务进程启停 + 状态探测(补丁·113)
 const crypto = require('crypto');
 
 // ---- Spine 骨骼格式/版本转换(C++ SpineSkeletonDataConverter,来自 SpineSkeletonDataConverter 项目) ----
@@ -332,6 +333,7 @@ async function createWindow() {
   });
   // 主窗口真正销毁 → 清理附属窗口(悬浮预览窗 / 网页悬浮窗 / 内嵌浏览器 / 计时器窗)并彻底退出。
   win.on('closed', () => {
+    try { projectRunner.stopEveryProc(); } catch (e) { /* ignore */ } // 停止项目管理中心启动的全部服务进程(补丁·113)
     try { webPreviewWindow.close(); } catch (e) { /* ignore */ }
     try { webGame.destroy(); } catch (e) { /* ignore */ } // 内部会销毁 floatWin
     try { if (debugWin && !debugWin.isDestroyed()) debugWin.close(); } catch (e) { /* ignore */ }
@@ -816,6 +818,8 @@ app.whenReady().then(async () => {
 
   // 计时器(秒表/倒计时)窗口 IPC 提前注册(模块级, 整个 app 生命周期只注册一次)
   timerWindows.initIpc();
+  // 项目管理中心:服务进程启停 IPC(补丁·113)
+  projectRunner.registerProjectIpc(ipcMain);
   // 闹钟启用状态变化 → 刷新托盘图标(叠加小时钟角标, 补丁·99)
   try { timerWindows.setAlarmChangeListener(refreshTrayAlarm); } catch (e) { /* ignore */ }
 

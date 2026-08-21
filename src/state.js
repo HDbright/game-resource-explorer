@@ -1080,6 +1080,9 @@ export const state = {
   todoTasks: [],
   // Todo-List 日历事件(生日/纪念日/待办事件/重要事件)
   todoEvents: [],
+  // 项目管理中心(补丁·113):项目主配置 + 项目资源/文档条目
+  projects: [],
+  projectEntries: [],
 };
 
 // ---------------- 资源类型分组 ----------------
@@ -1754,13 +1757,86 @@ export async function loadState() {
   }
   if (resMigrated) saveState();
   seedMenuNodes();
-  // Todo-List 任务管理(兼容旧库缺字段)
-  state.todoProjects = Array.isArray(data.todoProjects) ? data.todoProjects : [];
-  state.todoTasks = Array.isArray(data.todoTasks) ? data.todoTasks : [];
   // 老数据迁移:补丁·41/42 把 now() 改回秒,但旧库 createdAt/updatedAt 等仍是毫秒。
   // 阈值 v > 1e12 = 2001-09-09 之后,合理。fixMs 必须应用到所有 now() 写出的字段,不能漏。
   // (补丁·51 补:项目循环遗漏 createdAt/updatedAt/deadline/completeAt — 显示成 58595/03/13 即此 bug)
   const fixMs = (v) => (typeof v === 'number' && v > 1e12 && isFinite(v)) ? Math.floor(v / 1000) : v;
+  // 项目管理中心(补丁·113):项目主配置 + 项目资源/文档条目(兼容旧库缺字段)
+  state.projects = Array.isArray(data.projects) ? data.projects : [];
+  for (const p of state.projects) {
+    if (p.status == null) p.status = 'stopped';
+    if (p.description == null) p.description = '';
+    if (p.rootPath == null) p.rootPath = '';
+    if (p.accessUrl == null) p.accessUrl = '';
+    if (p.website == null) p.website = '';
+    if (p.launchPath == null) p.launchPath = '';
+    if (p.deployMethod == null) p.deployMethod = '';
+    if (p.launchMethod == null) p.launchMethod = '';
+    if (p.frontendCmd == null) p.frontendCmd = '';
+    if (p.frontendUrl == null) p.frontendUrl = '';
+    if (p.backendCmd == null) p.backendCmd = '';
+    if (p.backendUrl == null) p.backendUrl = '';
+    if (p.remark == null) p.remark = '';
+    if (p.menuNodeId == null) p.menuNodeId = '';
+    if (p.sort == null) p.sort = 0;
+    p.createdAt = fixMs(p.createdAt == null ? now() : p.createdAt);
+    p.updatedAt = fixMs(p.updatedAt == null ? now() : p.updatedAt);
+  }
+  state.projectEntries = Array.isArray(data.projectEntries) ? data.projectEntries : [];
+  for (const e of state.projectEntries) {
+    if (e.folderId == null) e.folderId = '';
+    if (e.type == null) e.type = 'doc';
+    if (e.content == null) e.content = '';
+    if (e.sort == null) e.sort = 0;
+    e.createdAt = fixMs(e.createdAt == null ? now() : e.createdAt);
+    e.updatedAt = fixMs(e.updatedAt == null ? now() : e.updatedAt);
+  }
+  // 首次使用项目管理中心:注入默认示例项目 hedaoedu(禾道学堂),并建立侧栏项目节点
+  if (!state.projects.length && !(state.settings.projectsSeeded === true)) {
+    const first = addProject(defaultHedaoeduProject());
+    if (first) state.settings.projectsSeeded = true;
+    saveState();
+  }
+  // 老库/异常数据自愈:确保项目根节点存在,且每个项目都有对应侧栏节点(挂载到根下)
+  try {
+    const projRoot = ensureProjectsMenuRoot();
+    for (const p of state.projects) {
+      const existing = p.menuNodeId ? menuNodeById(p.menuNodeId) : null;
+      if (existing) {
+        // 修正历史遗留:项目节点被移到根外/顶级 → 拉回项目管理中心根下
+        if ((existing.parentId || '') !== projRoot.id) {
+          existing.parentId = projRoot.id;
+          existing.updatedAt = now();
+        }
+      } else {
+        const node = {
+          id: uid('mn'),
+          name: p.name,
+          icon: projectNodeIcon(),
+          parentId: projRoot.id,
+          nodeType: 'dir',
+          actionType: 'builtin',
+          action: 'project:' + p.id,
+          tooltip: '项目: ' + p.name + ' — 打开项目管理详情页',
+          note: '',
+          typeTags: [],
+          isResource: false,
+          locked: false,
+          hidden: false,
+          sort: state.menuNodes.length,
+          createdAt: now(),
+          updatedAt: now(),
+        };
+        state.menuNodes.push(node);
+        p.menuNodeId = node.id;
+      }
+    }
+  } catch (err) {
+    console.error('[state] 项目节点自愈失败:', err);
+  }
+  // Todo-List 任务管理(兼容旧库缺字段)
+  state.todoProjects = Array.isArray(data.todoProjects) ? data.todoProjects : [];
+  state.todoTasks = Array.isArray(data.todoTasks) ? data.todoTasks : [];
   for (const p of state.todoProjects) {
     if (p.color == null) p.color = '#6366f1';
     if (p.sort == null) p.sort = 0;
@@ -3230,6 +3306,7 @@ const MENU_DEFAULT = [
   { id: '__m_res_audio__', name: '音频资源', icon: '♪', nodeType: 'dir', actionType: 'builtin', action: 'res:audio', tooltip: '音频资源', note: '', isResource: true },
   { id: '__m_res_3d__', name: '3D资源', icon: '🧊', nodeType: 'dir', actionType: 'builtin', action: 'res:3d', tooltip: '3D 模型资源', note: '', isResource: true },
   { id: '__m_scene__', name: '游戏场景管理', icon: '🎬', nodeType: 'dir', actionType: 'builtin', action: 'scene', tooltip: '场景分类与 FGUI 包管理', note: '' },
+  { id: '__m_projects__', name: '项目管理中心', icon: '🗂', nodeType: 'dir', actionType: 'builtin', action: 'projects', tooltip: '项目生命周期管理:启动/停止服务、部署信息、项目文档资源', note: '' },
   { id: '__m_webgame__', name: '网络资源抓取', icon: '🌐', nodeType: 'dir', actionType: 'builtin', action: 'webgame', tooltip: '内嵌浏览器逆向分析网络资源', note: '' },
   { id: '__m_toolbox__', name: '资源工具箱', icon: '🧰', nodeType: 'dir', actionType: 'builtin', action: 'toolbox', tooltip: '格式转换 / 图片编辑 / FGUI 等工具', note: '' },
   { id: '__m_devtools__', name: '开发工具箱', icon: '🛠', nodeType: 'dir', actionType: 'builtin', action: 'devtools', tooltip: '开发辅助工具', note: '' },
@@ -3706,4 +3783,331 @@ export function removeCustomPage(id) {
   if (i < 0) return;
   arr.splice(i, 1);
   setSetting('customPages', arr);
+}
+
+// ================= 项目管理中心(补丁·113) =================
+// 项目主数据(projects) + 项目资源/文档条目(projectEntries)。
+// 侧栏结构复用 menuNodes:
+//   - 「项目管理中心」根: id='__m_projects__', action='projects'(恒显,由 ensureProjectsMenuRoot 保证存在)
+//   - 每个项目节点: parentId='__m_projects__', action='project:<项目id>', name=项目名(项目改名时同步)
+//   - 项目子目录(分类目录): parentId=项目节点id, action='projectfolder:<目录id>'(目录即菜单节点,可嵌套)
+// 项目文档条目 projectEntries.folderId 存「项目子目录菜单节点 id」('' = 项目根目录)。
+
+export const PROJECTS_ROOT_ID = '__m_projects__';
+
+/** 幂等:确保「项目管理中心」根节点存在(老库升级 / 用户误删后自愈重建) */
+export function ensureProjectsMenuRoot() {
+  let root = state.menuNodes.find((m) => (m.action || '') === 'projects');
+  if (!root) {
+    const m = MENU_DEFAULT.find((x) => x.id === PROJECTS_ROOT_ID);
+    root = {
+      id: PROJECTS_ROOT_ID, // 固定 id,addProject/自愈按此查找
+      name: (m && m.name) || '项目管理中心',
+      icon: (m && m.icon) || '🗂',
+      parentId: '',
+      nodeType: 'dir',
+      actionType: 'builtin',
+      action: 'projects',
+      tooltip: (m && m.tooltip) || '项目生命周期管理',
+      note: '',
+      typeTags: [],
+      isResource: false,
+      locked: true, // 根节点锁定,禁止在菜单管理页误删
+      hidden: false,
+      sort: state.menuNodes.length,
+      createdAt: now(),
+      updatedAt: now(),
+    };
+    state.menuNodes.push(root);
+    saveState();
+  } else if (!root.locked) {
+    root.locked = true;
+    saveState();
+  }
+  // 归一化根节点 id:历史遗留根 id 为随机 uid(旧版本由 addMenuNode 创建)→ 统一为固定 id,
+  // 并同步其直接子节点的 parentId(项目节点/自定义子节点)
+  if (root.id !== PROJECTS_ROOT_ID) {
+    const oldId = root.id;
+    root.id = PROJECTS_ROOT_ID;
+    let changed = false;
+    for (const m of state.menuNodes) {
+      if ((m.parentId || '') === oldId) { m.parentId = PROJECTS_ROOT_ID; changed = true; }
+    }
+    if (changed) { root.updatedAt = now(); saveState(); }
+  }
+  return root;
+}
+
+/** 项目节点(侧栏)缺省图标 */
+export function projectNodeIcon() {
+  return '📦';
+}
+
+/** 默认示例项目:禾道学堂 hedaoedu(首次进入项目管理中心时注入) */
+export function defaultHedaoeduProject() {
+  return {
+    name: 'hedaoedu 禾道学堂',
+    status: 'stopped',
+    description: 'K12 游戏化学习平台(禾道学堂/合道学苑)。Vue3 + Vite 学生端/家长端 + 管理后台(admin-web),Java Spring Boot 后端(admin-server),MySQL 数据库(Docker 容器 hedao-mysql,宿主机端口 3307)。四端联调:管理后台 :5174 / 学生家长端 :5173 / 后端 API :8080。',
+    rootPath: 'E:/MyProject/hedaoedu',
+    accessUrl: 'http://localhost:5173/',
+    website: '',
+    launchPath: 'E:/MyProject/hedaoedu/start-dev.sh',
+    deployMethod: '本地开发环境 + Docker MySQL(基础设施 docker-compose.yml:mysql 必启,minio/redis 可选 storage profile)',
+    launchMethod: 'bash start-dev.sh(一键四端联调:MySQL → 后端 jar :8080 → 管理后台 :5174 → 学生/家长端 :5173);停止: bash stop-dev.sh',
+    frontendCmd: 'npm run dev',
+    frontendUrl: 'http://localhost:5173/',
+    backendCmd: 'java -jar admin-server/target/hedao-admin-server-1.0.0.jar',
+    backendUrl: 'http://localhost:8080/health',
+    remark: '管理后台账号 admin/admin123;学生端 student/123456;家长端 parent/123456(绑定码 8888)。后端健康检查 GET http://localhost:8080/health。',
+    createdAt: now(),
+    updatedAt: now(),
+  };
+}
+
+/** 项目列表(按 sort + 创建时间排序) */
+export function getProjects() {
+  return [...state.projects].sort((a, b) => (a.sort || 0) - (b.sort || 0) || (a.createdAt || 0) - (b.createdAt || 0));
+}
+
+export function projectById(id) {
+  return state.projects.find((p) => p.id === id) || null;
+}
+
+/** 项目侧栏节点(若存在) */
+export function projectMenuNode(projectId) {
+  const p = projectById(projectId);
+  return p && p.menuNodeId ? menuNodeById(p.menuNodeId) : null;
+}
+
+/**
+ * 新增项目:写入 projects + 自动在「项目管理中心」根下创建同名侧栏节点。
+ * 返回新项目对象;失败返回 null。
+ */
+export function addProject({ name, description = '', rootPath = '', accessUrl = '', website = '', launchPath = '', deployMethod = '', launchMethod = '', frontendCmd = '', frontendUrl = '', backendCmd = '', backendUrl = '', remark = '', status = 'stopped' }) {
+  const nm = String(name || '').trim();
+  if (!nm) return null;
+  const root = ensureProjectsMenuRoot();
+  const p = {
+    id: uid('pj'),
+    name: nm,
+    status: status === 'running' || status === 'error' ? status : 'stopped',
+    description: String(description || ''),
+    rootPath: String(rootPath || ''),
+    accessUrl: String(accessUrl || ''),
+    website: String(website || ''),
+    launchPath: String(launchPath || ''),
+    deployMethod: String(deployMethod || ''),
+    launchMethod: String(launchMethod || ''),
+    frontendCmd: String(frontendCmd || ''),
+    frontendUrl: String(frontendUrl || ''),
+    backendCmd: String(backendCmd || ''),
+    backendUrl: String(backendUrl || ''),
+    remark: String(remark || ''),
+    menuNodeId: '',
+    sort: state.projects.length,
+    createdAt: now(),
+    updatedAt: now(),
+  };
+  state.projects.push(p);
+  const node = addMenuNode({
+    name: nm,
+    icon: projectNodeIcon(),
+    parentId: root ? root.id : '',
+    nodeType: 'dir',
+    actionType: 'builtin',
+    action: 'project:' + p.id,
+    tooltip: '项目: ' + nm + ' — 打开项目管理详情页',
+    isResource: false,
+  });
+  p.menuNodeId = node.id;
+  saveState();
+  return p;
+}
+
+/** 更新项目:同步侧栏节点名称/提示;status 由运行探测实时刷新 */
+export function updateProject(id, patch) {
+  const p = projectById(id);
+  if (!p) return null;
+  if (patch.name !== undefined) {
+    const nm = String(patch.name).trim();
+    if (!nm) return null;
+    patch.name = nm;
+  }
+  // 仅 status 变化(运行探测)不算「内容编辑」,不刷新最近更新时间
+  const onlyStatus = patch && Object.keys(patch).length === 1 && patch.status !== undefined;
+  Object.assign(p, patch, onlyStatus ? {} : { updatedAt: now() });
+  // 同步侧栏项目节点名称(数据一致性:详情页/主页/导航菜单同一来源)
+  const node = projectMenuNode(id);
+  if (node) {
+    if (patch.name !== undefined && node.name !== p.name) {
+      node.name = p.name;
+      node.tooltip = '项目: ' + p.name + ' — 打开项目管理详情页';
+    }
+    if (!onlyStatus) node.updatedAt = now();
+  }
+  saveState();
+  return p;
+}
+
+/** 删除项目:移除项目配置 + 侧栏项目节点(含其下全部子目录) + 全部文档条目 */
+export function removeProject(id) {
+  const p = projectById(id);
+  if (!p) return false;
+  state.projects = state.projects.filter((x) => x.id !== id);
+  state.projectEntries = state.projectEntries.filter((e) => e.projectId !== id);
+  // 直接移除菜单节点(不走 removeMenuNode:根节点锁定会导致祖先链锁检查拒绝删除)
+  if (p.menuNodeId) {
+    const ids = new Set([p.menuNodeId, ...getMenuNodeDescendants(p.menuNodeId)]);
+    state.menuNodes = state.menuNodes.filter((m) => !ids.has(m.id));
+  }
+  saveState();
+  return true;
+}
+
+// ---------------- 项目子目录(分类目录,复用 menuNodes 节点) ----------------
+
+/** 项目全部直接子目录(菜单节点) */
+export function getProjectFolders(projectId) {
+  const node = projectMenuNode(projectId);
+  if (!node) return [];
+  return getMenuChildren(node.id);
+}
+
+/** 项目某目录下的直接子目录 */
+export function getProjectSubFolders(folderNodeId) {
+  return getMenuChildren(folderNodeId);
+}
+
+/** 某目录节点的所有后代目录 id(不含自身) */
+export function getProjectFolderDescendants(folderNodeId) {
+  return getMenuNodeDescendants(folderNodeId);
+}
+
+/** 目录节点是否为某项目的子目录(含项目根下任意层级) */
+export function isProjectFolderOf(folderNodeId, projectId) {
+  const node = projectMenuNode(projectId);
+  if (!node || !folderNodeId) return false;
+  return isMenuNodeDescendant(folderNodeId, node.id);
+}
+
+/**
+ * 新增项目子目录:在项目节点下创建普通目录节点(可继续嵌套子目录)。
+ * parentId 省略/'' = 项目根;否则为父目录菜单节点 id。
+ */
+export function addProjectFolder(projectId, { name, parentId = '', icon = '' }) {
+  const node = projectMenuNode(projectId);
+  if (!node) return null;
+  const nm = String(name || '').trim();
+  if (!nm) return null;
+  const pid = parentId || node.id;
+  // 校验父目录属于该项目
+  if (pid !== node.id && !isProjectFolderOf(pid, projectId)) return null;
+  return addMenuNode({
+    name: nm,
+    icon: icon || '📁',
+    parentId: pid,
+    nodeType: 'dir',
+    actionType: 'builtin',
+    action: 'projectfolder:' + projectId,
+    tooltip: '项目目录: ' + nm,
+    isResource: false,
+  });
+}
+
+/** 重命名项目子目录 */
+export function renameProjectFolder(folderNodeId, name) {
+  const nm = String(name || '').trim();
+  if (!nm) return null;
+  return updateMenuNode(folderNodeId, { name: nm, tooltip: '项目目录: ' + nm });
+}
+
+/**
+ * 删除项目子目录(含其全部子孙目录):其下文档条目提升到项目根目录(folderId='')。
+ * 项目节点本身不可用此接口删除(用 removeProject)。
+ */
+export function removeProjectFolder(folderNodeId) {
+  const node = menuNodeById(folderNodeId);
+  if (!node || node.parentId === PROJECTS_ROOT_ID) return false;
+  const ids = new Set([folderNodeId, ...getMenuNodeDescendants(folderNodeId)]);
+  // 条目提升到项目根
+  const projNode = (() => {
+    let cur = node;
+    while (cur && cur.parentId !== PROJECTS_ROOT_ID) cur = cur.parentId ? menuNodeById(cur.parentId) : null;
+    return cur;
+  })();
+  const projectId = projNode ? (projNode.action || '').slice('project:'.length) : '';
+  for (const e of state.projectEntries) {
+    if (e.projectId === projectId && ids.has(e.folderId)) e.folderId = '';
+  }
+  // 直接过滤移除(不走 removeMenuNode:根节点锁定会导致祖先链锁检查拒绝删除)
+  state.menuNodes = state.menuNodes.filter((m) => !ids.has(m.id));
+  saveState();
+  return true;
+}
+
+// ---------------- 项目资源/文档条目 ----------------
+
+/** 某项目目录(folderId '' = 项目根)下的文档/资源条目 */
+export function getProjectEntries(projectId, folderId = '') {
+  return state.projectEntries
+    .filter((e) => e.projectId === projectId && (e.folderId || '') === (folderId || ''))
+    .sort((a, b) => (a.sort || 0) - (b.sort || 0) || (a.createdAt || 0) - (b.createdAt || 0));
+}
+
+/** 某项目全部条目(任意目录) */
+export function getProjectAllEntries(projectId) {
+  return state.projectEntries.filter((e) => e.projectId === projectId);
+}
+
+export function projectEntryById(id) {
+  return state.projectEntries.find((e) => e.id === id) || null;
+}
+
+/** 新增项目文档/资源条目(type: 'doc' 文档 | 'link' 链接 | 'file' 本地文件) */
+export function addProjectEntry({ projectId, folderId = '', name, type = 'doc', content = '' }) {
+  const p = projectById(projectId);
+  if (!p) return null;
+  const nm = String(name || '').trim();
+  if (!nm) return null;
+  if (folderId) {
+    // 目录必须属于该项目
+    const node = projectMenuNode(projectId);
+    if (!node || !isProjectFolderOf(folderId, projectId)) return null;
+  }
+  const e = {
+    id: uid('pe'),
+    projectId,
+    folderId: folderId || '',
+    name: nm,
+    type: ['doc', 'link', 'file'].includes(type) ? type : 'doc',
+    content: String(content || ''),
+    sort: state.projectEntries.filter((x) => x.projectId === projectId && (x.folderId || '') === (folderId || '')).length,
+    createdAt: now(),
+    updatedAt: now(),
+  };
+  state.projectEntries.push(e);
+  saveState();
+  return e;
+}
+
+export function updateProjectEntry(id, patch) {
+  const e = projectEntryById(id);
+  if (!e) return null;
+  if (patch.name !== undefined) {
+    const nm = String(patch.name).trim();
+    if (!nm) return null;
+    patch.name = nm;
+  }
+  Object.assign(e, patch, { updatedAt: now() });
+  saveState();
+  return e;
+}
+
+export function removeProjectEntry(id) {
+  const i = state.projectEntries.findIndex((x) => x.id === id);
+  if (i < 0) return false;
+  state.projectEntries.splice(i, 1);
+  saveState();
+  return true;
 }

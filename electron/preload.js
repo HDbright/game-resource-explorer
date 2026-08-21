@@ -157,6 +157,13 @@ contextBridge.exposeInMainWorld('api', {
   // 计时记录/类型(补丁·96):Todo 日历按类型统计用
   timeRecList: () => ipcRenderer.invoke('timer:recList'),
   timeTypeList: () => ipcRenderer.invoke('timer:typeList'),
+
+  // ---- 项目管理中心(补丁·113):服务进程启停 / 运行状态探测 ----
+  projectStart: (args) => ipcRenderer.invoke('projects:start', args),
+  projectStop: (args) => ipcRenderer.invoke('projects:stop', args),
+  projectStatus: (specs) => ipcRenderer.invoke('projects:status', specs),
+  projectProbeUrl: (url) => ipcRenderer.invoke('projects:probeUrl', url),
+  projectStopAll: () => ipcRenderer.invoke('projects:stopAll'),
 });
 
 // 冒烟测试标志(仅开发时传入 --smoke,通过 URL 参数传递,见 main.js)

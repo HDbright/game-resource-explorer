@@ -3,7 +3,63 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.4.2`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.4.5`）。
+
+---
+
+## 2026-08-21（补丁·115）
+
+### [优化] 项目详情页:文字可选中复制 + 服务配置访问地址可点击外部浏览器打开
+
+- **需求(用户)**：项目详情页面的文字内容要能被选择复制;服务配置卡片的访问地址要能点击用外部浏览器打开。
+- **改动**:
+  - `src/style.css`:全局 `body { user-select: none }` 导致详情页文字不可选中——为 `.content-panel .page.page-projects` 放开 `user-select: text`(按钮/下拉保持不可选,输入框/文本域仍可选中);
+  - `src/pages/projectsPage.js` `svcRow`:服务配置卡片「访问地址」在 http(s) 时渲染为可点击链接按钮 `.proj-svc-link`(等宽字体、链接色、hover 高亮+下划线),点击走既有 `openExternalUrl` 用系统默认浏览器打开;非 http(s) 保持纯文本 `<code>`(可选中复制)。
+- **验证**:`npm run build` 通过;冒烟 `run_projects_smoke.js` **3/3 PASS** 且新增断言:详情页 `computed user-select === 'text'`、`.proj-svc-link` 数量 ≥ 2(前端/后端 URL 均为 http)、点击链接不报错。
+- 版本 2.4.4 → **2.4.5**(package.json/lock 两处)+ CHANGELOG 顶部插入本条目;打包 → release/游戏资源管理器-v2.4.5-便携版.zip。
+
+---
+
+## 2026-08-21（补丁·114）
+
+### [修复] 项目管理中心:侧栏项目节点重复渲染 + 详情页无滚动条 + 服务按钮布局(状态行内联 + 前后端重启)
+
+- **需求(用户)**：① 左侧菜单树「项目管理中心」下的子项目菜单节点重复,请修正;② 项目详情页内容超出窗口时应出现滚动条;③ 运行状况卡片的启动/停止按钮应内联到对应运行状态行的同一行后面,前后端各增加「重启服务」按钮。
+- **改动**:
+  1. **节点重复(根因)**:`src/ui.js` `renderMenuChildren` 的 projects 分支会遍历 `getMenuChildren(根)` 手动渲染项目节点,而 `renderMenuNode` 紧随其后的 `for (const k of menuKids)` 渲染的是同一批节点(同一数据源)→ 每个项目节点渲染两遍。修复:删除 projects 分支(项目节点全部走 menuKids 统一渲染),`menuNodeHasDynamic` 对 projects 返回 false(其子内容全部在 menuNodes 中,不需要动态子内容);
+  2. **无滚动条(根因)**:通用样式 `.content-panel .page { overflow: hidden }` 特异性(0,2,0)高于 `.page-projects { overflow:auto }`(0,1,0),滚动条被覆盖。修复:改用高特异性 `.content-panel .page.page-projects` + 自定义滚动条样式(同 page-home/page-settings 约定);
+  3. **按钮布局与重启**:`projectsPage.js` `renderOverviewTab` 重写运行状况卡片——每行「名称 + 状态 + 弹性留白 + 行内按钮组(.proj-run-btns)」,一键启动行(▶ 一键启动 / ■ 全部停止 / ↻ 重启)、前端行(▶ 启动 / ■ 停止 / ↻ 重启)、后端行(▶ 启动 / ■ 停止 / ↻ 重启);新增 `handleRestartOp`:先 `projectStop` → 等待 500ms → 按配置命令 `projectStart`,toast 反馈「已重启…/失败原因」,状态探测刷新;CSS 移除 `.proj-run-ops`,新增 `.proj-run-spacer/.proj-run-btns`。
+- **验证**:`npm run build` 通过;冒烟 `run_projects_smoke.js` **3/3 PASS** 且新增断言全覆盖三项修复——侧栏 hedaoedu 节点计数 = 1(不重复)、`.page-projects` computed overflow-y = auto、运行状况 3 行 × 3 按钮(含「↻ 重启」)且按钮位于状态行内。
+- 版本 2.4.3 → **2.4.4**(package.json/lock 两处)+ CHANGELOG 顶部插入本条目;打包 → release/游戏资源管理器-v2.4.4-便携版.zip。
+
+---
+
+## 2026-08-21（补丁·113）
+
+### [新增] 项目管理中心:项目生命周期管理(顶级根目录 + 主页汇总 + 项目详情 + 资源文档 + 服务启停)
+
+- **需求(用户)**：新增「项目管理中心」顶级根目录模块,实现完整项目生命周期管理:
+  1. 管理中心主页:汇总全部已管理项目,每项显示项目名称、运行状态(运行中/已停止/异常)、最近更新时间,提供新增项目、备注项目、删除项目、进入详情入口;
+  2. 新增项目:统一模板表单(项目名称/描述/访问地址/网址/外部应用启动路径/部署方式/启动方法/前端服务配置/后端服务配置/根路径/备注),提交后自动在「项目管理中心」根下生成同名侧栏子节点并同步导航;项目节点下支持创建子目录/分类目录管理资源与文档;
+  3. 项目详情页:综述详情、运行状况、部署信息、启动方法、访问地址、网址、外部应用启动路径;一键启动 + 启动/停止前后端服务,全部操作返回明确状态反馈(⏳ 进行中/成功/失败原因);
+  4. 全部内容可在线编辑、保存、持久化,编辑后实时同步详情页与导航菜单节点,各入口数据一致;
+  5. 将 `E:\MyProject\hedaoedu` 添加为第一个项目并完整录入配置(首次使用自动种子)。
+- **改动**:
+  - `electron/db.js`:新增 `projects`(14 个配置字段 + status/menu_node_id/sort/时间戳)与 `project_entries`(文档/链接/文件条目, folder_id 关联项目子目录菜单节点 id)两张表;defaultDb/readDb/writeDb/dbStats 四处同步(白名单四件套);
+  - `electron/projectRunner.js`(新):项目服务子进程管理——spawn 登记、`taskkill /PID x /T /F` 停整棵进程树、HTTP(S) 健康探测(进程表无记录时 URL 兜底识别,应用重启后自愈)、退出清理;IPC:projects:start/stop/status/probeUrl/stopAll;
+  - `electron/main.js`/`preload.js`:注册项目服务 IPC 与 `window.api.projectStart/Stop/Status/ProbeUrl/StopAll`;
+  - `src/state.js`:projects/projectEntries CRUD、项目菜单节点创建/改名同步/级联删除、`ensureProjectsMenuRoot`(固定 id `__m_projects__`,幂等自愈 + 孤儿节点拉回根下)、默认项目 hedaoedu 种子(首次使用注入)、`updateProject` 仅 status 变化不刷新「最近更新时间」;
+  - `src/pages/projectsPage.js`(新):主页汇总(卡片 + 状态统计 + 备注/编辑/删除)、项目详情(运行状况 + 综述 + 部署信息 + 服务配置 + 启停按钮状态机)、资源文档(目录树递归 + 条目列表 + 建目录/重命名/删除/增删改条目)、新增/编辑项目统一模板表单(路径字段带「浏览…」);页面与 ui.js 通过 `projects:navigate` 自定义事件解耦(避免循环 import);
+  - `src/ui.js`:侧栏渲染(projects 根/项目节点/子目录)、点击分发(action=projects/project:/projectfolder:)、主区页面切换与标签页(kind='projects')、右键菜单定制(项目节点:新建项目/新建子目录/编辑/删除;目录节点:建子目录/重命名/删除)、设置页状态快照恢复;
+  - `src/pages/settingsPage.js`:菜单管理动态子内容(项目节点)、目标页面动作 `page:projects`、系统页面清单登记;
+  - `src/style.css`:项目页全套样式(卡片/状态徽章/运行状况/目录树/条目/表单);
+  - `index.html`:新增 `page-projects` 页面容器;
+  - `scripts/check-imports.js`:豁免「文件内本地同名函数定义」(todoPage 的 projectById/removeProject 定义误报);
+  - `scripts/projects-smoke-main.js` + `run_projects_smoke.js`(新):项目管理中心全流程冒烟(种子 → 主页 → 详情 → 资源文档 → 侧栏右键新建 → 改名同步 → 删除级联 → 查库断言);
+  - `docs/项目管理中心-设计文档.md`(新):页面结构/交互流程/数据模型/模块职责/扩展点。
+- **根因修复**:① `ensureProjectsMenuRoot` 旧实现走 addMenuNode 随机 id,导致 `addProject` 按固定 id 查找不到根、项目节点挂错为顶级——改为固定 id `__m_projects__` 直接入栈并归一化历史遗留 id;② `removeProject/removeProjectFolder` 走 removeMenuNode 会被 locked 根节点的祖先链锁检查拒绝删除——改为直接 filter menuNodes。
+- **验证**:`npm run build`(check-imports 自检)通过;`run_projects_smoke.js` 冒烟 **3/3 PASS**(含查库断言:hedaoedu 完整配置落库、projects 根节点、项目节点 parent 正确、测试项目删除后无残留);主应用全量冒烟(--smoke)通过。
+- 版本 2.4.2 → **2.4.3**(package.json/lock 两处)+ CHANGELOG 顶部插入本条目;打包 → release/游戏资源管理器-v2.4.3-便携版.zip。
 
 ---
 

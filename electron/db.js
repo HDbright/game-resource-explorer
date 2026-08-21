@@ -53,6 +53,9 @@ function defaultDb() {
     toolboxFolders: [],
     // 侧栏菜单管理:整棵侧栏菜单树的节点(目录 + 终端,可改名/排序/移动/改图标)
     menuNodes: [],
+    // 项目管理中心:项目主配置(生命周期管理:启动/停止前后端服务 + 文档资源目录)
+    projects: [],
+    projectEntries: [],
     // Todo-List 任务管理(移植自 taskwingo):项目 + 任务(含子任务) + 日历事件
     todoProjects: [],
     todoTasks: [],
@@ -330,6 +333,43 @@ function open() {
       created_at INTEGER DEFAULT 0,
       updated_at INTEGER DEFAULT 0
     );
+    -- 项目管理中心(补丁·113):项目主配置 + 项目资源/文档条目
+    -- status: 'running' 运行中 | 'stopped' 已停止 | 'error' 异常(实时探测优先,落库为最近已知状态)
+    CREATE TABLE IF NOT EXISTS projects(
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      status TEXT DEFAULT 'stopped',
+      description TEXT DEFAULT '',
+      root_path TEXT DEFAULT '',
+      access_url TEXT DEFAULT '',
+      website TEXT DEFAULT '',
+      launch_path TEXT DEFAULT '',
+      deploy_method TEXT DEFAULT '',
+      launch_method TEXT DEFAULT '',
+      frontend_cmd TEXT DEFAULT '',
+      frontend_url TEXT DEFAULT '',
+      backend_cmd TEXT DEFAULT '',
+      backend_url TEXT DEFAULT '',
+      remark TEXT DEFAULT '',
+      menu_node_id TEXT DEFAULT '',
+      sort INTEGER DEFAULT 0,
+      created_at INTEGER DEFAULT 0,
+      updated_at INTEGER DEFAULT 0
+    );
+    -- 项目资源/文档条目:folder_id 关联项目子目录菜单节点 id('' = 项目根目录)
+    -- type: 'doc' 文档 | 'link' 链接 | 'file' 本地文件
+    CREATE TABLE IF NOT EXISTS project_entries(
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      folder_id TEXT DEFAULT '',
+      name TEXT NOT NULL,
+      type TEXT DEFAULT 'doc',
+      content TEXT DEFAULT '',
+      sort INTEGER DEFAULT 0,
+      created_at INTEGER DEFAULT 0,
+      updated_at INTEGER DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_project_entries_project ON project_entries(project_id);
   `);
   // 旧库迁移:categories 缺 parent_id 列时补上(子分类支持)
   try {
@@ -556,6 +596,32 @@ function readDb() {
     d.todoProjects = conn.prepare(
       'SELECT id, name, color, sort, parent_id AS parentId, notes, deadline, complete_at AS completeAt, created_at AS createdAt, updated_at AS updatedAt FROM todo_projects ORDER BY sort'
     ).all();
+    d.projects = conn.prepare(
+      'SELECT id, name, status, description, root_path AS rootPath, access_url AS accessUrl, website, launch_path AS launchPath, deploy_method AS deployMethod, launch_method AS launchMethod, frontend_cmd AS frontendCmd, frontend_url AS frontendUrl, backend_cmd AS backendCmd, backend_url AS backendUrl, remark, menu_node_id AS menuNodeId, sort, created_at AS createdAt, updated_at AS updatedAt FROM projects ORDER BY sort, created_at'
+    ).all();
+    for (const p of (d.projects || [])) {
+      if (!p.description) p.description = '';
+      if (!p.rootPath) p.rootPath = '';
+      if (!p.accessUrl) p.accessUrl = '';
+      if (!p.website) p.website = '';
+      if (!p.launchPath) p.launchPath = '';
+      if (!p.deployMethod) p.deployMethod = '';
+      if (!p.launchMethod) p.launchMethod = '';
+      if (!p.frontendCmd) p.frontendCmd = '';
+      if (!p.frontendUrl) p.frontendUrl = '';
+      if (!p.backendCmd) p.backendCmd = '';
+      if (!p.backendUrl) p.backendUrl = '';
+      if (!p.remark) p.remark = '';
+      if (!p.menuNodeId) p.menuNodeId = '';
+    }
+    d.projectEntries = conn.prepare(
+      'SELECT id, project_id AS projectId, folder_id AS folderId, name, type, content, sort, created_at AS createdAt, updated_at AS updatedAt FROM project_entries ORDER BY project_id, folder_id, sort, created_at'
+    ).all();
+    for (const e of (d.projectEntries || [])) {
+      if (!e.folderId) e.folderId = '';
+      if (!e.type) e.type = 'doc';
+      if (!e.content) e.content = '';
+    }
     d.todoTasks = conn.prepare(
       'SELECT id, title, notes, notes_html AS notesHtml, priority, status, deadline, reminder_at AS reminderAt, ' +
       'start_at AS startAt, complete_at AS completeAt, events, sort, ' +
@@ -631,7 +697,7 @@ function writeDb(state) {
   const conn = open();
   conn.exec('BEGIN');
   try {
-    conn.exec('DELETE FROM settings; DELETE FROM categories; DELETE FROM items; DELETE FROM fav_categories; DELETE FROM fav_items; DELETE FROM scene_categories; DELETE FROM scenes; DELETE FROM web_bookmark_categories; DELETE FROM web_bookmarks; DELETE FROM api_categories; DELETE FROM api_projects; DELETE FROM api_endpoints; DELETE FROM toolbox_folders; DELETE FROM menu_nodes; DELETE FROM todo_projects; DELETE FROM todo_tasks; DELETE FROM todo_subtasks; DELETE FROM todo_events;');
+    conn.exec('DELETE FROM settings; DELETE FROM categories; DELETE FROM items; DELETE FROM fav_categories; DELETE FROM fav_items; DELETE FROM scene_categories; DELETE FROM scenes; DELETE FROM web_bookmark_categories; DELETE FROM web_bookmarks; DELETE FROM api_categories; DELETE FROM api_projects; DELETE FROM api_endpoints; DELETE FROM toolbox_folders; DELETE FROM menu_nodes; DELETE FROM todo_projects; DELETE FROM todo_tasks; DELETE FROM todo_subtasks; DELETE FROM todo_events; DELETE FROM projects; DELETE FROM project_entries;');
     const setSetting = conn.prepare('INSERT OR REPLACE INTO settings(key, value) VALUES (?, ?)');
     for (const [k, v] of Object.entries(state.settings || {})) {
       setSetting.run(k, JSON.stringify(v));
@@ -808,6 +874,31 @@ function writeDb(state) {
     for (const ev of state.todoEvents || []) {
       insTodoEvent.run(ev.id, ev.date || '', ev.type || 'todo', ev.calendar || 'solar', ev.title || '', ev.note || '', ev.createdAt || 0, ev.updatedAt || 0);
     }
+    // ---- 项目管理中心:项目主配置 + 项目资源/文档条目 ----
+    const insProject = conn.prepare(
+      'INSERT INTO projects(id, name, status, description, root_path, access_url, website, launch_path, deploy_method, launch_method, frontend_cmd, frontend_url, backend_cmd, backend_url, remark, menu_node_id, sort, created_at, updated_at) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    for (const p of state.projects || []) {
+      insProject.run(
+        p.id, p.name || '', p.status || 'stopped', p.description || '', p.rootPath || '',
+        p.accessUrl || '', p.website || '', p.launchPath || '', p.deployMethod || '',
+        p.launchMethod || '', p.frontendCmd || '', p.frontendUrl || '',
+        p.backendCmd || '', p.backendUrl || '', p.remark || '', p.menuNodeId || '',
+        typeof p.sort === 'number' && isFinite(p.sort) ? p.sort : 0,
+        p.createdAt || 0, p.updatedAt || 0
+      );
+    }
+    const insProjEntry = conn.prepare(
+      'INSERT INTO project_entries(id, project_id, folder_id, name, type, content, sort, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    for (const e of state.projectEntries || []) {
+      insProjEntry.run(
+        e.id, e.projectId || '', e.folderId || '', e.name || '', e.type || 'doc',
+        e.content || '', typeof e.sort === 'number' && isFinite(e.sort) ? e.sort : 0,
+        e.createdAt || 0, e.updatedAt || 0
+      );
+    }
     conn.exec('COMMIT');
     return true;
   } catch (err) {
@@ -859,6 +950,8 @@ function dbStats() {
       items: conn.prepare('SELECT COUNT(*) AS n FROM items').get().n,
       todoProjects: conn.prepare('SELECT COUNT(*) AS n FROM todo_projects').get().n,
       todoTasks: conn.prepare('SELECT COUNT(*) AS n FROM todo_tasks').get().n,
+      projects: conn.prepare('SELECT COUNT(*) AS n FROM projects').get().n,
+      projectEntries: conn.prepare('SELECT COUNT(*) AS n FROM project_entries').get().n,
       settings: conn.prepare('SELECT COUNT(*) AS n FROM settings').get().n,
       timeTypes: conn.prepare('SELECT COUNT(*) AS n FROM time_types').get().n,
       timeRecords: conn.prepare('SELECT COUNT(*) AS n FROM time_records').get().n,

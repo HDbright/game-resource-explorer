@@ -30,6 +30,8 @@ for (const file of files) {
   const missing = [];
   for (const name of exported) {
     if (imported.has(name)) continue;
+    // 文件内已定义同名本地函数(如 todoPage 的 projectById/removeProject) → 调用指向本地实现,无需导入
+    if (new RegExp('function\\s+' + name.replace(/\$/g, '\\$') + '\\s*\\(', 'm').test(src)) continue;
     // 只看"被当函数调用"的形态,且排除 obj.name(...) 这类成员调用
     const re = new RegExp('(^|[^A-Za-z0-9_$.])' + name.replace(/\$/g, '\\$') + '\\s*\\(', 'm');
     if (re.test(src)) missing.push(name);

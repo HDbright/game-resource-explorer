@@ -1,7 +1,7 @@
 // ============ 系统设置页面 ============
 // 当前包含「截图」相关设置:默认保存路径 / 默认格式(PNG·WebP) / WebP 质量。
 
-import { state, setSetting, saveState, getMenuRoots, getMenuChildren, menuNodeById, menuNodePath, getMenuNodeDescendants, addMenuNode, updateMenuNode, removeMenuNode, moveMenuNodeBeside, moveMenuNodeToParent, getToolboxChildren, getCategoryChildren, catVisibleInGroup, getSceneCategoryChildren, getWebBookmarkCategoryChildren, webBookmarksInCategory, typeGroup, addToolboxFolder, updateToolboxFolder, removeToolboxFolder, toolboxFolderById, addCategory, updateCategory, removeCategoryAdvanced, categoryById, getCategoryDescendants, categoryPath, addSceneCategory, updateSceneCategory, removeSceneCategory, sceneCategoryById, addWebBookmarkCategory, updateWebBookmarkCategory, removeWebBookmarkCategory, webBookmarkCategoryById, removeWebBookmark, addFavCategory, updateFavCategory, removeFavCategory, removeFavItem, favCategoryById, isUrlPath, nameFromPath, customPages, customPageById, addCustomPage, updateCustomPage, removeCustomPage, PAGE_TEMPLATES, customTypes, customTypeById, addCustomType, updateCustomType, removeCustomType, customTypeGroups, customTypeGroupById, addCustomTypeGroup, updateCustomTypeGroup, removeCustomTypeGroup, typeLabel, TYPE_EXTENSIONS, groupTagOptions, groupTagOptionSections, extOwners, CAT_TYPE_TAG_LABELS, isCategoryLocked, isMenuNodeLocked, resourceGroupIcon, resourceTypeIcon, setResourceGroupIcon, setResourceTypeIcon, builtinTypeName, builtinTypeExts, setBuiltinTypeOverride } from '../state.js';
+import { state, setSetting, saveState, getMenuRoots, getMenuChildren, menuNodeById, menuNodePath, getMenuNodeDescendants, addMenuNode, updateMenuNode, removeMenuNode, moveMenuNodeBeside, moveMenuNodeToParent, PROJECTS_ROOT_ID, getToolboxChildren, getCategoryChildren, catVisibleInGroup, getSceneCategoryChildren, getWebBookmarkCategoryChildren, webBookmarksInCategory, typeGroup, addToolboxFolder, updateToolboxFolder, removeToolboxFolder, toolboxFolderById, addCategory, updateCategory, removeCategoryAdvanced, categoryById, getCategoryDescendants, categoryPath, addSceneCategory, updateSceneCategory, removeSceneCategory, sceneCategoryById, addWebBookmarkCategory, updateWebBookmarkCategory, removeWebBookmarkCategory, webBookmarkCategoryById, removeWebBookmark, addFavCategory, updateFavCategory, removeFavCategory, removeFavItem, favCategoryById, isUrlPath, nameFromPath, customPages, customPageById, addCustomPage, updateCustomPage, removeCustomPage, PAGE_TEMPLATES, customTypes, customTypeById, addCustomType, updateCustomType, removeCustomType, customTypeGroups, customTypeGroupById, addCustomTypeGroup, updateCustomTypeGroup, removeCustomTypeGroup, typeLabel, TYPE_EXTENSIONS, groupTagOptions, groupTagOptionSections, extOwners, CAT_TYPE_TAG_LABELS, isCategoryLocked, isMenuNodeLocked, resourceGroupIcon, resourceTypeIcon, setResourceGroupIcon, setResourceTypeIcon, builtinTypeName, builtinTypeExts, setBuiltinTypeOverride } from '../state.js';
 import { applyAppearance } from '../appearance.js';
 import { toast, openModal, footButtons, confirmDialog, promptDialog, showContextMenu, openEmojiPicker, iconNode, attachIconPreview, newPageDialog, finalizeIcon } from '../dialogs.js';
 import { toolboxToolActions } from './toolboxPage.js';
@@ -1058,6 +1058,7 @@ export function renderSettingsPage(container, opts = {}) {
     {
       group: '工具区',
       pages: [
+        { name: '项目管理中心', desc: '项目生命周期管理(主页汇总/详情/资源文档/服务启停)', file: 'src/pages/projectsPage.js + electron/projectRunner.js', builtinEntries: ['侧栏「项目管理中心」根'], actions: ['page:projects'] },
         { name: '资源工具箱', desc: '工具目录树(可管理的工具入口)', file: 'src/pages/toolboxPage.js', builtinEntries: ['侧栏「资源工具箱」根'], actions: ['page:toolbox'] },
         { name: '工具箱工具页(astc2png/skel2json/spinefix/sk2spine/spine 格式转换/图片集打包/图片编辑/FGUI 导出源/Todo-List/Markdown/得乐学苑)', desc: '各工具功能页(部分为独立 C++ EXE);菜单终端节点「目标页面」下拉由 toolboxToolActions() 动态生成,新增工具自动出现', file: 'src/pages/toolboxPage.js + electron/tools/*', builtinEntries: ['工具箱目录树节点'], actions: ['tool:astc2png', 'tool:skel2json', 'tool:spinefix', 'tool:sk2spine', 'tool:spineconvert', 'tool:atlas', 'tool:imageedit', 'tool:fgui', 'tool:todo', 'tool:markdown', 'tool:kidworkspace'] },
       ],
@@ -1688,6 +1689,7 @@ const MENU_ACTION_OPTIONS = [
   { value: 'page:webgame', label: '网络资源抓取' },
   { value: 'page:scene', label: '游戏场景管理主页' },
   { value: 'page:toolbox', label: '资源工具箱主页' },
+  { value: 'page:projects', label: '项目管理中心主页' },
   { value: 'page:fav', label: '收藏夹主页' },
   { value: 'page:emoji', label: 'emoji 图标管理' },
   { value: 'res:anim', label: '动画资源' },
@@ -1711,6 +1713,9 @@ function actionSummary(node) {
     if (a === 'scene') return '场景管理';
     if (a === 'webgame') return '网络抓取';
     if (a === 'toolbox') return '资源工具箱';
+    if (a === 'projects') return '项目管理中心';
+    if (a.startsWith('project:')) return '项目节点';
+    if (a.startsWith('projectfolder:')) return '项目目录';
     if (a === 'devtools') return '开发工具箱';
     return '目录';
   }
@@ -2024,6 +2029,19 @@ function bindMenuManagement(container) {
         out.push({ id: '__webgame_fav__', name: '网址收藏夹', icon: '🔖', badge: '内容', kids: () => getWebBookmarkCategoryChildren('').map(webCatDesc) });
       } else if (a === 'fav') {
         for (const fc of state.favCategories) out.push(favCatDesc(fc));
+      } else if (a === 'projects') {
+        // 项目管理中心:项目节点(子目录在项目节点自身的子级渲染)
+        const projDesc = (m) => {
+          const pid = (m.action || '').slice('project:'.length);
+          const proj = (state.projects || []).find((p) => p.id === pid);
+          return {
+            id: m.id, name: m.name, icon: m.icon || '📦',
+            badge: proj ? '项目' : '项目(缺数据)',
+            kind: 'menunode',
+            kids: () => getMenuChildren(m.id).map((k) => ({ id: k.id, name: k.name, icon: k.icon || '📁', badge: '项目目录', kind: 'menunode', kids: () => [] })),
+          };
+        };
+        for (const m of getMenuChildren(PROJECTS_ROOT_ID)) out.push(projDesc(m));
       }
       return out;
     };
