@@ -22,7 +22,7 @@ const LANGS = {
     // 筛选
     searchPh: '搜索任务…', allPriority: '全部优先级', allStatus: '全部状态', allProjects: '全部项目', noProject: '无项目',
     sortManual: '手工顺序', sortPriorityDesc: '优先级 ↓', sortDeadlineAsc: '截止日期 ↑',
-    sortNewest: '最新优先', sortOldest: '最早优先', clear: '清除',
+    sortNewest: '最新优先', sortOldest: '最早优先', sortStatus: '完成状态(进行中→待办→已完成)', clear: '清除',
     hint: '拖拽卡片可排序 · 点击卡片查看详情',
     // 优先级 / 状态
     pri_urgent: '紧急', pri_high: '高', pri_medium: '中', pri_low: '低',
@@ -70,6 +70,7 @@ const LANGS = {
     subDoneAt: '完成于', eventsSection: '任务事件',
     editSubtask: '编辑子任务', subDoneAtLabel: '完成日期', subDoneAtDisabledTip: '子任务未完成,勾选后才能填完成日期', subCreatedOn: '创建于 {0}',
     subEdit: '编辑此子任务', backToTask: '← 返回上级', breadcrumbTask: '任务', noSubtasks: '暂无子任务',
+    subEditDetail: '编辑详情…',
     parentTaskLabel: '父任务', noParent: '无父任务', publishAtLabel: '发布时间', parentProjectLabel: '父项目', noParentProject: '无（顶级项目）', noParentTask: '无（顶级任务）',
     // 详情
     copy: '复制', copyTitle: '复制任务摘要', copied: '已复制到剪贴板', copyFailed: '复制失败',
@@ -120,7 +121,7 @@ const LANGS = {
     searchPh: 'Search tasks…', allPriority: 'All Priorities', allStatus: 'All Statuses',
     allProjects: 'All Projects', noProject: 'No Project',
     sortManual: 'Manual Order', sortPriorityDesc: 'Priority ↓', sortDeadlineAsc: 'Deadline ↑',
-    sortNewest: 'Newest First', sortOldest: 'Oldest First', clear: 'Clear',
+    sortNewest: 'Newest First', sortOldest: 'Oldest First', sortStatus: 'By Status (In Progress → To Do → Done)', clear: 'Clear',
     hint: 'Drag cards to reorder · Click a card for details',
     pri_urgent: 'Urgent', pri_high: 'High', pri_medium: 'Medium', pri_low: 'Low',
     st_todo: 'To Do', st_in_progress: 'In Progress', st_done: 'Done',
@@ -161,6 +162,7 @@ const LANGS = {
     subDoneAt: 'Done on', eventsSection: 'Task Events',
     editSubtask: 'Edit subtask', subDoneAtLabel: 'Done at', subDoneAtDisabledTip: 'Subtask not done yet — check it first to set a completion date', subCreatedOn: 'Created {0}',
     subEdit: 'Edit this subtask', backToTask: '← Back', breadcrumbTask: 'Task', noSubtasks: 'No subtasks',
+    subEditDetail: 'Edit details…',
     parentTaskLabel: 'Parent task', noParent: 'No parent', publishAtLabel: 'Publish time', parentProjectLabel: 'Parent project', noParentProject: 'None (top-level)', noParentTask: 'None (top-level)',
     copy: 'Copy', copyTitle: 'Copy task summary', copied: 'Copied to clipboard', copyFailed: 'Copy failed',
     overduePrefix: 'Overdue · ', descLabel: 'Description', createdOn: 'Created {0}', updatedOn: 'Updated {0}',
@@ -371,12 +373,14 @@ let taskModalOpen = false; // 任务模态框开关(null 任务=新建;modalTask
 let modalTaskId = null;   // 任务模态框正在编辑的任务 id
 let modalInitialTab = 'details'; // 打开任务模态框时定位到的 tab(子任务右键编辑→'subtasks')
 let modalHighlightSub = ''; // 打开子任务 tab 时要高亮并滚动定位的子任务 id(悬停 ✎ / 右键编辑)
+let modalDrillSub = ''; // 打开模态框时直接钻取到该子任务的详情编辑页(右键「编辑详情」,补丁·121)
 let detailTaskId = null;  // 详情面板任务 id
 let modalNewParent = null; // 从树节点「+」新建任务时预设的父级 { projectId, parentTaskId }
 let projectsOpen = false;
 let archiveOpen = false;
 let exportOpen = false;
 let dragTaskId = null;
+let dragSubId = null; // 卡片内子任务拖拽排序(补丁·123):正在拖拽的子任务 id
 let dragNode = null;     // 树内拖拽源:{ kind:'task'|'proj', id }
 let eventModal = null;    // 日历事件弹窗:{id} 编辑 / {date:'YYYY-MM-DD'} 新建
 let timeRecords = [];     // show_calendar=1 的计时记录(补丁·96)
@@ -523,6 +527,11 @@ function filteredTasks() {
     else if (filters.sortBy === 'deadline') cmp = (a.deadline ?? Infinity) - (b.deadline ?? Infinity);
     else if (filters.sortBy === 'priority') cmp = PRIORITY_CONFIG[b.priority].order - PRIORITY_CONFIG[a.priority].order;
     else if (filters.sortBy === 'created_at') cmp = a.createdAt - b.createdAt;
+    // 补丁·123:按完成状态排序(进行中→待办→已完成),同状态回退手工顺序保持稳定
+    else if (filters.sortBy === 'status') {
+      const rk = (t) => (t.status === 'in_progress' ? 0 : t.status === 'todo' ? 1 : 2);
+      cmp = rk(a) - rk(b) || (a.sort ?? 0) - (b.sort ?? 0);
+    }
     return filters.sortDir === 'desc' ? -cmp : cmp;
   });
   return list;
@@ -930,6 +939,7 @@ function renderFiltersBar() {
       <option value="sort_order:asc"${filters.sortBy === 'sort_order' && filters.sortDir === 'asc' ? ' selected' : ''}>${T('sortManual')}</option>
       <option value="priority:desc"${filters.sortBy === 'priority' && filters.sortDir === 'desc' ? ' selected' : ''}>${T('sortPriorityDesc')}</option>
       <option value="deadline:asc"${filters.sortBy === 'deadline' && filters.sortDir === 'asc' ? ' selected' : ''}>${T('sortDeadlineAsc')}</option>
+      <option value="status:asc"${filters.sortBy === 'status' && filters.sortDir === 'asc' ? ' selected' : ''}>${T('sortStatus')}</option>
       <option value="created_at:desc"${filters.sortBy === 'created_at' && filters.sortDir === 'desc' ? ' selected' : ''}>${T('sortNewest')}</option>
       <option value="created_at:asc"${filters.sortBy === 'created_at' && filters.sortDir === 'asc' ? ' selected' : ''}>${T('sortOldest')}</option>
     </select>
@@ -2211,7 +2221,7 @@ function renderTaskCard(task, compact = false, colStatus = null) {
         </button>
         <div class="todo-card-sub-body">
           <div class="todo-card-sub-blocks">
-            ${renderSubBlocks(orderedSubs, 0, !inKanbanCol)}
+            ${renderSubBlocks(orderedSubs, 0, !inKanbanCol, undefined, filters.sortBy === 'status')}
           </div>
           <div class="todo-card-sub-bar">
             <div class="todo-card-sub-track"><div class="todo-card-sub-fill" style="width:${totalSubs ? (doneSubs / totalSubs) * 100 : 0}%"></div></div>
@@ -2244,17 +2254,78 @@ function renderTaskCard(task, compact = false, colStatus = null) {
       openSubMenu(real, chip.dataset.sub, e.clientX, e.clientY);
     });
   });
+  // 补丁·123:卡片内同级子任务手动拖拽排序 —— 仅同一父级列表内换位(上/下半区决定前/后),不改层级。
+  // dataTransfer 用 'sub:' 前缀,外层任务树/看板拖拽处理器(parseDragData)不识别该前缀 → 互不干扰。
+  card.querySelectorAll('.todo-sub-block').forEach((blk) => {
+    const clearSubMarks = () => rootEl.querySelectorAll('.sub-drop-before, .sub-drop-after')
+      .forEach((el) => el.classList.remove('sub-drop-before', 'sub-drop-after'));
+    blk.addEventListener('mousedown', (e) => {
+      // 按钮/输入内按下 → 临时关闭本块拖拽,避免抢占点击(与弹窗子任务树同款)
+      const onCtl = !!(e.target.closest && e.target.closest('input,select,textarea,button'));
+      blk.setAttribute('draggable', onCtl ? 'false' : 'true');
+    });
+    blk.addEventListener('dragstart', (e) => {
+      if (blk.getAttribute('draggable') === 'false') { e.preventDefault(); return; }
+      e.stopPropagation(); // 关键:阻止冒泡成整行/整卡拖拽(列表树行与看板卡都是 draggable)
+      dragSubId = blk.dataset.sub;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', 'sub:' + dragSubId);
+      setTimeout(() => blk.classList.add('dragging'), 0);
+    });
+    blk.addEventListener('dragend', () => { dragSubId = null; blk.classList.remove('dragging'); clearSubMarks(); });
+    blk.addEventListener('dragover', (e) => {
+      if (!dragSubId || dragSubId === blk.dataset.sub) return;
+      // 仅同级(同一父列表)可换位;跨层级落点直接忽略
+      const fa = findSub(task.subtasks || [], dragSubId);
+      const fb = findSub(task.subtasks || [], blk.dataset.sub);
+      if (!fa || !fb || fa.list !== fb.list) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = 'move';
+      clearSubMarks();
+      const r = blk.getBoundingClientRect();
+      blk.classList.add(e.clientY > r.top + r.height / 2 ? 'sub-drop-after' : 'sub-drop-before');
+    });
+    blk.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      clearSubMarks();
+      if (!dragSubId) return;
+      const real = taskById(task.id) || task;
+      const fa = findSub(real.subtasks || [], dragSubId);
+      const fb = findSub(real.subtasks || [], blk.dataset.sub);
+      if (!fa || !fb || fa.list !== fb.list) return;
+      const arr = fa.list;
+      const from = arr.findIndex((x) => x.id === dragSubId);
+      const to = arr.findIndex((x) => x.id === blk.dataset.sub);
+      if (from < 0 || to < 0 || from === to) return;
+      const r = blk.getBoundingClientRect();
+      const before = e.clientY <= r.top + r.height / 2;
+      const [moved] = arr.splice(from, 1);
+      let insertAt = before ? to : to + 1;
+      if (insertAt > from) insertAt -= 1;
+      arr.splice(insertAt, 0, moved);
+      arr.forEach((x, i) => { x.sort = i; }); // 同级重编号,手工顺序字段保持一致
+      real.updatedAt = now();
+      dragSubId = null;
+      saveState();
+      render();
+    });
+  });
   let subMenuEl = null;
   function openSubMenu(tk, subId, atX, atY) {
     closeSubMenu();
     // 清理任何遗留的子任务菜单(render 重绘后可能残留在 body 上)
     document.querySelectorAll('.todo-sub-menu').forEach((el) => el.remove());
-    const sub = (tk.subtasks || []).find((x) => x.id === subId);
-    if (!sub) return;
+    // 补丁·121:递归查找任意层级子任务(原只查顶层,嵌套子任务右键时找不到直接返回,菜单不弹出)
+    const f = findSub(tk.subtasks || [], subId);
+    if (!f) return;
+    const sub = f.sub;
     subMenuEl = document.createElement('div');
     subMenuEl.className = 'todo-card-menu todo-sub-menu';
     subMenuEl.innerHTML = `
       <button data-sm="edit">${T('edit')}</button>
+      <button data-sm="detail">${T('subEditDetail')}</button>
       <button data-sm="delete" class="danger">${T('delete')}</button>`;
     // .todo-card-menu 是 position:fixed,坐标必须相对视口 → 挂到 body 并用 clientX/Y
     document.body.appendChild(subMenuEl);
@@ -2271,9 +2342,12 @@ function renderTaskCard(task, compact = false, colStatus = null) {
       const m = mb.dataset.sm;
       closeSubMenu();
       if (m === 'edit') { modalInitialTab = 'subtasks'; modalHighlightSub = subId; taskModalOpen = true; modalTaskId = tk.id; render(); }
+      // 补丁·121:直达该子任务的详情编辑页(详情 tab + 钻取栈直接压到该层)
+      else if (m === 'detail') { modalInitialTab = 'details'; modalDrillSub = subId; taskModalOpen = true; modalTaskId = tk.id; render(); }
       else if (m === 'delete') {
         confirmDialog({ title: T('delSubTitle'), message: T('delSubMsg', sub.title), okText: T('delete'), danger: true, onOk: () => {
-          tk.subtasks = (tk.subtasks || []).filter((x) => x.id !== subId);
+          // 补丁·121:f.list 是子任务所属数组(任意层级),splice 即从树上摘除本节点及其子树
+          f.list.splice(f.index, 1);
           saveState(); render();
         } });
       }
@@ -2333,26 +2407,58 @@ function renderTaskCard(task, compact = false, colStatus = null) {
   });
   card.addEventListener('click', (e) => {
     const b = e.target.closest('[data-t]');
-    if (!b) { openDetail(task.id); return; }
+    if (!b) {
+      // 补丁·124/126:点击子任务块空白处 → 有下级子任务时折叠/展开(就地切换,不整页重绘);
+      // 叶子块(无可展开)→ 直达该子任务的详情编辑界面;卡片其余空白维持原行为(打开任务详情)
+      const sb = e.target.closest('.todo-sub-block');
+      if (sb) {
+        const tg = sb.querySelector(':scope > .todo-sub-block-row > .todo-sub-block-toggle');
+        if (tg) { toggleSubBlockCollapse(tg); return; }
+        const real0 = taskById(task.id) || task;
+        modalInitialTab = 'details';
+        modalDrillSub = sb.dataset.sub;
+        taskModalOpen = true; modalTaskId = real0.id;
+        render();
+        return;
+      }
+      openDetail(task.id); return;
+    }
     e.stopPropagation();
     const t = b.dataset.t;
     const real = taskById(task.id) || task;
     if (t === 'status') { cycleStatus(real); }
     else if (t === 'priority') { cyclePriority(real); }
+    else if (t === 'subaddchild') {
+      // 补丁·122:子任务块悬停「＋」→ 为该子任务(任意层级)新建下级子任务,
+      // 与卡片头「＋」/弹窗 ➕ 同一数据模型;展开目标块并定位高亮新行
+      const f = findSub(real.subtasks || [], b.dataset.sub);
+      if (f) {
+        if (!Array.isArray(f.sub.subtasks)) f.sub.subtasks = [];
+        const ns = { id: uid('s'), title: '新子任务', status: 'todo', done: false, sort: f.sub.subtasks.length, notes: '', doneAt: null, createdAt: now(), subtasks: [] };
+        f.sub.subtasks.push(ns);
+        f.sub.collapsed = false;
+        real.updatedAt = now();
+        saveState();
+        // 补丁·122:直接打开新子任务的详情编辑界面(详情 tab + 钻取栈直达该层)
+        modalInitialTab = 'details';
+        modalDrillSub = ns.id;
+        taskModalOpen = true; modalTaskId = real.id;
+        render();
+      }
+    }
     else if (t === 'subedit') {
       // 子任务悬停 ✎:打开编辑弹窗并定位到子任务 tab,高亮该行
       modalInitialTab = 'subtasks';
       modalHighlightSub = b.dataset.sub;
       taskModalOpen = true; modalTaskId = real.id; render();
     }
-    else if (t === 'substatus') { toggleSubtask(real, b.dataset.sub); } // 补丁·61:子任务块的状态按钮 → 切换状态(手工顺序模式不重排)
+    else if (t === 'substatus') { toggleSubtask(real, b.dataset.sub); } // 补丁·61/125:状态图标 → 循环切换状态(手工顺序模式不重排);空白处不再触发
     else if (t === 'subtitle') {
-      // 补丁·82:点击子任务标题 → 打开该子任务的编辑详情(不再切换状态)
-      modalInitialTab = 'subtasks';
-      modalHighlightSub = b.dataset.sub;
+      // 补丁·124:点击子任务标题 → 直达该子任务的详情编辑界面(详情 tab + 钻取栈直达该层)
+      modalInitialTab = 'details';
+      modalDrillSub = b.dataset.sub;
       taskModalOpen = true; modalTaskId = real.id; render();
     }
-    else if (t === 'sub') { toggleSubtask(real, b.dataset.sub); }
     else if (t === 'subtoggle') { if (b.classList.contains('todo-sub-block-toggle')) toggleSubBlockCollapse(b); else toggleSubtasksCollapse(real, b); }
     else if (t === 'addsub') { addInlineSubtask(real); }
     else if (t === 'edit') { taskModalOpen = true; modalTaskId = real.id; render(); }
@@ -2373,10 +2479,17 @@ function renderTaskCard(task, compact = false, colStatus = null) {
 // anc: 祖辈末子标记数组(anc[i] = 第 i 层祖先是末子)。补丁·117:除本级 L 形线外,
 // 为每一层非末子祖辈在块左侧画贯穿全块高度的竖线(块间 6px 间隙用上下越界补偿桥接),
 // 深层嵌套时父级竖线连续下延,从属关系与列表树行(补丁·117 同款)保持一致。
-function renderSubBlocks(subs, depth, dateAfterTitle = false, anc) {
+// statusSort(补丁·123):排序下拉选「完成状态」时,卡片内各层子任务同步按状态排序
+// (稳定排序:同状态保持手工顺序),与任务列表排序选项联动。
+function renderSubBlocks(subs, depth, dateAfterTitle = false, anc, statusSort) {
   if (!Array.isArray(subs) || !subs.length) return '';
   anc = anc || [];
-  return subs.map((s, idx) => {
+  let list = subs;
+  if (statusSort) {
+    const rank = (s) => { const x = subStatus(s); return x === 'in_progress' ? 0 : x === 'todo' ? 1 : 2; };
+    list = [...subs].sort((a, b) => rank(a) - rank(b));
+  }
+  return list.map((s, idx) => {
     const isLast = idx === subs.length - 1;
     const st = subStatus(s);
     const pri = PRIORITY_CONFIG[s.priority] || PRIORITY_CONFIG.medium;
@@ -2397,23 +2510,26 @@ function renderSubBlocks(subs, depth, dateAfterTitle = false, anc) {
     const toggleHTML = hasChildren
       ? `<button class="todo-sub-block-toggle" data-t="subtoggle" data-sub="${s.id}" title="${T('toggleSubtasks')}">${isCollapsed ? '▶\uFE0E' : '▼\uFE0E'}</button>`
       : '';
-    // 补丁·117/119:贯穿轨道线。轨道 = 某层子任务挂接子块的竖线,水平每层偏移 40px
-    // (margin-left 18 + 父块 padding-left 22),第 lo 层轨道在本块坐标 x = -8 - 40*(depth-1-lo),
-    // lo=-1 表示任务本身的轨道(顶层子任务挂接)。轨道贯穿本块的条件:本块在轨道上的挂接层
-    // (lo+1 层祖先)不是末子(lastArr[lo+1]=false)——末子挂接后轨道即封口,由其 └ 结束。
-    // 块间 6px 间隙用 top:-4px / 高度 +7px 越界补偿桥接,与外层树行机制一致。
+    // 补丁·117/119/121:贯穿轨道线。轨道 = 某层子任务挂接子块的竖线,水平每层偏移 41px
+    // (margin-left 18 + 父块 padding-left 22 + 父块边框 1;补丁·121 修正原 40px 漏算边框,
+    // 深层每级偏差 1px 导致贯穿线与 L 形臂出现平行双线重叠),第 lo 层轨道在本块坐标
+    // x = -8 - 41*(depth-1-lo),lo=-1 表示任务本身的轨道(顶层子任务挂接)。
+    // 轨道贯穿本块的条件:本块在轨道上的挂接层(lo+1 层祖先)不是末子(lastArr[lo+1]=false)
+    // ——末子挂接后轨道即封口,由其 └ 结束。块间 6px 间隙用 top:-4px / 高度 +7px 越界补偿桥接。
     let guideHTML = '';
     {
       const lastArr = [...anc, isLast]; // lastArr[i] = 第 i 层祖先是否末子;lastArr[depth] = 本块自身
       const lines = [];
       for (let lo = -1; lo < depth; lo++) {
         if (lastArr[lo + 1]) continue;
-        const x = -8 - 40 * (depth - 1 - lo);
+        const x = -8 - 41 * (depth - 1 - lo);
         lines.push(`<i class="todo-tree-line tl-v" style="left:${x}px;top:-4px;height:calc(100% + 7px)"></i>`);
       }
       if (lines.length) guideHTML = `<span class="todo-sub-block-guides">${lines.join('')}</span>`;
     }
-    return `<div class="todo-sub-block sub-status-${st} depth-${depth}${hasChildren ? '' : ' no-children'}${isCollapsed ? ' collapsed' : ''}" data-t="sub" data-sub="${s.id}" data-depth="${depth}" title="${titleTip}">
+    // 补丁·125:块本体不再带 data-t="sub"(旧值会让点击空白处命中祖先 data-t → 切换状态);
+    // 现在空白点击落到卡片级 !b 分支:有子任务 → 折叠/展开;状态切换只认状态图标 substatus。
+    return `<div class="todo-sub-block sub-status-${st} depth-${depth}${hasChildren ? '' : ' no-children'}${isCollapsed ? ' collapsed' : ''}" data-sub="${s.id}" data-depth="${depth}" title="${titleTip}">
       ${guideHTML}
       <div class="todo-sub-block-row">
         ${toggleHTML}
@@ -2422,11 +2538,12 @@ function renderSubBlocks(subs, depth, dateAfterTitle = false, anc) {
         <span class="todo-sub-block-title" data-t="subtitle" data-sub="${s.id}" title="${T('editSubtask')}">${escHtml(s.title)}</span>
         ${titleDateHTML}
         <div class="todo-sub-block-actions">
+          <button class="todo-icon-btn" data-t="subaddchild" data-sub="${s.id}" title="${T('newSubtaskUnderTask')}">＋</button>
           <button class="todo-icon-btn" data-t="subedit" data-sub="${s.id}" title="${T('editSubtask')}">✎</button>
         </div>
       </div>
       ${(tagsHTML || metaDateHTML) ? `<div class="todo-sub-block-meta">${tagsHTML}${metaDateHTML}</div>` : ''}
-      ${hasChildren ? `<div class="todo-sub-block-children">${renderSubBlocks(s.subtasks, depth + 1, dateAfterTitle, [...anc, isLast])}</div>` : ''}
+      ${hasChildren ? `<div class="todo-sub-block-children">${renderSubBlocks(s.subtasks, depth + 1, dateAfterTitle, [...anc, isLast], statusSort)}</div>` : ''}
     </div>`;
   }).join('');
 }
@@ -2661,6 +2778,12 @@ function renderTaskModal() {
   };
 
   const bodyEl = box.querySelector('[data-body]');
+  // 补丁·121:右键「编辑详情」直达 —— 钻取栈直接压到目标子任务的完整路径,详情页渲染该子任务
+  if (modalDrillSub) {
+    const dp = pathToSub(modalDrillSub, draft.subtasks);
+    if (dp) editSubStack = [null].concat(dp.map((x) => x.id));
+    modalDrillSub = '';
+  }
   // 详情标签页编辑某个子任务(补丁·59 + 补丁·60):
   //   标题 / 备注 / 优先级 / 状态+项目+父任务(联动) / 截止日期 / 开始+完成时间 / 标签 / 钻取子任务 / 创建时间
   //   返回按钮移到 foot(与取消/保存同行)
