@@ -348,9 +348,9 @@ function treeGuideHTML(depth, isLast) {
 }
 const PROJECT_COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f97316', '#f59e0b', '#22c55e', '#06b6d4', '#3b82f6'];
 const KANBAN_COLS = [
-  { status: 'todo', color: '#6366f1' },
-  { status: 'in_progress', color: '#f59e0b' },
-  { status: 'done', color: '#22c55e' },
+  { status: 'todo', color: 'var(--st-todo)' },
+  { status: 'in_progress', color: 'var(--st-prog)' },
+  { status: 'done', color: 'var(--st-done)' },
 ];
 /** 日历事件类型:生日 / 纪念日 / 待办事件 / 重要事件 */
 const EVENT_TYPES = {
@@ -1209,8 +1209,10 @@ function attachProjectDrag(row, node) {
 }
 // 统一树节点渲染(项目 / 无项目 / 任务 同树)
 // isLast: 本节点是否为其父的最后一个子(用于本节点分支线是否封口)
-function renderTreeNode(node, depth, isLast) {
+// anc: 祖辈末子标记数组,anc[i] = 第 i 层祖先是其父的末子(该层竖线封口不再下延)
+function renderTreeNode(node, depth, isLast, anc) {
   if (isLast == null) isLast = true;
+  anc = anc || [];
   const el = document.createElement('div');
   el.className = 'todo-tree-' + (node.kind === 'task' ? 'task' : 'proj') + (node.kind === 'none' ? ' todo-proj-none' : '');
   if (node.kind === 'task') el.setAttribute('data-task-id', node.id);
@@ -1233,7 +1235,7 @@ function renderTreeNode(node, depth, isLast) {
     // 任务节点:三色状态点 + 任务卡片
     const dot = document.createElement('span');
     dot.className = 'todo-tree-task-dot';
-    dot.style.background = node.status === 'done' ? '#22c55e' : node.status === 'in_progress' ? '#f59e0b' : '#6366f1';
+    dot.style.background = node.status === 'done' ? 'var(--st-done)' : node.status === 'in_progress' ? 'var(--st-prog)' : 'var(--st-todo)';
     row.appendChild(dot);
     const card = renderTaskCard(node);
     attachTaskDrag(row, node);
@@ -1245,7 +1247,7 @@ function renderTreeNode(node, depth, isLast) {
     // 项目 / 无项目节点:色点 + 名称 + 三色状态统计
     const dot = document.createElement('span');
     dot.className = 'todo-proj-dot';
-    dot.style.background = node.color || '#6366f1';
+    dot.style.background = node.color || 'var(--st-todo)';
     row.appendChild(dot);
     const name = document.createElement('span');
     name.className = 'todo-proj-name';
@@ -1280,12 +1282,19 @@ function renderTreeNode(node, depth, isLast) {
     });
     row.appendChild(addBtn);
   }
-  // 从属连接线:根级(深度0)无缩进线;深度>=1 只画「本级分支线」(L 形,父列竖线 + 横向连接),
-  // 不再画祖辈列的贯穿竖线,让分支关系靠 L 形直观表达(补丁·56)
+  // 从属连接线:根级(深度0)无缩进线;深度>=1 画「本级分支线」(L 形,父列竖线 + 横向连接),
+  // 并恢复祖辈列贯穿竖线(补丁·117):非末子祖辈的竖线整列下延,多层嵌套时上下级从属关系
+  // 由连续竖线直观表达,末子分支用 └ 形封口,和经典树形视图一致。
   if (depth >= 1) {
     const segs = [];
+    const lastArr = [...anc, isLast]; // lastArr[i] = 第 i 层祖先是否末子;lastArr[depth] = 本节点自身
+    // 祖辈轨道贯穿竖线:第 lo 层轨道(列 x = lo*18+9)在本行继续,除非本行的 lo+1 层祖先是末子
+    // (末子挂接后该轨道封口)。补丁·117/119。
+    for (let lo = 0; lo < depth - 1; lo++) {
+      if (lastArr[lo + 1]) continue;
+      segs.push(`<i class="todo-tree-line tl-v" style="left:${lo * 18 + 9}px;top:-2px;height:calc(100% + 4px)"></i>`);
+    }
     // 本级竖线:向上连父(恒画);向下仅在非末子时继续(末子封口)。
-    // 补丁·61:连接线加长 + 横向连接线延长到 18px,确保视觉连贯(原 13px 过短,父子行间出现明显空隙)。
     const lineX = (depth - 1) * 18 + 9;
     if (isLast) segs.push(`<i class="todo-tree-line tl-v" style="left:${lineX}px;top:-2px;height:calc(50% + 4px)"></i>`);
     else segs.push(`<i class="todo-tree-line tl-v" style="left:${lineX}px;top:-2px;height:calc(100% + 4px)"></i>`);
@@ -1297,15 +1306,21 @@ function renderTreeNode(node, depth, isLast) {
   if (hasChildren && !collapsed) {
     const childWrap = document.createElement('div');
     childWrap.className = 'todo-tree-children';
-    node.children.forEach((ch, i) => childWrap.appendChild(renderTreeNode(ch, depth + 1, i === node.children.length - 1)));
+    node.children.forEach((ch, i) => childWrap.appendChild(renderTreeNode(ch, depth + 1, i === node.children.length - 1, [...anc, isLast])));
     el.appendChild(childWrap);
     // 补丁·66: 非末子节点且有子任务时,父列竖线必须贯穿整个子树(含孙级任务块),
     // 否则当父级下方还有同级任务(更上级任务项)时,外层连接线会在子任务块处中断。
     // 在子任务容器左侧父列位置补一条贯穿整块高度的竖线,与首尾行竖线接成连续线。
-    if (depth >= 1 && !isLast) {
+    // 补丁·117/119:贯穿线覆盖所有需要下延的轨道:祖辈轨道(挂接层祖先非末子)+ 本节点父轨道(本节点非末子)。
+    const spanXs = [];
+    for (let lo = 0; lo < depth - 1; lo++) {
+      if (!lastArr[lo + 1]) spanXs.push(lo * 18 + 9);
+    }
+    if (depth >= 1 && !isLast) spanXs.push((depth - 1) * 18 + 9);
+    if (spanXs.length) {
       childWrap.style.position = 'relative';
       childWrap.insertAdjacentHTML('afterbegin',
-        `<i class="todo-tree-line tl-v" style="left:${(depth - 1) * 18 + 9}px;top:0;bottom:0;pointer-events:none;z-index:0"></i>`);
+        spanXs.map((x) => `<i class="todo-tree-line tl-v" style="left:${x}px;top:0;bottom:0;pointer-events:none;z-index:0"></i>`).join(''));
     }
   }
   return el;
@@ -2170,7 +2185,7 @@ function renderTaskCard(task, compact = false, colStatus = null) {
   const dateSuffix = cardStatusDate(task);
 
   // 补丁·77:看板「进行中」列状态按钮不再用 tasking64.png 图片,统一为橙色 ◑ 文本图标(与列表视图一致)
-  const statusBtn = `<button class="todo-status-btn" data-t="status" title="${stLabel(task.status)} · ${T('clickToggle')}" style="border-color:${task.status === 'done' ? '#22c55e' : task.status === 'in_progress' ? '#f59e0b' : 'var(--border)'};color:${task.status === 'done' ? '#22c55e' : task.status === 'in_progress' ? '#f59e0b' : 'var(--text2)'}">${st.icon}</button>`;
+  const statusBtn = `<button class="todo-status-btn" data-t="status" title="${stLabel(task.status)} · ${T('clickToggle')}" style="border-color:${task.status === 'done' ? 'var(--st-done)' : task.status === 'in_progress' ? 'var(--st-prog)' : 'var(--border)'};color:${task.status === 'done' ? 'var(--st-done)' : task.status === 'in_progress' ? 'var(--st-prog)' : 'var(--text2)'}">${st.icon}</button>`;
   let html = `
     <div class="todo-card-row">
       ${statusBtn}
@@ -2355,9 +2370,14 @@ function renderTaskCard(task, compact = false, colStatus = null) {
 // 嵌套子任务通过 .todo-sub-block-children 容器递归堆叠,与 .todo-sub-block::before
 // 的 L 形 ├ 边框共同形成连贯的树状层级连线(起点接近父级折叠图标下沿)。
 // 旧 renderSubChips(内联 chip)已废弃——HTML/CSS 仍保留兼容代码,但实际不再被调用。
-function renderSubBlocks(subs, depth, dateAfterTitle = false) {
+// anc: 祖辈末子标记数组(anc[i] = 第 i 层祖先是末子)。补丁·117:除本级 L 形线外,
+// 为每一层非末子祖辈在块左侧画贯穿全块高度的竖线(块间 6px 间隙用上下越界补偿桥接),
+// 深层嵌套时父级竖线连续下延,从属关系与列表树行(补丁·117 同款)保持一致。
+function renderSubBlocks(subs, depth, dateAfterTitle = false, anc) {
   if (!Array.isArray(subs) || !subs.length) return '';
-  return subs.map((s) => {
+  anc = anc || [];
+  return subs.map((s, idx) => {
+    const isLast = idx === subs.length - 1;
     const st = subStatus(s);
     const pri = PRIORITY_CONFIG[s.priority] || PRIORITY_CONFIG.medium;
     const tagsHTML = (s.tags || []).slice(0, 3).map((tg) => `<span class="todo-tag-chip">${escHtml(tg)}</span>`).join('');
@@ -2377,7 +2397,24 @@ function renderSubBlocks(subs, depth, dateAfterTitle = false) {
     const toggleHTML = hasChildren
       ? `<button class="todo-sub-block-toggle" data-t="subtoggle" data-sub="${s.id}" title="${T('toggleSubtasks')}">${isCollapsed ? '▶\uFE0E' : '▼\uFE0E'}</button>`
       : '';
+    // 补丁·117/119:贯穿轨道线。轨道 = 某层子任务挂接子块的竖线,水平每层偏移 40px
+    // (margin-left 18 + 父块 padding-left 22),第 lo 层轨道在本块坐标 x = -8 - 40*(depth-1-lo),
+    // lo=-1 表示任务本身的轨道(顶层子任务挂接)。轨道贯穿本块的条件:本块在轨道上的挂接层
+    // (lo+1 层祖先)不是末子(lastArr[lo+1]=false)——末子挂接后轨道即封口,由其 └ 结束。
+    // 块间 6px 间隙用 top:-4px / 高度 +7px 越界补偿桥接,与外层树行机制一致。
+    let guideHTML = '';
+    {
+      const lastArr = [...anc, isLast]; // lastArr[i] = 第 i 层祖先是否末子;lastArr[depth] = 本块自身
+      const lines = [];
+      for (let lo = -1; lo < depth; lo++) {
+        if (lastArr[lo + 1]) continue;
+        const x = -8 - 40 * (depth - 1 - lo);
+        lines.push(`<i class="todo-tree-line tl-v" style="left:${x}px;top:-4px;height:calc(100% + 7px)"></i>`);
+      }
+      if (lines.length) guideHTML = `<span class="todo-sub-block-guides">${lines.join('')}</span>`;
+    }
     return `<div class="todo-sub-block sub-status-${st} depth-${depth}${hasChildren ? '' : ' no-children'}${isCollapsed ? ' collapsed' : ''}" data-t="sub" data-sub="${s.id}" data-depth="${depth}" title="${titleTip}">
+      ${guideHTML}
       <div class="todo-sub-block-row">
         ${toggleHTML}
         <button class="todo-sub-block-status sub-${st}" data-t="substatus" data-sub="${s.id}" title="${T('clickToggle')}">${subStatusIcon(s)}</button>
@@ -2389,7 +2426,7 @@ function renderSubBlocks(subs, depth, dateAfterTitle = false) {
         </div>
       </div>
       ${(tagsHTML || metaDateHTML) ? `<div class="todo-sub-block-meta">${tagsHTML}${metaDateHTML}</div>` : ''}
-      ${hasChildren ? `<div class="todo-sub-block-children">${renderSubBlocks(s.subtasks, depth + 1, dateAfterTitle)}</div>` : ''}
+      ${hasChildren ? `<div class="todo-sub-block-children">${renderSubBlocks(s.subtasks, depth + 1, dateAfterTitle, [...anc, isLast])}</div>` : ''}
     </div>`;
   }).join('');
 }
@@ -2404,7 +2441,7 @@ function renderDetailSubs(subs, depth) {
     const indent = depth > 0 ? ` style="margin-left:${depth * 16}px"` : '';
     const children = (s.subtasks && s.subtasks.length) ? renderDetailSubs(s.subtasks, depth + 1) : '';
     return `<div class="todo-detail-sub"${indent}>` +
-      `<button class="todo-status-btn" data-act="sub" data-sub="${s.id}" style="border-color:${st === 'done' ? '#22c55e' : st === 'in_progress' ? '#f59e0b' : 'var(--border)'};color:${st === 'done' ? '#22c55e' : st === 'in_progress' ? '#f59e0b' : 'var(--text2)'}">${subStatusIcon(s)}</button>` +
+      `<button class="todo-status-btn" data-act="sub" data-sub="${s.id}" style="border-color:${st === 'done' ? 'var(--st-done)' : st === 'in_progress' ? 'var(--st-prog)' : 'var(--border)'};color:${st === 'done' ? 'var(--st-done)' : st === 'in_progress' ? 'var(--st-prog)' : 'var(--text2)'}">${subStatusIcon(s)}</button>` +
       `<span class="${st === 'done' ? 'done' : ''}">${escHtml(s.title)}</span>` +
       (s.notes ? `<span class="todo-detail-sub-notes">📝 ${escHtml(s.notes)}</span>` : '') +
       (s.doneAt ? `<span class="todo-detail-sub-date">${T('subDoneAt')} ${fmtDateTime(s.doneAt)}</span>` : '') +
@@ -2449,7 +2486,7 @@ function updateTaskCardInPlace(task) {
   if (!row) { render(); return; }
   // 左侧状态点颜色
   const dot = row.querySelector('.todo-tree-task-dot');
-  if (dot) dot.style.background = task.status === 'done' ? '#22c55e' : task.status === 'in_progress' ? '#f59e0b' : '#6366f1';
+  if (dot) dot.style.background = task.status === 'done' ? 'var(--st-done)' : task.status === 'in_progress' ? 'var(--st-prog)' : 'var(--st-todo)';
   // 重建卡片本体(替换节点,父行与滚动容器保持不变 → 不触发滚动重置/整页重绘)
   const oldCard = row.querySelector(':scope > .todo-card');
   if (oldCard && oldCard.parentNode) oldCard.parentNode.replaceChild(renderTaskCard(task), oldCard);
@@ -3122,7 +3159,7 @@ function renderDetailPanel() {
   box.innerHTML = `
     <div class="todo-modal-head">
       <div class="todo-detail-title-wrap">
-        <button class="todo-status-btn" data-act="status" title="${T('clickToggleStatus')}" style="border-color:${task.status === 'done' ? '#22c55e' : task.status === 'in_progress' ? '#f59e0b' : 'var(--border)'};color:${task.status === 'done' ? '#22c55e' : task.status === 'in_progress' ? '#f59e0b' : 'var(--text2)'}">${st.icon}</button>
+        <button class="todo-status-btn" data-act="status" title="${T('clickToggleStatus')}" style="border-color:${task.status === 'done' ? 'var(--st-done)' : task.status === 'in_progress' ? 'var(--st-prog)' : 'var(--border)'};color:${task.status === 'done' ? 'var(--st-done)' : task.status === 'in_progress' ? 'var(--st-prog)' : 'var(--text2)'}">${st.icon}</button>
         <h2 class="todo-detail-title${task.status === 'done' ? ' done' : ''}">${escHtml(task.title)}</h2>
       </div>
       <div style="display:flex;align-items:center;gap:6px">
@@ -3144,7 +3181,7 @@ function renderDetailPanel() {
         <div class="todo-detail-deadline">
           <span>📅</span>
           <div><div class="todo-detail-label">${T('deadlineLabel')}</div>
-          <div class="todo-detail-value" style="color:${dl.overdue ? '#ef4444' : dl.warn ? '#f59e0b' : 'var(--text2)'}">${dl.overdue ? T('overduePrefix') : ''}${fmtFullDate(task.deadline)}</div></div>
+          <div class="todo-detail-value" style="color:${dl.overdue ? 'var(--st-danger)' : dl.warn ? 'var(--st-prog)' : 'var(--text2)'}">${dl.overdue ? T('overduePrefix') : ''}${fmtFullDate(task.deadline)}</div></div>
         </div>` : ''}
       ${task.startAt ? `
         <div class="todo-detail-deadline">
@@ -3289,8 +3326,8 @@ ${state.todoProjects.length ? state.todoProjects.map((p) => `
       const pname = (() => { const pp = projectById(del.dataset.del); return pp ? pp.name : ''; })();
       const origHTML = row.innerHTML;
       row.innerHTML = `
-        <span class="todo-pri-dot" style="background:#ef4444"></span>
-        <span class="todo-proj-name" style="color:#ef4444">${T('deleteProjectInline', escHtml(pname))}</span>
+        <span class="todo-pri-dot" style="background:var(--st-danger)"></span>
+        <span class="todo-proj-name" style="color:var(--st-danger)">${T('deleteProjectInline', escHtml(pname))}</span>
         <button class="btn danger" data-proj-del-ok="${del.dataset.del}" style="margin-left:auto">${T('confirmDelete')}</button>
         <button class="btn" data-proj-del-cancel>${T('cancelDelete')}</button>`;
       const clear = () => { row._confirming = false; clearTimeout(row._delTimer); delete row._origHTML; };
@@ -3432,8 +3469,8 @@ function renderArchiveModal() {
       const taskTitle = (() => { const t = taskById(del.dataset.del); return t ? t.title : ''; })();
       row.innerHTML = `
         <div class="todo-archive-main">
-          <div class="todo-archive-title" style="color:#ef4444">${T('deleteForeverTitle')}「${escHtml(taskTitle)}」?</div>
-          <div class="todo-archive-meta" style="color:#ef4444">${T('deleteForeverMsg', taskTitle)}</div>
+          <div class="todo-archive-title" style="color:var(--st-danger)">${T('deleteForeverTitle')}「${escHtml(taskTitle)}」?</div>
+          <div class="todo-archive-meta" style="color:var(--st-danger)">${T('deleteForeverMsg', taskTitle)}</div>
         </div>
         <button class="btn danger" data-del-confirm="${del.dataset.del}">✓ ${T('del')}</button>
         <button class="btn" data-del-cancel>${T('cancel')}</button>`;
