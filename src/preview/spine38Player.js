@@ -72,8 +72,15 @@ function normalizeWeightedMeshTypes(obj) {
         const m = slotAtts[attName];
         if (!m || typeof m !== 'object' || typeof m.type !== 'string') continue;
         if (m.type !== 'weightedmesh' && m.type !== 'skinnedmesh') continue;
-        m.type = 'mesh';
         const bones = Array.isArray(m.bones) ? m.bones : [];
+        if (!bones.length) {
+          // 新版 .sk 转换器的 skinnedmesh:顶点已是 3.8 内联元组 [骨骼数,骨骼idx,x,y,w,...],
+          // 无独立 bones/weights —— 仅改类型即可(此前按旧格式合并会把顶点清空 → 部件丢失)。
+          m.type = 'mesh';
+          delete m.weights;
+          continue;
+        }
+        m.type = 'mesh';
         const pos = Array.isArray(m.vertices) ? m.vertices : [];
         const ws = Array.isArray(m.weights) && m.weights.length ? m.weights : null;
         const merged = [];
@@ -502,7 +509,9 @@ export class Spine38Player {
     let tex = this._textureByImage.get(image);
     if (!tex) {
       tex = P().Texture.from(image);
-      tex.source.alphaMode = 'no-premultiply-alpha';
+      // 保持 pixi 默认的「上传时预乘 alpha」:pixi v8 的 normal 混合按预乘管线设计,
+      // 禁用预乘会让半透明(alpha 交叉淡化)合成的 RGB 偏亮/偏暗并随淡入淡出周期
+      // 波动 —— 表现为水面等交叉淡化部件「明暗闪烁」(与 layaSkPlayer 的结论一致)。
       this._textureByImage.set(image, tex);
     }
     return tex;
@@ -645,6 +654,26 @@ export class Spine38Player {
         }
         this._slotRecords.delete(slot);
       }
+    }
+
+    // drawOrder 层级校正:mesh 仅在首次出现时 addChild,附件切换销毁重建后会被追加到
+    // 子节点末尾 —— 循环播放后发生过切换的槽位(如 ZhuangXu_3 在 1.167s 隐藏、回卷恢复)
+    // 从此渲染在所有部件之上,遮挡关系错乱;drawOrder 时间线换序同理。每帧检测子节点
+    // 顺序,失序时按 drawOrder 重排(稳定排序,未知节点排末尾,骨骼调试线不受影响)。
+    const order = new Map();
+    const dl = this.skeleton.drawOrder;
+    for (let i = 0; i < dl.length; i++) order.set(dl[i], i);
+    const meshRank = new Map();
+    for (const [slot, rec] of this._slotRecords) meshRank.set(rec.mesh, order.has(slot) ? order.get(slot) : 1e9);
+    const rank = (node) => (meshRank.has(node) ? meshRank.get(node) : 1e9);
+    const ch = this.root.children;
+    let inOrder = true;
+    for (let i = 1; i < ch.length; i++) {
+      if (rank(ch[i - 1]) > rank(ch[i])) { inOrder = false; break; }
+    }
+    if (!inOrder) {
+      const sorted = ch.slice().sort((a, b) => rank(a) - rank(b));
+      for (const c of sorted) this.root.addChild(c); // addChild 既有子节点 = 移到末尾,按序重加完成重排
     }
   }
 

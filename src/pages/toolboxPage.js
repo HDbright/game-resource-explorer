@@ -8,6 +8,7 @@ import { renderSpineConvertTool, disposeSpineConvertPreview } from './spineConve
 import { MarkdownEditorController } from '../viewers/markdownEditor.js';
 import { renderTodoTool } from './todoPage.js';
 import { renderKidWorkspaceTool } from './kidWorkspacePage.js';
+import { renderBoneEditorTool, disposeBoneEditor } from './boneEditorPage.js';
 
 /** 工具箱全部工具定义(模块级:renderToolboxPage 渲染 + 菜单终端节点「目标页面」下拉动态生成) */
 const TOOLS = {
@@ -18,10 +19,11 @@ const TOOLS = {
   fgui: { title: 'FGUI 导出源', desc: '把 FairyGUI 发布的 .bin 包批量还原为标准源工程:每个包在其同目录生成 FGUI_src/<包名>(package.xml + 组件 XML + 碎图 + 字体 + 动画),可直接用 FairyGUI 编辑器打开。', render: renderFguiTool },
   sk2spine: { title: 'Laya .sk → Spine', desc: '把 LayaAir 骨骼动画二进制(.sk,DragonBones 导出)逆向转换为 Spine 可读文件:骨架 .json + 纹理图集 .atlas。可单选/多选文件或整个目录(含子目录);选择时自动探测是否为 .sk 格式。', render: renderSk2SpineTool },
   atlas: { title: '图片集打包', desc: '把多张图片合并为纹理图集(精灵表):MaxRects 装箱、支持旋转/修剪透明像素/内边距/强制 2 的幂尺寸,导出 PixiJS / Phaser3 / Cocos2d / CSS 雪碧图,并内联预览。', render: renderAtlasTool },
-  spineconvert: { title: 'Spine 格式转换', desc: '双向转换 skel ↔ json,并支持跨 Spine 版本升级/降级(3.5-3.8 / 4.0-4.3),自动识别输入版本。拖入文件自动加入待转换列表;目标格式默认 .skel → .json、.json → .skel;点击列表行打开预览,右键可加入资源库分类;转换产物自动汇入下方列表。', render: renderSpineConvertTool },
+  spineconvert: { title: 'Spine 格式转换', desc: '双向转换 skel ↔ json,并支持跨 Spine 版本升级/降级(3.5-3.8 / 4.0-4.3),自动识别输入版本;支持 Laya .sk 输入(内置逆向转换器产出 Spine 3.8 骨架 .json + 纹理图集 .atlas,可选链式转出 .skel / 其它 3.x 版本,.sk 行预览用官方 Laya 引擎渲染);支持 Spine 编辑器工程 .spine 输入(逆向解码为明文 <名>.decoded.json,含骨骼/插槽/附件/动画关键帧数据)。拖入文件自动加入待转换列表;目标格式默认 .skel → .json、.json → .skel、.sk → .json、.spine → 明文 json;点击列表行打开预览,右键可加入资源库分类;转换产物自动汇入下方列表。', render: renderSpineConvertTool },
   markdown: { title: 'Markdown 文档', desc: 'Markdown 查看与编辑:分栏编辑 + 实时预览(参考 MarkText),打开 .md/.markdown 文件编辑并保存回写原文件;支持 分栏/预览/编辑 三种模式。', render: renderMarkdownTool },
   todo: { title: 'Todo-List 任务管理', desc: '个人任务管理(移植自 Taskwingo):任务增删改/拖拽排序、优先级、状态、截止日期、标签、子任务、项目分组;列表 + 看板双视图,支持筛选、归档与 CSV/JSON 导出。', render: renderTodoTool },
   kidworkspace: { title: '得乐学苑', desc: '给 10 岁四年级男孩的每日成长台:身体锻炼/背诵/听写默写书法/数学口算 四类任务闯关打卡 + 学习计划制订 + 金币钻石皇冠奖章五级奖励,等级称号晋级、数字人形象随等级进化、头像解锁、道具商城兑换。', render: renderKidWorkspaceTool },
+  boneeditor: { title: '骨骼动画编辑器', desc: '复刻 LoongBones / DragonBones 编辑器核心工作流:骨架搭建(拖拽创建骨骼/绑定图片插槽)、动画关键帧(位移/旋转/缩放/颜色/显示切换,多种缓动曲线+贝塞尔)、摄影表时间轴、洋葱皮、层级管理、撤销重做;工程单文件保存(.lbone.json 内嵌图片),一键导出 DragonBones 5.5 格式(_ske.json/_tex.json/合并 PNG,可直接入库预览)。', render: renderBoneEditorTool },
 };
 
 /** 工具箱全部工具 → 菜单终端节点「目标页面」动作选项(动态生成,新增工具自动出现) */
@@ -35,6 +37,7 @@ export function toolboxToolActions() {
 export function renderToolboxPage(container, tool) {
   if (!container) return;
   disposeSpineConvertPreview(); // 离开 spine 格式转换页时销毁预览 WebGL 上下文,避免泄漏
+  disposeBoneEditor(); // 离开骨骼动画编辑器时销毁舞台 WebGL 上下文与全局监听
   container.innerHTML = '';
   // ---- 工具箱主页(汇总视图):列出所有子菜单入口 ----
   if (tool === '__home__') {
@@ -42,8 +45,8 @@ export function renderToolboxPage(container, tool) {
     return;
   }
   const cfg = TOOLS[tool] || TOOLS.astc2png;
-  // 应用型工具(Todo-List / 得乐学苑)自带完整功能头部(标题+统计+操作按钮),跳过通用「标题+介绍」区,避免重复占位
-  if (tool !== 'todo' && tool !== 'kidworkspace') {
+  // 应用型工具(Todo-List / 得乐学苑 / 骨骼动画编辑器)自带完整功能头部,跳过通用「标题+介绍」区,避免重复占位
+  if (tool !== 'todo' && tool !== 'kidworkspace' && tool !== 'boneeditor') {
     const head = document.createElement('div');
     head.className = 'tool-head';
     head.innerHTML = `<h2 class="tool-title">${cfg.title}</h2><p class="tool-desc">${cfg.desc}</p>`;
@@ -65,10 +68,11 @@ function renderToolboxHome(container) {
     { id: 'fgui', icon: '🧩', title: 'FGUI 导出源', desc: '把 FairyGUI 发布的 .bin 包批量还原为标准源工程:每个包在其同目录生成 FGUI_src/<包名>(package.xml + 组件 XML + 碎图 + 字体 + 动画),可直接用 FairyGUI 编辑器打开。' },
     { id: 'sk2spine', icon: '🦴', title: 'Laya .sk → Spine', desc: '把 LayaAir 骨骼动画二进制(.sk,DragonBones 导出)逆向转换为 Spine 可读文件:骨架 .json + 纹理图集 .atlas。可单选/多选文件或整个目录(含子目录);选择时自动探测是否为 .sk 格式。' },
     { id: 'atlas', icon: '🗂', title: '图片集打包', desc: '把多张图片合并为纹理图集(精灵表):MaxRects 装箱、支持旋转/修剪透明像素/内边距/强制 2 的幂尺寸,导出 PixiJS / Phaser3 / Cocos2d / CSS 雪碧图,并内联预览。' },
-    { id: 'spineconvert', icon: '🔄', title: 'Spine 格式转换', desc: '双向转换 skel ↔ json,并支持跨 Spine 版本升级/降级(3.5-3.8 / 4.0-4.3),自动识别输入版本。拖入文件自动加入待转换列表,点击行预览,右键加入资源库分类,产物自动汇入下方列表。' },
+    { id: 'spineconvert', icon: '🔄', title: 'Spine 格式转换', desc: '双向转换 skel ↔ json,并支持跨 Spine 版本升级/降级(3.5-3.8 / 4.0-4.3),自动识别输入版本;支持 Laya .sk 输入(逆向转换出 Spine 3.8 .json + .atlas)。拖入文件自动加入待转换列表,点击行预览,右键加入资源库分类,产物自动汇入下方列表。' },
     { id: 'markdown', icon: '📄', title: 'Markdown 文档', desc: 'Markdown 查看与编辑:分栏编辑 + 实时预览(参考 MarkText),打开 .md/.markdown 文件编辑并保存回写原文件。' },
     { id: 'todo', icon: '✅', title: 'Todo-List 任务管理', desc: '个人任务管理(移植自 Taskwingo):任务增删改/拖拽排序、优先级、状态、截止日期、标签、子任务、项目分组;列表 + 看板双视图,支持筛选、归档与 CSV/JSON 导出。' },
     { id: 'kidworkspace', icon: '🌟', title: '得乐学苑', desc: '每日身体锻炼/背诵/听写默写书法/数学口算四类任务闯关打卡 + 学习计划制订 + 金币钻石皇冠奖章奖励,等级称号晋级、数字人随等级进化。' },
+    { id: 'boneeditor', icon: '🦴', title: '骨骼动画编辑器', desc: '复刻 LoongBones / DragonBones 编辑器:骨架搭建、图片插槽绑定、关键帧动画(位移/旋转/缩放/颜色/显示切换,多缓动曲线)、摄影表时间轴、洋葱皮、层级与撤销重做;保存 .lbone.json 工程或导出 DragonBones 5.5 数据(可直接入库预览)。' },
   ];
   const head = document.createElement('div');
   head.className = 'tool-head';
@@ -467,7 +471,7 @@ function renderMarkdownTool(body) {
         <button class="btn sm" id="md-emoji" title="在光标处插入 emoji 图标">😀 emoji</button>
         <button class="btn sm" id="md-table" title="插入指定行/列的表格">▦ 表格</button>
         <button class="btn sm" id="md-text-color" title="为选中文字设置颜色">🖍 文字色</button>
-        <button class="btn sm" id="md-heading-color" title="设置预览各级标题(H1–H6)颜色">🎨 标题色</button>
+        <button class="btn sm" id="md-heading-color" title="标题颜色:默认分级彩色(编辑区+预览同步生效),可逐级自定义或一键不加颜色">🎨 标题色</button>
         <button class="btn sm" id="md-find" title="查找 / 替换(Ctrl+F)">🔍 查找</button>
         <span class="status" id="md-status"></span>
       </div>

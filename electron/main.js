@@ -12,6 +12,7 @@ const { astcToPng } = require('./tools/astc');
 const { skelToJson, probeSkeleton } = require('./tools/skel');
 const { spineFix } = require('./tools/spineFix');
 const { skToSpine, skToSpineText, probeLayaSk } = require('./tools/layaSk2Spine');
+const { probe: probeSpineProjectFile, convertFile: convertSpineProjectFile } = require('./tools/spineProjectToJson');
 const fgui = require('./tools/fgui');
 const { buildPreviewData, findGameRoot } = require('./tools/fgui/previewData');
 const { webGame, downloadResource, probeFile, classify, typeDir, fileNameFromUrl, safeName } = require('./tools/webGame');
@@ -1381,34 +1382,43 @@ app.whenReady().then(async () => {
       return { ok: false, reason: err.message };
     }
   });
-  // .sk 内存转换(Spine json+atlas 文本) + 配套图集 PNG(base64),供动画预览直接播放(不写文件)
-  ipcMain.handle('tool:sk2spinePreview', async (_e, { inputPath }) => {
+  // 探测文件是否为 Spine 编辑器二进制工程(.spine):raw DEFLATE + 版本串 + 骨骼区标记
+  ipcMain.handle('tool:probeSpineProject', async (_e, { inputPath }) => {
     try {
-      const r = skToSpineText(inputPath);
-      if (!r.ok) return r;
-      // 配套图集图片:优先 atlas 页名(同目录),其次同名 .png/.jpg
-      let pngBase64 = null;
-      const dir = path.dirname(inputPath);
-      const base = path.basename(inputPath).replace(/\.[^.]+$/, '');
-      const candidates = [
-        r.pageSrc ? path.join(dir, r.pageSrc) : null,
-        path.join(dir, base + '.png'),
-        path.join(dir, base + '.jpg'),
-      ];
-      for (const c of candidates) {
-        if (c && fs.existsSync(c)) {
-          const ext = path.extname(c).toLowerCase();
-          const mime = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/png';
-          pngBase64 = `data:${mime};base64,${fs.readFileSync(c).toString('base64')}`;
-          break;
-        }
-      }
-      return { ok: true, json: r.json, atlas: r.atlas, pngBase64, version: r.version, warn: r.warn };
+      return probeSpineProjectFile(inputPath); // { ok, version } / 抛错
+    } catch (err) {
+      return { ok: false, reason: err.message };
+    }
+  });
+  // Spine 编辑器工程文件(.spine)→ 明文 JSON(逆向解码:骨骼/插槽/附件/动画关键帧)
+  ipcMain.handle('tool:spineProject2json', async (_e, { inputPath, outputPath }) => {
+    try {
+      return convertSpineProjectFile({ inputPath, outputPath }); // { ok, outputPath, version, stats }
     } catch (err) {
       return { ok: false, error: err.message };
     }
   });
-
+  // 比对两个文件内容是否一致(先比大小,相同再流式 MD5)。
+  // 供 Spine 格式转换检测“库中存在同名同内容、但存储位置不同的另一副本”。
+  ipcMain.handle('tool:filesIdentical', async (_e, { a, b }) => {
+    try {
+      if (!a || !b) return { ok: false, error: '缺少对比路径' };
+      const sa = fs.statSync(a), sb = fs.statSync(b);
+      if (!sa.isFile() || !sb.isFile()) return { ok: false, error: '路径不是常规文件' };
+      if (sa.size !== sb.size) return { ok: true, same: false };
+      if (sa.size === 0) return { ok: true, same: true };
+      const md5 = (p) => new Promise((resolve, reject) => {
+        const h = crypto.createHash('md5');
+        fs.createReadStream(p)
+          .on('data', (d) => h.update(d))
+          .on('error', reject)
+          .on('end', () => resolve(h.digest('hex')));
+      });
+      return { ok: true, same: (await md5(a)) === (await md5(b)) };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
   // ============ 资源工具箱:Spine 骨骼格式/版本转换 ============
   // 复用 SpineSkeletonDataConverter(C++ 原生):skel ↔ json,跨版本 3.5-3.8 / 4.0-4.3 升降级,自动识别输入版本。
   ipcMain.handle('tool:spineConvert', async (_e, { inputPath, outputPath, targetVersion, removeCurve }) => {

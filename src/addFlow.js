@@ -369,8 +369,8 @@ function askDirModeDialog(dirCount) {
     body.appendChild(tip);
     const opts = [
       { id: 'flat', label: '全部放入当前目录', desc: '递归扫描目录下所有可识别资源,平铺加入当前目录(不建子分类)' },
-      { id: 'subdirs', label: '按直接子目录名建子分类', desc: '仅按拖入目录的直接子目录建立对应分类,子目录内资源归入对应分类(不继续嵌套)' },
-      { id: 'recursive-dirs', label: '递归按目录结构建子分类', desc: '子目录的子目录也逐级建立对应分类,完整还原目录层级' },
+      { id: 'subdirs', label: '以目录加入', desc: '在当前分类下建立以拖入目录名命名的子分类,目录内所有资源(递归扫描)归入该子分类' },
+      { id: 'recursive-dirs', label: '递归按目录结构建子分类', desc: '先以拖入目录名建子分类,其下的子目录再逐级建立对应分类,完整还原目录层级' },
     ];
     const list = document.createElement('div');
     list.className = 'fav-pick-list';
@@ -393,7 +393,7 @@ function askDirModeDialog(dirCount) {
     body.appendChild(list);
     const hint = document.createElement('div');
     hint.className = 'field-hint';
-    hint.textContent = '提示:建子分类时按相对拖入目录的路径结构创建,重复目录名自动复用现有分类;直接拖入的文件不受影响,始终加入当前目录。';
+    hint.textContent = '提示:两种建子分类方式都会先以拖入目录名建立同名子分类,重复目录名自动复用现有分类;直接拖入的文件不受影响,始终加入当前目录。';
     body.appendChild(hint);
     const { close } = openModal({
       title: '拖入目录的加入方式',
@@ -416,7 +416,7 @@ function askDirModeDialog(dirCount) {
 
 /**
  * 拖拽添加:把外部拖入的文件/目录路径扫描识别后,添加到指定分类。
- * 拖入目录时弹窗选择加入方式:平铺 / 仅一层子分类 / 递归按目录结构建子分类。
+ * 拖入目录时弹窗选择加入方式:平铺 / 以目录加入 / 递归按目录结构建子分类。
  * @param {string[]} paths 拖入的绝对路径列表(文件或目录)
  * @param {string} categoryId 目标分类 id(必须已存在)
  * @returns {Promise<number>} 实际新增数量
@@ -449,8 +449,10 @@ export async function addPathsToCategory(paths, categoryId) {
     if (mode !== 'flat' && roots.length) {
       const root = roots.find((d) => isWithin(e.dir, d));
       if (root) {
-        let segs = relSegments(e.dir, root);
-        if (mode === 'subdirs') segs = segs.slice(0, 1); // 仅一层子分类
+        // 以拖入目录名作为第一级子分类,再接上其内部的相对目录层级
+        const rootName = String(root).replace(/[\\/]+$/, '').split(/[\\/]/).pop();
+        let segs = [rootName, ...relSegments(e.dir, root)];
+        if (mode === 'subdirs') segs = segs.slice(0, 1); // 以目录加入:所有资源归入以拖入目录名命名的子分类
         if (segs.length) {
           const { catId: cid, created } = ensureCategoryChain(categoryId, segs, inheritTags);
           targetCatId = cid;
@@ -474,7 +476,7 @@ export async function addPathsToCategory(paths, categoryId) {
     added++;
   }
   let msg = added > 0 ? `已拖拽添加 ${added} 个资源到「${catName}」` : `未添加新资源到「${catName}」`;
-  if (mode === 'subdirs') msg = added > 0 ? `已拖拽添加 ${added} 个资源(按直接子目录建子分类)到「${catName}」` : msg;
+  if (mode === 'subdirs') msg = added > 0 ? `已拖拽添加 ${added} 个资源(以目录加入,建立同名子分类)到「${catName}」` : msg;
   if (mode === 'recursive-dirs') msg = added > 0 ? `已拖拽添加 ${added} 个资源(递归按目录结构建子分类)到「${catName}」` : msg;
   if (dirsCreated > 0) msg += `,自动创建 ${dirsCreated} 个目录`;
   if (skipped > 0) msg += `,${skipped} 个重复已跳过`;

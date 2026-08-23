@@ -57,7 +57,10 @@ contextBridge.exposeInMainWorld('api', {
   spineFix: (args) => ipcRenderer.invoke('tool:spinefix', args),
   sk2spine: (args) => ipcRenderer.invoke('tool:sk2spine', args),
   probeSk2spine: (args) => ipcRenderer.invoke('tool:probeSk2spine', args),
-  sk2spinePreview: (args) => ipcRenderer.invoke('tool:sk2spinePreview', args),
+  // Spine 编辑器工程文件(.spine)逆向:探测 / 解码为明文 JSON
+  probeSpineProject: (args) => ipcRenderer.invoke('tool:probeSpineProject', args),
+  spineProject2json: (args) => ipcRenderer.invoke('tool:spineProject2json', args),
+  filesIdentical: (args) => ipcRenderer.invoke('tool:filesIdentical', args),
 
   // ---- 资源工具箱:Spine 骨骼格式/版本转换(C++ SpineSkeletonDataConverter) ----
   spineConvert: (args) => ipcRenderer.invoke('tool:spineConvert', args),

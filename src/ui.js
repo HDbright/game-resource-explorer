@@ -3440,6 +3440,7 @@ function renderPseudoNode(parent, n, group = currentGroup(), expandKey = n.id) {
   if (isOpen && hasItems) {
     const wrap = document.createElement('div');
     wrap.className = 'tree-items';
+    wrap.style.setProperty('--item-depth', 0); // 未分类文件与顶级分类(depth 0)的图标对齐
     if (isAll) {
       // 该类型的分类目录:未分类在前(若有),顶级分类在后
       // 目录按资源类型标签过滤:无标签 → 所有类型显示;有标签 → 仅标签命中当前类型的目录显示
@@ -3671,6 +3672,8 @@ function renderCatNode(parent, cat, depth, group = currentGroup()) {
   if (isOpen && (hasChildren || items.length > 0)) {
     const wrap = document.createElement('div');
     wrap.className = 'tree-items';
+    // 文件行缩进基准深度:使其类型徽标与所属分类行的文件夹图标对齐
+    wrap.style.setProperty('--item-depth', depth);
     for (const ch of children) renderCatNode(wrap, ch, depth + 1, group);
     for (const it of items) wrap.appendChild(renderItemNode(it));
     parent.appendChild(wrap);
@@ -4690,15 +4693,25 @@ async function openWithApp(exe, filePath) {
   }
 }
 
-/** 右键菜单「转换成源格式」:.sk → 同目录 Spine .json + .atlas */
+/** 右键菜单「转换成源格式」:.sk → 同目录 Spine .json + .atlas,并加入源文件所在分类 */
 async function convertSkToSource(it) {
   const outJson = it.filePath.replace(/\.sk$/i, '.json');
+  const base = it.filePath.split(/[\\/]/).pop().replace(/\.[^.]+$/, '');
   toast(`正在将「${it.displayName}」转换为 Spine 源格式...`);
   try {
     const r = await window.api.sk2spine({ inputPath: it.filePath, outputPath: outJson });
     if (!r || !r.ok) throw new Error((r && (r.error || r.reason)) || '转换失败');
-    toast(`转换完成:${r.jsonPath} + ${r.atlasPath}`);
-    window.api.showItem(r.jsonPath);
+    // 产物直接加入源文件所在分类,并立即刷新侧栏与当前列表(与 .skel 转换行为一致);
+    // 同路径条目已存在(重复转换)时仅更新元数据,不产生重复项
+    let size = null, mtime = null;
+    try { const st = await window.api.statFile(r.jsonPath); size = st.size; mtime = st.mtime || st.created; } catch (_) {}
+    const existed = state.items.find((x) => x.filePath === r.jsonPath);
+    if (existed) updateItem(existed.id, { atlasPath: r.atlasPath, displayName: existed.displayName || base, size, mtime });
+    else addItem({ categoryId: it.categoryId, type: 'spine', filePath: r.jsonPath, atlasPath: r.atlasPath, displayName: base, size, mtime });
+    document.dispatchEvent(new CustomEvent('library:changed')); // 刷新侧栏资源树
+    renderMainArea(); // 刷新当前分类列表(显示新加入的 .json)
+    toast(`转换完成并加入分类:${base}.json + .atlas`, 'ok');
+    // 产物已入库并在列表中可见,不再弹系统文件管理器
   } catch (err) {
     toast('转换失败:' + (err.message || err), 'error');
   }
@@ -4724,7 +4737,7 @@ async function convertSkelToJsonViaTool(it) {
     document.dispatchEvent(new CustomEvent('library:changed')); // 刷新侧栏资源树
     renderMainArea(); // 刷新当前分类列表(显示新加入的 .json)
     toast(`转换完成并加入分类:${base}.json`, 'ok');
-    window.api.showItem(outJson);
+    // 产物已入库并在列表中可见,不再弹系统文件管理器
   } catch (err) {
     toast('转换失败:' + (err.message || err), 'error');
   }
@@ -6708,7 +6721,7 @@ async function showModelPlaceholder(item) {
 }
 
 /** 动画预览(原有逻辑) */
-async function showAnimationPreview(item) {
+export async function showAnimationPreview(item) {
   showPreviewPage(item);
   document.getElementById('pv-error').hidden = true;
   try {
@@ -7586,11 +7599,13 @@ function renderVersion() {
   const el = document.getElementById('pv-version');
   if (!el) return;
   const v = preview.getVersionInfo();
-  const type = preview.player && preview.player.constructor
-    ? preview.player.constructor.name : '';
   if (v) {
-    const label = type && type.indexOf('Db') >= 0 ? 'DragonBones' : 'Spine';
-    el.textContent = `${label} ${v}`;
+    // 压缩构建后构造器名不可靠,Laya 方案的版本串固定以 'LayaAir' 开头
+    const isLaya = /^LayaAir/.test(v);
+    const isDb = !isLaya && preview.player && preview.player.constructor
+      && String(preview.player.constructor.name).indexOf('Db') >= 0;
+    const label = isLaya ? 'LayaAir' : isDb ? 'DragonBones' : 'Spine';
+    el.textContent = isLaya ? v : `${label} ${v}`;
   } else {
     el.textContent = '';
   }

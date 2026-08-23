@@ -12,6 +12,8 @@ function basename(p) {
  * 播放器工厂:按资源类型 + 版本探测结果构造并加载播放器。
  * PreviewController 与 ThumbnailService 共用,保证行为一致。
  *
+ * LayaAir .sk 一律使用官方引擎方案(Templet 解析 + Skeleton 驱动 + pixi 提取渲染)。
+ *
  * @param {import('pixi.js').Application} app
  * @param {object} item - { id, type: 'spine'|'dragonbones', filePath, atlasPath }
  * @returns {Promise<{player: object}>} 加载完成的播放器
@@ -20,23 +22,17 @@ export async function createPlayer(app, item) {
   const root = `${location.origin}/a/${item.id}`;
   await getPixi(); // 首次创建播放器时加载 pixi.js 并确保 window.PIXI(DragonBones UMD / player 运行时)
 
-  // ---- LayaAir 骨骼动画 .sk:内存转换为 Spine 3.8 json+atlas,直接播放(无需手动转换) ----
+  // ---- LayaAir 骨骼动画 .sk:官方引擎驱动,提取顶点到 pixi 渲染 ----
   if (/\.sk$/i.test(item.filePath || '')) {
-    const res = await window.api.sk2spinePreview({ inputPath: item.filePath });
-    if (!res || !res.ok) {
-      throw new Error('Laya .sk 转换失败:' + ((res && (res.error || res.reason)) || '未知错误'));
-    }
-    const jsonUrl = URL.createObjectURL(new Blob([res.json], { type: 'application/json' }));
-    const atlasUrl = URL.createObjectURL(new Blob([res.atlas], { type: 'text/plain' }));
-    const player = new Spine38Player(app);
-    try {
-      // atlas 为 blob URL 无法作为图片解析基址,pageBase 指向 /a/<itemId>/(同名 .png 图集图片走静态服务)
-      await player.load({ skeletonUrl: jsonUrl, atlasUrl, pageBase: root + '/' });
-    } finally {
-      setTimeout(() => {
-        try { URL.revokeObjectURL(jsonUrl); URL.revokeObjectURL(atlasUrl); } catch (e) { /* ignore */ }
-      }, 10000);
-    }
+    const { LayaSkPlayer } = await import('./layaSkPlayer.js');
+    const player = new LayaSkPlayer(app);
+    const name = basename(item.filePath);
+    const pngName = name.replace(/\.[^.]+$/, '') + '.png';
+    await player.load({
+      skUrl: `${root}/${encodeURIComponent(name)}`,
+      pngUrl: `${root}/${encodeURIComponent(pngName)}`,
+      urlKey: item.filePath,
+    });
     return { player };
   }
 

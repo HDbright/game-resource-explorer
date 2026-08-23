@@ -33,6 +33,7 @@ export class PreviewController {
     this._ro = null;
     this._drag = null;
     this.fitPolicy = '100'; // 'fit' | '100' | 'fixed' | 'dynamic',由 UI 的 zoom-mode 同步
+    this.currentItem = null; // 最近一次加载的资源(切换 .sk 渲染方案后重载用)
   }
 
   /**
@@ -164,6 +165,7 @@ export class PreviewController {
     const token = ++this.loadToken;
     this.disposePlayer();
     this.currentItemId = item.id;
+    this.currentItem = item;
 
     try {
       const { player } = await createPlayer(this.app, item);

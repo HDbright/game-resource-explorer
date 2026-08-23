@@ -187,15 +187,15 @@ class ByteReader {
 //   [keyframeCount 个关键帧],每个关键帧 = dur(f32) | (lerp==2 ? interLen(u8)+interp f32* : ) | data f32*keyframeWidth。
 // 段 A 整体终止于 publicDataPos(段 C 起点),故可用“解析后 r.pos 是否正好落在 publicDataPos”
 // 来自动判定采用哪种布局,从而兼容两类文件、避免 offset out of range。
-function readSegmentA(buf, startPos, publicData, strList, aniCount, extraByte) {
+function readSegmentA(buf, startPos, publicData, strList, aniCount, unlimit) {
   const r = new ByteReader(buf, startPos);
   const animations = [];
   for (let ai = 0; ai < aniCount; ai++) {
     const nameIdx = r.u16();
     const name = strList[nameIdx];
     const playTime = r.f32();              // 毫秒
-    const boneCount = r.u8();              // 动画节点数(骨骼变换 + 插槽/图片节点)
-    if (extraByte) r.skip(1);             // 变体布局:跳过每个动画节点列表前的额外字节
+    // 官方 AnimationParser01:节点计数宽度由资源路径决定(含 "unlimit" 为 u16,否则 u8)
+    const boneCount = unlimit ? r.u16() : r.u8();
     const nodes = [];
     for (let bi = 0; bi < boneCount; bi++) {
       const nodeNameIdx = r.i16();
@@ -294,7 +294,7 @@ function normalizeParent(s) {
 }
 
 // ---------------- 解析 .sk ----------------
-function parseSk(buffer, readAudio) {
+function parseSk(buffer, readAudio, pathHint) {
   const r = new ByteReader(buffer);
 
   // ---- 头部(AnimationParser01.parse) ----
@@ -310,34 +310,9 @@ function parseSk(buffer, readAudio) {
   const publicExtData = buffer.slice(publicExtDataPos);
 
   // ---- 段 A:动画关键帧(AnimationParser01) ----
-  // 不同 LayaAir 导出器在“节点头”里可能多写 1 个字节(实测 _newspine_unlimit_ 的
-  // nanhai01/02、nvhai01 带此字节,chibang/hedao 不带;该字节位于 nodeNameIdx(i16) 与
-  // parentIndex(i16) 之间)。以“段 A 解析后是否正好停在 publicDataPos”自动判定布局,
-  // 兼容两类文件,避免 offset out of range。
-  const segAStart = r.pos;
-  const candidates = [];
-  for (const extraByte of [false, true]) {
-    try {
-      candidates.push({ extraByte, res: readSegmentA(buffer, segAStart, publicData, strList, aniCount, extraByte) });
-    } catch (e) { /* 越界 => 此布局不对,尝试另一种 */ }
-  }
-  let segAChosen, segAExtraByte = false;
-  const exact = candidates.filter((c) => c.res.endPos === publicDataPos);
-  if (exact.length) {
-    const pick = (exact.find((c) => c.extraByte === false) || exact[0]);
-    segAChosen = pick.res; segAExtraByte = pick.extraByte;
-  } else if (candidates.length) {
-    candidates.sort((a, b) => Math.abs(a.res.endPos - publicDataPos) - Math.abs(b.res.endPos - publicDataPos));
-    segAChosen = candidates[0].res; segAExtraByte = candidates[0].extraByte;
-  } else {
-    // 极小概率:两种布局都越界,强制按标准布局重试(抛错由上层捕获)
-    segAChosen = readSegmentA(buffer, segAStart, publicData, strList, aniCount, false);
-    segAExtraByte = false;
-  }
-  // 段 A 的变体标志(每动画多 1 字节)与段 C 的"每个常规 display 前多 1 字节前缀"同属 _newspine_unlimit_ 变体,
-  // 二者绑定:isVariant=true 时常规 display 需跳过 1 字节前缀。
-  const isVariant = segAExtraByte;
-  const animations = segAChosen.animations;
+  // 官方规则:动画节点计数宽度由资源路径决定 —— 含 "unlimit" 为 u16,否则 u8
+  // (此前误把 u16 高字节当作“变体额外字节”跳过,系同一现象的两种解读)
+  const animations = readSegmentA(buffer, r.pos, publicData, strList, aniCount, /unlimit/i.test(pathHint || '')).animations;
 
   // ---- 段 C:骨架定义(_parsePublicExtData,严格对应 getObjectBuffer 写入顺序) ----
   const pe = new ByteReader(publicExtData);
@@ -523,38 +498,31 @@ function parseSk(buffer, readAudio) {
     boneSlots.push({ name, parent: normalizeParent(parent), attachmentName, displayIndex });
   }
 
-  // 13) 皮肤(名称在 nameStr 中以 \n 串接;随后是每个皮肤的 slot/display)
-  // 名称写入顺序与 getObjectBuffer 一致:skinName + 每个 slot 的 slotName + 每个 display 的 displayName/attachmentName。
-  // 控制计数顺序:skinDataLen(u8), [slotDataLen, [displayDataLen, ...displayData]]。
-  // skinDataLen 恒为 u8(两类文件均为 1);slotDataLen/displayDataLen 的宽度随导出器不同(u8 标准 / u16 变体),
-  // 故自动探测:哪个宽度能让皮肤段正好解析到段 C 末尾,就用哪个。
+  // 13) 皮肤(官方 Templet._parsePublicExtData 规则)
+  // 名称流:skinName + 每槽 slotName + 每 display 两个名(displayName/attachmentName)。
+  // 计数宽度:skinCount 恒 u8;slotCount = 路径含 "newspine" ? u16 : u8;displayCount 恒 u8。
+  // display 二进制无前缀字节(此前“逐 display 前缀”实为 slotCount u16 高字节误读的连带误判)。
   const nameStr = pe.utf();
   const nameArray = nameStr.split('\n');
   const skinStartAbs = publicExtDataPos + pe.pos; // 皮肤段计数(名称串之后)的绝对起始
   const publicExtEnd = publicExtDataPos + publicExtData.length;
-  // 自动探测 slotDataLen / displayDataLen 的计数宽度组合:
-  //   (1,1) 标准 u8/u8(chibang/hedao)
-  //   (1,2) slot=u8, display=u16(_newspine_unlimit_ 的 nanhai/nvhai)
-  //   (2,1)/(2,2) 其它变体兜底
-  // 逐 display 前缀:display 为 u8 时沿用 isVariant 探测;display 为 u16 时强制无前缀(高字节已并入计数)。
-  const combos = [
-    { s: 1, d: 1, pref: isVariant },
-    { s: 1, d: 2, pref: 0 },
-    { s: 2, d: 1, pref: isVariant },
-    { s: 2, d: 2, pref: 0 },
-  ];
+  const slotCountW = /newspine/i.test(pathHint || '') ? 2 : 1;
   let skinResult = null;
-  for (const c of combos) {
+  // 按官方宽度解析;若未能正好对齐段尾(极少数无路径信息的调用),回退尝试另一种宽度
+  for (const w of [slotCountW, (slotCountW === 2 ? 1 : 2)]) {
     const sub = new ByteReader(buffer, skinStartAbs);
     const nir = { v: 0 };
-    let r;
     try {
-      r = readSkinSection(sub, nameArray, nir, c.s, c.d, c.pref);
-    } catch (e) {
-      continue;
-    }
-    if (r.endPos === publicExtEnd) { skinResult = { r, c }; break; }
-    if (!skinResult || Math.abs(r.endPos - publicExtEnd) < Math.abs(skinResult.r.endPos - publicExtEnd)) skinResult = { r, c };
+      const r = readSkinSection(sub, nameArray, nir, w, 1, 0);
+      const cand = { r, exact: r.endPos === publicExtEnd };
+      if (!skinResult || (cand.exact && !skinResult.exact)) skinResult = cand;
+      if (skinResult.exact) break;
+    } catch (e) { /* 尝试另一宽度 */ }
+  }
+  if (!skinResult) {
+    // 兜底:强制标准宽度(让上层拿到尽量完整的数据并携带告警)
+    const sub = new ByteReader(buffer, skinStartAbs);
+    skinResult = { r: readSkinSection(sub, nameArray, { v: 0 }, slotCountW, 1, 0), exact: false };
   }
   const skins = skinResult.r.skins;
   const tailFlag = skinResult.r.tailFlag;
@@ -573,14 +541,19 @@ function parseSk(buffer, readAudio) {
 }
 
 // 由于事件段是否含 audioValue 取决于生成版本,做二次尝试:
-// 先按“无 audioValue”解析;若未对齐段 C 末尾,再按“有 audioValue”重试一次。
-function parseSkRobust(buffer) {
-  const m1 = parseSk(buffer, false);
-  if (m1._parseEnd === m1._parseLen) return { model: m1, audio: false };
-  const m2 = parseSk(buffer, true);
+// 先按“无 audioValue”解析;未对齐或中途越界(大文件事件段多,读错布局会直接抛 RangeError)
+// 都回退按“有 audioValue”重试一次。
+function parseSkRobust(buffer, pathHint) {
+  let m1 = null;
+  try {
+    m1 = parseSk(buffer, false, pathHint);
+    if (m1._parseEnd === m1._parseLen) return { model: m1, audio: false };
+  } catch (e) { /* 布局不对,继续按带 audio 尝试 */ }
+  const m2 = parseSk(buffer, true, pathHint);
   if (m2._parseEnd === m2._parseLen) return { model: m2, audio: true };
-  m1._warn = `段C解析未完全对齐(已读 ${m1._parseEnd} / 共 ${m1._parseLen} 字节),输出可能不完整`;
-  return { model: m1, audio: false };
+  const mm = m1 || m2;
+  mm._warn = `段C解析未完全对齐(已读 ${mm._parseEnd} / 共 ${mm._parseLen} 字节),输出可能不完整`;
+  return { model: mm, audio: m1 == null };
 }
 
 // ---------------- 探测 ----------------
@@ -597,20 +570,39 @@ function probeLayaSk(buffer) {
 // ---------------- 工具:把 Laya 变换分解为 Spine 骨骼/附件变换 ----------------
 // Laya getMatrix:若 skX!=0||skY!=0: a=scX*cos, b=scX*sin, c=-scY*sin, d=scY*cos; 否则 a=scX,b=skX,c=skY,d=scY
 function layaMatrixToSpine(scX, skX, skY, scY, x, y) {
-  let a, b, c, d;
-  if (skX !== 0 || skY !== 0) {
-    const ang = (skX * Math.PI) / 180;
-    const cosA = Math.cos(ang), sinA = Math.sin(ang);
-    a = scX * cosA; b = scX * sinA; c = -scY * sinA; d = scY * cosA;
-  } else {
-    a = scX; b = skX; c = skY; d = scY;
-  }
-  const scaleX = Math.sqrt(a * a + c * c);
-  const scaleY = Math.sqrt(b * b + d * d);
-  const rotation = Math.atan2(c, a) * 180 / Math.PI;
+  // Laya 全程 y 向下(矩阵形式与 Spine 相同),渲染端 spine38Player 对世界坐标统一取 -y。
+  // 因此这里对 Laya 矩阵做整体共轭 F·M·F(F=diag(1,-1)):旋转取负、平移 y 取负、缩放不变,
+  // 最终渲染出的画面才与 Laya 舞台坐标一致。旧实现只翻转了旋转、没翻转平移,坐标系混杂导致部件错位。
+  const ang = (skX * Math.PI) / 180;
+  const cosA = Math.cos(ang), sinA = Math.sin(ang);
+  const a = scX * cosA, b = scX * sinA, c = -scY * sinA, d = scY * cosA;
+  // 共轭矩阵:b、c 取负,ty 取负
+  const b2 = -b, c2 = -c;
+  const scaleX = Math.sqrt(a * a + c2 * c2);
+  const scaleY = Math.sqrt(b2 * b2 + d * d);
+  let rotation = Math.atan2(b2, a) * 180 / Math.PI;
   let sx = scaleX, sy = scaleY;
-  if (a * d - b * c < 0) sx = -sx;
-  return { x, y, rotation, scaleX: sx, scaleY: sy, shearX: 0, shearY: 0 };
+  if (a * d - b2 * c2 < 0) {
+    sx = -sx;
+    // 负缩放(镜像骨骼,如 chibang 左翼 bone15 scX=-1.1):atan2(b2,a) 得到的是
+    // 被镜像翻转后的 x 轴角(含 180°),须 +180° 还原 —— 否则「翻转角 + 负缩放」
+    // 双重应用互相抵消,镜像在 Spine 端丢失(左翼渲染到右翼位置)。
+    rotation += 180;
+    if (rotation > 180) rotation -= 360;
+    else if (rotation <= -180) rotation += 360;
+  }
+  return { x, y: -y, rotation, scaleX: sx, scaleY: sy, shearX: 0, shearY: 0 };
+}
+
+// Laya 显示矩阵(Transform.getMatrix:scale → rotate(skX) → translate,y 向下)
+function layaDisplayMatrix(t) {
+  const ang = ((t.skX || 0) * Math.PI) / 180;
+  const cosA = Math.cos(ang), sinA = Math.sin(ang);
+  return {
+    a: (t.scX || 1) * cosA, b: (t.scX || 1) * sinA,
+    c: -(t.scY || 1) * sinA, d: (t.scY || 1) * cosA,
+    tx: t.x || 0, ty: t.y || 0,
+  };
 }
 
 // ---------------- 生成 .atlas 文本 ----------------
@@ -750,11 +742,42 @@ function remapUvs(disp) {
   return out;
 }
 
+/** 按官方 showSkinByIndex 语义解析 setup 显示索引:
+ *  仅字面量 "undefined" 走 displayIndex;其余(含 "null"/空串/真实 undefined)一律
+ *  showDisplayByName 按名字查找,未命中 → -1(隐藏)。 */
+function resolveDisplayIndex(bs, displays) {
+  if (bs.attachmentName === 'undefined') return bs.displayIndex == null ? -1 : bs.displayIndex;
+  if (typeof bs.attachmentName === 'string') {
+    const i = displays.findIndex((d) => d.attachmentName === bs.attachmentName);
+    return i; // 未命中 → -1
+  }
+  return -1;
+}
+
 // ---------------- 生成 Spine 骨架 JSON ----------------
+
+/** 计算某骨骼的 Spine setup 姿态(与 modelToSpineJson 输出的 bones[i] 字段一致,含根骨 y 翻转)。
+ *  buildAnimations 的时间线必须以该 setup 为基准换算(见下),两处共用防止漂移。 */
+function boneSetupPose(model, bi) {
+  const b = model.bones[bi] || {};
+  const tr = model.bindTransforms[bi] || { scX: 1, skX: 0, skY: 0, scY: 1, x: 0, y: 0 };
+  const sp = layaMatrixToSpine(tr.scX, tr.skX, tr.skY, tr.scY, tr.x, tr.y);
+  if (model.tailFlag === 1 && !b.parent) sp.scaleY = -sp.scaleY;
+  return {
+    x: sp.x || 0, y: sp.y || 0,
+    rotation: sp.rotation || 0,
+    scaleX: sp.scaleX == null ? 1 : sp.scaleX,
+    scaleY: sp.scaleY == null ? 1 : sp.scaleY,
+  };
+}
+
 function modelToSpineJson(model, opts) {
   opts = opts || {};
   const skeleton = {
-    hash: (opts.hash || 'laya_' + (model.version || '').replace(/[^0-9.]/g, '')).slice(0, 32),
+    // hash 内不能出现 x.y.z 形态的数字串:probeSpineFile(文件头正则)与
+    // SpineSkeletonDataConverter 都按“首个 x.y.z”识别版本,含点号的 Laya 版本串
+    // (如 laya_1.6.0)会被误判为 Spine 1.6 → 探测失败、无法链式转换。去掉点号(laya_160)。
+    hash: (opts.hash || 'laya_' + (model.version || '').replace(/[^0-9]/g, '')).slice(0, 32),
     spine: opts.spine || '3.8.99',
     x: 0, y: 0,
     width: opts.width || 0, height: opts.height || 0,
@@ -766,6 +789,9 @@ function modelToSpineJson(model, opts) {
     const b = model.bones[i];
     const tr = model.bindTransforms[i] || { scX: 1, skX: 0, skY: 0, scY: 1, x: 0, y: 0 };
     const sp = layaMatrixToSpine(tr.scX, tr.skX, tr.skY, tr.scY, tr.x, tr.y);
+    // yReverse(tailFlag==1):官方引擎给根骨骼前置 F=diag(1,-1),等价于根骨骼 scaleY 取负;
+    // 共轭输出在根骨骼 scaleY 上补此翻转(动画里的根 scale 时间线同步处理,见 buildAnimations)
+    if (model.tailFlag === 1 && !b.parent) sp.scaleY = -sp.scaleY;
     const bone = {};
     bone.name = b.name;
     if (b.parent) bone.parent = b.parent;
@@ -780,14 +806,27 @@ function modelToSpineJson(model, opts) {
     bones.push(bone);
   }
 
-  // 插槽(由 BoneSlot 提供 bone 绑定)
+  // 皮肤槽位条目(官方解析后同名条目合并)
+  const skinSlotByName = new Map();
+  for (const slot of (model.skins[0] || {}).slots || []) {
+    if (!skinSlotByName.has(slot.name)) skinSlotByName.set(slot.name, { name: slot.name, displays: [] });
+    skinSlotByName.get(slot.name).displays.push(...slot.displays);
+  }
+
+  // 插槽(由 BoneSlot 提供 bone 绑定;setup 附件按官方 showSkinByIndex 语义解析)
   const slots = [];
   if (model.boneSlots && model.boneSlots.length) {
     for (const bs of model.boneSlots) {
       const slot = { name: bs.name, bone: bs.parent || model.bones[0].name };
-      if (bs.attachmentName && bs.attachmentName !== 'null' && bs.attachmentName !== 'undefined') {
-        slot.attachment = bs.attachmentName;
-      }
+      const entry = skinSlotByName.get(bs.name);
+      const displays = entry ? entry.displays : [];
+      // 官方 showSkinByIndex 语义:仅字面量 "undefined" 走 displayIndex;其余(含 "null"、
+      // 空串)一律 showDisplayByName 按名字查找 —— ZhuangXu 的 attachmentNames 里就有
+      // 真实命名为 "null" 的显示,按名字能命中并显示;未命中 → 隐藏(-1)。
+      // 此前把 "null" 也当垃圾名过滤,导致 ZhuanXu_13/16 等部件在 setup 丢失。
+      const idx = resolveDisplayIndex(bs, displays);
+      const disp = displays[idx];
+      if (disp) slot.attachment = disp.attachmentName || disp.name;
       slots.push(slot);
     }
   } else {
@@ -836,16 +875,34 @@ function modelToSpineJson(model, opts) {
     return o;
   });
 
-  // 皮肤(默认皮肤命名为 "default")
+  // 皮肤(默认皮肤命名为 "default")。
+  // 官方解析规则下皮肤段槽位名与 BoneSlot 一致,直接按槽位归组、以 attachmentName 为附件键;
+  // 仅对极少数仍对不上的槽位名按附件持有者兜底(避免 3.8 运行时 "Slot not found")。
+  const slotNames = new Set(slots.map((s) => s.name));
+  const boneSlotByAtt = new Map();
+  for (const bs of model.boneSlots || []) {
+    if (bs.attachmentName && !boneSlotByAtt.has(bs.attachmentName)) boneSlotByAtt.set(bs.attachmentName, bs.name);
+  }
   const skins = {};
   (model.skins || []).forEach((skin, si) => {
     const key = (si === 0 && skin.name !== 'default') ? 'default' : skin.name;
     const skinObj = {};
     for (const slot of skin.slots) {
-      // 同一 slot 在源数据中可能以多条记录出现(附件名重复),按 attachmentName 合并避免覆盖丢失
-      if (!skinObj[slot.name]) skinObj[slot.name] = {};
+      let slotName = slot.name;
+      if (!slotNames.has(slotName)) {
+        // 兜底:按附件持有者反查(取第一个能对上的)
+        const cands = new Set();
+        for (const disp of slot.displays || []) {
+          const n = boneSlotByAtt.get(disp.attachmentName) || boneSlotByAtt.get(disp.name);
+          if (n && slotNames.has(n)) cands.add(n);
+        }
+        if (cands.size === 1) slotName = cands.values().next().value;
+        else continue; // 无法确定,跳过该槽位
+      }
+      if (!skinObj[slotName]) skinObj[slotName] = {};
       for (const disp of slot.displays) {
-        skinObj[slot.name][disp.attachmentName] = displayToAttachment(disp, model);
+        const attKey = disp.attachmentName || disp.name;
+        skinObj[slotName][attKey] = displayToAttachment(disp, model);
       }
     }
     skins[key] = skinObj;
@@ -876,7 +933,9 @@ function displayToAttachment(disp, model) {
       const vCount = (disp.uvs.length / 2) | 0;
       const regName = disp._regionName || disp.attachmentName;
       return {
-        type: 'skinnedmesh',
+        // Spine 3.8 JSON 的加权网格类型就是 'mesh'(顶点内联 [骨骼数,骨骼idx,x,y,w,...] 元组);
+        // 'skinnedmesh' 是 4.x 类型名,3.8 读到未知类型返回 null → 附件丢失(ZhuangXu_13/16)。
+        type: 'mesh',
         uvs: remapUvs(disp),
         triangles: disp.triangles,
         vertices: buildSkinnedVertices(disp),
@@ -889,24 +948,66 @@ function displayToAttachment(disp, model) {
       };
     }
     const regName2 = disp._regionName || disp.attachmentName;
+    // Laya 绘制 type1 网格时顶点经「显示矩阵 ∘ 骨骼矩阵」变换;Spine mesh 顶点只受骨骼影响,
+    // 故把显示矩阵烘焙进顶点,并按共轭规则对结果 y 取负(Laya y-down → Spine y-up)。
+    const raw = disp.vertices.length ? disp.vertices : disp.weights;
+    const D = layaDisplayMatrix(t);
+    const baked = [];
+    for (let i = 0; i + 1 < raw.length; i += 2) {
+      const px = D.a * raw[i] + D.c * raw[i + 1] + D.tx;
+      const py = D.b * raw[i] + D.d * raw[i + 1] + D.ty;
+      baked.push(round3(px), round3(-py));
+    }
     return {
       type: 'mesh',
       uvs: remapUvs(disp),
       triangles: disp.triangles,
-      // 真实 Laya 导出中 vertices 段恒为空,顶点坐标实际存在 weights 段;优先用非空者,兼顾 LayaSpineLoader 正向写入(二者皆坐标)。
-      vertices: ((disp.vertices.length ? disp.vertices : disp.weights)).map((v) => round3(v)),
-      hull: Math.min(8, ((disp.vertices.length ? disp.vertices : disp.weights).length / 2) | 0),
+      vertices: baked,
+      hull: Math.min(8, (raw.length / 2) | 0),
       width: round3(disp.width), height: round3(disp.height),
       // ⚠️ Spine 3.8 JSON 加载器按「path」查 atlas region(region 字段被忽略),必须写 path = 去重后的 region 名
       path: regName2,
       region: regName2,
     };
   }
+  // 旋转打包的 region(源图集 rotate:90):官方 createTexture 按 uvs[0]>uvs[4] && uvs[1]>uvs[5]
+  // 判定为旋转区域(createTexture 宽高互换分支),四边形按「转置」uv 配对绘制 —— 即显示的
+  // width/height 与纹理区域像素宽高正好互换。Spine region 附件的 uv 由运行时按 region 矩形
+  // 固定生成,无法表达这种配对 → 改输出 4 顶点 mesh:顶点 = 显示矩阵烘焙的 quad、uv = 区域内
+  // 重映射,与上方 type1 无骨骼网格路径同构(ZhuangXu_0/1/5/11/12/14/15 均属此类)。
+  const quadUvs = disp.uvs || [];
+  if (quadUvs.length >= 8 && quadUvs[0] > quadUvs[4] && quadUvs[1] > quadUvs[5]) {
+    const w2 = (disp.width || 0) / 2, h2 = (disp.height || 0) / 2;
+    const quad = [-w2, -h2, w2, -h2, w2, h2, -w2, h2];
+    const D = layaDisplayMatrix(t);
+    const baked = [];
+    for (let i = 0; i + 1 < quad.length; i += 2) {
+      const px = D.a * quad[i] + D.c * quad[i + 1] + D.tx;
+      const py = D.b * quad[i] + D.d * quad[i + 1] + D.ty;
+      baked.push(round3(px), round3(-py));
+    }
+    const regName = disp._regionName || disp.attachmentName;
+    return {
+      type: 'mesh',
+      uvs: remapUvs(disp),
+      triangles: [0, 1, 2, 2, 3, 0],
+      vertices: baked,
+      hull: 4,
+      width: round3(disp.width), height: round3(disp.height),
+      path: regName,
+      region: regName,
+    };
+  }
   // region(图片)
   const att = { x: round3(sp.x), y: round3(sp.y) };
   if (sp.rotation) att.rotation = round3(sp.rotation);
   if (sp.scaleX !== 1) att.scaleX = round3(sp.scaleX);
-  if (sp.scaleY !== 1) att.scaleY = round3(sp.scaleY);
+  // 官方引擎的 region 显示为「顶点-uv 垂直翻转」配对(quad 左上角采样区域底部,
+  // 实测 hedao Hd_3:官方 TL→(u,v2),Spine 标准 TL→(u,v))。Spine region 的 uv 由
+  // 运行时按 region 矩形 + 固定顺序生成,JSON 无法直接覆写 —— 对 scaleY 取负等价于
+  // 在附件本地做垂直镜像(M = T·R·diag(sx,-sy),与旋转复合正确),使最终画面与官方一致,
+  // 否则水面/河岸等大图块上下颠倒(「图像交叉」)。
+  att.scaleY = round3(-(sp.scaleY == null ? 1 : sp.scaleY));
   att.width = round3(disp.width);
   att.height = round3(disp.height);
   // ⚠️ Spine 3.8 JSON 加载器按「path」查 atlas region(region 字段被忽略),
@@ -918,10 +1019,12 @@ function displayToAttachment(disp, model) {
 }
 
 // 重建 Spine 蒙皮网格顶点:输入 disp.boneIdx(bonePose:[numBones_v, boneIdx...] 每顶点)
-// 与 disp.weights([x', y', w] 每(顶点,骨骼),x'/y' 已相对该骨骼逆绑定姿态)。
+// 与 disp.weights([x, y, w] 每(顶点,骨骼),x/y 为该骨骼本地坐标 —— Laya 运行时
+// 顶点 = Σ w·骨骼矩阵·(x,y),无逆绑定姿态运算)。
 // 输出 Spine 格式:每个顶点都以前导“骨骼数”开头 —— 单骨骼顶点 [1, boneIndex, x, y, weight];
 // 多骨骼顶点 [boneCount, (boneIndex, x, y, weight)...]。Spine 运行时按 vertices[i++] 先读骨骼数,
 // 故单骨骼也必须带前导 1(否则绑定到 bone 0 时会写成 [0,...] 被误判为 0 骨骼)。
+// 坐标系:按共轭规则对每对顶点 y 取负。
 function buildSkinnedVertices(disp) {
   const bonePose = disp.boneIdx;
   const data = disp.weights;
@@ -932,12 +1035,12 @@ function buildSkinnedVertices(disp) {
     if (boneCount <= 0) continue; // 防御:理论上蒙皮顶点 boneCount>=1
     if (boneCount === 1) {
       const bIdx = bonePose[bi++];
-      out.push(1, bIdx, round3(data[wi++]), round3(data[wi++]), round3(data[wi++]));
+      out.push(1, bIdx, round3(data[wi++]), round3(-data[wi++]), round3(data[wi++]));
     } else {
       out.push(boneCount);
       for (let k = 0; k < boneCount; k++) {
         const bIdx = bonePose[bi++];
-        out.push(bIdx, round3(data[wi++]), round3(data[wi++]), round3(data[wi++]));
+        out.push(bIdx, round3(data[wi++]), round3(-data[wi++]), round3(data[wi++]));
       }
     }
   }
@@ -950,47 +1053,210 @@ function buildSkinnedVertices(disp) {
 //   时间轴:首帧 t=0,后续帧 t=累计 duration(秒,毫秒/1000)
 function buildAnimations(model) {
   const animations = {};
-  for (const ani of model.animations) {
-    const tracks = {};
-    for (const node of ani.nodes) {
+  // 官方 _parsePublicExtData 的名称流下,首个骨骼为根;yReverse 时根 scaleY 需取负(与 setup 一致)
+  const rootBone = model.bones[0] && model.bones[0].name;
+  const flipRootScale = model.tailFlag === 1;
+  // 槽位 display 查表:slotName → displays[](官方解析后同名条目合并)
+  const slotDisplays = new Map();
+  for (const slot of (model.skins[0] || {}).slots || []) {
+    if (!slotDisplays.has(slot.name)) slotDisplays.set(slot.name, []);
+    slotDisplays.get(slot.name).push(...slot.displays);
+  }
+  const boneSlotNames = (model.boneSlots || []).map((bs) => bs.name);
+  // setup 附件(与 modelToSpineJson 的槽位 setup 解析同语义):作为 attachment
+  // 时间线的初值 —— 首个切换结果与 setup 相同则不必发帧,不同(如 move 把
+  // leg_L2_Line 切到无效名 → 隐藏)则必须发出隐藏帧,否则 setup 附件会一直显示
+  const setupAtt = new Map();
+  for (const bs of model.boneSlots || []) {
+    const displays = slotDisplays.get(bs.name) || [];
+    const idx = resolveDisplayIndex(bs, displays);
+    const disp = displays[idx];
+    setupAtt.set(bs.name, disp ? (disp.attachmentName || disp.name) : null);
+  }
+
+  for (let ai = 0; ai < model.animations.length; ai++) {
+    const ani = model.animations[ai];
+    const aniObj = { bones: {} };
+    const slotTimelines = {}; // slotName → {attachment:[], color:[]}
+    // 官方 _createGraphics 用 aniSectionDic 分区界区分节点类型:
+    // 前 sec[0] 个 = 骨骼节点,其后 = 插槽节点(再后是 path 节点)。
+    // 骨骼与插槽可能同名(如 juxianggui 的骨骼 tui 与槽位 tui),
+    // 不能按"名字是否是骨骼"判断,否则插槽时间线节点会被骨骼分支吞掉。
+    const sec = (model.aniSections || [])[ai] || [ani.nodes.length, 0];
+    const boneNodeCount = sec[0];
+
+    for (let ni = 0; ni < ani.nodes.length; ni++) {
+      const node = ani.nodes[ni];
       const name = node.name;
       const w = node.keyframeWidth;
       const frames = node.keyframes.map((kf) => kf.data);
-      if (w >= 6 && model.bones.some((b) => b.name === name)) {
-        const boneTrack = tracks[name] || (tracks[name] = { translate: [], rotate: [], scale: [], shear: [] });
+      const isSlotNode = ni >= boneNodeCount;
+      if (!isSlotNode && w >= 6 && model.bones.some((b) => b.name === name)) {
+        const boneTrack = aniObj.bones[name] || (aniObj.bones[name] = {});
+        // 官方引擎把关键帧作为「相对绑定姿态(srcBoneMatrix)的增量」应用:
+        // scX = bind.scX * M、skX = bind.skX + M、x = bind.x + M(缩放乘、其余加)。
+        // Spine 时间线是绝对值,故把绑定姿态烘焙进每个关键帧。
+        const bi = model.bones.findIndex((b) => b.name === name);
+        const bind = model.bindTransforms[bi] || { scX: 1, skX: 0, skY: 0, scY: 1, x: 0, y: 0 };
+        const rootFlip = (flipRootScale && name === rootBone) ? -1 : 1;
+        // ⚠️ 时间线语义:3.8 运行时按「相对 setup 姿态」应用骨骼时间线 ——
+        // translate/rotate = setup + 值,scale = 值 × setup(Spine 3.8 二进制同此约定)。
+        // 故此处输出增量/倍率,不能烘焙绝对值(否则播放时 setup 被二次叠加,bind 位置
+        // 较大的资源(如 hedao,bind ±900)部件会整体飞散)。
+        const setup = boneSetupPose(model, bi);
+        const translate = [], rotate = [], scale = [];
         let time = 0;
         for (let fi = 0; fi < frames.length; fi++) {
           const d = frames[fi];
-          const curve = curveFromNode(node, fi);
-          const tEntry = {};
-          if (fi > 0) tEntry.time = round3(time);
-          if (curve !== null) tEntry.curve = curve;
-          boneTrack.translate.push({ ...tEntry, x: round3(d[0]), y: round3(d[1]) });
-          boneTrack.rotate.push({ ...tEntry, angle: round3(d[2]) });
-          boneTrack.scale.push({ ...tEntry, x: round3(d[3]), y: round3(d[4]) });
-          boneTrack.shear.push({ ...tEntry, x: round3(d[5]), y: round3(d[5]) });
+          // 各轨道曲线按其涉及的分量取:translate=d[4]/d[5]、rotate=d[1]、scale=d[0]/d[3]
+          const curveT = curveForComponents(node, fi, [4, 5]);
+          const curveR = curveForComponents(node, fi, [1]);
+          const curveS = curveForComponents(node, fi, [0, 3]);
+          const tEntryT = {}, tEntryR = {}, tEntryS = {};
+          if (fi > 0) { tEntryT.time = tEntryR.time = tEntryS.time = round3(time); }
+          if (curveT) Object.assign(tEntryT, curveT);
+          if (curveR) Object.assign(tEntryR, curveR);
+          if (curveS) Object.assign(tEntryS, curveS);
+          // Laya 骨骼关键帧字段序与 bindTransforms 一致:[scX, skX, skY, scY, x, y](宽度 8 时末尾 2 个为补位)。
+          // 坐标系共轭(Laya y-down → Spine y-up):translate y 取负、rotate 取负;Laya getMatrix 只用 skX 旋转,无 shear。
+          // 绝对值 = setup + delta:tx = bind.x + d[4] → delta = d[4];ty = -(bind.y + d[5]) → delta = -d[5]。
+          translate.push({ ...tEntryT, x: round3(d[4]), y: round3(-d[5]) });
+          rotate.push({ ...tEntryR, angle: round3(-d[1]) });
+          // 绝对 = bind.scX * d[0](根骨再乘 rootFlip);runtime 应用 = 值 × setup.scale。
+          // setup.scale 已含共轭与根骨翻转符号,直接用绝对值 ÷ setup 换算倍率最稳。
+          const absSX = bind.scX * d[0];
+          const absSY = bind.scY * d[3] * rootFlip;
+          const rx = setup.scaleX !== 0 ? absSX / setup.scaleX : absSX;
+          const ry = setup.scaleY !== 0 ? absSY / setup.scaleY : absSY;
+          scale.push({ ...tEntryS, x: round3(rx), y: round3(ry) });
           if (fi < node.keyframes.length - 1) time += node.keyframes[fi].duration / 1000;
         }
-      } else {
-        const slotTrack = tracks[name] || (tracks[name] = { _raw: [] });
+        if (translate.length) boneTrack.translate = translate;
+        if (rotate.length) boneTrack.rotate = rotate;
+        if (scale.length) boneTrack.scale = scale;
+      } else if (slotDisplays.has(name) || boneSlotNames.includes(name)) {
+        // 槽位时间线(宽 6):[displayIndex, alpha, 0, 0, 0, 0]
+        // displayIndex:-2 = 保持不变,-1 = 隐藏,>=0 = 切换显示;alpha 线性插值。
+        // 官方切换语义:存在 attachmentNames 列表时,k 是该列表的下标 → 按名字
+        // showDisplayByName(attachmentNames[k])(命中 display 的 attachmentName;
+        // 名字无效或未命中 → 隐藏),否则 k 直接是本槽位 displays 下标。
+        const displays = slotDisplays.get(name) || [];
+        const attList = model.attachmentNames || [];
+        const hasAttList = attList.length > 0;
+        const tl = slotTimelines[name] || (slotTimelines[name] = {});
         let time = 0;
+        let lastDisp = setupAtt.get(name) || null, lastAlpha = null;
         for (let fi = 0; fi < frames.length; fi++) {
           const d = frames[fi];
-          slotTrack._raw.push({ time: round3(time), width: w, data: d.map((v) => round3(v)) });
+          const t = fi === 0 ? 0 : round3(time);
+          const dispIdx = Math.round(d[0]);
+          if (dispIdx !== -2) {
+            // 官方 showDisplayByName 语义:按名字查找,不做任何名字过滤 ——
+            // "null"/空串都可能是真实显示名(如 ZhuangXu 的 ZhuanXu_13/16);未命中 → 隐藏
+            let disp = null;
+            if (hasAttList) {
+              const nm = attList[dispIdx];
+              disp = (nm != null) ? (displays.find((x) => x.attachmentName === nm) || null) : null;
+            } else {
+              disp = displays[dispIdx] || null;
+            }
+            const attName = disp ? (disp.attachmentName || disp.name) : null;
+            if (attName !== lastDisp) {
+              (tl.attachment || (tl.attachment = [])).push(
+                attName ? { time: t, name: attName } : { time: t, name: null });
+              lastDisp = attName;
+            }
+          }
+          const alpha = Math.max(0, Math.min(1, d[1]));
+          if (lastAlpha === null || Math.abs(alpha - lastAlpha) > 1e-3) {
+            (tl.color || (tl.color = [])).push({
+              time: t,
+              color: 'ffffff' + Math.round(alpha * 255).toString(16).padStart(2, '0'),
+            });
+            lastAlpha = alpha;
+          }
           if (fi < node.keyframes.length - 1) time += node.keyframes[fi].duration / 1000;
         }
       }
     }
-    const aniObj = {};
-    for (const [nm, tr] of Object.entries(tracks)) {
-      if (tr._raw) {
-        aniObj[nm] = { _layaRawTimeline: tr._raw };
-      } else {
-        aniObj[nm] = {};
-        if (tr.translate && tr.translate.length) aniObj[nm].translate = tr.translate;
-        if (tr.rotate && tr.rotate.length) aniObj[nm].rotate = tr.rotate;
-        if (tr.scale && tr.scale.length) aniObj[nm].scale = tr.scale;
-        if (tr.shear && tr.shear.length) aniObj[nm].shear = tr.shear;
+
+    // drawOrder 时间线 → spine draworder offsets。
+    // Spine 运行时按 setup 槽位顺序重建:偏移 = 目标位置 - setup 位置,条目需按 setup 顺序枚举;
+    // (此前用“顺序移动”算法生成的偏移会让运行时写出负索引 → "Invalid array length")
+    const doEntries = (model.drawOrderAniData || [])[ai] || [];
+    if (doEntries.length) {
+      const setup = boneSlotNames.slice();
+      const keys = [];
+      for (const e of doEntries) {
+        const target = e.orderArr.map((i) => boneSlotNames[i]).filter(Boolean);
+        if (!target.length) continue;
+        const posInTarget = new Map(target.map((n, i) => [n, i]));
+        const offsets = [];
+        setup.forEach((n, si) => {
+          const tp = posInTarget.get(n);
+          if (tp === undefined || tp === si) return;
+          offsets.push({ slot: n, offset: tp - si });
+        });
+        if (offsets.length) keys.push({ time: round3(e.time / 1000), offsets });
+      }
+      if (keys.length) aniObj.drawOrder = keys;
+    }
+
+    // deform 时间线(无骨骼网格:帧顶点为 display 本地坐标,spine deform 为相对 setup 的偏移)
+    const defSkins = (model.deformAniData || [])[ai] || [];
+    const defSkin = defSkins.find((s) => s.skinName === 'default') || defSkins[0];
+    if (defSkin) {
+      for (const slotRecords of defSkin.slots || []) {
+        for (const rec of slotRecords || []) {
+          const slotName = boneSlotNames[rec.slotIndex];
+          const disp = (slotDisplays.get(slotName) || [])
+            .find((d) => (d.attachmentName || d.name) === rec.attachment);
+          // 仅支持无骨骼网格的 deform:蒙皮网格 weights 为 [x,y,w] 三元组(骨骼本地坐标),
+          // 与 spine deform 的“逐输出顶点偏移”不在同一空间,跳过避免帧数组错长
+          if (!slotName || !disp || (disp.bones && disp.bones.length)) continue;
+          if (!disp.weights || disp.weights.length < 4) continue;
+          if (rec.slotIndex < 0 || !(rec.times || []).length) continue;
+          // setup 顶点 = 显示矩阵烘焙 + y 取负(与 displayToAttachment 一致)
+          const D = layaDisplayMatrix(disp.transform);
+          const setupVerts = [];
+          for (let i = 0; i + 1 < disp.weights.length; i += 2) {
+            setupVerts.push(
+              D.a * disp.weights[i] + D.c * disp.weights[i + 1] + D.tx,
+              -(D.b * disp.weights[i] + D.d * disp.weights[i + 1] + D.ty));
+          }
+          const framesOut = [];
+          for (const t of rec.times) {
+            if (!t.verts || t.verts.length !== setupVerts.length) continue;
+            // Spine 3.8 deform 帧语义:字段名必须是 "vertices"(值 = 相对 setup 的增量,
+            // 运行时读取时自动 `deform[i] += setup顶点`;"offset" 是可选整数稀疏起始索引,
+            // 与帧值无关)—— 此前误把增量写在 "offset" 字段,运行时读不到帧数据,
+            // 回退成 setup 顶点常量,水面流动形变全部失效(只剩 alpha 交叉淡化的明暗闪烁)。
+            const delta = [];
+            for (let i = 0; i + 1 < t.verts.length; i += 2) {
+              const px = D.a * t.verts[i] + D.c * t.verts[i + 1] + D.tx;
+              const py = -(D.b * t.verts[i] + D.d * t.verts[i + 1] + D.ty);
+              delta.push(round3(px - setupVerts[i]), round3(py - setupVerts[i + 1]));
+            }
+            framesOut.push({ time: round3(t.time / 1000), vertices: delta, curve: t.tween ? undefined : 'stepped' });
+          }
+          if (framesOut.length) {
+            // Spine 3.8 deform 结构:deform.<skinName>.<slotName>.<attachment>(必须带皮肤层)
+            (aniObj.deform || (aniObj.deform = { default: {} }));
+            (aniObj.deform.default[slotName] || (aniObj.deform.default[slotName] = {}));
+            aniObj.deform.default[slotName][rec.attachment] = framesOut;
+          }
+        }
+      }
+    }
+
+    // 汇总槽位时间线
+    if (Object.keys(slotTimelines).length) {
+      aniObj.slots = {};
+      for (const [nm, tl] of Object.entries(slotTimelines)) {
+        const o = {};
+        if (tl.attachment && tl.attachment.length) o.attachment = tl.attachment;
+        if (tl.color && tl.color.length) o.color = tl.color;
+        if (Object.keys(o).length) aniObj.slots[nm] = o;
       }
     }
     animations[ani.name] = aniObj;
@@ -998,19 +1264,54 @@ function buildAnimations(model) {
   return animations;
 }
 
-// 从 lerpType / interp 推断 Spine 曲线
-function curveFromNode(node, fi) {
-  if (node.lerpType === 1) return 'stepped';
-  if (node.lerpType === 0) return null;
-  if (node.lerpType === 2) {
-    const inter = node.keyframes[fi] && node.keyframes[fi].interp;
-    if (inter && inter.length) {
-      const m = inter[0];
-      if (m === 255) return 'stepped';
-      if (m === 254) return null;
-      if (inter.length >= 3) return round3(inter[1]);
+// 从 lerpType=2 关键帧的 interp 流中取第 comp 分量的插值配置。
+// 流布局(与官方 _onAnimationFrame 求值一致):每个 keyframeWidth 分量一个方法索引 ——
+// 0=线性 1=四元数 2=角度 3=弧度 4=矩阵 5=保持(stepped) 6/7=贝塞尔(后跟 4 个控制点,共占 5 槽);
+// 整帧特殊标记:首值 254=全分量线性、255=全分量保持。
+function interpEntryAt(kf, comp) {
+  const inter = kf && kf.interp;
+  if (!inter || !inter.length) return null;
+  if (inter[0] === 254) return { m: 0 };
+  if (inter[0] === 255) return { m: 5 };
+  let h = 0, f = 0;
+  while (h < inter.length) {
+    const m = inter[h];
+    if (m === 6 || m === 7) {
+      if (f === comp) return { m, ctrl: inter.slice(h + 1, h + 5) };
+      h += 5;
+    } else {
+      if (f === comp) return { m };
+      h += 1;
+    }
+    f++;
+  }
+  return null;
+}
+
+// 骨骼时间线帧曲线:comps = 该轨道涉及的 keyframeWidth 分量下标
+// (translate→[4,5] rotate→[1] scale→[0,3])。返回 Spine curve 描述对象:
+// null=线性 / {curve:'stepped'} / {curve,c2,c3,c4}=贝塞尔。分量间不一致时取第一个非线性者。
+// ⚠️ 贝塞尔必须写成 curve=cx1 + c2/c3/c4 独立字段(spine38 vendor 的 readCurve
+// 只认该形式;官方 3.8 两种都兼容),不能写裸数字 —— 会被当成 cx1 而缺 c2..c4,
+// 形成退化贝塞尔,插值冻结到下一关键帧才跳变(ZhuangXu 部件「瞬移」的根因)。
+function curveForComponents(node, fi, comps) {
+  if (node.lerpType === 1) return { curve: 'stepped' };
+  if (node.lerpType === 0) {
+    for (const c of comps) {
+      if ((node.interpMethods || [])[c] === 5) return { curve: 'stepped' };
     }
     return null;
+  }
+  if (node.lerpType === 2) {
+    const kf = node.keyframes[fi];
+    for (const c of comps) {
+      const e = interpEntryAt(kf, c);
+      if (!e) continue;
+      if (e.m === 5) return { curve: 'stepped' };
+      if ((e.m === 6 || e.m === 7) && e.ctrl && e.ctrl.length === 4) {
+        return { curve: round3(e.ctrl[0]), c2: round3(e.ctrl[1]), c3: round3(e.ctrl[2]), c4: round3(e.ctrl[3]) };
+      }
+    }
   }
   return null;
 }
@@ -1022,7 +1323,7 @@ function skToSpine(inputPath, outputPath) {
   const buffer = fs.readFileSync(inputPath);
   const probe = probeLayaSk(buffer);
   if (!probe.ok) return { ok: false, error: probe.reason };
-  const { model, audio } = parseSkRobust(buffer);
+  const { model, audio } = parseSkRobust(buffer, inputPath);
 
   // 图集区域分配(按矩形去重 + 记录 UV 包围盒),供 modelToAtlas 与 displayToAttachment 使用
   assignRegionNames(model);
@@ -1068,7 +1369,7 @@ function skToSpineText(inputPath) {
   const buffer = fs.readFileSync(inputPath);
   const probe = probeLayaSk(buffer);
   if (!probe.ok) return { ok: false, error: probe.reason };
-  const { model, audio } = parseSkRobust(buffer);
+  const { model, audio } = parseSkRobust(buffer, inputPath);
 
   // 图集区域分配(按矩形去重 + 记录 UV 包围盒),供 modelToAtlas 与 displayToAttachment 使用
   assignRegionNames(model);

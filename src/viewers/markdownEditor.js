@@ -12,12 +12,29 @@ import MarkdownIt from 'markdown-it';
 import { state, addItem, categoryPath, setSetting, updateItem } from '../state.js';
 import { openModal, footButtons, toast, showContextMenu, pickEmojiModal, promptDialog } from '../dialogs.js';
 
-/** 预览各级标题(H1–H6)默认颜色(用户可在「标题色」对话框覆盖;留空=使用默认文字色) */
+/** 预览各级标题(H1–H6)默认颜色(分级彩色;用户可在「标题色」对话框逐级覆盖或一键全部关闭) */
 const DEFAULT_HEADING_COLORS = {
   h1: '#ff7043', h2: '#ffa726', h3: '#ffd54f', h4: '#66bb6a', h5: '#42a5f5', h6: '#ab47bc',
 };
 /** 文字颜色对话框预设色板 */
 const TEXT_COLOR_PRESETS = ['#e0573c', '#ffb300', '#ffd54f', '#66bb6a', '#42a5f5', '#ab47bc', '#ffffff', '#000000'];
+
+/**
+ * 计算各级标题的生效颜色(预览与编辑区标题行共用同一口径):
+ * - settings.mdHeadingColorsOff = true → 一键不加颜色:返回 {},各级用默认文字色
+ * - 否则逐级取 settings.mdHeadingColors 的合法 #rrggbb;未设置/非法 → 该级默认分级彩色
+ */
+function effectiveHeadingColors() {
+  const s = state.settings || {};
+  if (s.mdHeadingColorsOff) return {};
+  const hc = s.mdHeadingColors || {};
+  const out = {};
+  for (let i = 1; i <= 6; i++) {
+    const hex = String(hc['h' + i] || '').trim();
+    out['h' + i] = /^#[0-9a-fA-F]{6}$/.test(hex) ? hex.toLowerCase() : DEFAULT_HEADING_COLORS['h' + i];
+  }
+  return out;
+}
 
 /**
  * 剥离 Markdown 语法标记,得到近似渲染纯文本(用于编辑区选区 ↔ 预览文本联动匹配)。
@@ -104,6 +121,10 @@ export class MarkdownEditorController {
     this._findMatches = []; // 当前匹配列表 [{start, end}]
     this._findCur = -1; // 当前匹配下标
     this._findTimer = null; // 查找输入防抖
+    this._pvFindMarks = []; // 预览区查找高亮的 mark 元素(文档顺序;查找条关闭/预览重渲染时清除)
+    // ---- 编辑区标题着色背板 ----
+    this._editHlPre = null; // 背板 <pre>(与 textarea 同字体度量,标题行按生效标题色着色)
+    this._editHlCode = null; // 背板内的 <code> 容器
   }
 
   init(wrap) {
@@ -111,6 +132,8 @@ export class MarkdownEditorController {
     this.statusEl = wrap.querySelector('#md-status');
     this.ta = wrap.querySelector('#md-edit');
     this.preview = wrap.querySelector('#md-preview');
+    // 编辑区标题着色背板(textarea 文字透明,背后 pre 同度量渲染,标题行按生效标题色着色)
+    this._buildEditHl();
 
     wrap.querySelector('#md-open').addEventListener('click', () => this.pickAndLoad());
     wrap.querySelector('#md-save').addEventListener('click', () => this.save());
@@ -156,20 +179,20 @@ export class MarkdownEditorController {
     // 编辑输入 → 标记脏 + 防抖刷新预览 + 防抖自动存档(仅已有落盘路径)
     this._bindInput();
 
-    // Ctrl+S 保存 / Ctrl+F 查找 / Esc 关闭查找条
+    // Ctrl+S 保存(Ctrl+F 查找 / Esc 关闭查找条由下方 wrap 级监听统一处理)
     this.ta.addEventListener('keydown', (e) => {
-      const k = e.key.toLowerCase();
-      if ((e.ctrlKey || e.metaKey) && k === 's') {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
         this.save();
-        return;
       }
+    });
+    // Ctrl+F 打开查找 / Esc 关闭查找条(wrap 级:仅预览模式 textarea 隐藏时也能触发)
+    wrap.addEventListener('keydown', (e) => {
+      const k = e.key.toLowerCase();
       if ((e.ctrlKey || e.metaKey) && k === 'f') {
         e.preventDefault();
         this.openFind();
-        return;
-      }
-      if (e.key === 'Escape' && !this._isFindBarHidden()) {
+      } else if (e.key === 'Escape' && !this._isFindBarHidden()) {
         this.closeFind();
       }
     });
@@ -260,6 +283,8 @@ export class MarkdownEditorController {
 
   _bindInput() {
     this.ta.addEventListener('input', () => {
+      // 编辑区标题着色背板同步刷新(textarea 文字透明,所见文字来自背板,必须即时更新)
+      this._updateEditHl();
       // 标记脏(与上次保存内容比较)
       this.dirty = this.savedText !== this.ta.value;
       this.updateDirtyDot();
@@ -330,6 +355,7 @@ export class MarkdownEditorController {
     this.savedText = text;
     this.dirty = false;
     this.updateDirtyDot();
+    this._updateEditHl();
     this.renderPreview();
     const nm = basename(filePath);
     const nameEl = this.wrap.querySelector('#md-name');
@@ -520,11 +546,11 @@ export class MarkdownEditorController {
         }
       }
       let html = md.renderer.render(tokens, md.options, {});
-      // 预览各级标题颜色:从 settings.mdHeadingColors 注入作用域样式(#md-preview 限定,避免污染其它视图)
-      const hc = (state.settings && state.settings.mdHeadingColors) || {};
+      // 预览各级标题颜色:默认分级彩色,可逐级覆盖或一键全部关闭(#md-preview 限定,避免污染其它视图)
+      const eff = effectiveHeadingColors();
       let style = '';
       for (let i = 1; i <= 6; i++) {
-        const c = hc['h' + i];
+        const c = eff['h' + i];
         if (c) style += '#md-preview h' + i + '{color:' + c + '!important}';
       }
       if (style) html = '<style>' + style + '</style>' + html;
@@ -541,6 +567,74 @@ export class MarkdownEditorController {
     } catch (e) {
       this.preview.innerHTML = '<div class="md-error">渲染失败: ' + esc(e.message || e) + '</div>';
     }
+    // 重建 DOM 后旧的查找高亮随 innerHTML 重置失效;查找条打开时重新叠加全部匹配高亮
+    this._pvFindMarks = [];
+    if (!this._isFindBarHidden()) this._applyPvFindMarks();
+  }
+
+  // ============================ 编辑区标题着色背板 ============================
+
+  /**
+   * 构建编辑区着色背板:把 textarea 移入 .md-edit-wrap,在其下插入同字体度量的
+   * <pre class="md-edit-hl">;textarea 文字透明(仅保留光标/选区),所见文字均由背板渲染,
+   * 其中 ATX 标题行按生效标题色整行着色 —— 编辑模式下标题行与预览同色。
+   * 程序化构建,预览页(pv-markdown-view)与工具箱 Markdown 工具页两个宿主模板均生效。
+   */
+  _buildEditHl() {
+    const ta = this.ta;
+    if (!ta || !ta.parentElement || this._editHlPre) return;
+    const wrapEl = document.createElement('div');
+    wrapEl.className = 'md-edit-wrap';
+    const pre = document.createElement('pre');
+    pre.className = 'md-edit-hl';
+    pre.setAttribute('aria-hidden', 'true');
+    const code = document.createElement('code');
+    pre.appendChild(code);
+    ta.parentElement.insertBefore(wrapEl, ta);
+    wrapEl.appendChild(pre);
+    wrapEl.appendChild(ta);
+    this._editHlPre = pre;
+    this._editHlCode = code;
+    // 编辑区滚动 → 背板同步滚动(背板 overflow:hidden,程序化 scrollTop/left 有效)
+    ta.addEventListener('scroll', () => {
+      pre.scrollTop = ta.scrollTop;
+      pre.scrollLeft = ta.scrollLeft;
+    });
+    // 背板宽度跟随 textarea 内容区宽(clientWidth 已扣除滚动条),
+    // 内容增减引起滚动条出现/消失时换行位置才能与 textarea 完全一致
+    this._syncEditHlBox();
+    if (typeof ResizeObserver !== 'undefined') {
+      new ResizeObserver(() => this._syncEditHlBox()).observe(ta);
+    }
+    this._updateEditHl();
+  }
+
+  /** 背板几何对齐:宽度 = textarea 内容区宽(clientWidth,含 padding、扣滚动条) */
+  _syncEditHlBox() {
+    if (!this.ta || !this._editHlPre) return;
+    this._editHlPre.style.width = this.ta.clientWidth + 'px';
+  }
+
+  /**
+   * 刷新编辑区背板:按行渲染,ATX 标题行(#{1,6} 后跟空格或行尾)整行按生效标题色着色;
+   * 代码围栏(``` / ~~~)内的 # 行是代码不着色。textarea 文字透明,输入必须同步刷新,
+   * 否则键入字符不可见。
+   */
+  _updateEditHl() {
+    if (!this._editHlCode) return;
+    this._syncEditHlBox();
+    const colors = effectiveHeadingColors();
+    const lines = (this.ta.value || '').split('\n');
+    let html = '';
+    let inFence = false;
+    for (const line of lines) {
+      if (/^\s*(```|~~~)/.test(line)) inFence = !inFence;
+      const hm = inFence ? null : /^(#{1,6})(?:\s|$)/.exec(line);
+      const color = hm ? colors['h' + hm[1].length] : null;
+      html += color ? '<span style="color:' + color + '">' + esc(line) + '</span>\n' : (esc(line) + '\n');
+    }
+    // HTML 解析会吞掉紧邻 </code> 的最后一个换行 → 多补一个,保证末行可见、行高对齐
+    this._editHlCode.innerHTML = html + '\n';
   }
 
   // ============================ 分栏同步关联(滚动 / 选中联动) ============================
@@ -824,13 +918,14 @@ export class MarkdownEditorController {
     this._jumpToFind(1, true);
   }
 
-  /** 关闭查找条:隐藏 + 清除编辑区选区高亮与预览描边 */
+  /** 关闭查找条:隐藏 + 清除编辑区选区高亮与预览描边、预览查找高亮 */
   closeFind() {
     const bar = this.wrap.querySelector('#md-find-bar');
     if (bar) bar.hidden = true;
     this._findMatches = [];
     this._findCur = -1;
     this._clearPvHighlight();
+    this._clearPvFindMarks();
     this.ta.focus();
   }
 
@@ -860,6 +955,7 @@ export class MarkdownEditorController {
 
   /**
    * 跳转到当前匹配(direction=1 下一个 / -1 上一个;wrap 循环)。
+   * 编辑区选中匹配并滚动聚焦;预览区(分栏/仅预览)高亮全部匹配并滚动聚焦到当前匹配文字。
    * @param {number} direction 跳转方向
    * @param {boolean} fromStart true=从文档开头找第一个(打开/输入时用)
    */
@@ -867,7 +963,7 @@ export class MarkdownEditorController {
     const fq = this.wrap.querySelector('#md-find-q');
     if (!fq || !fq.value) { this._updateFindCount(); return; }
     const matches = this._findMatches;
-    if (!matches.length) { this._updateFindCount(); this._clearPvHighlight(); return; }
+    if (!matches.length) { this._updateFindCount(); this._clearPvHighlight(); this._clearPvFindMarks(); return; }
     const n = matches.length;
     let cur = this._findCur;
     if (fromStart || cur < 0) {
@@ -877,7 +973,8 @@ export class MarkdownEditorController {
     }
     this._findCur = cur;
     const hit = matches[cur];
-    this.ta.focus();
+    // 编辑区:选中匹配并滚动聚焦(仅预览模式 textarea 隐藏,不抢查找框焦点)
+    if (this.mode !== 'preview') this.ta.focus();
     this.ta.setSelectionRange(hit.start, hit.end);
     // 滚动编辑区使当前匹配可见(居中偏上)
     const line = this.ta.value.slice(0, hit.start).split('\n').length;
@@ -888,16 +985,114 @@ export class MarkdownEditorController {
       this.ta.scrollTop = targetTop;
     }
     this._updateFindCount();
-    // 同步关联开启时,预览滚动到对应块并高亮(查找定位联动)
-    if (this.syncOn && this.mode === 'split') {
-      const block = this._pvBlockByLine(line);
-      if (block) {
-        this._clearPvHighlight();
-        block.el.classList.add('md-sync-hl');
-        this._pvHlEl = block.el;
-        this.preview.scrollTop = this._pvBlockTop(block.el) - 8;
+    // 预览区:高亮全部匹配文字并滚动聚焦当前匹配(查找是显式定位动作,不依赖「同步关联」开关)
+    if (this.mode !== 'edit') this._focusPvFindCur(hit, matches, cur);
+  }
+
+  /**
+   * 预览区定位当前查找匹配:叠加全部匹配高亮,当前匹配加醒目标记并滚动聚焦。
+   * 当前匹配对位方式:源码当前匹配文本的第 j 次出现 ↔ 预览中同文本的第 j 个高亮
+   * (渲染文本与源码纯文本匹配通常一一对应);预览无文字命中(关键词只在
+   * Markdown 语法标记里)时降级为定位匹配所在块并描边。
+   */
+  _focusPvFindCur(hit, matches, cur) {
+    this._applyPvFindMarks();
+    const marks = this._pvFindMarks;
+    if (marks.length) {
+      const curText = this.ta.value.slice(hit.start, hit.end);
+      let j = 0;
+      for (let i = 0; i <= cur; i++) {
+        if (this.ta.value.slice(matches[i].start, matches[i].end) === curText) j++;
+      }
+      const same = marks.filter((m) => m.textContent === curText);
+      const pick = same[Math.min(j - 1, same.length - 1)] || marks[Math.min(cur, marks.length - 1)];
+      for (const m of marks) m.classList.toggle('md-find-hl-cur', m === pick);
+      // 滚动预览使当前匹配居中(记录期望值,防同步关联回弹)
+      const r = pick.getBoundingClientRect();
+      const pv = this.preview.getBoundingClientRect();
+      const target = this.preview.scrollTop + (r.top + r.height / 2 - pv.top) - this.preview.clientHeight / 2;
+      if (Math.abs(this.preview.scrollTop - target) > 2) {
+        this._expectPvTop = Math.max(0, target);
+        this.preview.scrollTop = Math.max(0, target);
+      }
+      this._clearPvHighlight(); // 命中文字后无需块描边降级
+      return;
+    }
+    // 降级:定位匹配起始行对应的预览块,加高亮描边并滚动
+    const line = this.ta.value.slice(0, hit.start).split('\n').length;
+    const block = this._pvBlockByLine(line);
+    if (block) {
+      this._clearPvHighlight();
+      block.el.classList.add('md-sync-hl');
+      this._pvHlEl = block.el;
+      this.preview.scrollTop = this._pvBlockTop(block.el) - 8;
+    }
+  }
+
+  /**
+   * 预览区叠加查找高亮:按与编辑区相同的关键词/大小写/全词选项,把预览渲染文本中
+   * 所有匹配包成 <mark class="md-find-hl">(当前匹配由 _focusPvFindCur 另加 cur 类)。
+   * 跳过 script/style;最多叠加 500 处(超长文档保护)。
+   */
+  _applyPvFindMarks() {
+    this._clearPvFindMarks();
+    if (!this.preview || this.mode === 'edit') return;
+    const fq = this.wrap.querySelector('#md-find-q');
+    if (!fq || !fq.value) return;
+    const caseSensitive = !!(this.wrap.querySelector('#md-find-case') || {}).checked;
+    const wholeWord = !!(this.wrap.querySelector('#md-find-word') || {}).checked;
+    const q = fq.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    let re;
+    try {
+      re = new RegExp(wholeWord ? '(?<![\\w])' + q + '(?![\\w])' : q, caseSensitive ? 'g' : 'gi');
+    } catch (e) {
+      return;
+    }
+    // 先按文档顺序收集全部匹配区间,再倒序包裹(先包后面的,前面区间偏移不被拆分影响)
+    const hits = [];
+    const walker = document.createTreeWalker(this.preview, NodeFilter.SHOW_TEXT, {
+      acceptNode: (nd) => {
+        const p = nd.parentElement;
+        if (!p || p.tagName === 'SCRIPT' || p.tagName === 'STYLE') return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+    let node;
+    while ((node = walker.nextNode()) && hits.length < 500) {
+      const s = node.textContent;
+      re.lastIndex = 0;
+      let m;
+      while ((m = re.exec(s)) !== null && hits.length < 500) {
+        hits.push({ node, start: m.index, end: m.index + m[0].length });
+        if (m[0].length === 0) re.lastIndex++; // 防空匹配死循环
       }
     }
+    for (let i = hits.length - 1; i >= 0; i--) {
+      const h = hits[i];
+      try {
+        const range = document.createRange();
+        range.setStart(h.node, h.start);
+        range.setEnd(h.node, h.end);
+        const mark = document.createElement('mark');
+        mark.className = 'md-find-hl';
+        range.surroundContents(mark);
+        this._pvFindMarks.unshift(mark); // 倒序包裹 → 头插保持文档顺序
+      } catch (e) { /* 区间异常(跨节点等):跳过该处 */ }
+    }
+  }
+
+  /** 清除预览区查找高亮(mark 还原为纯文本并合并节点;预览重渲染后残留引用由兜底查询覆盖) */
+  _clearPvFindMarks() {
+    if (this.preview) {
+      this.preview.querySelectorAll('mark.md-find-hl').forEach((m) => {
+        const parent = m.parentNode;
+        if (!parent) return;
+        while (m.firstChild) parent.insertBefore(m.firstChild, m);
+        parent.removeChild(m);
+        parent.normalize();
+      });
+    }
+    this._pvFindMarks = [];
   }
 
   /** 更新查找计数显示("n/m" 或 "0") */
@@ -949,6 +1144,7 @@ export class MarkdownEditorController {
     this._findCur = -1;
     this._updateFindCount();
     this._clearPvHighlight();
+    this._clearPvFindMarks();
     this.setStatus('已替换 ' + count + ' 处');
   }
 
@@ -1145,15 +1341,36 @@ export class MarkdownEditorController {
     });
   }
 
-  /** 预览各级标题(H1–H6)颜色对话框:每级一个取色器 + 十六进制 + 「默认」按钮;保存至 settings.mdHeadingColors */
+  /**
+   * 预览各级标题(H1–H6)颜色对话框:默认分级彩色,编辑区与预览同时生效。
+   * - 「标题分级着色」开关:取消勾选 = 一键全部不加颜色(默认文字色)
+   * - 每级取色器 + 十六进制(留空 = 该级默认分级色) + 「默认」按钮(恢复该级默认)
+   * - 「恢复默认」:清除全部自定义并回到分级彩色
+   * 保存至 settings.mdHeadingColorsOff / settings.mdHeadingColors
+   */
   openHeadingColorDialog() {
     const cur = (state.settings && state.settings.mdHeadingColors) || {};
+    const colorOff = !!(state.settings && state.settings.mdHeadingColorsOff);
+    const isValidHex = (v) => /^#[0-9a-fA-F]{6}$/.test(String(v || '').trim());
     const body = document.createElement('div');
     body.className = 'modal-body';
     const tip = document.createElement('div');
     tip.className = 'form-hint';
-    tip.textContent = '设置 Markdown 预览中各级标题(H1–H6)的颜色。十六进制留空或点「默认」则恢复默认文字色。修改即时保存到设置,重启后仍然生效。';
+    tip.textContent = '各级标题(H1–H6)默认按分级彩色显示,编辑区标题行与预览同时生效。取消勾选「标题分级着色」可一键改为全部不加颜色;十六进制留空使用该级默认分级色。点「应用」保存并即时生效。';
     body.appendChild(tip);
+
+    // 一键开关:标题分级着色(取消勾选 = 全部不加颜色)
+    const offRow = document.createElement('div');
+    offRow.className = 'hc-off-row';
+    const offInp = document.createElement('input');
+    offInp.type = 'checkbox';
+    offInp.checked = !colorOff;
+    const offLabel = document.createElement('label');
+    offLabel.className = 'hc-off-label';
+    offLabel.appendChild(offInp);
+    offLabel.appendChild(document.createTextNode('标题分级着色(取消则全部不加颜色)'));
+    offRow.appendChild(offLabel);
+    body.appendChild(offRow);
 
     const grid = document.createElement('div');
     grid.className = 'heading-color-grid';
@@ -1167,21 +1384,21 @@ export class MarkdownEditorController {
       label.textContent = 'H' + i;
       const colorInp = document.createElement('input');
       colorInp.type = 'color';
-      colorInp.value = cur[key] || DEFAULT_HEADING_COLORS[key];
+      colorInp.value = isValidHex(cur[key]) ? cur[key] : DEFAULT_HEADING_COLORS[key];
       const hexInp = document.createElement('input');
-      hexInp.type = 'text'; hexInp.value = cur[key] || ''; hexInp.placeholder = '默认'; hexInp.className = 'hex-input';
+      hexInp.type = 'text'; hexInp.value = isValidHex(cur[key]) ? cur[key] : ''; hexInp.placeholder = '默认分级色'; hexInp.className = 'hex-input';
       const defBtn = document.createElement('button');
       defBtn.type = 'button'; defBtn.className = 'btn xs'; defBtn.textContent = '默认';
       colorInp.addEventListener('input', () => { hexInp.value = colorInp.value; });
-      hexInp.addEventListener('input', () => { if (/^#[0-9a-fA-F]{6}$/.test(hexInp.value.trim())) colorInp.value = hexInp.value.trim(); });
+      hexInp.addEventListener('input', () => { if (isValidHex(hexInp.value)) colorInp.value = hexInp.value.trim(); });
       defBtn.addEventListener('click', () => { colorInp.value = DEFAULT_HEADING_COLORS[key]; hexInp.value = ''; });
-      // 预设色板:右键(或左键)点击色块 → 把该色块颜色填入本行的取色器与十六进制输入框
+      // 预设色板:点击色块 → 把该颜色填入本行的取色器与十六进制输入框
       const swWrap = document.createElement('div');
       swWrap.className = 'hc-swatches';
       for (const col of TEXT_COLOR_PRESETS) {
         const b = document.createElement('button');
         b.type = 'button'; b.className = 'swatch'; b.style.background = col;
-        b.title = '右键点击填入颜色 ' + col;
+        b.title = '点击填入颜色 ' + col;
         const fill = () => { colorInp.value = col; hexInp.value = col; };
         b.addEventListener('click', fill);
         b.addEventListener('contextmenu', (e) => { e.preventDefault(); fill(); });
@@ -1196,24 +1413,44 @@ export class MarkdownEditorController {
       inputs[key] = { colorInp, hexInp };
     }
     body.appendChild(grid);
+    // 未开启着色时逐级设置不可操作(半透明 + 禁点击);开关切换即时联动
+    const syncGrid = () => {
+      grid.style.opacity = offInp.checked ? '' : '.45';
+      grid.style.pointerEvents = offInp.checked ? '' : 'none';
+    };
+    offInp.addEventListener('change', syncGrid);
+    syncGrid();
 
     const { close } = openModal({
-      title: '预览标题颜色',
+      title: '标题颜色',
       body,
       foot: footButtons([
         { text: '取消', cls: '', onClick: () => close() },
+        {
+          text: '恢复默认', cls: '', onClick: () => {
+            for (let i = 1; i <= 6; i++) {
+              const key = 'h' + i;
+              inputs[key].hexInp.value = '';
+              inputs[key].colorInp.value = DEFAULT_HEADING_COLORS[key];
+            }
+            offInp.checked = true;
+            syncGrid();
+          },
+        },
         {
           text: '应用', cls: 'primary', onClick: () => {
             const next = {};
             for (let i = 1; i <= 6; i++) {
               const key = 'h' + i;
               const hex = inputs[key].hexInp.value.trim();
-              if (/^#[0-9a-fA-F]{6}$/.test(hex)) next[key] = hex.toLowerCase();
+              if (isValidHex(hex)) next[key] = hex.toLowerCase();
             }
-            setSetting('mdHeadingColors', next); // 持久化(自动落盘)
-            this.renderPreview(); // 立即应用
+            setSetting('mdHeadingColorsOff', !offInp.checked); // 持久化(自动落盘)
+            setSetting('mdHeadingColors', next);
+            this.renderPreview(); // 立即应用(预览)
+            this._updateEditHl(); // 立即应用(编辑区标题行)
             close();
-            this.setStatus('已保存标题颜色设置');
+            this.setStatus(offInp.checked ? '已保存标题颜色设置' : '已改为标题不加颜色');
           },
         },
       ]),

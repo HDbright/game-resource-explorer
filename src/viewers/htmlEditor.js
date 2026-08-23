@@ -2,6 +2,7 @@
 /**
  * HTML 查看 / 编辑器(参考 Markdown 编辑器的分栏编辑体验)。
  * - 工具栏:新建 / 打开 / 保存 / 另存为 / 分栏 / 仅预览 / 仅编辑 切换、复制源码、加入库
+ * - 查找 / 替换(Ctrl+F):编辑区选中匹配并滚动聚焦;预览 iframe 高亮全部匹配、当前匹配滚动聚焦
  * - 编辑区 textarea + 预览区 iframe 渲染(直接渲染 HTML,支持脚本/样式)
  * - 预览时自动注入 <base> 指向源文件目录(经内部 http 服务同源加载,规避 file:// 被 webSecurity 拦截),使相对路径的图片/CSS 等资源可正确加载
  * - load(filePath) 读取文件 → 编辑 / 保存回写原文件
@@ -63,6 +64,11 @@ export class HtmlEditorController {
     this.loaded = false;
     this.defaultDir = ''; // 另存为默认目录(随打开文件更新)
     this.autoSaveTimer = null; // 编辑空闲自动存档定时器
+    // ---- 查找 / 替换 ----
+    this._findMatches = []; // 当前匹配列表 [{start, end}]
+    this._findCur = -1; // 当前匹配下标
+    this._findTimer = null; // 查找输入防抖
+    this._pvFindMarks = []; // 预览 iframe 内查找高亮的 mark 元素(文档顺序;关闭查找/iframe 重载时清除)
   }
 
   init(wrap) {
@@ -91,13 +97,67 @@ export class HtmlEditorController {
     });
     // 初始同步保存按钮高亮状态(新建/打开文件后应不高亮)
     this.updateDirtyDot();
-    // Ctrl+S 保存
+    // Ctrl+S 保存(Ctrl+F 查找 / Esc 关闭查找条由下方 wrap 级监听统一处理)
     this.ta.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
         this.save();
       }
     });
+    // Ctrl+F 打开查找 / Esc 关闭查找条(wrap 级:仅预览模式 textarea 隐藏时也能触发)
+    wrap.addEventListener('keydown', (e) => {
+      const k = e.key.toLowerCase();
+      if ((e.ctrlKey || e.metaKey) && k === 'f') {
+        e.preventDefault();
+        this.openFind();
+      } else if (e.key === 'Escape' && !this._isFindBarHidden()) {
+        this.closeFind();
+      }
+    });
+    // 查找 / 替换按钮与工具条(模板缺失时判空绑定,防启动崩溃)
+    const bind = (id, fn) => {
+      const el = wrap.querySelector(id);
+      if (el) el.addEventListener('click', fn);
+    };
+    bind('#html-find', () => this.openFind());
+    const fq = wrap.querySelector('#html-find-q');
+    if (fq) {
+      fq.addEventListener('input', () => {
+        clearTimeout(this._findTimer);
+        this._findTimer = setTimeout(() => {
+          this._findMatches = this._computeFindMatches();
+          this._findCur = -1;
+          this._jumpToFind(1, true);
+        }, 200);
+      });
+      fq.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          this._jumpToFind(e.shiftKey ? -1 : 1);
+        } else if (e.key === 'Escape') {
+          this.closeFind();
+        }
+      });
+    }
+    const rq = wrap.querySelector('#html-replace-q');
+    if (rq) {
+      rq.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (e.shiftKey) this.replaceAll();
+          else this.replaceCurrent();
+        } else if (e.key === 'Escape') {
+          this.closeFind();
+        }
+      });
+    }
+    bind('#html-find-prev', () => this._jumpToFind(-1));
+    bind('#html-find-next', () => this._jumpToFind(1));
+    bind('#html-find-close', () => this.closeFind());
+    bind('#html-replace-one', () => this.replaceCurrent());
+    bind('#html-replace-all', () => this.replaceAll());
+    bind('#html-find-case', () => { this._findMatches = this._computeFindMatches(); this._findCur = -1; this._jumpToFind(1, true); });
+    bind('#html-find-word', () => { this._findMatches = this._computeFindMatches(); this._findCur = -1; this._jumpToFind(1, true); });
 
     // 编辑区右键:复制选中文本 / 全选(与预览区一致的交互;无选中时复制项禁用,仍提供全选)
     this.ta.addEventListener('contextmenu', (e) => {
@@ -150,6 +210,9 @@ export class HtmlEditorController {
             },
           ]);
         }, true); // 捕获阶段:先于文档自身处理,保证能拿到右键事件
+        // srcdoc 重载后旧的查找高亮已随文档销毁;查找条打开时重新叠加全部匹配
+        this._pvFindMarks = [];
+        if (!this._isFindBarHidden()) this._applyPvFindMarks();
       } catch (err) { /* 跨源/异常:忽略,保留 Ctrl+C 复制 */ }
     });
   }
@@ -449,6 +512,258 @@ export class HtmlEditorController {
     } catch (e) {
       this.setStatus('复制失败', true);
     }
+  }
+
+  // ============================ 查找 / 替换 ============================
+
+  /** 编辑区行高(px):textarea line-height 1.6 × 13px = 20.8px */
+  _taLineHeight() {
+    const lh = parseFloat(getComputedStyle(this.ta).lineHeight);
+    return (lh && lh > 0) ? lh : 20.8;
+  }
+
+  /** 查找条是否隐藏(取 #html-find-bar 的 hidden 状态;元素不存在视为隐藏) */
+  _isFindBarHidden() {
+    const bar = this.wrap.querySelector('#html-find-bar');
+    return !bar || bar.hidden;
+  }
+
+  /** 打开查找条(Ctrl+F / 🔍 查找):聚焦查找框,预填当前选中文本,立即查找 */
+  openFind() {
+    const bar = this.wrap.querySelector('#html-find-bar');
+    const fq = this.wrap.querySelector('#html-find-q');
+    if (!bar || !fq) return;
+    bar.hidden = false;
+    // 预填当前选中文本(有选区时),否则保留上次关键词
+    const selText = this.ta.value.substring(this.ta.selectionStart, this.ta.selectionEnd);
+    if (selText && !this._findMatches.length) {
+      fq.value = selText.slice(0, 200);
+    }
+    fq.focus();
+    fq.select();
+    this._findMatches = this._computeFindMatches();
+    this._findCur = -1;
+    this._jumpToFind(1, true);
+  }
+
+  /** 关闭查找条:隐藏 + 清除编辑区选区与预览 iframe 查找高亮 */
+  closeFind() {
+    const bar = this.wrap.querySelector('#html-find-bar');
+    if (bar) bar.hidden = true;
+    this._findMatches = [];
+    this._findCur = -1;
+    this._clearPvFindMarks();
+    this.ta.focus();
+  }
+
+  /** 计算当前查找关键词的所有匹配位置(区分大小写 / 全词选项;正则转义特殊字符) */
+  _computeFindMatches() {
+    const fq = this.wrap.querySelector('#html-find-q');
+    if (!fq || !fq.value) return [];
+    const q = fq.value;
+    const caseSensitive = !!(this.wrap.querySelector('#html-find-case') || {}).checked;
+    const wholeWord = !!(this.wrap.querySelector('#html-find-word') || {}).checked;
+    const esc = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    let re;
+    try {
+      re = new RegExp(wholeWord ? '(?<![\\w])' + esc + '(?![\\w])' : esc, caseSensitive ? 'g' : 'gi');
+    } catch (e) {
+      return [];
+    }
+    const src = this.ta.value;
+    const out = [];
+    let m;
+    while ((m = re.exec(src)) !== null) {
+      out.push({ start: m.index, end: m.index + m[0].length });
+      if (m[0].length === 0) re.lastIndex++; // 防空匹配死循环
+    }
+    return out;
+  }
+
+  /**
+   * 跳转到当前匹配(direction=1 下一个 / -1 上一个;wrap 循环)。
+   * 编辑区选中匹配并滚动聚焦;预览 iframe(分栏/仅预览)高亮全部匹配并滚动聚焦到当前匹配文字。
+   * @param {number} direction 跳转方向
+   * @param {boolean} fromStart true=从文档开头找第一个(打开/输入时用)
+   */
+  _jumpToFind(direction, fromStart) {
+    const fq = this.wrap.querySelector('#html-find-q');
+    if (!fq || !fq.value) { this._updateFindCount(); return; }
+    const matches = this._findMatches;
+    if (!matches.length) { this._updateFindCount(); this._clearPvFindMarks(); return; }
+    const n = matches.length;
+    let cur = this._findCur;
+    if (fromStart || cur < 0) {
+      cur = direction > 0 ? 0 : n - 1;
+    } else {
+      cur = (cur + direction + n) % n;
+    }
+    this._findCur = cur;
+    const hit = matches[cur];
+    // 编辑区:选中匹配并滚动聚焦(仅预览模式 textarea 隐藏,不抢查找框焦点)
+    if (this.mode !== 'preview') this.ta.focus();
+    this.ta.setSelectionRange(hit.start, hit.end);
+    const line = this.ta.value.slice(0, hit.start).split('\n').length;
+    const lh = this._taLineHeight();
+    const targetTop = Math.max(0, (line - 1) * lh - this.ta.clientHeight / 2 + lh);
+    if (Math.abs(this.ta.scrollTop - targetTop) > 2) {
+      this.ta.scrollTop = targetTop;
+    }
+    this._updateFindCount();
+    // 预览 iframe:高亮全部匹配文字并滚动聚焦当前匹配
+    if (this.mode !== 'edit') this._focusPvFindCur(hit, matches, cur);
+  }
+
+  /**
+   * 预览 iframe 内定位当前查找匹配:叠加全部匹配高亮,当前匹配加醒目标记并滚动聚焦。
+   * 当前匹配对位方式:源码当前匹配文本的第 j 次出现 ↔ 预览中同文本的第 j 个高亮
+   * (渲染文本与源码纯文本匹配通常一一对应);预览无文字命中(关键词只在标签/属性里)不动预览。
+   */
+  _focusPvFindCur(hit, matches, cur) {
+    const marks = this._applyPvFindMarks();
+    if (!marks || !marks.length) return;
+    const src = this.ta.value;
+    const curText = src.slice(hit.start, hit.end);
+    let j = 0;
+    for (let i = 0; i <= cur; i++) {
+      if (src.slice(matches[i].start, matches[i].end) === curText) j++;
+    }
+    const same = marks.filter((m) => m.textContent === curText);
+    const pick = same[Math.min(j - 1, same.length - 1)] || marks[Math.min(cur, marks.length - 1)];
+    for (const m of marks) this._stylePvMark(m, m === pick);
+    try { pick.scrollIntoView({ block: 'center' }); } catch (e) { /* 忽略滚动异常 */ }
+  }
+
+  /**
+   * 预览 iframe 内叠加查找高亮:按与编辑区相同的关键词/大小写/全词选项,把渲染文本中
+   * 所有匹配包成 <mark>(data-find-hl 标识 + 内联样式,不依赖文档自身 CSS)。
+   * 跳过 script/style;最多叠加 500 处(超长文档保护)。返回 mark 列表(文档顺序)。
+   */
+  _applyPvFindMarks() {
+    this._clearPvFindMarks();
+    if (!this.preview || this.mode === 'edit') return this._pvFindMarks;
+    const fq = this.wrap.querySelector('#html-find-q');
+    if (!fq || !fq.value) return this._pvFindMarks;
+    let doc = null;
+    try { doc = this.preview.contentDocument; } catch (e) { return this._pvFindMarks; }
+    if (!doc || !doc.body) return this._pvFindMarks;
+    const caseSensitive = !!(this.wrap.querySelector('#html-find-case') || {}).checked;
+    const wholeWord = !!(this.wrap.querySelector('#html-find-word') || {}).checked;
+    const q = fq.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    let re;
+    try {
+      re = new RegExp(wholeWord ? '(?<![\\w])' + q + '(?![\\w])' : q, caseSensitive ? 'g' : 'gi');
+    } catch (e) {
+      return this._pvFindMarks;
+    }
+    // 先按文档顺序收集全部匹配区间,再倒序包裹(先包后面的,前面区间偏移不被拆分影响)
+    const hits = [];
+    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, {
+      acceptNode: (nd) => {
+        const p = nd.parentElement;
+        if (!p || p.tagName === 'SCRIPT' || p.tagName === 'STYLE') return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+    let node;
+    while ((node = walker.nextNode()) && hits.length < 500) {
+      const s = node.textContent;
+      re.lastIndex = 0;
+      let m;
+      while ((m = re.exec(s)) !== null && hits.length < 500) {
+        hits.push({ node, start: m.index, end: m.index + m[0].length });
+        if (m[0].length === 0) re.lastIndex++; // 防空匹配死循环
+      }
+    }
+    for (let i = hits.length - 1; i >= 0; i--) {
+      const h = hits[i];
+      try {
+        const range = doc.createRange();
+        range.setStart(h.node, h.start);
+        range.setEnd(h.node, h.end);
+        const mark = doc.createElement('mark');
+        mark.dataset.findHl = '1';
+        this._stylePvMark(mark, false);
+        range.surroundContents(mark);
+        this._pvFindMarks.unshift(mark); // 倒序包裹 → 头插保持文档顺序
+      } catch (e) { /* 区间异常(跨节点等):跳过该处 */ }
+    }
+    return this._pvFindMarks;
+  }
+
+  /** iframe 内查找高亮 mark 的内联样式(cur=true 当前匹配:橙色醒目) */
+  _stylePvMark(mark, cur) {
+    mark.style.cssText = cur
+      ? 'background:rgba(255,145,0,.80);color:#1b1b1b;border-radius:2px;padding:0 1px;outline:2px solid rgba(255,145,0,.9);'
+      : 'background:rgba(255,213,79,.35);color:inherit;border-radius:2px;padding:0 1px;';
+  }
+
+  /** 清除预览 iframe 内查找高亮(mark 还原为纯文本;按 data 标记查询,iframe 重载后旧引用失效也能覆盖) */
+  _clearPvFindMarks() {
+    let doc = null;
+    try { doc = this.preview && this.preview.contentDocument; } catch (e) { /* ignore */ }
+    if (doc) {
+      doc.querySelectorAll('mark[data-find-hl]').forEach((m) => {
+        const parent = m.parentNode;
+        if (!parent) return;
+        while (m.firstChild) parent.insertBefore(m.firstChild, m);
+        parent.removeChild(m);
+        parent.normalize();
+      });
+    }
+    this._pvFindMarks = [];
+  }
+
+  /** 更新查找计数显示("n/m" 或 "0") */
+  _updateFindCount() {
+    const c = this.wrap.querySelector('#html-find-count');
+    if (!c) return;
+    const total = this._findMatches.length;
+    c.textContent = total ? ((this._findCur + 1) + '/' + total) : String(total);
+  }
+
+  /** 替换当前匹配(按查找关键词原样替换为替换框内容;替换后重查并跳到下一处) */
+  replaceCurrent() {
+    const fq = this.wrap.querySelector('#html-find-q');
+    const rq = this.wrap.querySelector('#html-replace-q');
+    if (!fq || !fq.value) return;
+    const matches = this._findMatches;
+    if (!matches.length) return;
+    const cur = Math.max(0, this._findCur);
+    const hit = matches[cur];
+    const rep = rq ? rq.value : '';
+    const v = this.ta.value;
+    this.ta.value = v.slice(0, hit.start) + rep + v.slice(hit.end);
+    this.ta.selectionStart = this.ta.selectionEnd = hit.start + rep.length;
+    this.ta.dispatchEvent(new Event('input', { bubbles: true })); // 脏标记 + 预览刷新 + 自动存档
+    // 重新计算匹配,跳转到下一处(同一位置继续找,避免漏掉重叠替换)
+    this._findMatches = this._computeFindMatches();
+    this._findCur = cur - 1;
+    this._jumpToFind(1);
+  }
+
+  /** 全部替换:从后往前替换避免索引错位;替换后重查并清空匹配 */
+  replaceAll() {
+    const fq = this.wrap.querySelector('#html-find-q');
+    const rq = this.wrap.querySelector('#html-replace-q');
+    if (!fq || !fq.value) return;
+    const matches = this._computeFindMatches();
+    if (!matches.length) return;
+    const rep = rq ? rq.value : '';
+    let v = this.ta.value;
+    for (let i = matches.length - 1; i >= 0; i--) {
+      const h = matches[i];
+      v = v.slice(0, h.start) + rep + v.slice(h.end);
+    }
+    const count = matches.length;
+    this.ta.value = v;
+    this.ta.selectionStart = this.ta.selectionEnd = 0;
+    this.ta.dispatchEvent(new Event('input', { bubbles: true }));
+    this._findMatches = [];
+    this._findCur = -1;
+    this._updateFindCount();
+    this._clearPvFindMarks();
+    this.setStatus('已替换 ' + count + ' 处');
   }
 
   /**
