@@ -45,6 +45,9 @@
   .dbg-cn { color: #ffd479; }
   code { background: rgba(255,255,255,.08); padding: 0 4px; border-radius: 3px; color: #9ad; }
   .dbg-sel { color: #7fd1ff; font-weight: 600; word-break: break-all; }
+  /* 可点击复制的值条目:点击即复制该条内容 */
+  .dbg-click { cursor: copy; }
+  .dbg-click:hover { background: rgba(58,123,213,.32); outline: 1px solid rgba(58,123,213,.55); }
   .dbg-children { max-height: 150px; overflow: auto; margin: 5px 0; padding: 5px 0; border-top: 1px dashed #333; border-bottom: 1px dashed #333; }
   .dbg-children ul { margin: 0; padding-left: 14px; }
   .dbg-children li { margin: 1px 0; }
@@ -99,7 +102,7 @@
     <div class="dbg-placeholder">将鼠标移到主程序任意组件上，这里会显示它的调试信息。<br/>本窗口是独立窗口，可以拖到主程序外面、拖边缘调整大小。</div>
   </div>
   <div class="dbg-foot">
-    <span class="dbg-hint" id="dbg-hint">可拖出主窗口 · 拖边缘调整大小 · 内容可复制</span>
+    <span class="dbg-hint" id="dbg-hint">可拖出主窗口 · 拖边缘调整大小 · 点击条目复制该条内容</span>
     <button class="dbg-copy" id="dbg-copy">复制信息</button>
   </div>
   <div id="dbg-ctxmenu" hidden>

@@ -21,6 +21,22 @@ function basename(p) {
   return String(p || '').split(/[\\/]/).pop() || '';
 }
 
+/** 截断长文本(追加省略号) */
+function trunc(s, n) {
+  s = String(s == null ? '' : s);
+  return s.length > n ? s.slice(0, n - 1) + '…' : s;
+}
+
+/**
+ * 可点击复制的值元素:显示 display,点击复制 raw(默认同 display);
+ * hover 为悬浮提示(默认「点击复制」),cls 为附加样式类(如 dbg-sel)。
+ */
+function cp(display, raw, hover, cls) {
+  const r = (raw == null || raw === '') ? display : raw;
+  const h = hover || (r === display ? '点击复制' : '点击复制: ' + trunc(r, 60));
+  return `<code class="dbg-click${cls ? ' ' + cls : ''}" data-copy="${esc(r)}" title="${esc(h)}">${esc(display)}</code>`;
+}
+
 function render(info) {
   current = info;
   if (!info) {
@@ -28,38 +44,46 @@ function render(info) {
     sub.textContent = '';
     return;
   }
-  sub.textContent = info.sel || '';
+  sub.textContent = info.label || '';
   const kids = (info.children || []).map((c) =>
-    `<li><code>${esc(c.sel)}</code>${c.cn ? ` <span class="dbg-cn">${esc(c.cn)}</span>` : ''}</li>`).join('');
+    `<li>${cp(c.sel)}${c.cn ? ` <span class="dbg-cn">${esc(c.cn)}</span>` : ''}</li>`).join('');
   // 源码位置:文件名可悬浮看完整路径、右键 打开目录/编辑文件
   const srcFile = info.file
     ? `<span class="dbg-srcfile" data-file="${esc(info.file)}" data-line="${info.line || 0}"
          title="${esc(info.abs || info.file)}">${esc(basename(info.file))}${info.line ? ':' + info.line : ''}</span>`
     : '';
   body.innerHTML = `
-    <div class="dbg-row"><span class="dbg-k">名称</span><code class="dbg-sel">${esc(info.sel)}</code></div>
-    <div class="dbg-row"><span class="dbg-k">中文名称</span><span class="dbg-v">${esc(info.cn || '—')}</span></div>
+    <div class="dbg-row"><span class="dbg-k">组件ID</span>${info.id
+      ? cp(info.id, info.id, '点击复制组件ID', 'dbg-sel')
+      : '<span class="dbg-v">—(无ID)</span>'}</div>
+    <div class="dbg-row"><span class="dbg-k">中文名称</span>${(info.cn && info.cn !== '—')
+      ? cp(info.cn)
+      : '<span class="dbg-v">—</span>'}</div>
+    ${info.title ? `<div class="dbg-row"><span class="dbg-k">提示文本</span><span class="dbg-v">${cp(trunc(info.title, 80), info.title)}</span></div>` : ''}
     <div class="dbg-row"><span class="dbg-k">父组件</span>${info.parentSel
-      ? `<code>${esc(info.parentSel)}</code>${info.parentCn ? ` <span class="dbg-cn">${esc(info.parentCn)}</span>` : ''}`
+      ? `${cp(info.parentSel)}${info.parentCn ? ` <span class="dbg-cn">${esc(info.parentCn)}</span>` : ''}`
       : '<span class="dbg-v">—(顶层)</span>'}</div>
-    <div class="dbg-row"><span class="dbg-k">尺寸</span><span class="dbg-v">${info.width} × ${info.height} px</span></div>
+    <div class="dbg-row"><span class="dbg-k">尺寸</span><span class="dbg-v">${cp(info.width + ' × ' + info.height + ' px')}</span></div>
     <div class="dbg-row"><span class="dbg-k">子组件</span><span class="dbg-v">${info.childCount} 个</span></div>
     <div class="dbg-children"><ul>${kids || '<li class="dbg-empty">无直接子元素</li>'}</ul></div>
-    <div class="dbg-row"><span class="dbg-k">源码位置</span>${srcFile}<span class="dbg-v">${esc(info.src || '—')}</span></div>
-    <div class="dbg-row dbg-desc"><span class="dbg-k">介绍</span><span class="dbg-v">${esc(info.desc || '—')}</span></div>
-    <div class="dbg-row dbg-path"><span class="dbg-k">DOM 路径</span><code>${esc(info.domPath)}</code></div>
+    <div class="dbg-row"><span class="dbg-k">源码位置</span>${srcFile}<span class="dbg-v">${(info.src && info.src !== '—') ? cp(info.src) : esc(info.src || '—')}</span></div>
+    <div class="dbg-row dbg-desc"><span class="dbg-k">介绍</span><span class="dbg-v">${(info.desc && info.desc !== '—') ? cp(info.desc) : '—'}</span></div>
+    <div class="dbg-row dbg-path"><span class="dbg-k">DOM 路径</span>${cp(info.domPath)}</div>
   `;
 }
 
 function buildText(info) {
   if (!info) return '';
   const lines = [
-    '名称: ' + info.sel,
+    '组件ID: ' + (info.id || '—(无ID)'),
     '中文名称: ' + (info.cn || '—'),
+  ];
+  if (info.title) lines.push('提示文本: ' + info.title);
+  lines.push(
     '父组件: ' + (info.parentSel ? info.parentSel + (info.parentCn ? ' (' + info.parentCn + ')' : '') : '—(顶层)'),
     '尺寸: ' + info.width + ' × ' + info.height + ' px',
     '子组件: ' + info.childCount + ' 个',
-  ];
+  );
   (info.children || []).forEach((c) => lines.push('  - ' + c.sel + (c.cn ? ' (' + c.cn + ')' : '')));
   lines.push('源码位置: ' + (info.src || '—'));
   lines.push('介绍: ' + (info.desc || '—'));
@@ -177,13 +201,32 @@ window.addEventListener('mousedown', (e) => {
 });
 window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !ctxMenu.hidden) hideCtxMenu(); });
 
-// 主进程执行 打开目录/编辑文件 后的结果提示(短暂显示在底部提示栏)
+// ---- 底部提示栏:短暂显示操作结果(点击复制 / 打开目录 / 编辑文件共用) ----
 const hintEl = document.getElementById('dbg-hint');
+const HINT_DEFAULT = hintEl.textContent;
+let hintTimer = null;
+function showHint(msg) {
+  hintEl.textContent = '✔ ' + msg;
+  clearTimeout(hintTimer);
+  hintTimer = setTimeout(() => { hintEl.textContent = HINT_DEFAULT; }, 2400);
+}
+
+// ---- 点击信息条目即复制该条内容(data-copy 为要复制的原文) ----
+function copyText(txt) {
+  const done = () => showHint('已复制: ' + trunc(txt, 40));
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(txt).then(done).catch(() => { fallbackCopy(txt); done(); });
+  } else {
+    fallbackCopy(txt); done();
+  }
+}
+body.addEventListener('click', (e) => {
+  const c = e.target.closest('[data-copy]');
+  if (!c) return;
+  copyText(c.dataset.copy);
+});
+
+// 主进程执行 打开目录/编辑文件 后的结果提示
 if (bridge && bridge.onDebugSourceResult) {
-  bridge.onDebugSourceResult((msg) => {
-    if (!msg) return;
-    const old = hintEl.textContent;
-    hintEl.textContent = '✔ ' + msg;
-    setTimeout(() => { if (hintEl.textContent === '✔ ' + msg) hintEl.textContent = old; }, 4000);
-  });
+  bridge.onDebugSourceResult((msg) => { if (msg) showHint(msg); });
 }

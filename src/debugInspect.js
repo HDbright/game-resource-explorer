@@ -1,5 +1,7 @@
 // 调试模式：顶栏「🐞 调试」按钮开启后，鼠标悬停任意组件即在独立弹窗中
-// 展示：名称、中文名称、父组件、尺寸、子组件列表、源码位置、组件相关介绍、DOM 路径。
+// 展示：组件ID、中文名称(显示名称)、提示文本(title)、父组件、尺寸、子组件列表、
+// 源码位置、组件相关介绍、DOM 路径。标识统一按「id 优先」显示(#id,无 id 用标签名),
+// 各信息条目点击即复制该条内容。
 // 弹窗为独立窗口：可拖拽移动、可调整大小、可最小化/还原/关闭，信息可复制。
 // 调试模式下按一下 Ctrl 键可暂停/恢复信息获取；暂停时按钮出现 ⏸ 提示，且已获取的
 // 调试信息保持不动，方便鼠标移入调试窗口进行操作与复制。
@@ -60,14 +62,42 @@ function esc(t) {
   return String(t == null ? '' : t).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 }
 
-function selOf(el) {
+/** 截断长文本(追加省略号) */
+function trunc(s, n) {
+  s = String(s == null ? '' : s);
+  return s.length > n ? s.slice(0, n - 1) + '…' : s;
+}
+
+/** 组件标识:优先 #id,无 id 用小写标签名 —— 组件ID / DOM 路径 / 父子组件统一口径 */
+function nodeLabel(el) {
   if (!el) return '';
-  let s = el.tagName ? el.tagName.toLowerCase() : '';
-  if (el.id) s += '#' + el.id;
-  if (el.classList && el.classList.length) {
-    s += '.' + Array.from(el.classList).slice(0, 3).join('.');
+  return el.id ? '#' + el.id : (el.tagName ? el.tagName.toLowerCase() : '');
+}
+
+/** 元素直接文本(仅自身文本节点,不含子元素内文本),作为「显示名称」的主要来源 */
+function directText(el) {
+  let t = '';
+  for (let i = 0; i < el.childNodes.length; i++) {
+    const n = el.childNodes[i];
+    if (n.nodeType === 3) t += n.textContent;
   }
-  return s;
+  return t.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * 组件显示名称(调试窗「中文名称」行):
+ * 自身标注(data-cn / 元数据表) > 自身直接文本(如按钮文字「🐞 调试」)
+ * > 全文本截断 > 祖先链标注兜底;均无返回 null(显示 —)。
+ */
+function displayName(el, metaCn) {
+  const selfCn = (el.dataset && el.dataset.cn)
+    || (el.id && COMP_META[el.id] && COMP_META[el.id].cn) || null;
+  if (selfCn) return selfCn;
+  const dt = directText(el);
+  if (dt) return trunc(dt, 40);
+  const full = String(el.innerText || '').replace(/\s+/g, ' ').trim();
+  if (full) return trunc(full, 40);
+  return metaCn || null;
 }
 
 function domPath(el) {
@@ -75,7 +105,7 @@ function domPath(el) {
   let n = el;
   let guard = 0;
   while (n && n.nodeType === 1 && n !== document.body && guard++ < 8) {
-    parts.unshift(selOf(n));
+    parts.unshift(nodeLabel(n));
     n = n.parentElement;
   }
   return parts.join(' > ');
@@ -110,7 +140,7 @@ function parentInfo(el) {
   let p = el.parentElement;
   while (p && p !== document.body) {
     if (p.id || (p.dataset && p.dataset.cn)) {
-      return { sel: selOf(p), cn: (p.dataset && p.dataset.cn) || (COMP_META[p.id] && COMP_META[p.id].cn) || null };
+      return { sel: nodeLabel(p), cn: (p.dataset && p.dataset.cn) || (COMP_META[p.id] && COMP_META[p.id].cn) || null };
     }
     p = p.parentElement;
   }
@@ -120,8 +150,9 @@ function parentInfo(el) {
 function childrenInfo(el) {
   const kids = Array.from(el.children || []);
   const list = kids.slice(0, 15).map((c) => ({
-    sel: selOf(c),
-    cn: (c.dataset && c.dataset.cn) || (c.id && COMP_META[c.id] && COMP_META[c.id].cn) || null,
+    sel: nodeLabel(c),
+    cn: (c.dataset && c.dataset.cn) || (c.id && COMP_META[c.id] && COMP_META[c.id].cn)
+      || trunc(directText(c), 20) || null,
   }));
   return { count: kids.length, list };
 }
@@ -135,8 +166,10 @@ function computeInfo(el) {
   const line = meta.line || (COMP_META[el.id] && COMP_META[el.id].line) || null;
   const file = meta.file || (COMP_META[el.id] && COMP_META[el.id].file) || null;
   return {
-    sel: selOf(el),
-    cn: meta.cn || (COMP_META[el.id] && COMP_META[el.id].cn) || '—',
+    id: el.id || null,                    // 组件ID(无 id 为 null,显示 —(无ID))
+    label: nodeLabel(el),                 // 标识(#id 或 标签名):标题栏摘要用
+    cn: displayName(el, meta.cn) || '—',  // 中文名称(显示名称:标注 > 自身文字 > 截断全文本)
+    title: el.title || null,              // 原生 title 提示文本(无则不显示该行)
     parentSel: par ? par.sel : null,
     parentCn: par ? par.cn : null,
     width: Math.round(rect.width),
