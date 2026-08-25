@@ -13,7 +13,11 @@ import { resolveRegionDataUrl } from './spineIO.js';
 function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
 export class EditorPanels {
-  constructor(ctx) { this.ctx = ctx; }
+  constructor(ctx) {
+    this.ctx = ctx;
+    this.treeCollapsed = new Set(); // 层级树折叠:骨骼名 或 '#分区id'
+    this._treeFilter = '';          // 层级树搜索关键字
+  }
 
   // ============ 左侧:资源库 ============
 
@@ -121,44 +125,270 @@ export class EditorPanels {
     if (!el) return;
     const ctx = this.ctx;
     const p = ctx.project;
+    const filter = (this._treeFilter || '').trim().toLowerCase();
+    // 视图过滤标志(默认全部显示)
+    if (!this._treeFlags) this._treeFlags = { bones: true, slots: true, atts: false };
+    const flags = this._treeFlags;
+    // 附件展开状态(哪些插槽展开显示附件子项)
+    if (!this._treeAttExp) this._treeAttExp = new Set();
     el.innerHTML = '';
+
+    // ---- 顶部:搜索框 + 视图过滤按钮组 ----
+    const toolbar = document.createElement('div');
+    toolbar.className = 'be-tree-toolbar';
+    const search = document.createElement('input');
+    search.className = 'be-tree-search';
+    search.placeholder = '搜索骨骼 / 插槽…';
+    search.value = this._treeFilter || '';
+    search.addEventListener('input', () => {
+      this._treeFilter = search.value;
+      this.refreshOutline();
+      const s2 = el.querySelector('.be-tree-search');
+      if (s2) { s2.focus(); s2.setSelectionRange(s2.value.length, s2.value.length); }
+    });
+    toolbar.appendChild(search);
+    // 视图过滤按钮(Spine 风格:骨骼/插槽/附件 显隐切换)
+    const mkFlag = (key, icon, tip) => {
+      const b = document.createElement('button');
+      b.className = 'be-tree-flag' + (flags[key] ? ' active' : '');
+      b.textContent = icon;
+      b.title = tip;
+      b.addEventListener('click', () => { flags[key] = !flags[key]; this.refreshOutline(); });
+      toolbar.appendChild(b);
+    };
+    mkFlag('bones', '🦴', '显示/隐藏骨骼');
+    mkFlag('slots', '📦', '显示/隐藏插槽');
+    mkFlag('atts', '🖼', '展开/折叠附件子项');
+    // 全部展开/折叠按钮
+    const mkExpandBtn = (expand) => {
+      const b = document.createElement('button');
+      b.className = 'be-tree-flag';
+      b.textContent = expand ? '⊕' : '⊖';
+      b.title = expand ? '全部展开' : '全部折叠';
+      b.addEventListener('click', () => {
+        if (expand) { this.treeCollapsed.clear(); this._treeAttExp = new Set(p.armature.slots.map(s => s.name)); flags.atts = true; }
+        else { for (const bone of p.armature.bones) this.treeCollapsed.add(bone.name); this._treeAttExp.clear(); }
+        this.refreshOutline();
+      });
+      toolbar.appendChild(b);
+    };
+    mkExpandBtn(true);
+    mkExpandBtn(false);
+    el.appendChild(toolbar);
+
+    const match = (name) => !filter || name.toLowerCase().includes(filter);
+    const boneHue = (name) => { let h = 0; for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) % 360; return h; };
+    const bones = bonesInTreeOrder(p);
+
+    // 过滤时:命中骨骼 + 其全部祖先 + 命中插槽的宿主骨骼
+    const showBone = new Set();
+    if (filter) {
+      const byName = new Map(bones.map((b) => [b.name, b]));
+      const addChain = (b) => { let cur = b; while (cur && !showBone.has(cur.name)) { showBone.add(cur.name); cur = byName.get(cur.parent); } };
+      for (const b of bones) if (match(b.name)) addChain(b);
+      for (const s of p.armature.slots) if (match(s.name)) { const b = byName.get(s.parent); if (b) addChain(b); }
+    }
+
+    // 骨架根行
     const armRow = document.createElement('div');
     armRow.className = 'be-tree-row arm' + (ctx.selection && !ctx.selection.type ? ' sel' : '');
     armRow.innerHTML = `<span class="be-tree-ico">🎭</span><span class="be-tree-name">${esc(p.armature.name)}</span>`;
     armRow.addEventListener('click', () => ctx.select(null, null));
     el.appendChild(armRow);
 
+    // ---- 「骨骼」section header ----
+    if (flags.bones) {
+      const boneSecH = document.createElement('div');
+      boneSecH.className = 'be-tree-sec';
+      boneSecH.innerHTML = `<span class="be-tree-sec-label">骨骼</span><span class="be-tree-badge">${p.armature.bones.length}</span>`;
+      el.appendChild(boneSecH);
+    }
+
     const slotByBone = new Map();
     for (const s of p.armature.slots) {
       if (!slotByBone.has(s.parent)) slotByBone.set(s.parent, []);
       slotByBone.get(s.parent).push(s);
     }
-    const mkBoneRow = (bone, depth) => {
-      const sel = ctx.selection?.type === 'bone' && ctx.selection.name === bone.name;
-      const row = document.createElement('div');
-      row.className = 'be-tree-row' + (sel ? ' sel' : '');
-      row.style.paddingLeft = (10 + depth * 16) + 'px';
+
+    let skipDepth = -1;
+    const mkBoneRow = (bone, depth, parentLast) => {
+      if (skipDepth >= 0) {
+        if (depth > skipDepth) return;
+        skipDepth = -1;
+      }
+      if (filter && !showBone.has(bone.name)) return;
       const kids = boneChildren(p, bone.name).length;
-      row.innerHTML = `<span class="be-tree-ico">🦴</span><span class="be-tree-name">${esc(bone.name)}</span><span class="be-tree-badge">${kids || ''}</span>`;
+      const slotList = slotByBone.get(bone.name) || [];
+      const hasSlots = slotList.length > 0;
+      const hasChildren = kids > 0 || hasSlots;
+      const sel = ctx.selection?.type === 'bone' && ctx.selection.name === bone.name;
+      const collapsed = !filter && this.treeCollapsed.has(bone.name);
+      const isLocked = bone.locked === true;
+      const isHidden = bone.visible === false;
+      const row = document.createElement('div');
+      row.className = 'be-tree-row be-tree-bone' + (sel ? ' sel' : '') + (isLocked ? ' locked' : '');
+      row.setAttribute('data-depth', depth);
+      row.setAttribute('data-last', parentLast ? '1' : '0');
+      // 骨骼行:caret + 骨骼图标 + 名称 + 锁定 + 可见性
+      row.innerHTML = `<span class="be-caret ${collapsed ? '' : 'open'}">${hasChildren ? (collapsed ? '▸' : '▾') : ''}</span>`
+        + `<span class="be-ico-bone" style="--h:${boneHue(bone.name)}${isHidden ? ';opacity:.35' : ''}"></span>`
+        + `<span class="be-tree-name${isHidden ? ' dim' : ''}">${esc(bone.name)}</span>`
+        + `<span class="be-tree-lock" data-lock title="${isLocked ? '解锁骨骼' : '锁定骨骼'}">${isLocked ? '🔒' : '🔓'}</span>`;
+      row.querySelector('.be-caret').addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!hasChildren) return;
+        if (this.treeCollapsed.has(bone.name)) this.treeCollapsed.delete(bone.name); else this.treeCollapsed.add(bone.name);
+        this.refreshOutline();
+      });
+      row.querySelector('[data-lock]').addEventListener('click', (e) => {
+        e.stopPropagation();
+        bone.locked = !bone.locked;
+        this.refreshOutline();
+      });
       row.addEventListener('click', () => ctx.select('bone', bone.name));
       el.appendChild(row);
-      for (const s of slotByBone.get(bone.name) || []) {
-        const srow = document.createElement('div');
-        srow.className = 'be-tree-row slot' + (ctx.selection?.type === 'slot' && ctx.selection.name === s.name ? ' sel' : '');
-        srow.style.paddingLeft = (10 + (depth + 1) * 16) + 'px';
-        srow.title = s.visible === false ? '插槽已隐藏,点击眼睛恢复' : '点击眼睛隐藏插槽';
-        srow.innerHTML = `<span class="be-tree-eye" data-eye>${s.visible === false ? '🚫' : '👁'}</span><span class="be-tree-ico">🖼</span><span class="be-tree-name">${esc(s.name)}</span>`;
-        srow.querySelector('[data-eye]').addEventListener('click', (e) => {
-          e.stopPropagation();
-          ctx.beginEdit(s.visible === false ? '显示插槽' : '隐藏插槽');
-          s.visible = s.visible === false;
-          ctx.refresh();
-        });
-        srow.addEventListener('click', () => ctx.select('slot', s.name));
-        el.appendChild(srow);
+      if (collapsed) { skipDepth = depth; return; }
+      // 插槽子项
+      if (flags.slots) {
+        for (const s of slotList) {
+          if (filter && !match(s.name) && !match(bone.name)) continue;
+          const disp = s.displays[s.displayIndex];
+          const attName = disp ? disp.name : '';
+          const sLocked = s.locked === true;
+          const srow = document.createElement('div');
+          srow.className = 'be-tree-row be-tree-slot' + (ctx.selection?.type === 'slot' && ctx.selection.name === s.name ? ' sel' : '') + (sLocked ? ' locked' : '');
+          srow.setAttribute('data-depth', depth + 1);
+          srow.title = s.visible === false ? '插槽已隐藏,点击眼睛恢复' : '点击眼睛隐藏插槽';
+          const attExpanded = flags.atts || this._treeAttExp.has(s.name);
+          const attCount = s.displays.length;
+          srow.innerHTML = `<span class="be-tree-eye" data-eye>${s.visible === false ? '🚫' : '👁'}</span>`
+            + `<span class="be-ico-slot"></span>`
+            + `<span class="be-tree-name">${esc(s.name)}</span>`
+            + (attName ? `<span class="be-tree-att">${esc(attName)}</span>` : '')
+            + (attCount > 1 ? `<span class="be-tree-att-toggle" data-toggle title="${attExpanded ? '折叠附件' : '展开附件'}">${attExpanded ? '▾' : '▸'}${attCount}</span>` : '')
+            + `<span class="be-tree-lock" data-slock title="${sLocked ? '解锁插槽' : '锁定插槽'}">${sLocked ? '🔒' : '🔓'}</span>`;
+          srow.querySelector('[data-eye]').addEventListener('click', (e) => {
+            e.stopPropagation();
+            ctx.beginEdit(s.visible === false ? '显示插槽' : '隐藏插槽');
+            s.visible = s.visible === false;
+            ctx.refresh();
+          });
+          srow.querySelector('[data-slock]').addEventListener('click', (e) => {
+            e.stopPropagation();
+            s.locked = !s.locked;
+            this.refreshOutline();
+          });
+          if (attCount > 1) {
+            srow.querySelector('[data-toggle]').addEventListener('click', (e) => {
+              e.stopPropagation();
+              if (this._treeAttExp.has(s.name)) this._treeAttExp.delete(s.name); else this._treeAttExp.add(s.name);
+              this.refreshOutline();
+            });
+          }
+          srow.addEventListener('click', () => ctx.select('slot', s.name));
+          el.appendChild(srow);
+          // 附件子项(Spine 风格:展开时显示所有 display)
+          if (attExpanded && attCount > 1) {
+            for (let di = 0; di < s.displays.length; di++) {
+              const d = s.displays[di];
+              const isCurrent = di === s.displayIndex;
+              const arow = document.createElement('div');
+              arow.className = 'be-tree-row be-tree-att-row' + (isCurrent ? ' current' : '');
+              arow.setAttribute('data-depth', depth + 2);
+              arow.innerHTML = `<span class="be-ico-att">${isCurrent ? '◆' : '◇'}</span><span class="be-tree-name${isCurrent ? '' : ' dim'}">${esc(d.name)}</span>`;
+              arow.title = `附件:${d.name}${isCurrent ? ' (当前显示)' : ''}\n点击切换为此附件`;
+              arow.addEventListener('click', (e) => {
+                e.stopPropagation();
+                ctx.beginEdit('切换附件');
+                s.displayIndex = di;
+                ctx.refresh();
+              });
+              el.appendChild(arow);
+            }
+          }
+        }
       }
     };
-    for (const b of bonesInTreeOrder(p)) mkBoneRow(b, b._depth || 0);
+    if (flags.bones) {
+      for (let i = 0; i < bones.length; i++) mkBoneRow(bones[i], bones[i]._depth || 0, i === bones.length - 1);
+    }
+
+    // ---- 「插槽」section header(扁平列表) ----
+    if (flags.slots && p.armature.slots.length) {
+      const slotSecH = document.createElement('div');
+      slotSecH.className = 'be-tree-sec';
+      const slotCollapsed = !filter && this.treeCollapsed.has('#slots');
+      slotSecH.innerHTML = `<span class="be-caret ${slotCollapsed ? '' : 'open'}">${slotCollapsed ? '▸' : '▾'}</span><span class="be-tree-sec-label">插槽</span><span class="be-tree-badge">${p.armature.slots.length}</span>`;
+      slotSecH.addEventListener('click', () => {
+        if (this.treeCollapsed.has('#slots')) this.treeCollapsed.delete('#slots'); else this.treeCollapsed.add('#slots');
+        this.refreshOutline();
+      });
+      el.appendChild(slotSecH);
+      if (!slotCollapsed || filter) {
+        for (const s of p.armature.slots) {
+          if (filter && !match(s.name)) continue;
+          const disp = s.displays[s.displayIndex];
+          const attName = disp ? disp.name : '';
+          const row = document.createElement('div');
+          row.className = 'be-tree-row be-tree-slot-flat' + (ctx.selection?.type === 'slot' && ctx.selection.name === s.name ? ' sel' : '');
+          row.innerHTML = `<span class="be-ico-slot"></span><span class="be-tree-name">${esc(s.name)}</span>${attName ? `<span class="be-tree-att">${esc(attName)}</span>` : ''}<span class="be-tree-badge">${esc(s.parent)}</span>`;
+          row.addEventListener('click', () => ctx.select('slot', s.name));
+          el.appendChild(row);
+        }
+      }
+    }
+
+    // ---- 其余 section:绘制顺序 / 事件 / 动画 ----
+    const mkSection = (id, icon, label, count) => {
+      const h = document.createElement('div');
+      h.className = 'be-tree-sec';
+      const collapsed = !filter && this.treeCollapsed.has('#' + id);
+      h.innerHTML = `<span class="be-caret ${collapsed ? '' : 'open'}">${collapsed ? '▸' : '▾'}</span><span class="be-tree-sec-label">${icon} ${label}</span><span class="be-tree-badge">${count}</span>`;
+      h.addEventListener('click', () => {
+        const k = '#' + id;
+        if (this.treeCollapsed.has(k)) this.treeCollapsed.delete(k); else this.treeCollapsed.add(k);
+        this.refreshOutline();
+      });
+      el.appendChild(h);
+      return !collapsed || !!filter;
+    };
+
+    // 绘制顺序
+    if (p.armature.slots.length && mkSection('zorder', '❖', '绘制顺序', p.armature.slots.length)) {
+      for (const s of slotsInZOrder(p)) {
+        if (filter && !match(s.name)) continue;
+        const row = document.createElement('div');
+        row.className = 'be-tree-row be-tree-zorder' + (ctx.selection?.type === 'slot' && ctx.selection.name === s.name ? ' sel' : '');
+        row.innerHTML = `<span class="be-ico-slot"></span><span class="be-tree-name">${esc(s.name)}</span><span class="be-tree-badge">${esc(s.parent)}</span>`;
+        row.addEventListener('click', () => ctx.select('slot', s.name));
+        el.appendChild(row);
+      }
+    }
+
+    // 事件
+    const evNames = (p.spine && p.spine.raw && p.spine.raw.events) ? Object.keys(p.spine.raw.events) : [];
+    if (evNames.length && mkSection('events', '⚡', '事件', evNames.length)) {
+      for (const n of evNames) {
+        if (filter && !match(n)) continue;
+        const row = document.createElement('div');
+        row.className = 'be-tree-row be-tree-zorder';
+        row.innerHTML = `<span class="be-tree-ico">⚡</span><span class="be-tree-name">${esc(n)}</span>`;
+        el.appendChild(row);
+      }
+    }
+
+    // 动画
+    if (p.armature.animations.length && mkSection('anims', '🎬', '动画', p.armature.animations.length)) {
+      for (const a of p.armature.animations) {
+        if (filter && !match(a.name)) continue;
+        const cur = ctx.anim && ctx.anim.name === a.name;
+        const row = document.createElement('div');
+        row.className = 'be-tree-row be-tree-zorder' + (cur ? ' sel' : '');
+        row.innerHTML = `<span class="be-tree-ico">▶</span><span class="be-tree-name">${esc(a.name)}</span><span class="be-tree-badge">${a.duration}帧</span>`;
+        row.addEventListener('click', () => ctx.setAnimation(a.name));
+        el.appendChild(row);
+      }
+    }
   }
 
   // ============ 左侧:层级(Z 序) ============
@@ -348,22 +578,31 @@ export class EditorPanels {
     this._num(b2, '插槽数', () => p.armature.slots.length, () => {}, { ro: true });
     this._num(b2, '动画数', () => p.armature.animations.length, () => {}, { ro: true });
     if (p.spine) {
-      const b3 = this._section(el, 'Spine 工程');
+      const b3 = this._section(el, p.spine.project ? 'Spine 工程(.spine)' : 'Spine 项目');
       const row = document.createElement('div');
       row.className = 'be-prop-row';
       row.innerHTML = `<span class="be-prop-l">版本</span><span style="font-family:var(--mono)">${esc(p.spine.version || '')}</span>`;
       b3.appendChild(row);
-      const row2 = document.createElement('div');
-      row2.className = 'be-prop-row';
-      row2.innerHTML = `<span class="be-prop-l">皮肤</span><span>${esc(p.spine.skin || '')}</span>`;
-      b3.appendChild(row2);
-      const row3 = document.createElement('div');
-      row3.className = 'be-prop-row';
-      row3.innerHTML = `<span class="be-prop-l">atlas 页</span><span>${(p.spine.pages || []).length} 页 / ${(p.spine.regionNames || []).length} 区块</span>`;
-      b3.appendChild(row3);
+      if (p.spine.project) {
+        const rowS = document.createElement('div');
+        rowS.className = 'be-prop-row';
+        rowS.innerHTML = `<span class="be-prop-l">来源</span><span title="${esc(p.spine.srcPath || '')}">${esc((p.spine.srcPath || '').replace(/^.*[\\/]/, ''))}</span>`;
+        b3.appendChild(rowS);
+      } else {
+        const row2 = document.createElement('div');
+        row2.className = 'be-prop-row';
+        row2.innerHTML = `<span class="be-prop-l">皮肤</span><span>${esc(p.spine.skin || '')}</span>`;
+        b3.appendChild(row2);
+        const row3 = document.createElement('div');
+        row3.className = 'be-prop-row';
+        row3.innerHTML = `<span class="be-prop-l">atlas 页</span><span>${(p.spine.pages || []).length} 页 / ${(p.spine.regionNames || []).length} 区块</span>`;
+        b3.appendChild(row3);
+      }
       const hint = document.createElement('div');
       hint.className = 'be-z-hint';
-      hint.textContent = 'Spine 导入工程:网格/IK/变换约束/变形时间线等 Pro 数据无损保留并在导出时回写;结构增删已锁定,可自由编辑变换与关键帧动画。';
+      hint.textContent = p.spine.project
+        ? 'Spine 工程文件(.spine)逆向解码打开:骨骼/插槽/region 附件与 rotate/translate 时间线可编辑;附件切换与事件时间线引用未解析,已跳过;结构增删已锁定;「保存项目」存为 .lbone.json。'
+        : 'Spine 导入项目:网格/IK/变换约束/变形时间线等 Pro 数据无损保留并在导出时回写;结构增删已锁定,可自由编辑变换与关键帧动画。';
       b3.appendChild(hint);
     }
   }

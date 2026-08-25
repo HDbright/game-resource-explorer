@@ -45,3 +45,6 @@ _pack_quarantine/
 /timerPreload.js
 /alarm-popup.html
 
+
+# ZCode session data
+.zcode/

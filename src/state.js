@@ -78,6 +78,14 @@ export const DEFAULT_SETTINGS = {
   mdHeadingColors: {},
   // Markdown 编辑器分栏「同步关联」开关(滚动 / 选中双向联动;重启后恢复)
   mdSync: false,
+  // 颜色库(资源工具箱):项目配色覆盖。键 = CSS 变量名去掉 -- 前缀(如 'accent'、'bg2'),值 = '#rrggbb';
+  // 由 appearance.js 在主题变量之后应用,优先级最高,重置即删除对应键。
+  colorOverrides: {},
+  // 颜色库:自定义颜色收藏分组:[{ id, name, note, items: [{ id, name, nameEn, hex, note, createdAt }] }]
+  colorLibGroups: [],
+  // 颜色库:屏幕取色全局快捷键(Electron accelerator;主窗口最小化/隐藏到托盘均可触发;空 = 禁用)
+  colorHotkey: 'Ctrl+Alt+C',         // 屏幕取色并复制 HEX
+  colorHotkeyFav: 'Ctrl+Alt+Shift+C', // 屏幕取色并收藏到我的收藏分组
 };
 
 /** 默认图标库(首次启动无自定义数据时 seed;分组/图标可增删改序) */
@@ -1757,6 +1765,28 @@ export async function loadState() {
   }
   if (resMigrated) saveState();
   seedMenuNodes();
+  // 迁移(补丁·160):资源工具箱(__m_toolbox__)根下挂载的「工具终端」菜单节点 →
+  // 转为工具箱目录树(toolboxFolders)的工具链接。
+  // 这类节点走菜单树拖拽(attachMenuDrag),而工具箱内其余节点走工具箱树拖拽(attachToolboxDrag),
+  // 两套拖拽互不识别,导致它无法与工具箱内其它工具一起拖动排序(只身一个菜单子节点,没有可交换的同级)。
+  // 工具链接放入工具箱树后,与其它工具一样可拖拽排序/移动。规则:parentId=__m_toolbox__ 且 action 以 tool: 开头。
+  const toolboxToolMenuNodes = state.menuNodes.filter(
+    (m) => (m.parentId || '') === '__m_toolbox__' && m.nodeType === 'term'
+      && typeof m.action === 'string' && m.action.startsWith('tool:')
+  );
+  if (toolboxToolMenuNodes.length) {
+    let migrated = false;
+    for (const m of toolboxToolMenuNodes) {
+      const toolId = m.action.slice(5);
+      if (!state.toolboxFolders.some((f) => f.toolId === toolId)) {
+        addToolboxFolder({ name: m.name, parentId: '', toolId, icon: m.icon });
+        migrated = true;
+      }
+      state.menuNodes = state.menuNodes.filter((x) => x !== m);
+      migrated = true;
+    }
+    if (migrated) saveState();
+  }
   // 老数据迁移:补丁·41/42 把 now() 改回秒,但旧库 createdAt/updatedAt 等仍是毫秒。
   // 阈值 v > 1e12 = 2001-09-09 之后,合理。fixMs 必须应用到所有 now() 写出的字段,不能漏。
   // (补丁·51 补:项目循环遗漏 createdAt/updatedAt/deadline/completeAt — 显示成 58595/03/13 即此 bug)
@@ -3117,6 +3147,7 @@ function seedToolboxFolders() {
     addToolboxFolder({ name: 'FGUI编辑器', parentId: '', toolId: '__fgui_editor__' });
     addToolboxFolder({ name: 'Markdown 编辑器', parentId: '', toolId: 'markdown' });
     addToolboxFolder({ name: 'Todo-List 任务管理', parentId: '', toolId: 'todo' });
+    addToolboxFolder({ name: '颜色库', parentId: '', toolId: 'colorlib' });
     return;
   }
   // 老库补种缺失的默认工具(Markdown 编辑器 / Todo-List)
@@ -3126,13 +3157,20 @@ function seedToolboxFolders() {
   if (!state.toolboxFolders.some((f) => f.toolId === 'todo')) {
     addToolboxFolder({ name: 'Todo-List 任务管理', parentId: '', toolId: 'todo' });
   }
+  if (!state.toolboxFolders.some((f) => f.toolId === 'colorlib')) {
+    addToolboxFolder({ name: '颜色库', parentId: '', toolId: 'colorlib' });
+  }
   if (!state.toolboxFolders.some((f) => f.toolId === 'kidworkspace')) {
     addToolboxFolder({ name: '得乐学苑', parentId: '', toolId: 'kidworkspace' });
   }
-  // 老库节点改名同步:「小学生成长闯关台」→「得乐学苑」(v2.1.9 改名,老用户已有节点更新显示名)
+  // 老库节点改名同步:「小学生成长闯关台」→「得乐学苑」(v2.1.9 改名,老用户已有节点更新显示名);
+  // 「颜色选择库」→「颜色库」(补丁·159 改名)
   for (const f of state.toolboxFolders) {
     if (f.toolId === 'kidworkspace' && f.name === '小学生成长闯关台') {
       f.name = '得乐学苑';
+    }
+    if (f.toolId === 'colorlib' && f.name === '颜色选择库') {
+      f.name = '颜色库';
     }
   }
 }

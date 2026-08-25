@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>屏幕取色</title>
+<style>
+  /* 全屏取色窗口(参考 PowerToys ColorPicker):显示光标所在屏幕的冻结截图 + 放大镜取色。
+     只截一块屏(主进程按光标定位),窗口边界=该屏边界,画面 1:1 无失真。 */
+  html, body { height: 100%; margin: 0; background: #000; overflow: hidden; cursor: crosshair; user-select: none; }
+  #stage { position: fixed; inset: 0; }
+  #stage canvas { display: block; width: 100%; height: 100%; }
+  /* 提示条 */
+  .hint-bar {
+    position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+    background: rgba(15, 17, 23, 0.82); color: #e6e8ee; border: 1px solid rgba(255,255,255,0.16);
+    border-radius: 8px; padding: 7px 14px; font: 12px/1.5 "Microsoft YaHei", "Segoe UI", sans-serif;
+    pointer-events: none; backdrop-filter: blur(6px);
+  }
+  .hint-bar b { color: #7fb0ff; }
+  /* 放大镜透镜 */
+  #lens {
+    position: fixed; left: 0; top: 0; z-index: 10; pointer-events: none;
+    width: 176px; border-radius: 8px; overflow: visible;
+    box-shadow: 0 6px 24px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.25);
+  }
+  #lens canvas { display: block; width: 176px; height: 176px; border-radius: 8px 8px 0 0; image-rendering: pixelated; }
+  #lens .val {
+    background: rgba(15, 17, 23, 0.92); color: #e6e8ee; padding: 6px 10px 7px;
+    font: 12px/1.5 Consolas, "Microsoft YaHei", monospace; white-space: nowrap;
+    border-radius: 0 0 8px 8px; display: flex; align-items: center; gap: 8px;
+  }
+  #lens .val .chip { width: 18px; height: 18px; border-radius: 4px; border: 1px solid rgba(255,255,255,.35); flex: 0 0 auto; }
+  #lens .val .hex { font-weight: 700; }
+  #lens .val .rgb { color: #9aa1b2; }
+</style>
+</head>
+<body>
+  <div id="stage"><canvas id="cv"></canvas></div>
+  <div class="hint-bar">仅截取光标所在屏幕 · 🖱 移动定位 · <b>点击</b> 选取颜色 · <b>Esc / 右键</b> 取消</div>
+  <div id="lens" hidden>
+    <canvas id="lensCv" width="11" height="11"></canvas>
+    <div class="val"><span class="chip" id="lensChip"></span><span class="hex" id="lensHex">#------</span><span class="rgb" id="lensRgb">rgb(-,-,-)</span></div>
+  </div>
+<script>
+(function () {
+  var pickApi = window.pickApi;
+  if (!pickApi) return; // 非 Electron 环境(直接用浏览器打开)不工作
+  var cv = document.getElementById('cv');
+  var ctx = cv.getContext('2d');
+  var lens = document.getElementById('lens');
+  var lensCv = document.getElementById('lensCv');
+  var lensCtx = lensCv.getContext('2d');
+  var lensChip = document.getElementById('lensChip');
+  var lensHex = document.getElementById('lensHex');
+  var lensRgb = document.getElementById('lensRgb');
+
+  var disp = null;   // {x, y, w, h, pxW, pxH, img(ImageData, RGBA)}
+  var curHex = null;
+  var ready = false;
+
+  function toHex(r, g, b) {
+    var h = function (v) { v = Math.max(0, Math.min(255, Math.round(v))); return v.toString(16).padStart(2, '0'); };
+    return '#' + (h(r) + h(g) + h(b)).toUpperCase();
+  }
+
+  pickApi.onCaptures(function (data) {
+    if (!data || !data.bmp || !data.pxW || !data.pxH) { pickApi.cancel(); return; }
+    try {
+      var src = new Uint8Array(data.bmp);
+      // BGRA → RGBA 一次性转换:背景显示与采样共用同一份 ImageData,保证所见即所得
+      var img = new ImageData(data.pxW, data.pxH);
+      var dst = img.data;
+      var n = Math.min(dst.length, (src.length >> 2) << 2);
+      for (var i = 0; i < n; i += 4) {
+        dst[i] = src[i + 2];      // R ← B 位
+        dst[i + 1] = src[i + 1];  // G
+        dst[i + 2] = src[i];      // B ← R 位
+        dst[i + 3] = 255;
+      }
+      disp = { x: data.x, y: data.y, w: data.w, h: data.h, pxW: data.pxW, pxH: data.pxH, img: img };
+      // 原生像素离屏画布 → 按 DIP 尺寸绘制到展示画布(乘 dpr 保证高分屏清晰;
+      // 取色采样直接读上面的 ImageData,与展示缩放无关,始终是物理像素精确值)
+      var off = document.createElement('canvas');
+      off.width = data.pxW; off.height = data.pxH;
+      off.getContext('2d').putImageData(img, 0, 0);
+      var dpr = Math.max(1, window.devicePixelRatio || 1);
+      cv.width = Math.round(data.w * dpr);
+      cv.height = Math.round(data.h * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.drawImage(off, 0, 0, data.w, data.h);
+      ready = true;
+    } catch (e) {
+      pickApi.cancel();
+    }
+  });
+
+  // 全局 DIP 坐标 → 截图像素坐标(钳制在图内),返回 [px, py] 或 null
+  function locate(gx, gy) {
+    if (!disp) return null;
+    var px = Math.floor((gx - disp.x) * disp.pxW / disp.w);
+    var py = Math.floor((gy - disp.y) * disp.pxH / disp.h);
+    if (px < 0 || py < 0 || px >= disp.pxW || py >= disp.pxH) return null;
+    return [px, py];
+  }
+
+  // 透镜跟随:11×11 放大(中心为当前点),光标在左半屏时透镜放右侧,反之放左侧,避免遮挡
+  function updateLens(e) {
+    if (!ready) { lens.hidden = true; curHex = null; return; }
+    var loc = locate(e.clientX + disp.x, e.clientY + disp.y);
+    if (!loc) { lens.hidden = true; curHex = null; return; }
+    var px = loc[0], py = loc[1];
+    var img = disp.img, d = img.data, W = disp.pxW, H = disp.pxH;
+    var i = (py * W + px) * 4;
+    curHex = toHex(d[i], d[i + 1], d[i + 2]);
+    // 放大镜 11×11 邻域:逐像素从 ImageData 拷贝(越界钳制到图内)
+    var limg = lensCtx.createImageData(11, 11);
+    var ld = limg.data;
+    for (var y = 0; y < 11; y++) {
+      var sy = Math.max(0, Math.min(H - 1, py - 5 + y));
+      for (var x = 0; x < 11; x++) {
+        var sx = Math.max(0, Math.min(W - 1, px - 5 + x));
+        var si = (sy * W + sx) * 4;
+        var di = (y * 11 + x) * 4;
+        ld[di] = d[si]; ld[di + 1] = d[si + 1]; ld[di + 2] = d[si + 2]; ld[di + 3] = 255;
+      }
+    }
+    lensCtx.putImageData(limg, 0, 0);
+    // 精确空心十字:采样像素 = 第 (5,5) 格(整格),四条臂停在它边缘、中心格完全留空。
+    // 暗色描边(3 格厚)+ 亮色内芯(1 格),全部整数格对齐 —— 十字几何中心即采样像素中心,无亚像素模糊。
+    lensCtx.fillStyle = 'rgba(0,0,0,.85)';
+    lensCtx.fillRect(0, 4, 5, 3); lensCtx.fillRect(6, 4, 5, 3); // 横臂描边(左臂 x0-4 / 右臂 x6-10)
+    lensCtx.fillRect(4, 0, 3, 5); lensCtx.fillRect(4, 6, 3, 5); // 竖臂描边(上臂 y0-4 / 下臂 y6-10)
+    lensCtx.fillStyle = '#ffffff';
+    lensCtx.fillRect(0, 5, 5, 1); lensCtx.fillRect(6, 5, 5, 1); // 横臂内芯(恰好贴中心格左右边)
+    lensCtx.fillRect(5, 0, 1, 5); lensCtx.fillRect(5, 6, 1, 5); // 竖臂内芯(恰好贴中心格上下边)
+    lensChip.style.background = curHex;
+    lensHex.textContent = curHex;
+    lensRgb.textContent = 'rgb(' + d[i] + ',' + d[i + 1] + ',' + d[i + 2] + ')';
+    lens.hidden = false;
+    var lx = (e.clientX + 40 + 186 < window.innerWidth) ? e.clientX + 40 : e.clientX - 40 - 186;
+    var ly = Math.max(8, Math.min(window.innerHeight - 220, e.clientY - 88));
+    lens.style.transform = 'translate(' + lx + 'px,' + ly + 'px)';
+  }
+
+  document.addEventListener('mousemove', updateLens);
+  document.addEventListener('click', function () {
+    if (curHex) pickApi.select(curHex);
+    else pickApi.cancel();
+  });
+  document.addEventListener('contextmenu', function (e) { e.preventDefault(); pickApi.cancel(); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { e.preventDefault(); pickApi.cancel(); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (curHex) pickApi.select(curHex); else pickApi.cancel(); }
+  });
+  // 截图推送超时兜底(主进程异常时窗口不至于黑屏卡死)
+  setTimeout(function () { if (!ready) pickApi.cancel(); }, 4000);
+})();
+</script>
+</body>
+</html>

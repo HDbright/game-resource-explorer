@@ -7,10 +7,11 @@ import { toast } from './dialogs.js';
  * 优先用 navigator.clipboard(安全上下文,如 http://localhost);
  * 不可用时回退到临时 textarea + execCommand('copy')(Electron 渲染进程兼容)。
  * @param {string} text
+ * @param {string} [label] 复制成功的提示名词(默认「路径」;颜色选择库传「颜色值」等)
  */
-export function copyText(text) {
+export function copyText(text, label = '路径') {
   const t = String(text == null ? '' : text);
-  const ok = () => toast('已复制路径', 'ok');
+  const ok = () => toast('已复制' + label, 'ok');
   const fail = () => toast('复制失败', 'error');
   if (navigator.clipboard && window.isSecureContext) {
     navigator.clipboard.writeText(t).then(ok, () => (fallbackCopy(t) ? ok() : fail()));

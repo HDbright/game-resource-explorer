@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, screen, nativeImage, Tray } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, screen, nativeImage, Tray, desktopCapturer, globalShortcut, clipboard, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
@@ -12,7 +12,8 @@ const { astcToPng } = require('./tools/astc');
 const { skelToJson, probeSkeleton } = require('./tools/skel');
 const { spineFix } = require('./tools/spineFix');
 const { skToSpine, skToSpineText, probeLayaSk } = require('./tools/layaSk2Spine');
-const { probe: probeSpineProjectFile, convertFile: convertSpineProjectFile } = require('./tools/spineProjectToJson');
+const { probe: probeSpineProjectFile, convertFile: convertSpineProjectFile, convert: convertSpineProjectInMemory } = require('./tools/spineProjectToJson');
+const { writeTestSpine } = require('../scripts/makeTestSpine'); // 合成最小 .spine 工程文件(编辑器冒烟用)
 const fgui = require('./tools/fgui');
 const { buildPreviewData, findGameRoot } = require('./tools/fgui/previewData');
 const { webGame, downloadResource, probeFile, classify, typeDir, fileNameFromUrl, safeName } = require('./tools/webGame');
@@ -290,6 +291,160 @@ let win = null;
 let server = null;
 let cdpDocWin = null; // 「Chrome DevTools 连接说明」独立文档窗口
 let debugWin = null;  // 调试模式独立检视窗口(可拖到主窗口外面)
+let colorPickWin = null;     // 颜色选择库:全屏取色窗口(参考 PowerToys ColorPicker)
+let colorPickResolve = null; // color:screenPick 的 pending resolver(选色/取消时结算)
+let colorHotkeys = [];       // 已注册的屏幕取色全局快捷键 accelerator 列表
+
+/** 结算取色结果并销毁取色窗口(幂等) */
+function settleColorPick(result) {
+  const resolve = colorPickResolve;
+  colorPickResolve = null;
+  if (colorPickWin && !colorPickWin.isDestroyed()) {
+    const w = colorPickWin;
+    colorPickWin = null; // 先置空,防止 closed 回调里重复结算
+    try { w.destroy(); } catch (e) { /* ignore */ }
+  } else {
+    colorPickWin = null;
+  }
+  if (resolve) { try { resolve(result || { ok: false, canceled: true }); } catch (e) { /* ignore */ } }
+}
+
+/**
+ * 全屏取色主流程(渲染层按钮 / 全局快捷键 / 托盘菜单共用):
+ * 截取光标所在屏 → 冻结取色窗口 → 用户点击选色 / Esc 取消 → 返回 { ok, hex } | { ok:false, error|canceled }。
+ */
+async function runScreenPick() {
+  if (colorPickWin && !colorPickWin.isDestroyed()) return { ok: false, error: '取色器已打开' };
+  const t0 = Date.now();
+  try {
+    const cursor = screen.getCursorScreenPoint();
+    const d = screen.getDisplayNearestPoint(cursor); // 光标所在屏(快捷键触发时光标可能在任意位置)
+    const reqW = Math.max(1, Math.round(d.size.width * d.scaleFactor));
+    const reqH = Math.max(1, Math.round(d.size.height * d.scaleFactor));
+    const t1 = Date.now();
+    // thumbnailSize 按该屏物理分辨率请求(缩略图至多缩到该尺寸,不会被放大,也不会做无谓的 8K 缩放)
+    const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: reqW, height: reqH } });
+    const t2 = Date.now();
+    // display_id 匹配(source.display_id === String(display.id));匹配失败取第一路兜底
+    const src = sources.find((s) => s.display_id && s.display_id === String(d.id)) || sources[0] || null;
+    if (!src || src.thumbnail.isEmpty()) return { ok: false, error: '屏幕截图失败' };
+    const th = src.thumbnail.getSize(); // 实际像素尺寸(个别驱动可能返回略小,以实测为准)
+    const bmp = new Uint8Array(src.thumbnail.toBitmap()); // 原始 BGRA 位图,远快于 toDataURL 的 PNG 编码
+    const t3 = Date.now();
+    console.log(`[colorPick] capture=${t2 - t1}ms bitmap=${t3 - t2}ms(${bmp.length}B, ${th.width}x${th.height}) total=${t3 - t0}ms`);
+    // 创建顺序很关键(实验验证):构造即给全屏尺寸会被 Windows 钳到工作区(盖不住任务栏);
+    // 必须 先小窗创建 → 提到 screen-saver 最高置顶(可压过任务栏)→ 再 setBounds 扩到整屏边界。
+    colorPickWin = new BrowserWindow({
+      x: d.bounds.x, y: d.bounds.y, width: 800, height: 600,
+      frame: false, resizable: false, movable: false, minimizable: false, maximizable: false,
+      fullscreenable: false, hasShadow: false,
+      skipTaskbar: true, alwaysOnTop: true, backgroundColor: '#000000', show: false,
+      webPreferences: {
+        preload: path.join(__dirname, 'colorPickerPreload.js'),
+        contextIsolation: true, nodeIntegration: false, sandbox: false, spellcheck: false,
+      },
+    });
+    colorPickWin.setAlwaysOnTop(true, 'screen-saver'); // 最高置顶层级:冻结画面才能盖住系统任务栏/开始按钮
+    colorPickWin.setBounds({ x: d.bounds.x, y: d.bounds.y, width: d.bounds.width, height: d.bounds.height });
+    return await new Promise((resolve) => {
+      colorPickResolve = resolve;
+      colorPickWin.once('closed', () => { // 窗口被系统/异常关闭 → 按取消结算
+        if (colorPickResolve) { const r = colorPickResolve; colorPickResolve = null; r({ ok: false, canceled: true }); }
+      });
+      colorPickWin.loadFile(path.join(__dirname, 'colorPicker.html')).then(() => {
+        if (colorPickWin && !colorPickWin.isDestroyed()) {
+          colorPickWin.webContents.send('colorPicker:captures', {
+            x: d.bounds.x, y: d.bounds.y,          // 该屏在全局 DIP 坐标中的原点
+            w: d.bounds.width, h: d.bounds.height, // 该屏 DIP 尺寸
+            pxW: th.width, pxH: th.height,         // 截图像素尺寸(≈物理分辨率)
+            bmp,                                   // BGRA 原始位图(Uint8Array)
+          });
+          colorPickWin.show();
+        }
+      }).catch((err) => {
+        console.error('colorPicker loadFile', err);
+        settleColorPick({ ok: false, canceled: true });
+      });
+    });
+  } catch (err) {
+    console.error('color:screenPick', err);
+    settleColorPick(null);
+    return { ok: false, error: (err && err.message) || String(err) };
+  }
+}
+
+/** 屏幕取色 → 复制 HEX 到剪贴板 + 系统通知(全局快捷键/托盘「屏幕取色(复制)」) */
+async function screenPickToClipboard() {
+  const r = await runScreenPick();
+  if (!r) return;
+  if (r.ok) {
+    try { clipboard.writeText(r.hex); } catch (e) { /* ignore */ }
+    notifyUser('屏幕取色', `已复制 ${r.hex} 到剪贴板`, () => showMainWindow());
+  } else if (r.error) {
+    notifyUser('屏幕取色', '失败:' + r.error);
+  }
+}
+
+/**
+ * 屏幕取色收藏(全局快捷键/托盘「屏幕取色收藏」):取色后把颜色发给主窗口渲染层,
+ * 由「颜色选择库 → 我的收藏」加入当前分组(收藏数据只在渲染层 state 维护,避免双写冲突),
+ * 完成后渲染层经 app:notify 弹系统通知。主窗口隐藏到托盘/最小化时渲染层仍在运行,可正常处理。
+ */
+async function screenPickToFavorites() {
+  const r = await runScreenPick();
+  if (!r) return;
+  if (r.ok) {
+    if (win && !win.isDestroyed()) {
+      try { win.webContents.send('main:msg', { type: 'color-pick-fav', hex: r.hex }); } catch (e) { /* ignore */ }
+    } else {
+      notifyUser('屏幕取色收藏', '主窗口未运行,无法收藏');
+    }
+  } else if (r.error) {
+    notifyUser('屏幕取色收藏', '失败:' + r.error);
+  }
+}
+
+/** 弹系统通知(Windows 需要 AppUserModelId,启动时已设置;点击回调可选) */
+function notifyUser(title, body, onClick) {
+  try {
+    const n = new Notification({ title: String(title || ''), body: String(body || ''), silent: false });
+    if (onClick) n.on('click', onClick);
+    n.show();
+    return n;
+  } catch (e) {
+    console.error('notifyUser', e);
+    return null;
+  }
+}
+
+/**
+ * 应用屏幕取色全局快捷键(主窗口最小化/隐藏到托盘均可触发)。
+ * copyAcc/favAcc 传 undefined 时读 db.settings 已保存值(启动时);
+ * 返回 { ok, error };注册失败时调用方应回滚(重新用已保存值调用本函数)。
+ */
+function applyColorHotkeys(copyAcc, favAcc) {
+  for (const acc of colorHotkeys) { try { globalShortcut.unregister(acc); } catch (e) { /* ignore */ } }
+  colorHotkeys = [];
+  const s = (db && db.settings) || {};
+  const copy = (copyAcc === undefined || copyAcc === null) ? String(s.colorHotkey || '').trim() : String(copyAcc).trim();
+  const fav = (favAcc === undefined || favAcc === null) ? String(s.colorHotkeyFav || '').trim() : String(favAcc).trim();
+  const errors = [];
+  const tryReg = (acc, label, action) => {
+    if (!acc) return; // 空 = 禁用
+    try {
+      const reg = globalShortcut.register(acc, action);
+      if (reg === false) { errors.push(`${label}「${acc}」注册失败(可能被其它程序占用)`); return; }
+      colorHotkeys.push(acc);
+      trayLog(`[colorHotkey] ${label} 已注册: ${acc}`);
+    } catch (e) {
+      errors.push(`${label}「${acc}」无效或被占用:${(e && e.message) || e}`);
+    }
+  };
+  tryReg(copy, '取色并复制', () => { screenPickToClipboard(); });
+  tryReg(fav, '取色并收藏', () => { screenPickToFavorites(); });
+  if (errors.length) trayLog('[colorHotkey] 注册失败: ' + errors.join('; '));
+  return { ok: !errors.length, error: errors.join('; ') };
+}
 
 async function createWindow() {
   win = new BrowserWindow({
@@ -628,6 +783,10 @@ function buildTrayMenu() {
     { label: '⏰ 闹钟', click: () => { try { timerWindows.openAlarm(); } catch (e) { console.error('openAlarm', e); } } },
     { label: '📅 计时日历(Todo 日历视图)', click: () => openTodoCalendar() },
     { type: 'separator' },
+    // 颜色选择库:屏幕取色(主窗口最小化/隐藏也可用;快捷键可在 颜色选择库→我的收藏→⚡快捷键 修改)
+    { label: '🎨 屏幕取色(复制 HEX)', click: () => { screenPickToClipboard(); } },
+    { label: '🌟 屏幕取色收藏', click: () => { screenPickToFavorites(); } },
+    { type: 'separator' },
     { label: '❌ 退出', click: () => { trayForceQuit = true; try { timerWindows.closeAll(); } catch (e) {} app.quit(); } },
   ];
   return Menu.buildFromTemplate(template);
@@ -679,6 +838,22 @@ async function runSmoke() {
 
   log('smoke start, output: ' + out);
   log('window title: ' + win.getTitle());
+
+  // 预生成合成 .spine 工程文件(boneeditor-spineproj 步骤用;路径挂 window.__spineProjPath)
+  // SMOKE_SPINE_PROJ=真实 .spine 路径时改用真实工程(步骤断言按合成文件写,真实文件看输出字段与截图)
+  try {
+    let spineProjPath = null;
+    if (process.env.SMOKE_SPINE_PROJ && fs.existsSync(process.env.SMOKE_SPINE_PROJ)) {
+      spineProjPath = process.env.SMOKE_SPINE_PROJ;
+      log('smoke .spine (real): ' + spineProjPath);
+    } else {
+      spineProjPath = writeTestSpine(path.join(out, 'spine-smoke-test.spine'));
+      log('synthetic .spine: ' + spineProjPath);
+    }
+    await win.webContents.executeJavaScript(`window.__spineProjPath = ${JSON.stringify(spineProjPath)}`, true);
+  } catch (err) {
+    log('synthetic .spine ERROR: ' + (err && err.message));
+  }
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   // 等待渲染端完成初始化
@@ -739,6 +914,8 @@ async function runSmoke() {
     ['webgame', 900],
     ['crud', 400],
     ['mtree', 1200],
+    ['colorlib', 900],
+    ['boneeditor-spineproj', 1500],
   ];
   // 定向冒烟:SKELETON_VIEWER_SMOKE_ONLY=步骤名 时只跑该步骤(如只验「移动到...」目录树弹窗)
   const runSteps = process.env.SKELETON_VIEWER_SMOKE_ONLY
@@ -806,10 +983,14 @@ if (!app.requestSingleInstanceLock()) {
 app.whenReady().then(async () => {
   const _t0 = Date.now();
   const _T = (l) => console.log('[main-init]', Date.now() - _t0, 'ms', l);
+  // Windows 系统通知(取色快捷键完成提示等)需要 AppUserModelId(与 electron-builder appId 一致)
+  if (process.platform === 'win32') app.setAppUserModelId('com.gameresourceexplorer.app');
   migrateFromJson(); // 旧版 data.json → SQLite
   _T('migrateFromJson');
   db = readDb();
   _T('readDb');
+  // 屏幕取色全局快捷键(颜色选择库;主窗口最小化/隐藏到托盘均可触发,设置见 我的收藏→⚡快捷键)
+  applyColorHotkeys();
   seedSamples();
   _T('seedSamples');
   enrichItemsMeta();
@@ -858,6 +1039,24 @@ app.whenReady().then(async () => {
       return { ok: false, error: err.message };
     }
   });
+
+  // ---- 颜色选择库:全屏取色窗口(参考 PowerToys ColorPicker 的冻结截图方案) ----
+  // 只截取光标所在的那块屏幕:窗口边界=该屏边界,画面 1:1 不失真;
+  // 数据走 toBitmap() 原始 BGRA 位图(不做 PNG 编码/base64,单屏传输,点击到可取色约 100~300ms)。
+  ipcMain.handle('color:screenPick', () => runScreenPick());
+  // 快捷键设置(渲染层「颜色选择库 → 我的收藏 → ⚡ 快捷键」):注册失败自动回滚为已保存值
+  ipcMain.handle('color:setHotkeys', (_e, args) => {
+    const r = applyColorHotkeys(args && args.copy, args && args.fav);
+    if (!r.ok) applyColorHotkeys(); // 回滚:按 db 里已保存的设置重新注册
+    return r;
+  });
+  // 渲染层请求弹系统通知(主窗口最小化/隐藏时,页面内 toast 看不到;如:快捷键取色收藏完成)
+  ipcMain.handle('app:notify', (_e, args) => {
+    notifyUser((args && args.title) || '', (args && args.body) || '');
+    return true;
+  });
+  ipcMain.on('colorPicker:selected', (_e, hex) => settleColorPick({ ok: true, hex: String(hex || '') }));
+  ipcMain.on('colorPicker:canceled', () => settleColorPick({ ok: false, canceled: true }));
 
   // ---- 调试模式独立检视窗口 ----
   ipcMain.handle('debug:open', () => { try { openDebugWindow(); } catch (e) { console.error('debug:open', e); } });
@@ -1398,6 +1597,31 @@ app.whenReady().then(async () => {
       return { ok: false, error: err.message };
     }
   });
+  // 解码 .spine 工程为 JSON 直接内存返回(不写盘):骨骼动画编辑器「打开 Spine 工程」用
+  ipcMain.handle('tool:decodeSpineProject', async (_e, { inputPath }) => {
+    try {
+      if (!inputPath) return { ok: false, error: '缺少输入路径' };
+      const out = convertSpineProjectInMemory(inputPath);
+      let keyCount = 0;
+      for (const a of Object.values(out.animations || {})) {
+        for (const t of a.timelines || []) keyCount += (t.keys || []).length;
+      }
+      return {
+        ok: true,
+        json: JSON.stringify(out),
+        version: (out.skeleton && out.skeleton.spine) || '',
+        stats: {
+          bones: (out.bones || []).length,
+          slots: (out.slots || []).length,
+          attachments: (out.attachments || []).length,
+          animations: Object.keys(out.animations || {}).length,
+          timelineKeys: keyCount,
+        },
+      };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
   // 比对两个文件内容是否一致(先比大小,相同再流式 MD5)。
   // 供 Spine 格式转换检测“库中存在同名同内容、但存储位置不同的另一副本”。
   ipcMain.handle('tool:filesIdentical', async (_e, { a, b }) => {
@@ -1447,6 +1671,35 @@ app.whenReady().then(async () => {
         resolve({ ok: false, error: e.message });
       }
     });
+  });
+  // Spine JSON 内容 -> .skel 二进制(骨骼动画编辑器导出用):写临时 JSON -> 调用 C++ 转换器 -> 清理
+  ipcMain.handle('tool:jsonToSkel', async (_e, { jsonContent, outputPath, targetVersion }) => {
+    const exe = spineConverterExePath();
+    if (!fs.existsSync(exe)) return { ok: false, error: '未找到 SpineSkeletonDataConverter.exe' };
+    if (!jsonContent || !outputPath) return { ok: false, error: '缺少 JSON 内容或输出路径' };
+    const tmpDir = path.join(app.getPath('userData'), 'spine_export_tmp');
+    fs.mkdirSync(tmpDir, { recursive: true });
+    const tmpJson = path.join(tmpDir, 'export_' + Date.now() + '.json');
+    try {
+      fs.writeFileSync(tmpJson, jsonContent, 'utf-8');
+      const args = [tmpJson, outputPath];
+      if (targetVersion && targetVersion !== 'auto') args.push('-v', spineMajorMinorToFull(targetVersion));
+      return new Promise((resolve) => {
+        let out = '', err = '';
+        try {
+          const cp = spawn(exe, args, { windowsHide: true });
+          cp.stdout.on('data', (d) => { out += d.toString('utf8'); });
+          cp.stderr.on('data', (d) => { err += d.toString('utf8'); });
+          cp.on('error', (e) => resolve({ ok: false, error: '启动转换程序失败:' + e.message }));
+          cp.on('close', (code) => {
+            if (code === 0) resolve({ ok: true, outputPath, stdout: out.trim() });
+            else resolve({ ok: false, error: (err || out || '转换失败(exit ' + code + ')').trim() });
+          });
+        } catch (e) { resolve({ ok: false, error: e.message }); }
+      });
+    } finally {
+      try { fs.unlinkSync(tmpJson); } catch (e) { /* ignore */ }
+    }
   });
   // 探测文件:版本 + 格式(供 UI 自动识别显示)
   ipcMain.handle('tool:spineProbe', async (_e, { inputPath }) => {
@@ -1922,4 +2175,9 @@ app.on('window-all-closed', () => {
   try { webPreviewWindow.close(); } catch (e) { /* ignore */ }
   try { webGame.destroy(); } catch (e) { /* ignore */ }
   app.quit();
+});
+
+// 退出前注销全部全局快捷键(屏幕取色 Ctrl+Alt+C 等),避免残留占用
+app.on('will-quit', () => {
+  try { globalShortcut.unregisterAll(); } catch (e) { /* ignore */ }
 });

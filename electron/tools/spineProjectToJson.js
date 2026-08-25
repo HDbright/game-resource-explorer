@@ -408,14 +408,19 @@ function convert(file) {
     if (peek() === 0x0f && peek(1) === 0x01) { p += 3; continue; }
     if (peek() === 0x13 && peek(1) === 0x01) {
       p += 2;
-      group = { target: null, refA: null, refB: null };
+      group = { target: null, refA: null, refB: null, tlIndex: 0 };
       if (peek() === 0x04 && peek(1) === 0x00) { p += 2; group.refA = varint(); }
       if (peek() === 0x01) { p++; group.refB = varint(); group.target = boneId.get(group.refB) ?? null; }
       continue;
     }
     if (peek() === 0x14 && peek(1) === 0x01) {
       p += 2;
-      tl = { group_refA: group?.refA ?? null, group_refB: group?.refB ?? null, target: group?.target ?? null, keys: [] };
+      // 时间线类型推断:骨骼组内时间线按 rotate(0)/translate(1)/scale(2) 顺序存储(官方 Spine 二进制规范);
+      // 附件/事件组用值启发式兜底
+      const isBoneGroup = group?.target && boneId.has(group.refB);
+      const inferredKind = isBoneGroup ? (group.tlIndex === 0 ? 'rotate' : group.tlIndex === 1 ? 'translate' : 'scale') : null;
+      if (isBoneGroup) group.tlIndex++;
+      tl = { group_refA: group?.refA ?? null, group_refB: group?.refB ?? null, target: group?.target ?? null, keys: [], inferredKind };
       if (peek() === 0x09 && peek(1) === 0x00) { p += 2; tl.refA = varint(); }
       if (peek() === 0x01) { p++; tl.refB = varint(); }
       const trail = [];
@@ -483,9 +488,9 @@ function convert(file) {
       return o;
     }),
     attachments: attachments.map(a => {
-      // 未解析名称引用(#ref)保留原始编号;slot_hint = 所属插槽名(多插槽共享附件时仅供参考)
+      // 未解析名称引用(#ref)保留原始编号;slot_hint = 解析时所属插槽(骨骼动画编辑器据此归属插槽;多插槽共享附件时仅供参考)
       const o = { name: a.name ?? ('#ref' + (a.name_ref ?? '?')) };
-      if (!a.name && a._slotHint) o.slot_hint = a._slotHint;
+      if (a._slotHint) o.slot_hint = a._slotHint;
       if (a.type) o.type = a.type;
       if (a.x !== undefined) o.x = r2(a.x);
       if (a.y !== undefined) o.y = r2(a.y);
@@ -496,6 +501,11 @@ function convert(file) {
       if (a.scaleY !== undefined && a.scaleY !== 1) o.scaleY = r2(a.scaleY);
       if (a.vertices) o.vertices = a.vertices.map(r2);
       if (a.vertexCount) o.vertexCount = a.vertexCount;
+      // mesh 附件完整几何:uvs/triangles/hull/edges(解码器已解析,导出 .skel 转换器需要)
+      if (a.uvs) o.uvs = a.uvs.map(r2);
+      if (a.triangles) o.triangles = a.triangles;
+      if (a.hull !== undefined) o.hull = a.hull;
+      if (a.edges) o.edges = a.edges;
       if (a.edges_raw) o.edges_raw = a.edges_raw;
       if (a.color && a.color !== 'ffffffff') o.color = a.color;
       if (a.lead_ref !== undefined) o.lead_ref = a.lead_ref;
@@ -503,14 +513,32 @@ function convert(file) {
       return o;
     }),
     animations: Object.fromEntries(Object.entries(animations).map(([name, a]) => [name, {
-      timelines: a.timelines.map(t => ({
-        kind: t.keys.some(k => k.attachment_ref !== undefined) ? 'attachment' : t.keys.some(k => k.eventName !== undefined) ? 'event' : t.keys.some(k => (k.v2 ?? 0) !== 0) ? 'translate' : t.keys.some(k => k.v1 !== undefined) ? 'rotate' : t.keys.length ? 'other' : 'empty',
-        target: t.target ?? undefined,
-        group_refs: [t.group_refA, t.group_refB],
-        refs: [t.refA ?? null, t.refB ?? null],
-        trail_raw: t.trail_raw,
-        keys: t.keys.map(roundKey),
-      })),
+      timelines: a.timelines.map(t => {
+        // 时间线类型推断:骨骼组用索引(inferredKind) + 值启发式交叉验证
+        // 问题:当骨骼缺少某些通道(如只有 translate 无 rotate)时,索引推断会错位
+        // 修正:inferredKind 与 key 值矛盾时,以值为准
+        let kind;
+        if (t.keys.some(k => k.attachment_ref !== undefined)) kind = 'attachment';
+        else if (t.keys.some(k => k.eventName !== undefined)) kind = 'event';
+        else {
+          const hasV2 = t.keys.some(k => (k.v2 ?? 0) !== 0);
+          const hasV1 = t.keys.some(k => k.v1 !== undefined);
+          const inf = t.inferredKind;
+          // 索引推断与值矛盾 -> 以值为准(rotate 只有 v1,translate/scale 有 v1+v2)
+          if (inf === 'rotate' && hasV2) kind = 'translate';
+          else if (inf === 'translate' && !hasV2 && hasV1) kind = 'rotate';
+          else if (inf === 'scale' && !hasV2 && hasV1) kind = 'rotate';
+          else kind = inf || (hasV2 ? 'translate' : hasV1 ? 'rotate' : t.keys.length ? 'other' : 'empty');
+        }
+        return {
+          kind,
+          target: t.target ?? undefined,
+          group_refs: [t.group_refA, t.group_refB],
+          refs: [t.refA ?? null, t.refB ?? null],
+          trail_raw: t.trail_raw,
+          keys: t.keys.map(roundKey),
+        };
+      }),
     }])),
     _tail: {
       offset: '0x' + animEnd.toString(16),
@@ -518,6 +546,7 @@ function convert(file) {
       note: '动画区之后的编辑器数据(事件定义/皮肤/导出设置等), 尚未完全解析',
       strings: tailStrings,
       hex_preview: '0x' + Math.min(tail.length, 256).toString(16) + ' bytes: ' + tail.subarray(0, 256).toString('hex'),
+      rawBase64: tail.length ? tail.toString('base64') : '', // 原始字节:导出 round-trip 时可原样回嵌
     },
   };
   return out;

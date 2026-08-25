@@ -15,9 +15,9 @@ export function projectToJson(p) { return JSON.stringify(p, null, 1); }
 
 export async function saveProjectFile(p) {
   const r = await window.api.saveText({
-    title: '保存骨骼动画工程',
+    title: '保存骨骼动画项目',
     defaultName: (p.name || 'project') + '.lbone.json',
-    filters: [{ name: '骨骼动画工程', extensions: ['lbone.json', 'json'] }],
+    filters: [{ name: '骨骼动画项目', extensions: ['lbone.json', 'json'] }],
     content: projectToJson(p),
   });
   return r && r.ok ? r.path : null;
@@ -25,15 +25,16 @@ export async function saveProjectFile(p) {
 
 export async function openProjectFile() {
   const pr = await window.api.pickFiles({
-    title: '打开骨骼动画工程',
+    title: '打开骨骼动画项目',
     multi: false,
-    filters: [{ name: '骨骼动画工程', extensions: ['lbone.json', 'json'] }],
+    filters: [{ name: '骨骼动画项目', extensions: ['lbone.json', 'json'] }],
   });
   const paths = (!pr || pr.canceled) ? [] : (pr.filePaths || []);
   if (!paths.length) return null;
-  const r = await window.api.readText(paths[0]);
-  if (!r || !r.ok) throw new Error('读取工程文件失败:' + (r && r.error));
-  return JSON.parse(r.text);
+  const path = paths[0];
+  const r = await window.api.readText(path);
+  if (!r || !r.ok) throw new Error('读取项目文件失败:' + (r && r.error));
+  return { project: JSON.parse(r.text), path };
 }
 
 // ---------------- 图集打包 ----------------

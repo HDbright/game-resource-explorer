@@ -1,16 +1,19 @@
 /**
- * 骨骼动画编辑器 - 底部时间轴(摄影表)。
+ * 骨骼动画编辑器 - 底部时间轴(摄影表,参考 Spine 布局)。
  *
- * 结构:顶部播放控制条(动画管理 / 传输控制 / 帧计数 / 时长 / 自动关键帧 / 洋葱皮)
- *      下方左右分栏:左 = 轨道树(骨骼→位移/旋转/缩放,插槽→颜色/显示);
- *      右 = 刻度尺 + 关键帧菱形(可拖动/右键缓动) + 播放头(可拖动)。
+ * 结构:
+ *   顶部:紧凑图标传输条(到头/上一帧/播放/下一帧/到尾/循环 | 帧计数 | 时长 | 自动K/洋葱皮/缩放)
+ *   内容区左:轨道树 —— 总轨道(全部关键帧汇总) / 事件轨道(浅蓝行) /
+ *             骨骼(位移·旋转·缩放子轨道) / 插槽(颜色·显示),树形层级可折叠
+ *   内容区中:刻度尺 + 关键帧菱形(可拖动/右键缓动) + 播放头(可拖动)
+ *   内容区右:侧栏标签页(动画列表 / 曲线)
  *
- * 重建策略:rebuild() 全量;updatePlayhead() 仅移动播放头与帧计数(播放中每帧调用)。
+ * 重建策略:refresh() 全量;updatePlayhead() 仅移动播放头与帧计数(播放中每帧调用)。
  */
 
 import { showContextMenu } from '../dialogs.js';
-import { EASE_PRESETS, bonesInTreeOrder } from './model.js';
-import { channelLabel } from './panels.js';
+import { EASE_PRESETS, bonesInTreeOrder, defaultEase } from './model.js';
+import { channelLabel, drawEaseCurve } from './panels.js';
 
 const CH_COLOR = { translate: '#4f8cff', rotate: '#46a758', scale: '#b8842f', color: '#c05fd8', display: '#5fa8c0' };
 const BONE_CH = [
@@ -23,86 +26,128 @@ const SLOT_CH = [
   { id: 'display', label: '显示' },
 ];
 
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
 export class EditorTimeline {
   constructor(ctx) {
     this.ctx = ctx;
     this.pxf = 9;             // 每帧像素
     this.collapsed = new Set(); // 展开状态:骨骼名折叠集合
     this.clipboard = null;      // 复制的关键帧 { channel, v, ease }
+    this.sideTab = 'anim';      // 右侧侧栏当前标签:anim | curve
     this._scrubbing = false;
     this._dragKey = null;
+    this.loopStart = 0;         // 循环起始帧
+    this.loopEnd = 30;          // 循环结束帧
   }
 
   mount(el) {
     this.el = el;
+    this.sideMin = (() => { try { return localStorage.getItem('beTlSideMin') === '1'; } catch (err) { return false; } })();
     // 结构(参考 Spine 摄影表):
-    //   顶栏控制 → 刻度尺固定行(不随垂直滚动,水平位置与轨道同步)
-    //   主体 = 左侧部件树 + 右侧轨道区(水平滚动,垂直滚动由 body 统一承担,两列同步)
-    //   播放头为宿主级浮层,贯穿刻度尺与全部轨道行
+    //   顶栏紧凑图标传输控制 → 内容区 = 中间(刻度尺固定行 + 左轨道树 + 右轨道区)
+    //   摄影表右侧为侧栏(动画列表/曲线,可收起为传输条尾部图标);播放头为 body 级浮层,贯穿刻度尺与全部轨道行
     el.innerHTML = `
-      <div class="be-tl-head"></div>
-      <div class="be-tl-ruler-row">
-        <div class="be-tl-ruler-spacer"></div>
-        <div class="be-tl-ruler-scroll"><canvas class="be-tl-ruler" height="26"></canvas></div>
-      </div>
-      <div class="be-tl-body">
-        <div class="be-tl-left"><div class="be-tl-tracks"></div></div>
-        <div class="be-tl-scroll">
-          <div class="be-tl-lanes"></div>
+      <div class="be-tl-transport"></div>
+      <div class="be-tl-content">
+        <div class="be-tl-center">
+          <div class="be-tl-ruler-row">
+            <div class="be-tl-ruler-spacer" title="当前动画;点击打开右侧动画列表"><span class="be-tl-cur"></span></div>
+            <div class="be-tl-ruler-scroll"><canvas class="be-tl-ruler" height="26"></canvas></div>
+          </div>
+          <div class="be-tl-body">
+            <div class="be-tl-left"><div class="be-tl-tracks"></div></div>
+            <div class="be-tl-scroll">
+              <div class="be-tl-lanes"></div>
+            </div>
+            <div class="be-tl-playhead"></div>
+          </div>
         </div>
-        <div class="be-tl-playhead"></div>
+        <div class="be-tl-side">
+          <div class="be-tl-tabs">
+            <button data-tab="anim" class="active">动画</button>
+            <button data-tab="curve">曲线</button>
+          </div>
+          <div class="be-tl-side-anim"></div>
+          <div class="be-tl-side-curve" hidden></div>
+        </div>
       </div>`;
-    this._buildHead();
+    this._buildTransport();
+    this._bindSide();
     this._bindRight();
+    this._applySide();
     this.refresh();
   }
 
-  // ---------------- 顶部控制条 ----------------
+  // ---------------- 顶部传输控制条(紧凑图标) ----------------
 
-  _buildHead() {
+  _buildTransport() {
     const ctx = this.ctx;
-    const head = this.el.querySelector('.be-tl-head');
-    head.innerHTML = '';
+    const bar = this.el.querySelector('.be-tl-transport');
+    bar.innerHTML = '';
 
-    const mkBtn = (html, title, fn, cls = '') => {
+    const mkIco = (html, title, fn, cls = '') => {
       const b = document.createElement('button');
-      b.className = 'btn sm be-tl-btn ' + cls;
+      b.className = 'be-tl-ico ' + cls;
       b.innerHTML = html;
       b.title = title;
       b.addEventListener('click', fn);
+      bar.appendChild(b);
       return b;
     };
 
-    // 动画管理
-    const animSel = document.createElement('select');
-    animSel.className = 'be-tl-anim';
-    this.animSel = animSel;
-    animSel.addEventListener('change', () => ctx.setAnimation(animSel.value));
-    head.appendChild(animSel);
-    head.appendChild(mkBtn('＋', '新建动画', () => ctx.newAnimation()));
-    head.appendChild(mkBtn('✎', '重命名动画', () => ctx.renameAnimation()));
-    head.appendChild(mkBtn('🗑', '删除动画', () => ctx.deleteAnimation()));
+    // 传输控制(Spine 快捷键:D 播放 / A 反向 / Q 首帧 / E 末帧 / R·F 前后帧 / W·S 前后关键帧)
+    mkIco('⏮', '跳到开头 (Q)', () => ctx.setFrame(0));
+    mkIco('◀', '上一帧 (F,Shift×10)', () => ctx.setFrame(Math.round(ctx.frame) - 1));
+    this.btnPlay = mkIco('▶', '播放/暂停 (D;A=反向播放)', () => ctx.togglePlay());
+    mkIco('▶|', '下一帧 (R,Shift×10)', () => ctx.setFrame(Math.round(ctx.frame) + 1));
+    mkIco('⏭', '跳到结尾 (E)', () => ctx.setFrame(ctx.anim ? ctx.anim.duration : 0));
+    this.btnLoop = mkIco('🔁', '循环播放 (Ctrl+R)', () => ctx.toggleLoop(), ctx.loop ? 'active' : '');
+    mkIco('◀◀', '上一个关键帧 (W)', () => this._stepKey(-1));
+    mkIco('▶▶', '下一个关键帧 (S)', () => this._stepKey(1));
 
-    const sep = () => { const s = document.createElement('span'); s.className = 'be-tl-sep'; return s; };
-    head.appendChild(sep());
+    // 循环起止(Spine 风格:循环开始 / 结束 帧号输入)
+    const loopStartLabel = document.createElement('label');
+    loopStartLabel.className = 'be-tl-dur';
+    loopStartLabel.innerHTML = '<span>循环</span>';
+    this.loopStartInput = document.createElement('input');
+    this.loopStartInput.type = 'number';
+    this.loopStartInput.min = 0;
+    this.loopStartInput.value = 0;
+    this.loopStartInput.title = '循环起始帧';
+    this.loopStartInput.style.width = '40px';
+    this.loopStartInput.addEventListener('change', () => {
+      const v = Math.max(0, Math.round(parseFloat(this.loopStartInput.value) || 0));
+      this.loopStart = v;
+    });
+    loopStartLabel.appendChild(this.loopStartInput);
+    bar.appendChild(loopStartLabel);
+    const loopEndLabel = document.createElement('label');
+    loopEndLabel.className = 'be-tl-dur';
+    loopEndLabel.innerHTML = '<span>结束</span>';
+    this.loopEndInput = document.createElement('input');
+    this.loopEndInput.type = 'number';
+    this.loopEndInput.min = 1;
+    this.loopEndInput.value = 30;
+    this.loopEndInput.title = '循环结束帧';
+    this.loopEndInput.style.width = '40px';
+    this.loopEndInput.addEventListener('change', () => {
+      const v = Math.max(1, Math.round(parseFloat(this.loopEndInput.value) || 30));
+      this.loopEnd = v;
+    });
+    loopEndLabel.appendChild(this.loopEndInput);
+    bar.appendChild(loopEndLabel);
 
-    // 传输控制
-    this.btnPlay = mkBtn('▶', '播放/暂停 (空格输入框外为工具快捷键,此处点击或回车)', () => ctx.togglePlay());
-    head.appendChild(mkBtn('⏮', '跳到开头', () => ctx.setFrame(0)));
-    head.appendChild(mkBtn('◀', '上一帧', () => ctx.setFrame(Math.round(ctx.frame) - 1)));
-    head.appendChild(this.btnPlay);
-    head.appendChild(mkBtn('▶|', '下一帧', () => ctx.setFrame(Math.round(ctx.frame) + 1)));
-    head.appendChild(mkBtn('⏭', '跳到结尾', () => ctx.setFrame(ctx.anim ? ctx.anim.duration : 0)));
+    const sep = () => { const s = document.createElement('span'); s.className = 'be-tl-sep'; bar.appendChild(s); };
+    sep();
 
-    this.btnLoop = mkBtn('🔁', '循环播放', () => ctx.toggleLoop(), ctx.loop ? 'active' : '');
-    head.appendChild(this.btnLoop);
-
-    head.appendChild(sep());
     this.frameLabel = document.createElement('span');
     this.frameLabel.className = 'be-tl-frame';
-    head.appendChild(this.frameLabel);
+    bar.appendChild(this.frameLabel);
+    sep();
 
-    head.appendChild(sep());
     const durRow = document.createElement('label');
     durRow.className = 'be-tl-dur';
     durRow.innerHTML = '<span>时长</span>';
@@ -115,38 +160,147 @@ export class EditorTimeline {
       if (ctx.anim) { ctx.beginEdit('修改时长'); ctx.anim.duration = v; ctx.refresh(); }
     });
     durRow.appendChild(this.durInput);
-    head.appendChild(durRow);
+    bar.appendChild(durRow);
 
-    head.appendChild(document.createElement('span')).className = 'spacer';
+    const sp = document.createElement('span');
+    sp.className = 'spacer';
+    bar.appendChild(sp);
 
-    // 自动关键帧 / 洋葱皮
-    this.btnAutoKey = mkBtn('●K', '自动关键帧:动画模式下拖动骨骼自动记录关键帧', () => ctx.toggleAutoKey(), ctx.autoKey ? 'active' : '');
-    this.btnAutoKey.classList.add('be-autokey');
-    head.appendChild(this.btnAutoKey);
-    this.btnOnion = mkBtn(' OCI', '洋葱皮:显示前后帧残影', () => ctx.toggleOnion(), ctx.onion ? 'active' : '');
-    head.appendChild(this.btnOnion);
-    const zoomOut = mkBtn('－', '时间轴缩小', () => { this.pxf = Math.max(2, this.pxf - 2); this.refresh(); });
-    const zoomIn = mkBtn('＋', '时间轴放大', () => { this.pxf = Math.min(40, this.pxf + 2); this.refresh(); });
-    head.appendChild(zoomOut);
-    head.appendChild(zoomIn);
+    // 自动关键帧 / 洋葱皮 / 时间轴缩放(以轨道区中心为锚点)
+    this.btnAutoKey = mkIco('●K', '自动关键帧:动画模式下拖动骨骼自动记录关键帧 (Ctrl+Shift+A)', () => ctx.toggleAutoKey(), ctx.autoKey ? 'active be-autokey' : 'be-autokey');
+    this.btnOnion = mkIco('◌', '洋葱皮:显示前后帧残影 (I)', () => ctx.toggleOnion(), ctx.onion ? 'active' : '');
+    const zoomAtCenter = (f) => {
+      const s = this.el.querySelector('.be-tl-scroll');
+      if (!s) { this.pxf = Math.min(40, Math.max(2, this.pxf * f)); this.refresh(); return; }
+      const r = s.getBoundingClientRect();
+      this._zoomBy(f, r.left + r.width / 2);
+    };
+    mkIco('－', '时间轴缩小(刻度尺上滚轮缩放)', () => zoomAtCenter(1 / 1.25));
+    mkIco('＋', '时间轴放大(刻度尺上滚轮缩放)', () => zoomAtCenter(1.25));
+    // 动画/曲线侧栏收起开关(收起后空间让渡给摄影表)
+    this.btnSide = mkIco('»', '收起动画/曲线面板', () => this._toggleSide(), 'be-tl-side-toggle');
+  }
+
+  /** 收起/展开右侧「动画·曲线」侧栏(收起为传输条尾部图标;状态持久化) */
+  _toggleSide() {
+    this.sideMin = !this.sideMin;
+    try { localStorage.setItem('beTlSideMin', this.sideMin ? '1' : '0'); } catch (err) { /* ignore */ }
+    this._applySide();
+    this.refresh();
+  }
+
+  _applySide() {
+    const side = this.el?.querySelector('.be-tl-side');
+    if (side) side.style.display = this.sideMin ? 'none' : '';
+    if (this.btnSide) {
+      this.btnSide.innerHTML = this.sideMin ? '«' : '»';
+      this.btnSide.title = this.sideMin ? '展开动画/曲线面板' : '收起动画/曲线面板';
+    }
   }
 
   refreshHead() {
     const ctx = this.ctx;
-    const anims = ctx.project.armature.animations;
-    this.animSel.innerHTML = '';
-    for (const a of anims) {
-      const op = document.createElement('option');
-      op.value = a.name; op.textContent = a.name;
-      this.animSel.appendChild(op);
-    }
-    if (ctx.anim) this.animSel.value = ctx.anim.name;
+    const cur = this.el.querySelector('.be-tl-cur');
+    if (cur) cur.textContent = ctx.anim ? `摄影表 · ${ctx.anim.name}` : '摄影表';
     this.durInput.value = ctx.anim ? ctx.anim.duration : 30;
     this.btnPlay.innerHTML = ctx.playing ? '⏸' : '▶';
     this.btnPlay.classList.toggle('active', !!ctx.playing);
     this.btnLoop.classList.toggle('active', !!ctx.loop);
     this.btnAutoKey.classList.toggle('active', !!ctx.autoKey);
     this.btnOnion.classList.toggle('active', !!ctx.onion);
+    // 同步循环起止帧输入
+    if (this.loopStartInput) this.loopStartInput.value = this.loopStart;
+    if (this.loopEndInput) this.loopEndInput.value = this.loopEnd;
+    this._renderAnimList();
+    if (this.sideTab === 'curve') this._renderCurveTab();
+  }
+
+  // ---------------- 右侧侧栏(动画列表 / 曲线) ----------------
+
+  _bindSide() {
+    const side = this.el.querySelector('.be-tl-side');
+    side.querySelector('.be-tl-tabs').addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-tab]');
+      if (!btn) return;
+      this.sideTab = btn.dataset.tab;
+      side.querySelectorAll('.be-tl-tabs button').forEach((b) => b.classList.toggle('active', b === btn));
+      side.querySelector('.be-tl-side-anim').hidden = this.sideTab !== 'anim';
+      side.querySelector('.be-tl-side-curve').hidden = this.sideTab !== 'curve';
+      if (this.sideTab === 'curve') this._renderCurveTab();
+    });
+  }
+
+  _renderAnimList() {
+    const ctx = this.ctx;
+    const box = this.el.querySelector('.be-tl-side-anim');
+    if (!box) return;
+    box.innerHTML = '';
+    const ops = document.createElement('div');
+    ops.className = 'be-anim-ops';
+    const mkOp = (html, title, fn) => {
+      const b = document.createElement('button');
+      b.className = 'be-anim-op';
+      b.innerHTML = html;
+      b.title = title;
+      b.addEventListener('click', fn);
+      ops.appendChild(b);
+    };
+    mkOp('＋', '新建动画', () => ctx.newAnimation());
+    mkOp('✎', '重命名当前动画', () => ctx.renameAnimation());
+    mkOp('🗑', '删除当前动画', () => ctx.deleteAnimation());
+    box.appendChild(ops);
+    for (const a of ctx.project.armature.animations) {
+      const row = document.createElement('div');
+      row.className = 'be-anim-row' + (ctx.anim && ctx.anim.name === a.name ? ' active' : '');
+      row.title = a.name;
+      row.innerHTML = `<span class="be-anim-name">${escapeHtml(a.name)}</span><span class="be-anim-dur">${a.duration}帧</span>`;
+      row.addEventListener('click', () => ctx.setAnimation(a.name));
+      box.appendChild(row);
+    }
+  }
+
+  _renderCurveTab() {
+    const ctx = this.ctx;
+    const box = this.el.querySelector('.be-tl-side-curve');
+    if (!box) return;
+    box.innerHTML = '';
+    const ks = ctx.keySel;
+    const key = ks ? ctx.findKey(ks) : null;
+    if (!key) {
+      const hint = document.createElement('div');
+      hint.className = 'be-tl-side-hint';
+      hint.innerHTML = '在摄影表中选中一个关键帧<br>(右键也可设缓动),<br>这里会显示并编辑它的缓动曲线。';
+      box.appendChild(hint);
+      return;
+    }
+    if (!key.ease) key.ease = defaultEase();
+    const ease = key.ease;
+    const title = document.createElement('div');
+    title.className = 'be-curve-title';
+    title.textContent = `${ks.target} · ${channelLabel(ks.channel)} @ ${ks.frame}帧`;
+    box.appendChild(title);
+    const cv = document.createElement('canvas');
+    cv.width = 140;
+    cv.height = 108;
+    cv.className = 'be-ease-curve';
+    drawEaseCurve(cv, ease);
+    box.appendChild(cv);
+    const sel = document.createElement('select');
+    sel.className = 'be-ease-sel';
+    for (const e of EASE_PRESETS) {
+      const op = document.createElement('option');
+      op.value = e.type;
+      op.textContent = e.label;
+      sel.appendChild(op);
+    }
+    sel.value = ease.type;
+    sel.addEventListener('change', () => {
+      ctx.beginEdit('设置缓动');
+      ease.type = sel.value;
+      if (ease.type === 'bezier' && !ease.pts) ease.pts = [0.42, 0, 0.58, 1];
+      ctx.refresh();
+    });
+    box.appendChild(sel);
   }
 
   // ---------------- 轨道与关键帧 ----------------
@@ -171,13 +325,67 @@ export class EditorTimeline {
       tracks.appendChild(trackRow);
       const l = document.createElement('div');
       l.className = 'be-lane' + (laneRow.cls ? ' ' + laneRow.cls : '');
-      l.style.height = '24px';
+      l.style.height = '20px';
       l.dataset.kind = laneRow.kind || '';
       l.dataset.target = laneRow.target || '';
       l.dataset.channel = laneRow.channel || '';
       laneEl.appendChild(l);
       return l;
     };
+
+    // ---- 总轨道:全部关键帧汇总(细菱形,定位参考) ----
+    {
+      const tRow = document.createElement('div');
+      tRow.className = 'be-track summary';
+      tRow.innerHTML = '<span class="be-caret"></span><span class="be-track-name">总轨道</span>';
+      const l = mkRow(tRow, { kind: 'all' }, lanes);
+      if (anim) {
+        const frames = new Set();
+        const collect = (store) => { for (const ch of Object.values(store || {})) for (const k of ch) frames.add(k.frame); };
+        for (const b of Object.values(anim.bones)) collect(b);
+        for (const s of Object.values(anim.slots)) collect(s);
+        for (const f of [...frames].sort((a, b) => a - b)) {
+          const d = document.createElement('div');
+          d.className = 'be-key mini';
+          d.style.left = f * this.pxf + 'px';
+          l.appendChild(d);
+        }
+      }
+    }
+
+    // ---- 事件轨道(Spine 风格:事件名标记 + 事件轨道名显示事件列表) ----
+    {
+      const tRow = document.createElement('div');
+      tRow.className = 'be-track event';
+      // 收集所有事件名(用于轨道名显示)
+      const evNames = [];
+      if (anim) {
+        for (const ev of (anim.rawKeep && anim.rawKeep.events) || []) {
+          if (ev.name && !evNames.includes(ev.name)) evNames.push(ev.name);
+        }
+      }
+      tRow.innerHTML = `<span class="be-caret"></span><span class="be-track-name">${evNames.length ? '事件:' + evNames.join(',') : '事件轨道'}</span>`;
+      const l = mkRow(tRow, { kind: 'event', cls: 'event' }, lanes);
+      if (anim) {
+        const fps = (ctx.project.spine && ctx.project.spine.frameRate) || 30;
+        for (const ev of (anim.rawKeep && anim.rawKeep.events) || []) {
+          const f = Math.round((ev.time || 0) * fps);
+          const d = document.createElement('div');
+          d.className = 'be-key mini event';
+          d.style.left = f * this.pxf + 'px';
+          d.title = `${ev.name || 'event'} @ ${f} 帧`;
+          l.appendChild(d);
+          // 事件名标签(显示在关键帧下方)
+          if (ev.name) {
+            const lbl = document.createElement('span');
+            lbl.className = 'be-key-lbl';
+            lbl.textContent = ev.name;
+            lbl.style.left = (f * this.pxf + 4) + 'px';
+            l.appendChild(lbl);
+          }
+        }
+      }
+    }
 
     // ---- 骨骼轨道 ----
     for (const bone of bonesInTreeOrder(ctx.project)) {
@@ -263,6 +471,20 @@ export class EditorTimeline {
     const keyColor = CH_COLOR;
     for (const ch of channels) {
       const keys = store[ch] || [];
+      // 关键帧连接线(Spine 风格:同通道相邻关键帧之间画水平细线)
+      if (keys.length > 1 && interactive) {
+        for (let i = 0; i < keys.length - 1; i++) {
+          const x0 = keys[i].frame * this.pxf + 5.5;
+          const x1 = keys[i + 1].frame * this.pxf - 5.5;
+          if (x1 <= x0) continue;
+          const line = document.createElement('div');
+          line.className = 'be-key-line';
+          line.style.left = x0 + 'px';
+          line.style.width = (x1 - x0) + 'px';
+          line.style.background = keyColor[ch] || '#4f8cff';
+          lane.appendChild(line);
+        }
+      }
       for (const key of keys) {
         const d = document.createElement('div');
         d.className = 'be-key' + (interactive ? '' : ' mini');
@@ -322,7 +544,13 @@ export class EditorTimeline {
       const f = Math.max(0, Math.round((e.clientX - r.left + scroll.scrollLeft - 0) / this.pxf));
       this.ctx.setFrame(Math.min(f, this.ctx.anim ? this.ctx.anim.duration : f));
     };
+    // 刻度尺左空位(当前动画名):点击 → 切到右侧动画列表(已收起则先展开)
+    this.el.querySelector('.be-tl-ruler-spacer').addEventListener('click', () => {
+      if (this.sideMin) this._toggleSide();
+      this.el.querySelector('.be-tl-tabs button[data-tab=anim]')?.click();
+    });
     rulerRow.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('.be-tl-ruler-spacer')) return;
       this._scrubbing = true;
       scrub(e);
       const mv = (ev) => scrub(ev);
@@ -338,6 +566,7 @@ export class EditorTimeline {
       if (e.target.classList.contains('be-key')) return;
       const lane = e.target.closest('.be-lane');
       if (!lane || !this.ctx.anim) return;
+      if (lane.dataset.kind !== 'ch' && lane.dataset.kind !== 'bone' && lane.dataset.kind !== 'slot') return;
       const r = scroll.getBoundingClientRect();
       const f = Math.max(0, Math.round((e.clientX - r.left + scroll.scrollLeft) / this.pxf));
       if (lane.dataset.kind === 'ch') this.ctx.insertChannelKeyAt(lane.dataset.target, lane.dataset.channel, f);
@@ -376,13 +605,35 @@ export class EditorTimeline {
     window.addEventListener('pointermove', this._onWinMove);
     window.addEventListener('pointerup', this._onWinUp);
 
-    // Ctrl+滚轮:时间轴缩放
+    // 悬停刻度尺:滚轮直接缩放(以鼠标位置为锚点);轨道区 Ctrl+滚轮同
+    rulerScroll.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      this._zoomBy(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX);
+    }, { passive: false });
     scroll.addEventListener('wheel', (e) => {
       if (!e.ctrlKey) return;
       e.preventDefault();
-      this.pxf = Math.min(40, Math.max(2, this.pxf * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
-      this.refresh();
+      this._zoomBy(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX);
     }, { passive: false });
+  }
+
+  /** 缩放时间轴;anchorClientX 给定时保持该屏幕位置下的帧不动(锚点缩放) */
+  _zoomBy(factor, anchorClientX) {
+    const scroll = this.el.querySelector('.be-tl-scroll');
+    const oldPxf = this.pxf;
+    this.pxf = Math.min(40, Math.max(2, this.pxf * factor));
+    if (this.pxf === oldPxf) return;
+    if (anchorClientX != null && scroll) {
+      const r = scroll.getBoundingClientRect();
+      const frameAt = (anchorClientX - r.left + scroll.scrollLeft) / oldPxf;
+      this.refresh();
+      scroll.scrollLeft = Math.max(0, frameAt * this.pxf - (anchorClientX - r.left));
+      const rs = this.el.querySelector('.be-tl-ruler-scroll');
+      rs.scrollLeft = scroll.scrollLeft;
+      this.updatePlayhead();
+    } else {
+      this.refresh();
+    }
   }
 
   _drawRuler() {
@@ -398,25 +649,121 @@ export class EditorTimeline {
     g.clearRect(0, 0, w, 26);
     g.fillStyle = '#20222b';
     g.fillRect(0, 0, w, 26);
-    // 选合适步长(≥44px)
-    const STEPS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
-    const step = STEPS.find((s) => s * this.pxf >= 44) || 1000;
-    for (let f = 0; f * this.pxf <= w; f += step) {
-      const x = Math.round(f * this.pxf) + 0.5;
+
+    const ctx = this.ctx;
+    const anim = ctx.anim;
+    const fps = (ctx.project.frameRate || 30);
+    const pxf = this.pxf;
+
+    // ---- 循环区间着色(Spine 风格:loopStart→loopEnd 浅色半透明背景) ----
+    if (anim && this.loopEnd > this.loopStart) {
+      const x0 = Math.round(this.loopStart * pxf);
+      const x1 = Math.round(Math.min(anim.duration, this.loopEnd) * pxf);
+      g.fillStyle = 'rgba(255,159,67,.10)';
+      g.fillRect(x0, 0, x1 - x0, 26);
+    }
+
+    // 两级刻度
+    const NICE = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
+    let minor = NICE.find((s) => s * pxf >= 7) || 1000;
+    const major = NICE.find((s) => s * pxf >= 44) || 1000;
+    let mi = NICE.indexOf(minor);
+    while (mi < NICE.length - 1 && major % NICE[mi] !== 0) mi++;
+    minor = NICE[mi];
+    const maxF = Math.ceil(w / pxf);
+    // 小刻度(下半段 18→26)
+    g.strokeStyle = '#333642';
+    g.beginPath();
+    for (let f = minor; f <= maxF; f += minor) {
+      if (f % major === 0) continue;
+      const x = Math.round(f * pxf) + 0.5;
+      g.moveTo(x, 18); g.lineTo(x, 26);
+    }
+    g.stroke();
+    // 大刻度(12→26)+ 数字
+    for (let f = 0; f <= maxF; f += major) {
+      const x = Math.round(f * pxf) + 0.5;
       g.strokeStyle = '#3a3e4a';
       g.beginPath();
-      g.moveTo(x, 14); g.lineTo(x, 26);
+      g.moveTo(x, 12); g.lineTo(x, 26);
       g.stroke();
       g.fillStyle = '#9aa1b2';
       g.font = '10px Consolas, monospace';
       g.fillText(String(f), x + 3, 11);
     }
-    // 动画时长边界
-    if (this.ctx.anim) {
-      const x = Math.round(this.ctx.anim.duration * this.pxf) + 0.5;
+
+    // ---- 关键帧标记(Spine 风格:刻度尺顶部红色小菱形,标记所有关键帧位置) ----
+    if (anim) {
+      const frames = new Set();
+      const collect = (store) => { for (const ch of Object.values(store || {})) for (const k of ch) frames.add(k.frame); };
+      for (const b of Object.values(anim.bones)) collect(b);
+      for (const s of Object.values(anim.slots)) collect(s);
+      g.fillStyle = '#e5484d';
+      for (const f of frames) {
+        const x = Math.round(f * pxf);
+        g.save();
+        g.translate(x + 0.5, 4.5);
+        g.rotate(Math.PI / 4);
+        g.fillRect(-2, -2, 4, 4);
+        g.restore();
+      }
+    }
+
+    // ---- 循环起止标记线(橙色竖线 + 帧号标注) ----
+    if (anim && this.loopEnd > this.loopStart) {
+      // 循环起始线
+      const lx0 = Math.round(this.loopStart * pxf) + 0.5;
+      g.strokeStyle = '#ff9f43';
+      g.lineWidth = 1.5;
+      g.beginPath(); g.moveTo(lx0, 0); g.lineTo(lx0, 26); g.stroke();
+      // 循环结束线
+      const lx1 = Math.round(Math.min(anim.duration, this.loopEnd) * pxf) + 0.5;
+      g.beginPath(); g.moveTo(lx1, 0); g.lineTo(lx1, 26); g.stroke();
+      g.lineWidth = 1;
+      // 帧号标注
+      g.fillStyle = '#ff9f43';
+      g.font = '9px Consolas, monospace';
+      if (this.loopStart > 0) g.fillText(String(this.loopStart), lx0 + 2, 9);
+      if (this.loopEnd < anim.duration) g.fillText(String(this.loopEnd), lx1 + 2, 9);
+    }
+
+    // 动画时长边界(红色)
+    if (anim) {
+      const x = Math.round(anim.duration * pxf) + 0.5;
       g.strokeStyle = '#e5484d';
       g.beginPath(); g.moveTo(x, 0); g.lineTo(x, 26); g.stroke();
     }
+  }
+
+  /** 跳到上一个/下一个关键帧(dir=-1/+1) */
+  _stepKey(dir) {
+    const ctx = this.ctx;
+    const anim = ctx.anim;
+    if (!anim) return;
+    const cur = Math.round(ctx.frame);
+    let best = null;
+    const scan = (store) => {
+      for (const ch of Object.values(store || {})) {
+        for (const k of ch) {
+          const f = k.frame;
+          if (dir > 0 ? (f > cur && (best === null || f < best)) : (f < cur && (best === null || f > best))) best = f;
+        }
+      }
+    };
+    for (const b of Object.values(anim.bones)) scan(b);
+    for (const s of Object.values(anim.slots)) scan(s);
+    if (best !== null) ctx.setFrame(best);
+  }
+
+  /** 滚动轨道区使指定帧可见(居中);'/' 快捷键用(Spine Scroll To Selected) */
+  scrollToFrame(f) {
+    if (!this.el) return;
+    const scroll = this.el.querySelector('.be-tl-scroll');
+    if (!scroll) return;
+    scroll.scrollLeft = Math.max(0, f * this.pxf - scroll.clientWidth / 2);
+    const rs = this.el.querySelector('.be-tl-ruler-scroll');
+    if (rs) rs.scrollLeft = scroll.scrollLeft;
+    this.updatePlayhead();
   }
 
   updatePlayhead() {

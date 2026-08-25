@@ -5,7 +5,10 @@ const path = require('path');
 const fs = require('fs');
 const dbm = require('../electron/db.js');
 
-app.setName('uiroot-smoke');
+// 每次运行用全新 userData(localStorage 天然为空):
+// 展开状态会持久化且 pagehide 时 flushExpandedCats 回写,固定 app 名时第二次运行会读到
+// 上次点开的分类并把它「折叠」,测试结果随运行历史翻转(非产品缺陷,测试隔离问题)。
+app.setName('uiroot-smoke-' + Date.now());
 app.disableHardwareAcceleration();
 app.commandLine.appendSwitch('disable-gpu');
 app.commandLine.appendSwitch('in-process-gpu');
@@ -97,10 +100,24 @@ app.whenReady().then(async () => {
       const ok = res.rootFound && res.catFound && res.itemShown;
       console.log('UIROOT-SMOKE ' + (ok ? 'PASS' : 'FAIL'));
       cleanup();
+      try {
+        win.destroy();
+        const dir = app.getPath('userData');
+        for (let i = 0; i < 5; i++) {
+          try { fs.rmSync(dir, { recursive: true, force: true }); break; } catch (e) { await new Promise((r) => setTimeout(r, 200)); }
+        }
+      } catch (e2) { /* ignore */ }
       process.exit(ok ? 0 : 1);
     } catch (e) {
       console.error('SMOKE-ERR', e);
       cleanup();
+      try {
+        win.destroy();
+        const dir = app.getPath('userData');
+        for (let i = 0; i < 5; i++) {
+          try { fs.rmSync(dir, { recursive: true, force: true }); break; } catch (e3) { await new Promise((r) => setTimeout(r, 200)); }
+        }
+      } catch (e2) { /* ignore */ }
       process.exit(1);
     }
   });

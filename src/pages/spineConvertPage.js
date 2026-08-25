@@ -742,7 +742,8 @@ export function renderSpineConvertTool(body) {
     if (file.format === 'spine') {
       infoEl.innerHTML = `<b>${escHtml(file.name)}</b> · Spine 工程(.spine)· ${escHtml(file.versionLabel || file.version || '?')}<br>` +
         `⚠ 工程文件是 Spine 编辑器专有二进制格式,无法直接预览播放。<br>` +
-        `<span style="color:var(--text2)">点击左侧「开始转换」可将其解码为明文 JSON(骨骼/插槽/附件/动画数据),再查看产物。</span>`;
+        `<span style="color:var(--text2)">点击左侧「开始转换」可将其解码为明文 JSON(骨骼/插槽/附件/动画数据),再查看产物;<br>` +
+        `或到「骨骼动画编辑器 -> 文件 -> 打开 Spine 工程文件」直接解码打开并编辑(骨骼/插槽/region 附件与 rotate/translate 时间线)。</span>`;
       resetPreviewUI();
       return;
     }

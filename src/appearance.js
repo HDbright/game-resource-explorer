@@ -6,6 +6,10 @@ import { state } from './state.js';
 
 let themeMediaHandler = null;
 
+// 颜色选择库已应用的覆盖键(键为 CSS 变量名,不含 -- 前缀)。
+// 记录上一轮应用过的键,某键被重置(删除)时才能 removeProperty 恢复主题默认。
+let appliedColorOverrides = new Set();
+
 // 各主题的默认强调色 / 背景色 / 前景色(控件「恢复默认」与空值兜底用)
 const THEME_DEFAULTS = {
   dark:   { accent: '#4f8cff', bgColor: '#1b1d23', fgColor: '#e6e8ee', panelBg: '#22242b', menuBg: '#2a2d36', btnBg: '#2a2d36', hoverBg: '#333642', borderColor: '#343845' },
@@ -64,6 +68,14 @@ export function applyAppearance() {
   const t = themeConfig(s, name);
   const root = document.documentElement;
 
+  // 颜色选择库覆盖清理(必须在主题变量 setProperty 之前):
+  // 上一轮应用过、本轮已重置(删除)的覆盖键先移除内联属性,
+  // 随后主题变量与新一轮覆盖会重新写入,避免 removeProperty 连带清掉主题内联值。
+  const overridesEarly = (s && s.colorOverrides) || {};
+  for (const key of appliedColorOverrides) {
+    if (!(key in overridesEarly)) root.style.removeProperty('--' + key);
+  }
+
   // 基底调色板:custom 用背景色亮度决定浅/深基底,使自定义主题整体协调
   let base = name;
   if (name === 'custom') base = isLightColor(t.bgColor) ? 'light' : 'dark';
@@ -85,6 +97,19 @@ export function applyAppearance() {
   root.style.setProperty('--bg4', t.hoverBg);
   root.style.setProperty('--border', t.borderColor);
   root.style.setProperty('--btn-bg', t.btnBg);
+
+  // 颜色选择库覆盖(资源工具箱「颜色选择库」):在主题变量之后应用,优先级最高。
+  // 键 = CSS 变量名(不含 -- 前缀,如 'accent' / 'bg2' / 'danger'),值 = #rrggbb;
+  // 重置(删除键)时在本函数开头 removeProperty,再由上面的主题变量写回默认。非颜色变量(radius/font 等)数据层已过滤,这里再校验一次。
+  const overrides = overridesEarly;
+  const hexRe = /^#[0-9a-fA-F]{3,8}$/;
+  appliedColorOverrides = new Set();
+  for (const [key, val] of Object.entries(overrides)) {
+    const v = typeof val === 'string' ? val.trim() : '';
+    if (!v || !hexRe.test(v)) continue;
+    root.style.setProperty('--' + String(key).replace(/^-+/, ''), v);
+    appliedColorOverrides.add(key);
+  }
 
   // 背景图(设置到 body,cover 铺满)
   const body = document.body;

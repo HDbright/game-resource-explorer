@@ -9,6 +9,7 @@ import { MarkdownEditorController } from '../viewers/markdownEditor.js';
 import { renderTodoTool } from './todoPage.js';
 import { renderKidWorkspaceTool } from './kidWorkspacePage.js';
 import { renderBoneEditorTool, disposeBoneEditor } from './boneEditorPage.js';
+import { renderColorLibraryTool } from './colorLibraryPage.js';
 
 /** 工具箱全部工具定义(模块级:renderToolboxPage 渲染 + 菜单终端节点「目标页面」下拉动态生成) */
 const TOOLS = {
@@ -24,6 +25,7 @@ const TOOLS = {
   todo: { title: 'Todo-List 任务管理', desc: '个人任务管理(移植自 Taskwingo):任务增删改/拖拽排序、优先级、状态、截止日期、标签、子任务、项目分组;列表 + 看板双视图,支持筛选、归档与 CSV/JSON 导出。', render: renderTodoTool },
   kidworkspace: { title: '得乐学苑', desc: '给 10 岁四年级男孩的每日成长台:身体锻炼/背诵/听写默写书法/数学口算 四类任务闯关打卡 + 学习计划制订 + 金币钻石皇冠奖章五级奖励,等级称号晋级、数字人形象随等级进化、头像解锁、道具商城兑换。', render: renderKidWorkspaceTool },
   boneeditor: { title: '骨骼动画编辑器', desc: '复刻 LoongBones / DragonBones 编辑器核心工作流:骨架搭建(拖拽创建骨骼/绑定图片插槽)、动画关键帧(位移/旋转/缩放/颜色/显示切换,多种缓动曲线+贝塞尔)、摄影表时间轴、洋葱皮、层级管理、撤销重做;工程单文件保存(.lbone.json 内嵌图片),一键导出 DragonBones 5.5 格式(_ske.json/_tex.json/合并 PNG,可直接入库预览)。', render: renderBoneEditorTool },
+  colorlib: { title: '颜色库', desc: 'UI 颜色配色管理:① 项目配色 —— 本应用全部界面颜色(色卡 + HEX/RGB/HSL 数值 + 中文名/英文名 + 使用位置备注),可修改并实时应用为新配色;② 推荐配色 —— 深色/浅色/游戏/国风等各类型 UI 推荐配色方案,一键应用为主题;③ 我的收藏 —— 自定义分组收藏颜色,可增删改;④ PowerToys 式颜色选择器(SV 面板 + HEX/RGB/HSL 互转)+ 全屏放大镜取色。', render: renderColorLibraryTool },
 };
 
 /** 工具箱全部工具 → 菜单终端节点「目标页面」动作选项(动态生成,新增工具自动出现) */
@@ -73,6 +75,7 @@ function renderToolboxHome(container) {
     { id: 'todo', icon: '✅', title: 'Todo-List 任务管理', desc: '个人任务管理(移植自 Taskwingo):任务增删改/拖拽排序、优先级、状态、截止日期、标签、子任务、项目分组;列表 + 看板双视图,支持筛选、归档与 CSV/JSON 导出。' },
     { id: 'kidworkspace', icon: '🌟', title: '得乐学苑', desc: '每日身体锻炼/背诵/听写默写书法/数学口算四类任务闯关打卡 + 学习计划制订 + 金币钻石皇冠奖章奖励,等级称号晋级、数字人随等级进化。' },
     { id: 'boneeditor', icon: '🦴', title: '骨骼动画编辑器', desc: '复刻 LoongBones / DragonBones 编辑器:骨架搭建、图片插槽绑定、关键帧动画(位移/旋转/缩放/颜色/显示切换,多缓动曲线)、摄影表时间轴、洋葱皮、层级与撤销重做;保存 .lbone.json 工程或导出 DragonBones 5.5 数据(可直接入库预览)。' },
+    { id: 'colorlib', icon: '🎨', title: '颜色库', desc: 'UI 配色管理:项目全部界面颜色(色卡/HEX/RGB/HSL/中英文名/使用位置)可改可应用;各类型 UI 推荐配色一键应用;自定义分组收藏;PowerToys 式取色器 + 全屏放大镜取色。' },
   ];
   const head = document.createElement('div');
   head.className = 'tool-head';

@@ -166,7 +166,7 @@ export async function importDragonBonesProject(ske, texJson, pages) {
     return { url: cv.toDataURL('image/png'), w, h };
   };
 
-  const p = createProject(ske.name || arm0.name || 'dragonbones工程');
+  const p = createProject(ske.name || arm0.name || 'dragonbones项目');
   p.frameRate = fps;
   p.images = [];
   const imageBySub = new Map();

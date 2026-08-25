@@ -57,14 +57,16 @@ contextBridge.exposeInMainWorld('api', {
   spineFix: (args) => ipcRenderer.invoke('tool:spinefix', args),
   sk2spine: (args) => ipcRenderer.invoke('tool:sk2spine', args),
   probeSk2spine: (args) => ipcRenderer.invoke('tool:probeSk2spine', args),
-  // Spine 编辑器工程文件(.spine)逆向:探测 / 解码为明文 JSON
+  // Spine 编辑器工程文件(.spine)逆向:探测 / 解码为明文 JSON(写盘)/ 内存解码(编辑器打开)
   probeSpineProject: (args) => ipcRenderer.invoke('tool:probeSpineProject', args),
   spineProject2json: (args) => ipcRenderer.invoke('tool:spineProject2json', args),
+  decodeSpineProject: (args) => ipcRenderer.invoke('tool:decodeSpineProject', args),
   filesIdentical: (args) => ipcRenderer.invoke('tool:filesIdentical', args),
 
   // ---- 资源工具箱:Spine 骨骼格式/版本转换(C++ SpineSkeletonDataConverter) ----
   spineConvert: (args) => ipcRenderer.invoke('tool:spineConvert', args),
   spineProbe: (args) => ipcRenderer.invoke('tool:spineProbe', args),
+  jsonToSkel: (args) => ipcRenderer.invoke('tool:jsonToSkel', args),
   spinePreviewRegister: (args) => ipcRenderer.invoke('tool:spinePreviewRegister', args),
   htmlPreviewRegister: (args) => ipcRenderer.invoke('html:previewRegister', args),
   htmlPreviewUnregister: (args) => ipcRenderer.invoke('html:previewUnregister', args),
@@ -167,6 +169,13 @@ contextBridge.exposeInMainWorld('api', {
   projectStatus: (specs) => ipcRenderer.invoke('projects:status', specs),
   projectProbeUrl: (url) => ipcRenderer.invoke('projects:probeUrl', url),
   projectStopAll: () => ipcRenderer.invoke('projects:stopAll'),
+
+  // ---- 颜色选择库:全屏取色(PowerToys 式冻结截图 + 放大镜取色) ----
+  pickScreenColor: () => ipcRenderer.invoke('color:screenPick'),
+  // 屏幕取色全局快捷键设置(注册失败主进程自动回滚,返回 { ok, error })
+  setColorHotkeys: (args) => ipcRenderer.invoke('color:setHotkeys', args),
+  // 请求主进程弹系统通知(主窗口最小化/隐藏时页面内 toast 看不到)
+  appNotify: (title, body) => ipcRenderer.invoke('app:notify', { title, body }),
 });
 
 // 冒烟测试标志(仅开发时传入 --smoke,通过 URL 参数传递,见 main.js)

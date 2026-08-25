@@ -68,7 +68,7 @@ export function createProject(name = '新建项目') {
 
 /** 空白等待态项目(无骨骼无贴图;编辑器初始/关闭后状态,等待 打开/新建/导入) */
 export function createBlankProject() {
-  const p = createProject('未命名工程');
+  const p = createProject('未命名项目');
   p.armature.bones = [];
   p.armature.animations = [createAnimation('new_animation', 30)];
   return p;
@@ -79,11 +79,11 @@ export function createAnimation(name, duration = 30) {
 }
 
 export function createBone(name, parent, x, y, rotation, length) {
-  return { name, parent, x, y, rotation, length: length || 50, scaleX: 1, scaleY: 1, skew: 0, inheritTranslation: true, inheritRotation: true, inheritScale: true };
+  return { name, parent, x, y, rotation, length: length || 50, scaleX: 1, scaleY: 1, skew: 0, inheritTranslation: true, inheritRotation: true, inheritScale: true, visible: true, locked: false };
 }
 
 export function createSlot(name, parent) {
-  return { name, parent, z: 0, displayIndex: 0, color: { r: 255, g: 255, b: 255, a: 1 }, displays: [] };
+  return { name, parent, z: 0, displayIndex: 0, color: { r: 255, g: 255, b: 255, a: 1 }, displays: [], locked: false };
 }
 
 export function createDisplay(name, imageId) {
@@ -161,7 +161,7 @@ export function deserialize(json) {
   if (p && p.skeleton && Array.isArray(p.bones)) {
     throw new Error('这是 Spine 骨架 JSON,请使用工具栏「🦂 导入 Spine JSON」打开');
   }
-  throw new Error('不是有效的骨骼动画编辑器工程文件(.lbone.json)');
+  throw new Error('不是有效的骨骼动画编辑器项目文件(.lbone.json)');
 }
 
 /** 裁剪模型中的临时字段(_depth 等) */

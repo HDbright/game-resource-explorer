@@ -14,6 +14,7 @@
  */
 
 import { getPixi } from '../pixiLazy.js';
+import { toast } from '../dialogs.js';
 import { sampleAnimation, computeWorldTransforms, boneTipWorld, worldToParentLocal, angleDelta } from './animator.js';
 import { slotsInZOrder } from './model.js';
 import { resolveRegionDataUrl } from './spineIO.js';
@@ -53,6 +54,7 @@ export class EditorStage {
 
   async mount(container) {
     this.container = container;
+    try { window.__beStage = this; } catch (err) { /* 调试探针 */ }
     const PIXI = await getPixi();
     this.PIXI = PIXI;
     container.classList.add('be-stage-host');
@@ -60,7 +62,7 @@ export class EditorStage {
 
     const app = new PIXI.Application();
     await app.init({
-      background: 0x232630,
+      background: 0x535253,
       antialias: true,
       resolution: Math.min(window.devicePixelRatio || 1, 2),
       autoDensity: true,
@@ -70,6 +72,16 @@ export class EditorStage {
     app.canvas.className = 'be-stage-canvas';
     container.appendChild(app.canvas);
     this.app = app;
+
+    // 透明背景棋盘格(#5A595D / #535253 交错,参考 Spine):屏幕空间平铺,不随相机移动
+    const bgCanvas = document.createElement('canvas');
+    bgCanvas.width = 32; bgCanvas.height = 32;
+    const bgCtx = bgCanvas.getContext('2d');
+    bgCtx.fillStyle = '#5A595D'; bgCtx.fillRect(0, 0, 32, 32);
+    bgCtx.fillStyle = '#535253'; bgCtx.fillRect(0, 0, 16, 16); bgCtx.fillRect(16, 16, 16, 16);
+    this.bgSprite = new PIXI.TilingSprite({ texture: PIXI.Texture.from(bgCanvas), width: 8, height: 8 });
+    app.stage.addChildAt(this.bgSprite, 0);
+    this._sizeBg();
 
     this.worldC = new PIXI.Container();
     app.stage.addChild(this.worldC);
@@ -94,7 +106,15 @@ export class EditorStage {
     container.addEventListener('dragover', (e) => { if (e.dataTransfer.types.includes('application/x-bone-img')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
     container.addEventListener('drop', (e) => this._onDrop(e));
 
-    this._ro = new ResizeObserver(() => this.render());
+    // 容器尺寸变化(拖拽分界线/窗口布局)时:先重设画布尺寸再重绘 ——
+    // PIXI 的 resizeTo 只随 window resize 生效,容器自身变化不会触发,漏掉会留下黑色空白
+    this._ro = new ResizeObserver(() => {
+      if (this._disposed || !this.app?.renderer) return;
+      const w = this.container.clientWidth, h = this.container.clientHeight;
+      if (w > 0 && h > 0) this.app.renderer.resize(w, h);
+      this._sizeBg();
+      this.render();
+    });
     this._ro.observe(container);
     this.render();
   }
@@ -166,6 +186,13 @@ export class EditorStage {
     return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
   }
 
+  /** 棋盘格背景铺满画布(容器尺寸变化时调用) */
+  _sizeBg() {
+    if (!this.bgSprite || !this.app) return;
+    this.bgSprite.width = this.app.screen.width;
+    this.bgSprite.height = this.app.screen.height;
+  }
+
   // ---------------- 纹理 ----------------
 
   _syncTextures() {
@@ -206,6 +233,7 @@ export class EditorStage {
     } else if (!pendingRegion) {
       this._regionRetry = 0;
     }
+    this._texPending = pendingRegion; // 纹理是否全部就绪(自动适配用)
     return dirty;
   }
 
@@ -218,14 +246,16 @@ export class EditorStage {
     this._syncTextures();
     this.applyCamera();
 
-    // ---- Spine 导入工程:官方 3.8 运行时渲染(IK/变换约束/网格蒙皮完整求解) ----
-    if (p.spine && p.spine.family === '3') {
+    // ---- Spine 导入项目:官方 3.8 运行时渲染(IK/变换约束/网格蒙皮完整求解) ----
+    // .spine 工程文件解码打开的项目(raw 为工程解码数据,非运行时 JSON)不走运行时,走下方近似渲染
+    if (p.spine && p.spine.family === '3' && !p.spine.project) {
       // 工程对象被替换(撤销/重做/导入)→ 重建运行时
       if (this._spineProjRef !== p) {
         this._spineRT = null;
         this._spineProjRef = null;
         this._spineMeshes.clear();
         this._spineFailed = false;
+        this._spineFitDone = false; // 新工程 -> 重新自动适配
       }
       // 失败后永久降级(自绘近似),避免「失败→重试→再失败」微任务风暴饿死主线程
       if (!this._spineRT && !this._spineIniting && !this._spineFailed) this._initSpineRT(p);
@@ -248,6 +278,19 @@ export class EditorStage {
         }
         this._renderSpineSlots(pose, this.imageG, 0xffffff, 1, false);
         if (ctx.showBones) this._drawBones();
+        // 载入自动适配:内容(骨骼/图片)有尺寸即先适配;纹理全部就绪后做最终适配并收手
+        // (此前仅 _loadProject 时同步 fitAll 一次,Spine RT 异步初始化后无人再适配 -> 内容不居中)
+        // 注意:①fitAll 末尾会调 render -> 须防重入,否则无限递归卡死渲染线程;
+        //       ②首帧图片纹理尚未异步加载完(hitImages 为空,内容框只含骨骼),不能提前收手
+        if (!this._spineFitDone && !this._spineFitting) {
+          const b = this.contentBounds();
+          if (b && b.w > 4 && b.h > 4) {
+            this._spineFitting = true;
+            try { this.fitAll(); } finally { this._spineFitting = false; }
+            const texReady = !this._texPending && (this._pendingLoads || 0) <= 0 && (this.hitImages || []).length > 0;
+            if (texReady) { this._spineFitDone = true; this.ctx.onAutoFit?.(); }
+          }
+        }
         return;
       }
     }
@@ -378,16 +421,19 @@ export class EditorStage {
       }
     }
 
-    // 1) 编辑器姿态 → 运行时骨骼
+    // 1) 编辑器姿态 → 运行时骨骼(注意:spine-core 3.8 的 Bone 没有 .name 属性,名字在 data.name)
     for (const rb of skeleton.bones) {
-      const mb = p.armature.bones.find((b) => b.name === rb.name);
+      const bn = (rb.data && rb.data.name) || rb.name;
+      const mb = p.armature.bones.find((b) => b.name === bn);
       if (!mb) continue;
-      const ov = pose && pose.bones[rb.name];
-      rb.x = ov && ov.x !== undefined ? ov.x : mb.x;
-      rb.y = ov && ov.y !== undefined ? ov.y : mb.y;
-      rb.rotation = ov && ov.rotation !== undefined ? ov.rotation : mb.rotation;
-      rb.scaleX = ov && ov.scaleX !== undefined ? ov.scaleX : mb.scaleX;
-      rb.scaleY = ov && ov.scaleY !== undefined ? ov.scaleY : mb.scaleY;
+      const ov = pose && pose.bones[bn];
+      // 值语义(spine-core 3.8 官方 apply 公式):translate/rotate 关键帧为相对 setup 的增量,
+      // scale 关键帧为相对 setup 的倍率(1=不变) -> 须与 setup 合成,不能直接覆盖
+      rb.x = mb.x + (ov && ov.x !== undefined ? ov.x : 0);
+      rb.y = mb.y + (ov && ov.y !== undefined ? ov.y : 0);
+      rb.rotation = mb.rotation + (ov && ov.rotation !== undefined ? ov.rotation : 0);
+      rb.scaleX = mb.scaleX * (ov && ov.scaleX !== undefined ? ov.scaleX : 1);
+      rb.scaleY = mb.scaleY * (ov && ov.scaleY !== undefined ? ov.scaleY : 1);
     }
 
     // 2) 应用保留的原始时间线(官方 timeline.apply):
@@ -415,10 +461,11 @@ export class EditorStage {
     this.worlds = new Map();
     this._boneHits = [];
     for (const rb of skeleton.bones) {
-      this.worlds.set(rb.name, {
+      const bn = (rb.data && rb.data.name) || rb.name;
+      this.worlds.set(bn, {
         tx: rb.worldX, ty: -rb.worldY,
         a: rb.worldA, b: -rb.worldB, c: -rb.worldC, d: rb.worldD,
-        bone: p.armature.bones.find((b) => b.name === rb.name),
+        bone: p.armature.bones.find((b) => b.name === bn),
       });
     }
     if (!ghost) this.hitImages = [];
@@ -583,17 +630,19 @@ export class EditorStage {
     const px = (n) => n / z; // 屏幕像素 → 世界单位
     const bones = ctx.project.armature.bones;
     for (const bone of bones) {
+      if (bone.visible === false) continue; // 骨骼已隐藏
       const w = this.worlds.get(bone.name);
       if (!w) continue;
       const tip = boneTipWorld(w, bone);
-      this._boneHits.push({ name: bone.name, origin: { x: w.tx, y: w.ty }, tip });
+      this._boneHits.push({ name: bone.name, origin: { x: w.tx, y: w.ty }, tip, locked: bone.locked === true });
       const sel = ctx.selection && ctx.selection.type === 'bone' && ctx.selection.name === bone.name;
       const hov = this._hover === bone.name;
       const color = sel ? COLOR_SEL : hov ? 0x7fb0ff : COLOR_BONE;
+      const alpha = bone.locked ? 0.4 : sel ? 1 : 0.9;
       g.moveTo(w.tx, w.ty).lineTo(tip.x, tip.y);
-      g.stroke({ width: Math.max(px(2), 2 / z), color, alpha: sel ? 1 : 0.9 });
+      g.stroke({ width: Math.max(px(2), 2 / z), color, alpha });
       // 关节圆
-      g.circle(w.tx, w.ty, Math.max(px(5), 4 / z)).fill({ color: sel ? COLOR_SEL : 0x232630 }).stroke({ width: Math.max(px(1.5), 1.5 / z), color });
+      g.circle(w.tx, w.ty, Math.max(px(5), 4 / z)).fill({ color: sel ? COLOR_SEL : 0x232630 }).stroke({ width: Math.max(px(1.5), 1.5 / z), color, alpha });
     }
     // 选中骨骼:尖端旋转手柄 + 延长虚线
     if (ctx.selection && ctx.selection.type === 'bone') {
@@ -671,20 +720,30 @@ export class EditorStage {
       return;
     }
 
-    // 选择工具:手柄 → 关节 → 骨线 → 图片
+    // 选择工具:手柄 → 关节 → 骨线 → 图片(跳过锁定节点)
     const handle = this._hitHandle(wp.x, wp.y);
     if (handle) { this._beginEdit('旋转骨骼'); this._drag = { kind: 'rotate', bone: handle.bone }; return; }
     const joint = this._hitJoint(wp.x, wp.y);
     if (joint) {
+      const bone = ctx.project.armature.bones.find((b) => b.name === joint);
+      if (bone && bone.locked) { toast('骨骼已锁定,解锁后可编辑', 'info'); return; }
       ctx.select('bone', joint);
       this._beginEdit('移动骨骼');
-      this._drag = { kind: 'move', bone: ctx.project.armature.bones.find((b) => b.name === joint) };
+      this._drag = { kind: 'move', bone };
       return;
     }
     const line = this._hitBoneLine(wp.x, wp.y);
-    if (line) { ctx.select('bone', line); return; }
+    if (line) {
+      const bone = ctx.project.armature.bones.find((b) => b.name === line);
+      if (bone && bone.locked) { toast('骨骼已锁定,解锁后可编辑', 'info'); return; }
+      ctx.select('bone', line); return;
+    }
     const img = this._hitImage(wp.x, wp.y);
-    if (img) { ctx.select('slot', img); return; }
+    if (img) {
+      const slot = ctx.project.armature.slots.find((s) => s.name === img);
+      if (slot && slot.locked) { toast('插槽已锁定,解锁后可编辑', 'info'); return; }
+      ctx.select('slot', img); return;
+    }
     ctx.select(null, null);
   }
 

@@ -74,7 +74,7 @@ const lerp = (a, b, t) => a + (b - a) * t;
 export function sampleChannel(keys, frame, extract, mix) {
   if (!keys || !keys.length) return null;
   const ks = sortKeys(keys);
-  if (frame <= ks[0].frame) return extract(ks[0]);
+  if (frame < ks[0].frame) return null; // 首键之前保持 setup(Spine/DragonBones 时间线语义)
   const last = ks[ks.length - 1];
   if (frame >= last.frame) return extract(last);
   for (let i = 0; i < ks.length - 1; i++) {
@@ -100,7 +100,9 @@ export function sampleAnimation(anim, frame) {
     const o = {};
     const tr = sampleChannel(ch.translate, frame, (k) => [k.v.x, k.v.y], (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t)]);
     if (tr) { o.x = tr[0]; o.y = tr[1]; }
-    const ro = sampleChannel(ch.rotate, frame, (k) => [k.v.rotation], (a, b, t) => [lerp(a[0], b[0], t)]);
+    // 旋转通道:按「最短角度差」插值(与 spine 官方 RotateTimeline 一致:
+    // 差值 wrap 到 ±180°,如 -320.57->-23.74 实走 -63.17° 短路径,而非 +296.83° 长路径)
+    const ro = sampleChannel(ch.rotate, frame, (k) => [k.v.rotation], (a, b, t) => [a[0] + angleDelta(b[0], a[0]) * t]);
     if (ro) o.rotation = ro[0];
     const sc = sampleChannel(ch.scale, frame, (k) => [k.v.scaleX, k.v.scaleY], (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t)]);
     if (sc) { o.scaleX = sc[0]; o.scaleY = sc[1]; }

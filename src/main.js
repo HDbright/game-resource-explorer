@@ -12,6 +12,7 @@ import {
   addWebBookmarkCategory, updateWebBookmarkCategory, removeWebBookmarkCategory,
   addWebBookmark, updateWebBookmark, removeWebBookmark,
 } from './state.js';
+import { applyAppearance } from './appearance.js';
 import { PreviewController } from './preview/index.js';
 import { initUI, renderCategories, renderItems, renderMainArea, selectItem, updatePlaybackUI, updateStatusBar, moveTreeDialog } from './ui.js';
 import { thumbnailService } from './thumbnails.js';
@@ -1325,7 +1326,8 @@ function installSmoke() {
         await sleep(250);
         out.fguiPageTitle = (document.querySelector('#page-toolbox .tool-title') || {}).textContent || '';
         out.fguiOk = out.fguiLeafFound && out.fguiPageTitle === 'FGUI 导出源';
-        out.ok = out.toolboxVisible && out.homeGrid === 1 && out.entries === 6 && out.enteredSub && out.fguiOk;
+        // 入口卡片数随工具增加而增长(补丁·155 加「颜色选择库」后为 13);断言用 >= 防止老断言 6 再次过期
+        out.ok = out.toolboxVisible && out.homeGrid === 1 && out.entries >= 6 && out.enteredSub && out.fguiOk;
         return out;
       }
       case 'batchui': {
@@ -2255,6 +2257,194 @@ function installSmoke() {
             && out.childVisible && out.grandToggle && out.expandedPersisted
             && out.resultsShown && out.resultRow && out.inputFilled
             && out.recentShown && out.recentHasGrand && out.okPickedGrand && out.recentSaved && out.lastSaved;
+          return out;
+        } catch (err) {
+          return { ok: false, error: err.message, stack: (err.stack || '').slice(0, 400) };
+        }
+      }
+      case 'colorlib': {
+        // 颜色选择库冒烟(补丁·155):三标签页渲染 + 项目配色「编辑→应用→重置」+ 推荐配色应用/还原 + 收藏分组与颜色增删(含清理)
+        try {
+          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+          const out = {};
+          const q = (sel) => document.querySelector(sel);
+          const qa = (sel) => [...document.querySelectorAll(sel)];
+          // 进入:工具箱主页 → 点「颜色选择库」入口卡片
+          const tbRoot = qa('.cat-node').find((el) => (el.querySelector('.cat-name') || {}).textContent === '资源工具箱');
+          if (!tbRoot) return { err: 'no-toolbox-root' };
+          tbRoot.click(); await sleep(200);
+          const card = qa('.tool-entry').find((el) => el.textContent.includes('颜色库'));
+          out.cardFound = !!card;
+          if (card) card.click();
+          await sleep(300);
+          out.toolTitle = (q('#page-toolbox .tool-title') || {}).textContent || '';
+          out.tabs = qa('.clib-tab').map((b) => b.textContent.trim());
+          // 项目配色:色卡 + HEX/RGB/HSL 数值标签
+          out.projCards = qa('.clib-card').length;
+          out.valChips = qa('.clib-val').length;
+          out.hasHexChip = qa('.clib-val').some((c) => /^#[0-9a-fA-F]{6}$/.test(c.textContent.trim()));
+          // 打开第一个「编辑」→ 编辑器弹窗 → 改 HEX → 确定 → 覆盖立即生效
+          // 步骤开始先清空已有覆盖(用户可能自己设置过),结束时恢复快照,保证断言确定且不动用户数据
+          const beforeOverrides = JSON.stringify(state.settings.colorOverrides || {});
+          state.settings.colorOverrides = {};
+          const editBtn = qa('.clib-card .clib-card-actions .btn').find((b) => b.textContent.includes('编辑'));
+          out.hasEditBtn = !!editBtn;
+          // 该卡片覆盖的 CSS 变量(第一个可编辑卡片是「主背景 --bg」),据此断言变量值变化
+          const cardVar = editBtn ? ((editBtn.closest('.clib-card').querySelector('.clib-card-var') || {}).textContent || '').trim() : '';
+          const rootVar = (name) => document.documentElement.style.getPropertyValue(name).trim();
+          const beforeVarVal = cardVar ? rootVar(cardVar) : '';
+          if (editBtn) {
+            editBtn.click(); await sleep(180);
+            out.editorOpen = !!q('.cpe');
+            out.editorHasSV = !!q('.cpe-sv') && !!q('.cpe-hue');
+            const hexIn = q('#cpe-hex');
+            if (hexIn) { hexIn.value = '#FF6600'; hexIn.dispatchEvent(new Event('input')); await sleep(80); }
+            out.editorHexLabel = (q('#cpe-hex-label') || {}).textContent || '';
+            const okBtn = qa('.modal-foot .btn').find((b) => b.textContent.trim() === '确定');
+            if (okBtn) okBtn.click();
+            await sleep(250);
+          }
+          out.overriddenKeys = Object.keys(state.settings.colorOverrides || {});
+          out.varChanged = !!cardVar && rootVar(cardVar).toLowerCase() === '#ff6600';
+          // 「重置」→ 覆盖清除,主题默认恢复
+          const resetBtn = qa('.clib-card .clib-card-actions .btn').find((b) => b.textContent.includes('重置'));
+          if (resetBtn) { resetBtn.click(); await sleep(250); }
+          out.overrideCleared = Object.keys(state.settings.colorOverrides || {}).length === 0;
+          out.varBefore = beforeVarVal;
+          out.varAfterReset = cardVar ? rootVar(cardVar) : '(novar)';
+          out.varRestored = !cardVar || rootVar(cardVar) === beforeVarVal;
+          // 推荐配色:应用为主题 → 主题设置写入 → 还原
+          const beforeThemes = JSON.stringify(state.settings.themes || {});
+          qa('.clib-tab').find((b) => b.textContent.includes('推荐')).click(); await sleep(250);
+          out.palCount = qa('.clib-pal').length;
+          out.palStripBlks = qa('.clib-pal-blk').length;
+          const applyBtn = qa('.clib-pal-btns .btn').find((b) => b.textContent.includes('应用为主题'));
+          if (applyBtn) { applyBtn.click(); await sleep(250); }
+          out.themeAccentSaved = Object.values(state.settings.themes || {}).some((t) => t && /^#[0-9a-fA-F]{6}$/.test(t.accent || ''));
+          state.settings.themes = JSON.parse(beforeThemes);
+          state.settings.colorOverrides = JSON.parse(beforeOverrides);
+          saveState(); applyAppearance();
+          await sleep(150);
+          out.themeRestored = JSON.stringify(state.settings.themes) === beforeThemes;
+          // 我的收藏:新建分组 → 添加颜色 → 校验 → 删除分组(清理)
+          qa('.clib-tab').find((b) => b.textContent.includes('收藏')).click(); await sleep(250);
+          const addGroup = q('.clib-fav-add');
+          out.hasAddGroupBtn = !!addGroup;
+          if (addGroup) {
+            addGroup.click(); await sleep(180);
+            const nameIn = qa('.modal .form-row input[type="text"]')[0];
+            if (nameIn) nameIn.value = '__clib_smoke__';
+            const okBtn2 = qa('.modal-foot .btn').find((b) => b.textContent.trim() === '确定');
+            if (okBtn2) okBtn2.click();
+            await sleep(250);
+          }
+          out.groupCreated = (state.settings.colorLibGroups || []).some((g) => g.name === '__clib_smoke__');
+          const hkBtn = q('#cf-hotkey');
+          out.hasHotkeyBtn = !!hkBtn;
+          out.hotkeyText = hkBtn ? hkBtn.textContent.replace(/\s+/g, ' ').trim() : '';
+          // 分组切换回归(补丁·159):新建第二个分组(此时选中它)→ 点回第一个分组 → 右侧应切换且旧内容不叠加
+          if (out.groupCreated && q('.clib-fav-add')) {
+            q('.clib-fav-add').click(); await sleep(180);
+            const ni2 = qa('.modal .form-row input[type="text"]')[0];
+            if (ni2) ni2.value = '__clib_smoke2__';
+            const okb2 = qa('.modal-foot .btn').find((b) => b.textContent.trim() === '确定');
+            if (okb2) okb2.click();
+            await sleep(250);
+          }
+          out.group2Created = (state.settings.colorLibGroups || []).some((g) => g.name === '__clib_smoke2__');
+          const g1Item = qa('.clib-fav-item').find((b) => b.textContent.includes('__clib_smoke__'));
+          if (g1Item) { g1Item.click(); await sleep(220); }
+          out.groupSwitchOk = qa('.clib-fav').length === 1 && ((q('.clib-fav-gname') || {}).textContent || '') === '__clib_smoke__';
+          const addColorBtn = q('#cf-add');
+          out.hasAddColorBtn = !!addColorBtn;
+          if (addColorBtn) {
+            addColorBtn.click(); await sleep(180);
+            const hexIn2 = q('#cf-hex');
+            if (hexIn2) { hexIn2.value = '#00AA88'; hexIn2.dispatchEvent(new Event('input')); await sleep(80); }
+            const nameIn2 = qa('.modal .form-row input[type="text"]')[0];
+            if (nameIn2) nameIn2.value = '冒烟色';
+            const okBtn3 = qa('.modal-foot .btn').find((b) => b.textContent.trim() === '确定');
+            if (okBtn3) okBtn3.click();
+            await sleep(250);
+          }
+          const grp = (state.settings.colorLibGroups || []).find((g) => g.name === '__clib_smoke__');
+          out.colorAdded = !!(grp && grp.items.length === 1 && grp.items[0].hex === '#00AA88');
+          if (grp) {
+            const delBtn = q('#cf-del-group');
+            if (delBtn) {
+              delBtn.click(); await sleep(180);
+              const delOk = qa('.modal-foot .btn').find((b) => b.textContent.trim() === '删除');
+              if (delOk) delOk.click();
+              await sleep(250);
+            }
+          }
+          out.groupDeleted = !(state.settings.colorLibGroups || []).some((g) => g.name === '__clib_smoke__');
+          // 清理第二个分组:切到它 → 删除
+          const g2Item = qa('.clib-fav-item').find((b) => b.textContent.includes('__clib_smoke2__'));
+          if (g2Item) { g2Item.click(); await sleep(220); }
+          const del2 = q('#cf-del-group');
+          if (del2) {
+            del2.click(); await sleep(180);
+            const d2ok = qa('.modal-foot .btn').find((b) => b.textContent.trim() === '删除');
+            if (d2ok) d2ok.click();
+            await sleep(250);
+          }
+          out.group2Deleted = !(state.settings.colorLibGroups || []).some((g) => g.name === '__clib_smoke2__');
+          // 回到工具箱主页
+          const tbRoot2 = qa('.cat-node').find((el) => (el.querySelector('.cat-name') || {}).textContent === '资源工具箱');
+          if (tbRoot2) { tbRoot2.click(); await sleep(150); }
+          out.ok = out.cardFound && out.toolTitle === '颜色库' && out.tabs.length === 3
+            && out.projCards >= 10 && out.valChips >= 20 && out.hasHexChip
+            && out.hasEditBtn && out.editorOpen && out.editorHasSV && out.varChanged
+            && out.overrideCleared && out.varRestored
+            && out.palCount >= 5 && out.palStripBlks >= 50 && out.themeAccentSaved && out.themeRestored
+            && out.hasAddGroupBtn && out.groupCreated && out.group2Created && out.groupSwitchOk
+            && out.hasHotkeyBtn && out.hasAddColorBtn && out.colorAdded && out.groupDeleted && out.group2Deleted;
+          return out;
+        } catch (err) {
+          return { ok: false, error: err.message, stack: (err.stack || '').slice(0, 400) };
+        }
+      }
+      case 'boneeditor-spineproj': {
+        // 骨骼动画编辑器打开 .spine 工程文件(补丁·175):合成文件由主进程冒烟器预生成,
+        // 路径挂在 window.__spineProjPath;验证 打开→内存解码→编辑器项目→最近记录→属性面板区块
+        const out = {};
+        try {
+          const tbRoot = [...document.querySelectorAll('.cat-node')]
+            .find((el) => (el.querySelector('.cat-name') || {}).textContent === '资源工具箱');
+          if (!tbRoot) return { err: 'no-toolbox-root' };
+          tbRoot.click(); await sleep(200);
+          const card = [...document.querySelectorAll('.tool-entry')]
+            .find((el) => el.textContent.includes('骨骼动画编辑器'));
+          out.cardFound = !!card;
+          if (card) card.click();
+          await sleep(500);
+          const ed = window.__beEditor;
+          out.editorMounted = !!ed;
+          if (!ed) return out;
+          out.homeVisible = !(document.querySelector('.be-home') || { hidden: true }).hidden; // 默认首页
+          out.hasTestFile = !!window.__spineProjPath;
+          await ed.importSpineProjectFile(window.__spineProjPath);
+          await sleep(600);
+          out.view = ed.view;
+          out.bones = ed.project.armature.bones.map((b) => b.name).join(',');
+          out.slots = ed.project.armature.slots.map((s) => s.name + '@' + s.parent).join(',');
+          out.displays = ed.project.armature.slots.map((s) => s.displays.map((d) => d.name).join('+')).join('|');
+          out.anim = ed.project.armature.animations.map((a) => a.name + ':' + a.duration).join(',');
+          const tl = ed.project.armature.animations[0].bones.hip && ed.project.armature.animations[0].bones.hip.translate;
+          out.keys = tl ? tl.map((k) => k.frame + '/' + k.v.x + ',' + k.v.y).join(' ') : '';
+          out.spineMeta = {
+            project: ed.project.spine.project,
+            version: ed.project.spine.version,
+            src: (ed.project.spine.srcPath || '').replace(/^.*[\\/]/, ''),
+          };
+          out.recentKind = (JSON.parse(localStorage.getItem('boneEditorRecent') || '[]')[0] || {}).kind;
+          out.panelSections = [...document.querySelectorAll('.be-props .be-prop-title')].map((e) => e.textContent).join('|');
+          out.ok = out.view === 'editor' && out.bones === 'root,hip' && out.slots === 'body@hip,head@root'
+            && out.displays === 'body-img|head-img' && out.anim === 'walk:15'
+            && out.keys === '0/0,0 15/12.5,-3.3'
+            && out.spineMeta.project === true && out.spineMeta.version === '4.1.24'
+            && out.recentKind === 'spineproj' && out.panelSections.includes('Spine 工程(.spine)');
           return out;
         } catch (err) {
           return { ok: false, error: err.message, stack: (err.stack || '').slice(0, 400) };

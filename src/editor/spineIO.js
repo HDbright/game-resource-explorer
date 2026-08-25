@@ -105,7 +105,13 @@ export function resolveRegionDataUrl(project, image) {
   if (!page) return null;
   const img = getPageImg(page.dataUrl);
   if (!img) return null;
-  const r = image.spineRegion;
+  const url = cropRegionToDataUrl(img, image.spineRegion);
+  _cropCache.set(image.id, url);
+  return url;
+}
+
+/** 把图集区域(含 90/180/270 旋转与 trim 偏移)裁剪还原为独立 PNG 的 dataUrl(纹理解包器同源复用) */
+export function cropRegionToDataUrl(img, r) {
   const W = r.ow || r.w, H = r.oh || r.h;   // 原始尺寸
   const ox = r.ox || 0, oy = r.oy || 0;     // trim 偏移(atlas 语义,spine y 上)
   const cv = document.createElement('canvas');
@@ -114,13 +120,14 @@ export function resolveRegionDataUrl(project, image) {
   g.save();
   // 目标:把图集块按原样转正放回原始图的 (ox, oy) 位置
   if (r.rotate === 90) {
-    // 块宽=H 高=W;由 spine-ts UV 映射推导:block(u,v) → orig(v, H-u) 相对块原点
-    g.translate(ox, oy + H);
-    g.rotate(-Math.PI / 2);
-    g.drawImage(img, r.x, r.y, r.h, r.w, 0, 0, r.h, r.w);
-  } else if (r.rotate === 270) {
+    // 官方运行时实测(spine-core 3.8 RegionAttachment.setRegion):块(bx,by) → 原图(W-by, bx)
+    // ⇒ rotate(+90°) 且 translate(W,0);此前误用 -90° 变换,旋转块整体上下颠倒
     g.translate(ox + W, oy);
     g.rotate(Math.PI / 2);
+    g.drawImage(img, r.x, r.y, r.h, r.w, 0, 0, r.h, r.w);
+  } else if (r.rotate === 270) {
+    g.translate(ox, oy + H);
+    g.rotate(-Math.PI / 2);
     g.drawImage(img, r.x, r.y, r.h, r.w, 0, 0, r.h, r.w);
   } else if (r.rotate === 180) {
     g.translate(ox + W, oy + H);
@@ -131,17 +138,20 @@ export function resolveRegionDataUrl(project, image) {
     g.drawImage(img, r.x, r.y, r.w, r.h, ox, H - (r.oy || 0) - r.h, r.w, r.h);
   }
   g.restore();
-  const url = cv.toDataURL('image/png');
-  _cropCache.set(image.id, url);
-  return url;
+  return cv.toDataURL('image/png');
 }
 
 // ---------------- 导入 ----------------
 
-function curveToEase(curve) {
+function curveToEase(curve, key) {
   if (!curve) return { type: 'linear' };
   if (curve === 'stepped') return { type: 'step' };
   if (Array.isArray(curve) && curve.length === 4) return { type: 'bezier', pts: curve.slice() };
+  // 3.8.99+/4.x 分量式贝塞尔:curve=cx1, c2=cy1(默认0), c3=cx2(默认1), c4=cy2(默认1)
+  // (与 spine-ts SkeletonJson 官方解析一致)
+  if (typeof curve === 'number' && isFinite(curve)) {
+    return { type: 'bezier', pts: [curve, key?.c2 ?? 0, key?.c3 ?? 1, key?.c4 ?? 1] };
+  }
   return { type: 'linear' };
 }
 function easeToCurve(ease) {
@@ -157,7 +167,7 @@ function easeToCurve(ease) {
   return map[ease.type];
 }
 const hex2 = (v) => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0');
-const easeOf = (k) => k.ease && k.ease.type ? k.ease : curveToEase(k.curve);
+const easeOf = (k) => k.ease && k.ease.type ? k.ease : curveToEase(k.curve, k);
 
 /**
  * Spine JSON → 编辑器工程。
@@ -177,7 +187,7 @@ export function importSpineProject(json, { atlasText, pages }) {
   if (!skinsRaw.length) throw new Error('JSON 中没有皮肤数据');
   const skin = skinsRaw.find((s) => s.name === 'default') || skinsRaw[0];
 
-  const p = createProject(json.skeleton.hash ? String(json.skeleton.hash).slice(0, 12) : 'spine工程');
+  const p = createProject(json.skeleton.hash ? String(json.skeleton.hash).slice(0, 12) : 'spine项目');
   p.name = 'spine_' + (skin.name === 'default' ? 'project' : skin.name);
   p.frameRate = 30;
   p.spine = {
@@ -236,7 +246,9 @@ export function importSpineProject(json, { atlasText, pages }) {
   // ---- 插槽(z = json 顺序)----
   p.armature.slots = json.slots.map((s, idx) => {
     const dispList = dispBySlot.get(s.name) || [];
-    let di = 0;
+    // setup 无附件(spine 槽定义缺 attachment 字段)-> 隐藏(displayIndex=-1),
+    // 此前默认 0 会让 muzzle 这类"仅动画中显示"的槽在所有无键动画里常驻显示
+    let di = -1;
     if (s.attachment) { const f = dispList.findIndex((d) => d.name === s.attachment); if (f >= 0) di = f; }
     const c = s.color ? parseSpineColor(s.color) : { r: 255, g: 255, b: 255, a: 1 };
     return { name: s.name, parent: s.bone, z: idx, displayIndex: di, color: c, displays: dispList, raw: s };
@@ -304,12 +316,140 @@ function parseSpineColor(hex) {
   };
 }
 
+// ---------------- Spine 编辑器工程(.spine 解码数据)导入 ----------------
+
+/**
+ * Spine 工程解码 JSON(spineProjectToJson 逆向产物,与运行时 JSON 结构不同)-> 编辑器项目。
+ *
+ * 解码数据可靠性(逆向所得,与运行时 JSON 的差异):
+ * - 骨骼:名称/父引用已完整解析,变换为 setup 姿势 -> 全量导入可编辑;
+ * - 插槽:名称/所属骨骼/颜色已解析;setup 附件为未解析引用 -> displayIndex 取首个附件;
+ * - 附件:region 类型(位名 x/y/rotation/scale/width/height)完整;名称部分为 #ref 未解析;
+ *   归属插槽靠 slot_hint;mesh/边界框仅作显示对象占位(无贴图);
+ * - 动画:仅骨骼 rotate/translate 时间线已可靠识别(分类为启发式,scale 会并入 translate);
+ *   attachment/event 时间线的引用未解析 -> 跳过;
+ * - 图片:工程引用源图目录(skeleton.images),按 region 附件名同名查找(找不到则无贴图)。
+ * @param {object} decoded spineProjectToJson 解码 JSON
+ * @param {object} opts { srcPath: .spine 路径, imageFiles: [{name, dataUrl, w, h}] 源图 }
+ */
+export function importSpineEditorProject(decoded, opts = {}) {
+  if (!decoded || !Array.isArray(decoded.bones) || !decoded.bones.length) throw new Error('不是有效的 Spine 工程解码数据(无骨骼区)');
+  const version = String((decoded.skeleton && decoded.skeleton.spine) || '');
+  const base = (opts.srcPath || '').replace(/^.*[\\/]/, '').replace(/\.spine$/i, '') || 'spine_project';
+  const p = createProject(base);
+  p.frameRate = 30;
+  p.spine = {
+    version,
+    family: version.startsWith('4') ? '4' : '3',
+    project: true,                 // 来源 = Spine 编辑器工程文件(非运行时 JSON;导出走 .lbone.json 保存)
+    srcPath: opts.srcPath || '',
+    imagesDir: (decoded.skeleton && decoded.skeleton.images) || '',
+    raw: decoded,                  // 解码数据原样保留(未识别区段的参考与二次编辑依据)
+    atlasText: '',
+    pages: [],
+    skin: 'default',
+    regionNames: [],
+  };
+
+  // ---- 骨骼(解码已完整解析父引用;04-09 组为编辑器姿态,0a-0e 组已归一为 setup) ----
+  p.armature.bones = decoded.bones.map((b) => ({
+    name: b.name, parent: b.parent || '',
+    x: b.x || 0, y: b.y || 0, rotation: b.rotation || 0, length: b.length || 0,
+    scaleX: b.scaleX === undefined ? 1 : b.scaleX, scaleY: b.scaleY === undefined ? 1 : b.scaleY, skew: 0,
+    inheritTranslation: true, inheritRotation: true, inheritScale: true,
+    raw: b,
+  }));
+
+  // ---- 附件 -> 源图图片 + 各插槽显示对象(slot_hint 归属) ----
+  const imageFiles = opts.imageFiles || [];
+  const images = [];
+  const dispBySlot = new Map();
+  const ensureImage = (name) => {
+    if (!name || String(name).startsWith('#ref')) return null;
+    let im = images.find((x) => x.name === name);
+    if (!im) {
+      const f = imageFiles.find((x) => x.name === name);
+      im = { id: 'img_' + String(name).replace(/[^\w]/g, '_'), name, w: (f && f.w) || 0, h: (f && f.h) || 0, dataUrl: (f && f.dataUrl) || '' };
+      images.push(im);
+    }
+    return im;
+  };
+  for (const a of decoded.attachments || []) {
+    const slotName = a.slot_hint || '';
+    const list = dispBySlot.get(slotName) || [];
+    const disp = {
+      name: a.name || ('#ref' + (a.name_ref ?? list.length)),
+      imageId: '',
+      transform: { x: a.x || 0, y: a.y || 0, rotation: a.rotation || 0, scaleX: a.scaleX === undefined ? 1 : a.scaleX, scaleY: a.scaleY === undefined ? 1 : a.scaleY },
+      pivot: { x: 0.5, y: 0.5 },
+      raw: a,
+    };
+    // 仅 region 附件有源图(mesh/边界框等 Pro 附件在编辑器中无独立贴图形态)
+    if (a.type === 'region') {
+      const im = ensureImage(a.name);
+      if (im) disp.imageId = im.id;
+    }
+    list.push(disp);
+    dispBySlot.set(slotName, list);
+  }
+  p.images = images;
+  p.spine.regionNames = images.map((i) => i.name);
+
+  // ---- 插槽(setup 附件引用未解析:有附件的槽默认显示首个,无附件隐藏) ----
+  p.armature.slots = (decoded.slots || []).map((s, idx) => {
+    const dispList = dispBySlot.get(s.name) || [];
+    const c = s.color ? parseSpineColor(s.color) : { r: 255, g: 255, b: 255, a: 1 };
+    return { name: s.name, parent: s.bone, z: idx, displayIndex: dispList.length ? 0 : -1, color: c, displays: dispList, raw: s };
+  });
+
+  // ---- 动画:rotate / translate / scale 时间线;attachment/event 引用未解析跳过 ----
+  // 时间上限(秒):超过视为解码重同步噪声丢弃 —— 逆向解码是启发式的,偶发把浮点数据误读为
+  // 关键帧(spineboy-pro 实测:合法键 ≤5s,杂散键可达 1e21),不滤会得到天文数字的动画时长
+  const MAX_KEY_TIME = 600;
+  const fps = p.frameRate;
+  p.armature.animations = Object.entries(decoded.animations || {}).map(([name, a]) => {
+    const bones = {};
+    let maxT = 0;
+    for (const tl of (a && a.timelines) || []) {
+      if (!tl || !tl.target || !Array.isArray(tl.keys) || !tl.keys.length) continue;
+      const isTrans = tl.kind === 'translate';
+      const isRot = tl.kind === 'rotate';
+      const isScale = tl.kind === 'scale';
+      if (!isTrans && !isRot && !isScale) continue;
+      const store = bones[tl.target] || (bones[tl.target] = {});
+      const ch = isTrans ? 'translate' : isRot ? 'rotate' : 'scale';
+      const arr = store[ch] || (store[ch] = []);
+      for (const k of tl.keys) {
+        const t = k.time;
+        if (!(t >= 0 && t <= MAX_KEY_TIME)) continue; // NaN/负值/超长 -> 杂散记录,丢键
+        maxT = Math.max(maxT, t);
+        const ease = Array.isArray(k.curve) && k.curve.length === 4 ? { type: 'bezier', pts: k.curve.slice() } : { type: 'linear' };
+        arr.push(isTrans
+          ? { frame: Math.round(t * fps), v: { x: k.value || 0, y: k.value2 || 0 }, ease }
+          : isScale
+          ? { frame: Math.round(t * fps), v: { scaleX: k.value ?? 1, scaleY: k.value2 ?? 1 }, ease }
+          : { frame: Math.round(t * fps), v: { rotation: k.value || 0 }, ease });
+      }
+      // 全部键被过滤 -> 收回空通道/空骨骼轨,不留 0 键时间线
+      if (!arr.length) {
+        delete store[ch];
+        if (!Object.keys(store).length) delete bones[tl.target];
+        continue;
+      }
+      arr.sort((x, y) => x.frame - y.frame);
+    }
+    return { name, duration: Math.max(1, Math.round(maxT * fps)), loop: true, bones, slots: {} };
+  });
+  if (!p.armature.animations.length) p.armature.animations.push({ name: 'new_animation', duration: 30, loop: true, bones: {}, slots: {} });
+  return p;
+}
+
 // ---------------- 导出 ----------------
 
 /** 编辑器工程 → Spine JSON 文本(结构按导入版本家族回写) */
 export function exportSpineProject(p) {
   const sp = p.spine;
-  if (!sp) throw new Error('当前工程不是 Spine 导入工程');
+  if (!sp) throw new Error('当前项目不是 Spine 导入项目');
   const raw = sp.raw;
   const fps = p.frameRate || 30;
   const out = {};
@@ -373,9 +513,19 @@ export function exportSpineProject(p) {
   return { json: JSON.stringify(out, null, 1), version: sp.version };
 }
 
+/** key ease -> Spine JSON curve 字段(3.x 组件格式:curve=cx1 单数字,c2/c3/c4 非默认时单独输出) */
 function curveOf(key) {
-  const c = easeToCurve(key.ease);
-  return c !== undefined ? { curve: c } : {};
+  const ease = key.ease;
+  if (!ease || ease.type === 'linear') return {};
+  if (ease.type === 'step') return { curve: 'stepped' };
+  const pts = ease.type === 'bezier' && ease.pts ? ease.pts : easeToCurve(ease);
+  if (!pts || !Array.isArray(pts)) return {};
+  const [c1, c2, c3, c4] = pts;
+  const o = { curve: r4(c1) };
+  if (c2 !== undefined && Math.abs(c2) > 1e-6) o.c2 = r4(c2);
+  if (c3 !== undefined && Math.abs(c3 - 1) > 1e-6) o.c3 = r4(c3);
+  if (c4 !== undefined && Math.abs(c4 - 1) > 1e-6) o.c4 = r4(c4);
+  return o;
 }
 const r4 = (v) => Math.round(v * 10000) / 10000;
 
@@ -404,4 +554,217 @@ export async function exportSpineFiles(p) {
     files.push(base + '.atlas');
   }
   return { dir, files };
+}
+
+// ---------------- 通用 Spine JSON 导出(任意项目类型) ----------------
+
+// ---- 解码数据清理:去除非 Spine 标准字段(f07_raw/inheritFlags_raw/slot_hint 等) ----
+const _BONE_KEEP = new Set(['name', 'parent', 'x', 'y', 'rotation', 'scaleX', 'scaleY', 'shearX', 'shearY', 'length', 'transform', 'color', 'skin', 'visible']);
+const _SLOT_KEEP = new Set(['name', 'bone', 'color', 'dark', 'darkColor', 'attachment', 'blend', 'visible']);
+const _ATT_REGION_KEEP = new Set(['type', 'x', 'y', 'rotation', 'scaleX', 'scaleY', 'width', 'height', 'path']);
+const _ATT_MESH_KEEP = new Set(['type', 'uvs', 'triangles', 'vertices', 'hull', 'edges', 'width', 'height', 'path', 'color']);
+const _ATT_OTHER_KEEP = new Set(['type', 'vertexCount', 'vertices', 'color', 'end', 'lengths', 'closed']);
+function _cleanObj(obj, keep) {
+  if (!obj || typeof obj !== 'object') return obj;
+  const out = {};
+  for (const k of keep) { if (obj[k] !== undefined) out[k] = obj[k]; }
+  return out;
+}
+function _cleanBone(raw) { return _cleanObj(raw, _BONE_KEEP); }
+function _cleanSlot(raw) { return _cleanObj(raw, _SLOT_KEEP); }
+function _cleanAtt(raw) {
+  if (!raw || typeof raw !== 'object') return raw;
+  // 规范化解码器启发式类型标签
+  let type = raw.type || 'region';
+  if (type === 'clipping?') type = 'clipping';
+  if (type.startsWith('type')) type = 'region'; // 未知类型降级为 region
+  const base = { ...raw, type };
+  if (type === 'mesh' || type === 'weightedmesh' || type === 'linkedmesh') return _cleanObj(base, _ATT_MESH_KEEP);
+  if (type === 'region') return _cleanObj(base, _ATT_REGION_KEEP);
+  return _cleanObj(base, _ATT_OTHER_KEEP);
+}
+
+/**
+ * 从编辑器项目构建完整的 Spine 运行时 JSON(任意项目类型可用)。
+ *
+ * 策略:
+ * - 运行时导入(p.spine.raw 有完整 skins/bones/slots):走现有 round-trip 路径(exportSpineProject)
+ * - 解码 .spine(p.spine.project=true,srcPath 存在):重新解码原文件获取完整数据,用编辑器修改覆盖
+ * - 自建项目(无 p.spine):完全从编辑器模型构建
+ * @returns {{ json: string, version: string }}
+ */
+export async function buildSpineJsonFromModel(p) {
+  const sp = p.spine;
+  const fps = p.frameRate || 30;
+
+  // ---- Case 1: 运行时导入,raw 有完整 skins(走现有 round-trip) ----
+  if (sp && sp.raw && sp.raw.skins && sp.raw.skeleton && !sp.project) {
+    return exportSpineProject(p);
+  }
+
+  // ---- Case 2/3: 解码 .spine 或自建项目 ----
+  let decoded = null;
+  if (sp && sp.project && sp.srcPath && window.api?.decodeSpineProject) {
+    try {
+      const r = await window.api.decodeSpineProject({ inputPath: sp.srcPath });
+      if (r && r.ok) decoded = JSON.parse(r.json);
+    } catch (e) { /* 解码失败 -> 降级为纯模型构建 */ }
+  }
+
+  const out = {};
+
+  // ---- skeleton 元数据 ----
+  out.skeleton = {
+    hash: 'editor_export',
+    spine: sp?.version || '3.8.99',
+    x: 0, y: 0, width: 0, height: 0,
+    fps,
+    images: decoded?.skeleton?.images || '',
+    audio: '',
+  };
+
+  // ---- 约束/事件:从解码数据或 raw 中保留 ----
+  const constraintSrc = decoded || sp?.raw;
+  if (constraintSrc) {
+    for (const key of ['ik', 'transform', 'path', 'events', 'strings']) {
+      if (constraintSrc[key] !== undefined) out[key] = constraintSrc[key];
+    }
+  }
+
+  // ---- 骨骼 ----
+  const decodedBonesByName = new Map((decoded?.bones || []).map((b) => [b.name, b]));
+  out.bones = p.armature.bones.map((b) => {
+    const raw = _cleanBone(decodedBonesByName.get(b.name) || b.raw || {});
+    const o = { ...raw, name: b.name };
+    if (b.parent) o.parent = b.parent; else delete o.parent;
+    o.x = r4(b.x); o.y = r4(b.y); o.rotation = r4(b.rotation);
+    if (b.length) o.length = r4(b.length);
+    if (b.scaleX !== undefined && b.scaleX !== 1) o.scaleX = r4(b.scaleX);
+    if (b.scaleY !== undefined && b.scaleY !== 1) o.scaleY = r4(b.scaleY);
+    return o;
+  });
+
+  // ---- 插槽 ----
+  const decodedSlotsByName = new Map((decoded?.slots || []).map((s) => [s.name, s]));
+  const ordered = [...p.armature.slots].sort((a, b) => a.z - b.z);
+  out.slots = ordered.map((s) => {
+    const raw = _cleanSlot(decodedSlotsByName.get(s.name) || s.raw || {});
+    const o = { ...raw, name: s.name, bone: s.parent };
+    o.color = hex2(s.color.r) + hex2(s.color.g) + hex2(s.color.b) + hex2((s.color.a ?? 1) * 255);
+    delete o.darkColor; // 颜色由编辑器管理
+    const disp = s.displays[s.displayIndex];
+    o.attachment = disp ? disp.name : undefined;
+    return o;
+  });
+
+  // ---- skins:从编辑器插槽显示对象重建 ----
+  out.skins = _buildSkinsFromModel(p, decoded);
+
+  // ---- 动画 ----
+  out.animations = _buildAnimationsFromModel(p, decoded, fps);
+
+  return { json: JSON.stringify(out, null, 1), version: out.skeleton.spine };
+}
+
+/** 从编辑器插槽显示对象重建 Spine skins 块 */
+function _buildSkinsFromModel(p, decoded) {
+  const skinName = p.spine?.skin || 'default';
+  const attachments = {};
+  // 解码数据的附件(含 mesh/linkedMesh 等完整几何)
+  const decodedAttByName = new Map();
+  for (const a of (decoded?.attachments || [])) {
+    if (a.name && !String(a.name).startsWith('#ref')) decodedAttByName.set(a.name, a);
+  }
+
+  for (const slot of p.armature.slots) {
+    const slotAtts = {};
+    for (const disp of slot.displays) {
+      // 优先用解码数据中的完整附件(含 mesh/linkedMesh 等)
+      const decodedAtt = decodedAttByName.get(disp.name);
+      if (decodedAtt) {
+        const att = { ..._cleanAtt(decodedAtt) };
+        delete att.slot_hint;
+        // 应用编辑器的变换修改
+        const t = disp.transform || {};
+        if (t.x !== undefined) att.x = r4(t.x);
+        if (t.y !== undefined) att.y = r4(t.y);
+        if (t.rotation !== undefined) att.rotation = r4(t.rotation);
+        if (t.scaleX !== undefined && t.scaleX !== 1) att.scaleX = r4(t.scaleX);
+        if (t.scaleY !== undefined && t.scaleY !== 1) att.scaleY = r4(t.scaleY);
+        slotAtts[disp.name] = att;
+      } else {
+        // 无解码数据:从编辑器模型构建 region 附件
+        const att = {};
+        const t = disp.transform || {};
+        if (t.x) att.x = r4(t.x);
+        if (t.y) att.y = r4(t.y);
+        if (t.rotation) att.rotation = r4(t.rotation);
+        if (t.scaleX !== undefined && t.scaleX !== 1) att.scaleX = r4(t.scaleX);
+        if (t.scaleY !== undefined && t.scaleY !== 1) att.scaleY = r4(t.scaleY);
+        const img = (p.images || []).find((i) => i.id === disp.imageId);
+        if (img) { att.width = img.w || 0; att.height = img.h || 0; }
+        if (disp.raw && disp.raw.type && disp.raw.type !== 'region') {
+          Object.assign(att, disp.raw);
+        }
+        slotAtts[disp.name] = att;
+      }
+    }
+    if (Object.keys(slotAtts).length) attachments[slot.name] = slotAtts;
+  }
+
+  if ((p.spine?.family || '3') === '4') return [{ name: skinName, attachments }];
+  return { [skinName]: attachments };
+}
+
+/** 从编辑器动画构建 Spine animations 块(含 rawKeep + 解码数据中的 un-edited 时间线) */
+function _buildAnimationsFromModel(p, decoded, fps) {
+  const out = {};
+  const decodedAnims = decoded?.animations || {};
+
+  for (const anim of p.armature.animations) {
+    const a = {};
+    const boneTl = {};
+    for (const [bn, ch] of Object.entries(anim.bones || {})) {
+      const o = {};
+      if (ch.translate?.length) o.translate = ch.translate.map((k) => ({ time: r4(k.frame / fps), x: k.v.x, y: k.v.y, ...curveOf(k) }));
+      if (ch.rotate?.length) o.rotate = ch.rotate.map((k) => ({ time: r4(k.frame / fps), angle: k.v.rotation, ...curveOf(k) }));
+      if (ch.scale?.length) o.scale = ch.scale.map((k) => ({ time: r4(k.frame / fps), x: k.v.scaleX, y: k.v.scaleY, ...curveOf(k) }));
+      if (Object.keys(o).length) boneTl[bn] = o;
+    }
+    if (Object.keys(boneTl).length) a.bones = boneTl;
+
+    const slotTl = {};
+    for (const [sn, ch] of Object.entries(anim.slots || {})) {
+      const o = {};
+      if (ch.color?.length) o.color = ch.color.map((k) => ({ time: r4(k.frame / fps), color: hex2(k.v.r) + hex2(k.v.g) + hex2(k.v.b) + hex2((k.v.a ?? 1) * 255), ...curveOf(k) }));
+      if (ch.display?.length) {
+        const slot = p.armature.slots.find((s) => s.name === sn);
+        o.attachment = ch.display.map((k) => {
+          const disp = slot && k.v.displayIndex >= 0 ? slot.displays[k.v.displayIndex] : null;
+          return { time: r4(k.frame / fps), name: disp ? disp.name : null };
+        });
+      }
+      if (Object.keys(o).length) slotTl[sn] = o;
+    }
+    if (Object.keys(slotTl).length) a.slots = slotTl;
+
+    // 保留编辑器 rawKeep(deform/ik/transform/path/drawOrder/events/sequence)
+    for (const [key, v] of Object.entries(anim.rawKeep || {})) a[key] = v;
+
+    // 从解码数据中补充编辑器未处理的时间线(attachment/event 等)
+    // 注意:这些数据仅保留在 rawKeep 中供 round-trip,不直接写入导出(引用未解析)
+    const decodedAnim = decodedAnims[anim.name];
+    if (decodedAnim?.timelines) {
+      for (const tl of decodedAnim.timelines) {
+        if (tl.kind === 'attachment' && tl.target && tl.keys?.length) {
+          // 保留为 rawKeep 但不写入导出(attachment_ref 未解析)
+          if (!anim.rawKeep) anim.rawKeep = {};
+          // 不写入 —— 附件时间线引用未解析,导出时跳过
+        }
+      }
+    }
+
+    out[anim.name] = a;
+  }
+  return out;
 }

@@ -47,6 +47,7 @@ import { runAddFlow, addPathsToCategory } from './addFlow.js';
 import { renderHomePage, renderFavHome, renderFilterHome } from './pages/homePage.js';
 import { renderFolderPage, renderFavFolderPage } from './pages/folderPage.js';
 import { renderToolboxPage, toolboxToolActions } from './pages/toolboxPage.js';
+import { backgroundPickToFavorites } from './pages/colorLibraryPage.js';
 import { renderProjectsPage, newProjectDialog, editProjectDialog, deleteProjectDialog, newProjectFolderDialog, renameProjectFolderDialog, deleteProjectFolderDialog, openProjectDetail } from './pages/projectsPage.js';
 import { renderSceneHome, renderSceneFolderPage, renderFguiPreviewPage, promptRegisterFgui, renderSceneSearchResults } from './pages/scenePage.js';
 import { renderFguiEditorPage } from './pages/fguiEditorPage.js';
@@ -369,13 +370,14 @@ function previewTypeIcon(type) {
 }
 
 function toolLabel(tool) {
-  return ({ astc2png: 'ASTC→PNG', skel2json: 'SKEL→JSON', spinefix: 'Spine 修复', imageedit: '图片编辑', sk2spine: 'Laya .sk → Spine', atlas: '图片集打包', spineconvert: 'Spine 格式转换', todo: 'Todo-List', kidworkspace: '得乐学苑' })[tool] || tool;
+  return ({ astc2png: 'ASTC→PNG', skel2json: 'SKEL→JSON', spinefix: 'Spine 修复', imageedit: '图片编辑', sk2spine: 'Laya .sk → Spine', atlas: '图片集打包', spineconvert: 'Spine 格式转换', todo: 'Todo-List', kidworkspace: '得乐学苑', colorlib: '颜色库' })[tool] || tool;
 }
 
 export function initUI(pv) {
   preview = pv;
   // 恢复上次关闭时的侧栏展开/折叠状态(在首次渲染前加载;splash 遮罩期间完成,不闪)
   loadExpandedCatsInto(expandedCats);
+  pruneLegacySearchExpansion();
   // 应用外观设置(主题 / 字体字号 / 背景),在首屏渲染前应用,避免闪烁
   applyAppearance();
   setupSystemThemeListener();
@@ -389,7 +391,8 @@ export function initUI(pv) {
     try {
       if (localStorage.getItem('sidebarHidden') === '1') {
         const sb = document.getElementById('sidebar');
-        if (sb) sb.classList.add('hidden');
+        // 启动恢复:直接 hidden+gone(不移入布局,也不播收缩动画)
+        if (sb) sb.classList.add('hidden', 'gone');
       }
     } catch (e) { /* ignore */ }
     syncTreeToggleIcon();
@@ -474,6 +477,9 @@ export function initUI(pv) {
         setTimeout(() => {
           document.dispatchEvent(new CustomEvent('todo:view', { detail: { view: 'calendar' } }));
         }, 60);
+      } else if (msg.type === 'color-pick-fav' && msg.hex) {
+        // 全局快捷键/托盘「屏幕取色收藏」:把取到的颜色加入颜色选择库收藏分组(渲染层可能处于隐藏窗口,仍可处理)
+        try { backgroundPickToFavorites(msg.hex); } catch (e) { /* ignore */ }
       }
     });
   }
@@ -660,6 +666,29 @@ function flushExpandedCats() {
   try { localStorage.setItem(EXPANDED_CATS_KEY, JSON.stringify(Array.from(expandedCats))); } catch (e) { /* ignore */ }
 }
 
+/**
+ * 一次性清理旧版「搜索自动展开全部类目并持久化」的遗留状态。
+ * 旧逻辑(已在 renderTree 修复为仅显示层展开)会把搜索时自动展开的所有分类/菜单节点 id
+ * 写入 localStorage,且退出时 flushExpandedCats 再度写回 -> 搜过一次后侧栏永久全展开,
+ * 树携带全量条目行导致整体卡顿。仅当存储状态带有完整的旧自动展开特征
+ * (所有分类 id 与菜单节点 id 全部在场,即只可能由旧自动展开产生)时才清理,避免误伤手工展开。
+ */
+function pruneLegacySearchExpansion() {
+  try {
+    if (localStorage.getItem('sidebarExpandedPruned1') === '1') return;
+    localStorage.setItem('sidebarExpandedPruned1', '1');
+    const catIds = state.categories.map((c) => c.id);
+    const mnIds = state.menuNodes.map((m) => m.id);
+    if (!catIds.length && !mnIds.length) return;
+    const allIn = [...catIds, ...mnIds].every((id) => expandedCats.has(id));
+    if (!allIn) return;
+    const keep = new Set(['__webgame_fav__', '__m_toolbox__']); // 默认展开项保留
+    for (const id of catIds) if (!keep.has(id)) expandedCats.delete(id);
+    for (const id of mnIds) if (!keep.has(id)) expandedCats.delete(id);
+    flushExpandedCats();
+  } catch (e) { /* ignore */ }
+}
+
 let dragCatId = null;    // 当前拖拽中的分类 id
 let dragItemId = null;   // 当前拖拽中的条目 id
 let dragKind = null;     // 拖拽源类型:'cat'(分类) | 'favcat'(收藏分类) | 'item'(动画条目)
@@ -727,24 +756,95 @@ function itemInGroup(item, group) {
   return typeGroup(item.type) === group;
 }
 
-/** 某资源类型分组('anim'/'image'/'audio'/'3d')下的全部条目(不随全局 tab 变化,供各类型根节点各自渲染) */
+/** 某资源类型分组('anim'/'image'/'audio'/'3d')下的全部条目(不随全局 tab 变化,供各类型根节点各自渲染);树渲染期间按分组懒缓存 */
 function itemsForGroup(group) {
+  if (_treeRendering) {
+    const ctx = treeCtx();
+    let arr = ctx.groupItems.get(group);
+    if (!arr) {
+      arr = state.items.filter((i) => itemInGroup(i, group));
+      ctx.groupItems.set(group, arr);
+    }
+    return arr;
+  }
   return state.items.filter((i) => itemInGroup(i, group));
 }
 
 /** 某资源类型分组下某分类的条目(all=全部, ''=未分类) */
 function itemsForGroupCat(group, catId) {
-  const all = itemsForGroup(group);
-  if (catId === 'all') return all;
-  if (catId === '') return all.filter((i) => !i.categoryId); // 未分类:按资源类型归属分组(无 categoryId)
+  if (catId === 'all') return itemsForGroup(group);
+  if (catId === '') return itemsForGroup(group).filter((i) => !i.categoryId); // 未分类:按资源类型归属分组(无 categoryId)
   // 具体分类:分类已通过 typeTags 归属该资源分组,其下条目以 categoryId 为准,
   // 不再按 item.type 二次过滤(避免自定义分组下、分类内条目被误打成内置/其它类型时被剔除而不显示)
+  if (_treeRendering) return treeCtx().itemsByCat.get(catId) || [];
   return state.items.filter((i) => i.categoryId === catId);
 }
 
 export function renderCategories(selectId = currentCategoryId) {
   currentCategoryId = selectId;
   renderTree();
+}
+
+// ---- 侧栏树渲染期索引(renderTree 同步执行期间有效) ----
+// 背景:renderTree 为全量重建,子分类枚举/分组条目过滤/收藏状态/递归计数原本被每个节点
+// 反复全量扫描(实测 856 条资源:isFavored 被调 6 万+次、itemsForGroup 上千次,占渲染耗时约 75%)。
+// 每次 renderTree 开始前重置、结束后失效:渲染外的调用(对话框/右键菜单/其他页面)不受缓存影响,
+// 仍走原始逻辑,不会读到过期数据。
+let _treeCtx = null;
+let _treeRendering = false;
+// 搜索渲染期间「视为展开」的节点集合(所有分类 + 菜单节点;仅作用于显示层)。
+// 原实现把全部 id add 进 expandedCats(AutoPersistSet)持久化:搜过一次后,全展开状态
+// 会永久保存并在下次启动恢复,侧栏从此长期携带全量条目行,整体卡顿。改为仅渲染期生效。
+let _searchAutoExpanded = null;
+
+/** 树渲染时的展开判断:搜索时分类与菜单节点全部视为展开(仅显示),其余以持久化展开状态为准 */
+function expandedInTree(id) {
+  if (_searchAutoExpanded && _searchAutoExpanded.has(id)) return true;
+  return expandedCats.has(id);
+}
+
+function treeCtx() {
+  if (_treeCtx) return _treeCtx;
+  const itemsByCat = new Map();
+  for (const it of state.items) {
+    const k = it.categoryId || '';
+    const arr = itemsByCat.get(k);
+    if (arr) arr.push(it); else itemsByCat.set(k, [it]);
+  }
+  const catChildren = new Map();
+  for (const c of state.categories) {
+    const k = c.parentId || '';
+    const arr = catChildren.get(k);
+    if (arr) arr.push(c); else catChildren.set(k, [c]);
+  }
+  const favIds = new Set();
+  const favLocs = new Map();
+  for (const f of state.favItems) {
+    favIds.add(f.itemId);
+    const loc = (f.favCategoryId ? (favCategoryById(f.favCategoryId) || {}).name : '') || '未分类收藏';
+    const arr = favLocs.get(f.itemId);
+    if (arr) arr.push(loc); else favLocs.set(f.itemId, [loc]);
+  }
+  _treeCtx = { itemsByCat, catChildren, favIds, favLocs, groupItems: new Map(), rootNodes: new Map(), catTreeCounts: new Map() };
+  return _treeCtx;
+}
+
+/** 树渲染期间等价于 getCategoryChildren(走 parentId 索引);渲染外回退原实现 */
+function treeCategoryChildren(parentId) {
+  if (_treeRendering) return treeCtx().catChildren.get(parentId || '') || [];
+  return getCategoryChildren(parentId);
+}
+
+/** 树渲染期间的已收藏判断(索引 O(1));渲染外回退 isFavored */
+function treeIsFavored(itemId) {
+  if (_treeRendering) return treeCtx().favIds.has(itemId);
+  return isFavored(itemId);
+}
+
+/** 树渲染期间的收藏位置列表(与 favLocations 同语义);渲染外回退原实现 */
+function treeFavLocations(itemId) {
+  if (_treeRendering) return treeCtx().favLocs.get(itemId) || [];
+  return favLocations(itemId);
 }
 
 /** 兼容旧调用(条目变化时刷新树) */
@@ -807,24 +907,32 @@ function renderSearchResults() {
 function renderTree() {
   const tree = document.getElementById('cat-tree');
   if (!tree) return;
-  tree.innerHTML = '';
+  _treeCtx = null; // 防御:新一轮渲染强制重建索引(状态可能在两次渲染之间已变化)
+  _treeRendering = true;
+  try {
+    tree.innerHTML = '';
 
-  // 搜索时自动展开所有分类与菜单节点
-  if (searchText) {
-    state.categories.forEach((c) => expandedCats.add(c.id));
-    state.menuNodes.forEach((m) => expandedCats.add(m.id));
-  }
+    // 搜索时自动展开所有分类与菜单节点(仅显示层:见 expandedInTree,不写入持久化状态)
+    _searchAutoExpanded = searchText
+      ? new Set([...state.categories.map((c) => c.id), ...state.menuNodes.map((m) => m.id)])
+      : null;
 
-  // 收藏夹区块(置顶,特殊样式 + 「＋」新建收藏分类按钮)
-  renderFavSection(tree, menuNodeById('__m_fav__'));
+    // 收藏夹区块(置顶,特殊样式 + 「＋」新建收藏分类按钮)
+    renderFavSection(tree, menuNodeById('__m_fav__'));
 
-  // 其余菜单节点按 menuNodes 顺序渲染(动画/图片/音频/3D资源 + 场景 + 抓取 + 工具箱 + 开发工具箱 + 设置 + 自定义节点);隐藏的节点不在侧栏显示
-  const roots = getMenuRoots().filter((n) => (n.action || '') !== 'fav' && !menuRootEmpty(n) && !n.hidden);
-  for (const node of roots) {
-    const sep = document.createElement('div');
-    sep.className = 'tree-section-sep';
-    tree.appendChild(sep);
-    renderMenuNode(tree, node, 0);
+    // 其余菜单节点按 menuNodes 顺序渲染(动画/图片/音频/3D资源 + 场景 + 抓取 + 工具箱 + 开发工具箱 + 设置 + 自定义节点);隐藏的节点不在侧栏显示
+    const roots = getMenuRoots().filter((n) => (n.action || '') !== 'fav' && !menuRootEmpty(n) && !n.hidden);
+    for (const node of roots) {
+      const sep = document.createElement('div');
+      sep.className = 'tree-section-sep';
+      tree.appendChild(sep);
+      renderMenuNode(tree, node, 0);
+    }
+  } finally {
+    _searchAutoExpanded = null;
+    _treeRendering = false;
+    _treeCtx = null; // 渲染结束即失效,后续状态变更不会读到过期索引
+    globalThis.__treeRenderCount = (globalThis.__treeRenderCount || 0) + 1; // 供基准/冒烟脚本观测
   }
 }
 
@@ -972,7 +1080,7 @@ function renderMenuNode(parent, node, depth) {
   const menuKids = getMenuChildren(node.id);
   const dynamicHas = isTerm ? false : menuNodeHasDynamic(node);
   const hasChildren = !isTerm && (menuKids.length > 0 || dynamicHas);
-  const isOpen = expandedCats.has(node.id);
+  const isOpen = expandedInTree(node.id);
   const active = menuNodeActive(node);
   const icon = node.icon || defaultMenuIcon(node);
   const grp2 = menuNodeResourceGroup(node);
@@ -1068,13 +1176,22 @@ function renderResTypeChildren(wrap, group) {
       renderPseudoNode(wrap, { id: '', icon: '○', name: '未分类' }, group, 'uncat:' + group);
     }
   }
-  for (const c of getCategoryChildren('')) {
+  for (const c of treeCategoryChildren('')) {
     if (catVisibleInGroup(c, group)) renderCatNode(wrap, c, 0, group);
   }
 }
 
-/** 取得某资源分组的「资源根目录」菜单节点(动画/图片/音频/3D资源、文档/视频资源、自定义分组根) */
+/** 取得某资源分组的「资源根目录」菜单节点(动画/图片/音频/3D资源、文档/视频资源、自定义分组根);树渲染期间缓存 */
 function resourceRootNode(group) {
+  if (_treeRendering) {
+    const ctx = treeCtx();
+    let rn = ctx.rootNodes.get(group);
+    if (rn === undefined) {
+      rn = state.menuNodes.find((m) => menuNodeResourceGroup(m) === group) || null;
+      ctx.rootNodes.set(group, rn);
+    }
+    return rn;
+  }
   return state.menuNodes.find((m) => menuNodeResourceGroup(m) === group) || null;
 }
 
@@ -2097,6 +2214,7 @@ function enterFguiEditor(binPath) {
 const TOOLBOX_TOOL_ICONS = {
   astc2png: '🖼', skel2json: '📦', spinefix: '🛠', sk2spine: '🦴', spineconvert: '🔄',
   atlas: '🗂', imageedit: '🎨', fgui: '🧩', '__fgui_editor__': '✏️', todo: '✅',
+  markdown: '📄', kidworkspace: '🌟', boneeditor: '🦴', colorlib: '🎨',
 };
 /** 侧栏根节点「资源工具箱」的虚拟 id(非数据节点,仅作展开键) */
 const TOOLBOX_ROOT_ID = '__tools__';
@@ -3448,7 +3566,7 @@ function renderPseudoNode(parent, n, group = currentGroup(), expandKey = n.id) {
       if (uncatItems.length > 0) {
         renderPseudoNode(wrap, { id: '', icon: '○', name: '未分类' }, group);
       }
-      for (const c of getCategoryChildren('')) {
+      for (const c of treeCategoryChildren('')) {
         if (catVisibleInGroup(c, group)) renderCatNode(wrap, c, 0, group);
       }
     } else {
@@ -3459,8 +3577,19 @@ function renderPseudoNode(parent, n, group = currentGroup(), expandKey = n.id) {
   }
 }
 
-/** 递归统计某分类(含子孙)下全部资源数(进入分类后显示其全部内容,故不按分组二次过滤) */
+/** 递归统计某分类(含子孙)下全部资源数(进入分类后显示其全部内容,故不按分组二次过滤);树渲染期间走索引+懒聚合 */
 function countItemsInCatTree(catId, group) {
+  if (_treeRendering) {
+    const ctx = treeCtx();
+    let n = ctx.catTreeCounts.get(catId);
+    if (n === undefined) {
+      n = (ctx.itemsByCat.get(catId) || []).length;
+      const kids = ctx.catChildren.get(catId) || [];
+      for (const c of kids) n += countItemsInCatTree(c.id, group);
+      ctx.catTreeCounts.set(catId, n);
+    }
+    return n;
+  }
   const ids = new Set([catId, ...getCategoryDescendants(catId)]);
   return state.items.filter((i) => ids.has(i.categoryId)).length;
 }
@@ -3468,7 +3597,7 @@ function countItemsInCatTree(catId, group) {
 /** 资源类型根节点下的资源总数(未分类 + 各可见分类的递归总数),用于左侧栏根节点数字 */
 function countItemsInGroupRoot(group) {
   let n = itemsForGroupCat(group, '').length; // 未分类(按类型过滤)
-  for (const c of getCategoryChildren('')) {
+  for (const c of treeCategoryChildren('')) {
     if (catVisibleInGroup(c, group)) n += countItemsInCatTree(c.id, group);
   }
   return n;
@@ -3477,10 +3606,10 @@ function countItemsInGroupRoot(group) {
 /** 递归渲染分类节点(子分类 + 直属条目);group 指定所属资源类型分组(缺省为当前 tab) */
 function renderCatNode(parent, cat, depth, group = currentGroup()) {
   const itemsAll = itemsForGroupCat(group, cat.id);
-  // 子分类按资源类型标签过滤(无标签 → 所有类型显示;有标签 → 仅标签命中当前类型的显示)
-  const children = getCategoryChildren(cat.id).filter((c) => catVisibleInGroup(c, group));
+  // 子分类按资源类型标签过滤(无标签 -> 所有类型显示;有标签 -> 仅标签命中当前类型的显示)
+  const children = treeCategoryChildren(cat.id).filter((c) => catVisibleInGroup(c, group));
   const hasChildren = children.length > 0;
-  const isOpen = expandedCats.has(cat.id);
+  const isOpen = expandedInTree(cat.id);
   // 资源根目录开关(主开关)与分类自身开关(从开关)共同决定是否在本分类下列出资源文件
   // 根关闭 → 整个资源类型根下均不列出文件(仅保留目录结构);根开启 → 以分类自身开关为准
   const rootNode = resourceRootNode(group);
@@ -3520,7 +3649,7 @@ function renderCatNode(parent, cat, depth, group = currentGroup()) {
   ops.className = 'cat-ops';
   const favBtn = document.createElement('button');
   favBtn.className = 'icon-btn fav-btn';
-  const allFav = itemsAll.length > 0 && itemsAll.every((i) => isFavored(i.id));
+  const allFav = itemsAll.length > 0 && itemsAll.every((i) => treeIsFavored(i.id));
   favBtn.textContent = allFav ? '★' : '☆';
   favBtn.title = allFav ? '整个目录已收藏(点击可收藏到其他位置)' : '收藏整个目录到收藏夹';
   favBtn.addEventListener('click', (e) => {
@@ -4537,22 +4666,23 @@ function renderItemNode(it) {
   nm.title = `${it.displayName || ''} · ${it.type === 'spine' ? 'Spine' : it.type === 'dragonbones' ? 'DragonBones' : TYPE_LABEL[it.type] || it.type}`;
   row.appendChild(nm);
 
-  // 已收藏:常显 ★ 标记 + hover 提示位置
-  if (isFavored(it.id)) {
+  // 已收藏:常显 ★ 标记 + hover 提示位置(整行仅查一次收藏状态,替代原先 3~5 次全量扫描)
+  const favored = treeIsFavored(it.id);
+  if (favored) {
     const star = document.createElement('span');
     star.className = 'fav-mark';
     star.textContent = '★';
-    star.title = '已收藏到: ' + favLocations(it.id).join('、');
+    star.title = '已收藏到: ' + treeFavLocations(it.id).join('、');
     row.appendChild(star);
   }
 
   const ops = document.createElement('span');
   ops.className = 'ic-ops';
   const favBtn = document.createElement('button');
-  favBtn.className = 'icon-btn' + (isFavored(it.id) ? ' fav-on' : '');
-  favBtn.textContent = isFavored(it.id) ? '★' : '☆';
-  favBtn.title = isFavored(it.id)
-    ? '收藏于: ' + favLocations(it.id).join('、') + ' (点击收藏到其他位置)'
+  favBtn.className = 'icon-btn' + (favored ? ' fav-on' : '');
+  favBtn.textContent = favored ? '★' : '☆';
+  favBtn.title = favored
+    ? '收藏于: ' + treeFavLocations(it.id).join('、') + ' (点击收藏到其他位置)'
     : '收藏到收藏夹';
   favBtn.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -8677,7 +8807,7 @@ function bindToolbar() {
         search.value = w;
         searchText = w;
         updateSearchClear();
-        renderItems();
+        runSearchRender(); // 立即渲染并取消挂起的防抖
         hideSearchHistory();
         search.focus();
       });
@@ -8691,15 +8821,30 @@ function bindToolbar() {
     historyEl.hidden = false;
   };
 
+  // 搜索渲染防抖:搜索路径每次按键都会全量重建侧栏树(自动展开全部类目并列出命中条目)
+  // 并渲染主区结果页,资源量大时单键可达数百毫秒 -> 连续输入合并为停顿后的一次渲染;
+  // 清空/回车/历史记录选择立即渲染,不等待防抖。
+  let searchRenderTimer = null;
+  const runSearchRender = () => {
+    if (searchRenderTimer) { clearTimeout(searchRenderTimer); searchRenderTimer = null; }
+    renderItems();
+  };
   search.addEventListener('input', () => {
     searchText = search.value.trim();
     updateSearchClear();
-    renderItems();
+    if (searchRenderTimer) clearTimeout(searchRenderTimer);
+    if (!searchText) { searchRenderTimer = null; renderItems(); }
+    else searchRenderTimer = setTimeout(() => { searchRenderTimer = null; renderItems(); }, 150);
+    // 搜索历史:输入停顿 600ms 后记录
     clearTimeout(searchHistTimer);
     if (searchText) searchHistTimer = setTimeout(() => addSearchHistory(searchText), 600);
   });
   search.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { clearTimeout(searchHistTimer); if (searchText) addSearchHistory(searchText); }
+    if (e.key === 'Enter') {
+      clearTimeout(searchHistTimer);
+      if (searchText) addSearchHistory(searchText);
+      runSearchRender(); // 回车立即出结果
+    }
   });
   search.addEventListener('focus', showSearchHistory);
   search.addEventListener('click', () => { if (search.value) showSearchHistory(); });
@@ -8709,7 +8854,8 @@ function bindToolbar() {
       search.value = '';
       searchText = '';
       updateSearchClear();
-      renderMainArea(); // 清空搜索 → 恢复当前上下文视图
+      if (searchRenderTimer) { clearTimeout(searchRenderTimer); searchRenderTimer = null; }
+      renderMainArea(); // 清空搜索 -> 恢复当前上下文视图
       search.focus();
     });
   }
@@ -8725,7 +8871,7 @@ function bindList() {
         if (categoryById(id)) expandedCats.add(id);
       }
     }
-    renderCategories();
+    // 原 renderCategories()+renderItems() 会连续两次全量重建侧栏树,合并为一次(renderItems 内含树渲染)
     renderItems();
     renderMainArea();
   });
@@ -8915,10 +9061,27 @@ function doCaptureScreenshot() {
 }
 
 // 侧栏整体隐藏/显示
+// 宽度过渡动画期间挂 .anim(content-visibility 跳过树子树布局,否则巨树在动画的
+// 每个中间宽度全量重排,一次 180ms 动画实测可冻结 UI 数秒);动画结束摘除,
+// 隐藏方向再追加 .gone(display:none)彻底移出布局。
 function setSidebarVisible(v) {
   const sb = document.getElementById('sidebar');
   if (!sb) return;
-  sb.classList.toggle('hidden', !v);
+  const finish = (endHidden) => {
+    sb.classList.remove('anim');
+    if (endHidden && sb.classList.contains('hidden')) sb.classList.add('gone');
+  };
+  const onEnd = (e) => { if (e && e.target !== sb) return; finish(v ? false : true); };
+  if (v) {
+    sb.classList.remove('gone'); // 先回到布局(width 仍为 0)
+    sb.classList.add('anim');
+    void sb.offsetWidth;           // 同步强制样式计算,提交 width:0 起始态(不依赖 rAF,后台/节流场景同样可靠)
+    sb.classList.remove('hidden'); // 触发 0→300 过渡
+  } else {
+    sb.classList.add('anim', 'hidden');
+  }
+  sb.addEventListener('transitionend', onEnd, { once: true });
+  setTimeout(() => finish(v ? false : true), 280);
   localStorage.setItem('sidebarHidden', v ? '0' : '1');
   // 顶栏「资源树」按钮图标同步:☰ 显示(当前隐藏,点击显示) / ▤ 隐藏(当前显示,点击隐藏)
   syncTreeToggleIcon();
