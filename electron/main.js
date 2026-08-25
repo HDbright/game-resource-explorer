@@ -13,7 +13,8 @@ const { skelToJson, probeSkeleton } = require('./tools/skel');
 const { spineFix } = require('./tools/spineFix');
 const { skToSpine, skToSpineText, probeLayaSk } = require('./tools/layaSk2Spine');
 const { probe: probeSpineProjectFile, convertFile: convertSpineProjectFile, convert: convertSpineProjectInMemory } = require('./tools/spineProjectToJson');
-const { writeTestSpine } = require('../scripts/makeTestSpine'); // 合成最小 .spine 工程文件(编辑器冒烟用)
+// 注:合成 .spine 的 makeTestSpine 在冒烟分支内惰性 require——顶层 require 会在打包版崩溃
+// (electron-builder 只打包 electron/ 目录,app.asar 内没有 ../scripts/)
 const fgui = require('./tools/fgui');
 const { buildPreviewData, findGameRoot } = require('./tools/fgui/previewData');
 const { webGame, downloadResource, probeFile, classify, typeDir, fileNameFromUrl, safeName } = require('./tools/webGame');
@@ -847,6 +848,7 @@ async function runSmoke() {
       spineProjPath = process.env.SMOKE_SPINE_PROJ;
       log('smoke .spine (real): ' + spineProjPath);
     } else {
+      const { writeTestSpine } = require('../scripts/makeTestSpine'); // 惰性加载:仅开发/冒烟环境存在
       spineProjPath = writeTestSpine(path.join(out, 'spine-smoke-test.spine'));
       log('synthetic .spine: ' + spineProjPath);
     }
@@ -2163,7 +2165,7 @@ app.whenReady().then(async () => {
   if (process.platform !== 'darwin') {
     try {
       createTray();
-      trayLog('[tray] 托盘已创建, 图标尺寸: ' + JSON.stringify(tray.getImage().getSize()));
+      trayLog('[tray] 托盘已创建'); // 注:Tray 无 getImage() API,此前日志取尺寸会抛错并被误记为「创建失败」
     } catch (e) {
       trayLog('[tray] 创建失败: ' + (e && e.stack || e));
     }
