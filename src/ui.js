@@ -42,7 +42,7 @@ import {
   getProjectFolders, projectNodeIcon, PROJECTS_ROOT_ID,
 } from './state.js';
 import { openModal, footButtons, confirmDialog, promptDialog, toast, showContextMenu, openEmojiPicker, iconNode, attachIconPreview, newPageDialog, treeIconNode, finalizeIcon } from './dialogs.js';
-import { initBgColorBar, customBgColor, BG_DARK, BG_LIGHT } from './bgColor.js';
+import { initBgColorBar, customBgColor, CUSTOM_BG_KEY, isDarkColor, BG_DARK, BG_LIGHT } from './bgColor.js';
 import { runAddFlow, addPathsToCategory } from './addFlow.js';
 import { renderHomePage, renderFavHome, renderFilterHome } from './pages/homePage.js';
 import { renderFolderPage, renderFavFolderPage } from './pages/folderPage.js';
@@ -6858,6 +6858,7 @@ export async function showAnimationPreview(item) {
     await preview.loadItem(item);
     applyZoomMode(); // 按选中的默认缩放方式(fit/100/fixed)应用
     fillActionSelect();
+    fillSkinSelect();
     updatePlaybackUI();
     showPreviewBody(item);
     renderSlots();
@@ -6866,6 +6867,10 @@ export async function showAnimationPreview(item) {
     console.error('[load]', item.id, err);
     showPreviewError(item, err.message || String(err));
     document.getElementById('slot-row').hidden = true;
+    const skinSel = document.getElementById('skin-select');
+    if (skinSel) skinSel.hidden = true;
+    const skinLb = document.querySelector('.skin-ctrl');
+    if (skinLb) skinLb.hidden = true;
     document.getElementById('pv-version').textContent = '';
     throw err;
   }
@@ -7694,35 +7699,126 @@ function bEl(root, sel) {
   return root.querySelector(sel);
 }
 
-// ---------------- 插槽面板 ----------------
+// ---------------- 插槽面板(可折叠 + 附件图片悬浮预览 / 右键另存) ----------------
 
 export function renderSlots() {
   const row = document.getElementById('slot-row');
   const list = document.getElementById('slot-list');
   if (!row || !list) return;
-  const slots = preview.getSlots();
+  hideSlotImagePop();
+  const slots = preview.getSlotDetails();
+  const toggle = document.getElementById('slot-toggle');
+  const visBtn = document.getElementById('slot-visibility');
   if (!slots.length) {
     row.hidden = true;
+    if (toggle) toggle.hidden = true;
+    if (visBtn) visBtn.hidden = true;
     return;
   }
-  row.hidden = false;
+  if (toggle) toggle.hidden = false;
+  if (visBtn) visBtn.hidden = false;
+  // 折叠时列表不单独占行(工具栏保持两行),展开时列表独占一行
+  row.hidden = list.hidden;
   list.innerHTML = '';
   for (const s of slots) {
     const chip = document.createElement('label');
-    chip.className = 'slot-chip' + (s.visible ? '' : ' off');
+    chip.className = 'slot-chip' + (s.visible ? '' : ' off') + (s.hasImage ? ' has-img' : '');
     const cb = document.createElement('input');
     cb.type = 'checkbox';
     cb.checked = s.visible;
     cb.addEventListener('change', () => {
       preview.setSlotVisible(s.name, cb.checked);
       chip.classList.toggle('off', !cb.checked);
+      updateSlotVisButton();
     });
     chip.appendChild(cb);
     const txt = document.createElement('span');
     txt.textContent = s.name;
     chip.appendChild(txt);
+    chip.title = s.attachment ? `${s.name} → ${s.attachment}(悬浮看图,右键可另存)` : s.name;
+    if (s.hasImage) {
+      chip.addEventListener('mouseenter', () => showSlotImagePop(s.name, chip));
+      chip.addEventListener('mouseleave', hideSlotImagePop);
+      chip.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        hideSlotImagePop();
+        showContextMenu(e.clientX, e.clientY, [
+          { label: '预览附件图片', onClick: () => showSlotImagePop(s.name, chip, 1600) },
+          { label: '另存附件图片…', onClick: () => saveSlotImage(s.name) },
+        ]);
+      });
+    }
     list.appendChild(chip);
   }
+  updateSlotVisButton();
+}
+
+/** 全显/全隐合并按钮:有插槽被隐藏时显示「全显」,否则「全隐」 */
+function updateSlotVisButton() {
+  const btn = document.getElementById('slot-visibility');
+  if (!btn) return;
+  const anyHidden = preview.getSlots().some((s) => !s.visible);
+  btn.textContent = anyHidden ? '全显' : '全隐';
+  btn.title = anyHidden ? '显示全部插槽附件' : '隐藏全部插槽附件';
+}
+
+let _slotPopTimer = 0;
+
+function hideSlotImagePop() {
+  clearTimeout(_slotPopTimer);
+  const pop = document.getElementById('slot-img-pop');
+  if (pop) pop.hidden = true;
+}
+
+/** 在锚点旁弹出插槽附件图片小窗(不阻挡鼠标:pointer-events:none) */
+function showSlotImagePop(slotName, anchorEl, autoHideMs) {
+  const info = preview.getAttachmentImage(slotName);
+  let pop = document.getElementById('slot-img-pop');
+  if (!pop) {
+    pop = document.createElement('div');
+    pop.id = 'slot-img-pop';
+    pop.className = 'slot-img-pop';
+    const img = document.createElement('img');
+    img.alt = '';
+    const cap = document.createElement('div');
+    cap.className = 'pop-cap';
+    pop.appendChild(img);
+    pop.appendChild(cap);
+    document.body.appendChild(pop);
+  }
+  const img = pop.querySelector('img');
+  const cap = pop.querySelector('.pop-cap');
+  if (info && info.dataUrl) {
+    img.src = info.dataUrl;
+    img.style.display = '';
+    cap.textContent = `${info.name || slotName}  ${info.width}×${info.height}`;
+  } else {
+    img.removeAttribute('src');
+    img.style.display = 'none';
+    cap.textContent = slotName + '(无图片附件)';
+  }
+  pop.hidden = false;
+  // 定位:锚点右下方,视口越界自动翻转
+  const ar = anchorEl.getBoundingClientRect();
+  const pr = pop.getBoundingClientRect();
+  let x = ar.right + 8, y = ar.bottom + 4;
+  if (x + pr.width > window.innerWidth - 8) x = Math.max(8, ar.left - pr.width - 8);
+  if (y + pr.height > window.innerHeight - 8) y = Math.max(8, ar.top - pr.height - 4);
+  pop.style.left = x + 'px';
+  pop.style.top = y + 'px';
+  clearTimeout(_slotPopTimer);
+  if (autoHideMs) _slotPopTimer = setTimeout(hideSlotImagePop, autoHideMs);
+}
+
+/** 右键「另存附件图片…」:保存对话框(fs:saveImageBase64)写入独立 PNG */
+function saveSlotImage(slotName) {
+  const info = preview.getAttachmentImage(slotName);
+  if (!info || !info.dataUrl) return toast('该插槽当前没有可保存的图片附件', 'error');
+  const base = String(info.name || slotName).replace(/[\\/:*?"<>|]+/g, '_').slice(0, 60) || 'attachment';
+  window.api.saveImageBase64({ defaultName: base + '.png', dataUrl: info.dataUrl }).then((r) => {
+    if (r && r.ok) toast('已保存: ' + r.path, 'ok', 4000);
+    else if (r && r.error) toast('保存失败: ' + r.error, 'error');
+  });
 }
 
 function renderVersion() {
@@ -8583,7 +8679,76 @@ function fillActionSelect() {
     sel.appendChild(op);
   }
   if (preview.currentAction) sel.value = preview.currentAction.name;
+  fillActionPanel();
   updateActionDur();
+}
+
+/** 动作面板(展开式列表):点击条目直接选择动作;#anim-cur 显示当前动作并兼任折叠开关 */
+function fillActionPanel() {
+  const list = document.getElementById('action-list');
+  if (!list) return;
+  list.innerHTML = '';
+  for (const a of preview.actions) {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'action-chip';
+    chip.dataset.name = a.name;
+    chip.title = a.duration ? `${a.name}(${a.duration.toFixed(2)}s)` : a.name;
+    const nm = document.createElement('span');
+    nm.textContent = a.name;
+    chip.appendChild(nm);
+    if (a.duration) {
+      const dur = document.createElement('em');
+      dur.textContent = a.duration.toFixed(2) + 's';
+      chip.appendChild(dur);
+    }
+    chip.addEventListener('click', () => {
+      preview.setActionByName(a.name);
+      document.getElementById('frame-slider').value = '0';
+      syncActionUI();
+    });
+    list.appendChild(chip);
+  }
+  syncActionUI();
+}
+
+/** 同步当前动作显示:#anim-cur 文本(含展开方向箭头)+ 面板高亮 + 隐藏 select 镜像 */
+function syncActionUI() {
+  const a = preview.currentAction;
+  const row = document.getElementById('action-row');
+  const curBtn = document.getElementById('anim-cur');
+  if (curBtn) curBtn.textContent = a ? (a.name + (row && !row.hidden ? ' ▾' : ' ▸')) : '—';
+  const sel = document.getElementById('anim-select');
+  if (a && sel && sel.value !== a.name) sel.value = a.name;
+  const list = document.getElementById('action-list');
+  if (list) {
+    for (const chip of list.children) chip.classList.toggle('active', !!(a && chip.dataset.name === a.name));
+  }
+  updateActionDur();
+}
+
+/** 皮肤下拉:多皮肤资源(如 goblins 的 goblin/goblingirl)显示切换器;单皮肤隐藏 */
+function fillSkinSelect() {
+  const sel = document.getElementById('skin-select');
+  const label = document.querySelector('.skin-ctrl');
+  if (!sel) return;
+  sel.innerHTML = '';
+  const skins = preview.getSkins();
+  if (skins.length <= 1) {
+    sel.hidden = true;
+    if (label) label.hidden = true;
+    return;
+  }
+  sel.hidden = false;
+  if (label) label.hidden = false;
+  const cur = skins.find((s) => s.active);
+  for (const s of skins) {
+    const op = document.createElement('option');
+    op.value = s.name;
+    op.textContent = s.name;
+    sel.appendChild(op);
+  }
+  if (cur) sel.value = cur.name;
 }
 
 function updateActionDur() {
@@ -8878,23 +9043,63 @@ function bindList() {
 }
 
 function bindPreviewControls() {
-  // 动作选择
+  // 动作选择(hidden select 为编程切换/冒烟测试的镜像;可视交互走展开面板)
   const sel = document.getElementById('anim-select');
   sel.addEventListener('change', () => {
     preview.setActionByName(sel.value);
-    updateActionDur();
     document.getElementById('frame-slider').value = '0';
+    syncActionUI();
   });
   document.getElementById('anim-prev').addEventListener('click', () => {
     preview.prevAction();
-    sel.value = preview.currentAction.name;
-    updateActionDur();
+    syncActionUI();
   });
   document.getElementById('anim-next').addEventListener('click', () => {
     preview.nextAction();
-    sel.value = preview.currentAction.name;
-    updateActionDur();
+    syncActionUI();
   });
+  // 当前动作按钮:点击展开/折叠动作列表面板
+  const animCur = document.getElementById('anim-cur');
+  if (animCur) {
+    animCur.addEventListener('click', () => {
+      const row = document.getElementById('action-row');
+      if (row) row.hidden = !row.hidden;
+      syncActionUI();
+    });
+  }
+
+  // 插槽列表展开/折叠(展开时列表从下一行起始显示)
+  const slotToggle = document.getElementById('slot-toggle');
+  if (slotToggle) {
+    slotToggle.addEventListener('click', () => {
+      const lst = document.getElementById('slot-list');
+      const row = document.getElementById('slot-row');
+      if (!lst) return;
+      lst.hidden = !lst.hidden;
+      if (row) row.hidden = lst.hidden || !preview.getSlots().length;
+      slotToggle.textContent = lst.hidden ? '▸ 插槽' : '▾ 插槽';
+      if (lst.hidden) hideSlotImagePop();
+    });
+  }
+
+  // 全显/全隐合并按钮:有插槽被隐藏 → 点击全显;否则 → 点击全隐(renderSlots 同步文案)
+  const slotVisBtn = document.getElementById('slot-visibility');
+  if (slotVisBtn) {
+    slotVisBtn.addEventListener('click', () => {
+      const slots = preview.getSlots();
+      const anyHidden = slots.some((s) => !s.visible);
+      for (const s of slots) preview.setSlotVisible(s.name, anyHidden);
+      renderSlots();
+    });
+  }
+
+  // 皮肤选择(多皮肤资源)
+  const skinSel = document.getElementById('skin-select');
+  if (skinSel) {
+    skinSel.addEventListener('change', () => {
+      preview.setSkin(skinSel.value);
+    });
+  }
 
   // 播放模式
   document.querySelectorAll('#mode-seg .seg-btn').forEach((b) => {
@@ -8937,20 +9142,99 @@ function bindPreviewControls() {
     syncFrameSlider();
   });
 
-  // 背景(统一调色盘:深/浅/自定义按钮反色 + 保存自定义)
-  initBgColorBar({
-    input: document.getElementById('bg-color'),
-    darkBtn: document.getElementById('bg-dark'),
-    lightBtn: document.getElementById('bg-light'),
-    customBtn: document.getElementById('bg-custom'),
-    saveBtn: document.getElementById('bg-save'),
-    onApply: (c) => {
-      setSetting('bgColor', c);
-      preview.setBgColor(c);
-      const imgInput = document.getElementById('img-bg-color');
-      if (imgInput) imgInput.value = c;
-    },
-  });
+  // 背景:弹出式选择(深 / 浅 / 棋盘透明 / 自定;「自定」右键调色并保存为自定义色)
+  {
+    const bgTrigger = document.getElementById('bg-trigger');
+    const bgPop = document.getElementById('bg-popover');
+    const bgInput = document.getElementById('bg-color');
+    const darkBtn = document.getElementById('bg-dark');
+    const lightBtn = document.getElementById('bg-light');
+    const checkerBtn = document.getElementById('bg-checker');
+    const customBtn = document.getElementById('bg-custom');
+    const paint = (btn, hex) => {
+      if (!btn) return;
+      btn.style.background = hex;
+      btn.style.color = isDarkColor(hex) ? '#fff' : '#111';
+      btn.style.borderColor = 'var(--border)';
+    };
+    paint(darkBtn, BG_DARK);
+    paint(lightBtn, BG_LIGHT);
+    if (customBtn) paint(customBtn, customBgColor());
+
+    const syncTrigger = () => {
+      const mode = state.settings.bgMode || 'dark';
+      if (bgTrigger) {
+        // 色块反映当前生效背景:深/浅/自定为颜色,棋盘为迷你棋盘格
+        bgTrigger.classList.toggle('checker', mode === 'checker');
+        if (mode === 'checker') {
+          bgTrigger.style.background = '';
+        } else {
+          const c = mode === 'light' ? BG_LIGHT : mode === 'custom' ? customBgColor() : BG_DARK;
+          bgTrigger.style.background = c;
+        }
+        bgTrigger.setAttribute('aria-expanded', bgPop && !bgPop.hidden ? 'true' : 'false');
+      }
+      for (const [m, btn] of [['dark', darkBtn], ['light', lightBtn], ['checker', checkerBtn], ['custom', customBtn]]) {
+        if (btn) btn.style.outline = m === mode ? '2px solid var(--accent)' : '';
+      }
+    };
+
+    const applyBgMode = (mode, hex) => {
+      setSetting('bgMode', mode);
+      const wrap = document.getElementById('pv-canvas-wrap');
+      if (mode === 'checker') {
+        preview.setBgChecker(true);
+        if (wrap) wrap.classList.add('bg-checker');
+      } else {
+        preview.setBgChecker(false);
+        if (wrap) wrap.classList.remove('bg-checker');
+        const c = hex || (mode === 'light' ? BG_LIGHT : mode === 'custom' ? customBgColor() : BG_DARK);
+        setSetting('bgColor', c);
+        preview.setBgColor(c);
+        if (bgInput) bgInput.value = c;
+        const imgInput = document.getElementById('img-bg-color');
+        if (imgInput) imgInput.value = c;
+      }
+      if (bgPop) bgPop.hidden = true;
+      syncTrigger();
+    };
+
+    if (bgTrigger && bgPop) {
+      bgTrigger.addEventListener('click', (e) => {
+        e.stopPropagation();
+        bgPop.hidden = !bgPop.hidden;
+        syncTrigger();
+      });
+      bgPop.addEventListener('click', (e) => e.stopPropagation());
+      document.addEventListener('click', () => {
+        if (!bgPop.hidden) { bgPop.hidden = true; syncTrigger(); }
+      });
+    }
+    if (darkBtn) darkBtn.addEventListener('click', () => applyBgMode('dark'));
+    if (lightBtn) lightBtn.addEventListener('click', () => applyBgMode('light'));
+    if (checkerBtn) checkerBtn.addEventListener('click', () => applyBgMode('checker'));
+    if (customBtn) {
+      // 左键:直接应用已保存的自定义色;右键:打开调色盘选色(选取即保存并应用)
+      customBtn.addEventListener('click', () => applyBgMode('custom'));
+      customBtn.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        if (!bgInput) { applyBgMode('custom'); return; }
+        bgInput.value = customBgColor();
+        if (bgPop) bgPop.hidden = true;
+        bgInput.click(); // 原生取色器(输入框锚定在色块处,不会弹到屏幕外)
+      });
+    }
+    if (bgInput) {
+      bgInput.addEventListener('input', () => {
+        // 调色即保存为自定义颜色并立即应用(替代原「存」按钮)
+        setSetting(CUSTOM_BG_KEY, bgInput.value);
+        if (customBtn) paint(customBtn, bgInput.value);
+        applyBgMode('custom', bgInput.value);
+      });
+    }
+    // 启动时按持久化的背景模式应用(渲染器未建时由 preview 挂起,init 后生效)
+    applyBgMode(state.settings.bgMode || 'dark');
+  }
 
   // 图片预览背景(与动画预览共用 bgColor 设置,同样支持自定义/保存)
   initBgColorBar({
@@ -9004,15 +9288,6 @@ function bindPreviewControls() {
     applyZoomMode();
   });
 
-  // 插槽全显/全隐
-  document.getElementById('slot-all').addEventListener('click', () => {
-    for (const s of preview.getSlots()) preview.setSlotVisible(s.name, true);
-    renderSlots();
-  });
-  document.getElementById('slot-none').addEventListener('click', () => {
-    for (const s of preview.getSlots()) preview.setSlotVisible(s.name, false);
-    renderSlots();
-  });
   // 注:侧栏切换(pv-open-dir / pv-reload)已移至顶栏 bindToolbar
 }
 

@@ -44,6 +44,7 @@ contextBridge.exposeInMainWorld('api', {
   readBase64: (p) => ipcRenderer.invoke('fs:readBase64', p),
   readText: (p) => ipcRenderer.invoke('fs:readText', p),
   writeFileBase64: (p, dataUrl) => ipcRenderer.invoke('fs:writeFileBase64', p, dataUrl),
+  saveImageBase64: (opts) => ipcRenderer.invoke('fs:saveImageBase64', opts),
   saveText: (opts) => ipcRenderer.invoke('fs:saveText', opts),
   renameFile: (oldPath, newPath) => ipcRenderer.invoke('fs:rename', oldPath, newPath),
   removeFile: (p) => ipcRenderer.invoke('fs:removeFile', p),

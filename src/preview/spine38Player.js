@@ -132,6 +132,39 @@ function normalizeDrawOrderOffsets(obj) {
   }
 }
 
+/**
+ * 官方 3.8 运行时对版本串 "3.8.75"(编辑器 3.8.7 beta 导出)直接抛
+ * "Unsupported skeleton data, please export with a newer version of Spine."。
+ * 该版本的数据格式与 3.8 final 兼容(仅版本串触发守卫,实测 goblins-pro 3.8.75 全量解析正常),
+ * 这里把二进制内的版本串原地改写为等长的 "3.8.99" 绕过守卫。
+ * @param {Uint8Array} skelBuf 二进制骨架(原地修改)
+ * @returns {string|null} 命中并改写时返回原始版本串 "3.8.75",未命中返回 null
+ */
+function patchRejectedVersionBinary(skelBuf) {
+  const readVarint = (pos) => {
+    let value = 0;
+    for (let shift = 0; shift <= 28; shift += 7) {
+      if (pos >= skelBuf.length) return null;
+      const b = skelBuf[pos++];
+      value |= (b & 0x7f) << shift;
+      if ((b & 0x80) === 0) return { value, nextPos: pos };
+    }
+    return null;
+  };
+  // 3.x 二进制布局:varint串(hash) + varint串(version)
+  const hash = readVarint(0);
+  if (!hash || hash.value <= 0) return null;
+  const ver = readVarint(hash.nextPos + hash.value - 1);
+  if (!ver || ver.value !== 7) return null; // "3.8.75" 6 字节 -> varint 编码长度 7
+  const start = ver.nextPos;
+  let s = '';
+  for (let i = 0; i < 6; i++) s += String.fromCharCode(skelBuf[start + i]);
+  if (s !== '3.8.75') return null;
+  const repl = '3.8.99';
+  for (let i = 0; i < 6; i++) skelBuf[start + i] = repl.charCodeAt(i);
+  return s;
+}
+
 let spine38BundlePromise = null;
 
 /**
@@ -213,7 +246,7 @@ export class Spine38Player {
     this._disposed = false;
   }
 
-  async load({ skeletonUrl, atlasUrl, pageBase }) {
+  async load({ skeletonUrl, atlasUrl, imageDir, pageBase }) {
     this.dispose();
 
     const spine = await loadSpine38Bundle();
@@ -228,29 +261,40 @@ export class Spine38Player {
       throw new Error('该文件不是 Spine 3.x 资源(探测结果: ' + (probe ? probe.kind + '@' + probe.version : '未知') + ')');
     }
 
-    // 2. 加载 atlas 文本
-    const atlasRes = await fetch(atlasUrl);
-    if (!atlasRes.ok) throw new Error(`贴图集文件加载失败 (${atlasRes.status})`);
-    const atlasText = await atlasRes.text();
+    // 2. 加载 atlas 文本(若无 atlas 文件则从 images/ 目录合成)
+    let atlasText;
+    let atlasImages; // Map<pageName, HTMLImageElement>
+    if (atlasUrl) {
+      const atlasRes = await fetch(atlasUrl);
+      if (!atlasRes.ok) throw new Error(`贴图集文件加载失败 (${atlasRes.status})`);
+      atlasText = await atlasRes.text();
 
-    // 3. 先加载所有图集图片(3.8 的 MeshAttachment.updateUVs 需要真实图片宽高)
-    //    pageBase:图集页面图片的解析基址(atlasUrl 为 blob/data URL 时无法直接 new URL(name, atlasUrl),
-    //    需传入真实图片目录,如 /a/<itemId>/;缺省回退 atlasUrl)
-    const pageNames = extractAtlasPageNames(atlasText);
-    if (pageNames.length === 0) throw new Error('atlas 中未找到贴图页面');
-    const pageResolveBase = pageBase || atlasUrl;
-    const images = new Map();
-    await Promise.all(
-      pageNames.map(async (name) => {
-        const img = await loadImage(new URL(name, pageResolveBase).href);
-        images.set(name, img);
-        this._loadedImages.push(img);
-      })
-    );
+      // 3. 先加载所有图集图片(3.8 的 MeshAttachment.updateUVs 需要真实图片宽高)
+      //    pageBase:图集页面图片的解析基址(atlasUrl 为 blob/data URL 时无法直接 new URL(name, atlasUrl),
+      //    需传入真实图片目录,如 /a/<itemId>/;缺省回退 atlasUrl)
+      const pageNames = extractAtlasPageNames(atlasText);
+      if (pageNames.length === 0) throw new Error('atlas 中未找到贴图页面');
+      const pageResolveBase = pageBase || atlasUrl;
+      atlasImages = new Map();
+      await Promise.all(
+        pageNames.map(async (name) => {
+          const img = await loadImage(new URL(name, pageResolveBase).href);
+          atlasImages.set(name, img);
+          this._loadedImages.push(img);
+        })
+      );
+    } else if (imageDir) {
+      // 无 atlas 文件:从 images/ 目录加载解包图片,合成 atlas
+      const result = await this._loadFromImageDir(imageDir, skelBuf, probe, skeletonUrl);
+      atlasText = result.atlasText;
+      atlasImages = result.images;
+    } else {
+      throw new Error('缺少 .atlas 图集文件');
+    }
 
     // 4. 构造 TextureAtlas(3.8 的 textureLoader 契约:getImage/setFilters/setWraps)
     const atlas = new spine.TextureAtlas(atlasText, (path) => {
-      const img = images.get(path) || null;
+      const img = atlasImages.get(path) || null;
       return {
         getImage: () => img,
         setFilters: () => {},
@@ -261,10 +305,18 @@ export class Spine38Player {
     // 5. 解析骨架数据(3.x JSON 用 SkeletonJson;3.x 二进制用 SkeletonBinary)
     const loader = new spine.AtlasAttachmentLoader(atlas);
     let data;
+    let patchedOrigVersion = null; // 版本守卫被改写时的原始版本串(解析后恢复显示)
     try {
       if (probe.kind === 'json') {
         const jsonParser = new spine.SkeletonJson(loader);
         let jsonObj = JSON.parse(new TextDecoder('utf-8').decode(skelBuf));
+        // 官方 3.8 运行时对 "3.8.75"(3.8.7 beta 编辑器导出)直接抛
+        // "Unsupported skeleton data..."。该版本数据格式与 3.8 final 兼容,
+        // 改写版本串绕过守卫,解析成功后恢复真实版本用于显示。
+        if (jsonObj && jsonObj.skeleton && jsonObj.skeleton.spine === '3.8.75') {
+          patchedOrigVersion = jsonObj.skeleton.spine;
+          jsonObj.skeleton.spine = '3.8.99';
+        }
         // 3.x 风格兼容:skins 与 animations 都是对象 {key: data},但 spine-core SkeletonJson
         // 期望 skins 是数组 [{name, attachments}]、animations 是数组 [{name, ...}]。
         // 4.x SpinePlayer 已有此兼容分支;3.8 runtime 这里补齐(否则整个 skin 读不到,所有 attachment 为 null)。
@@ -288,6 +340,7 @@ export class Spine38Player {
         normalizeDrawOrderOffsets(jsonObj);
         data = jsonParser.readSkeletonData(jsonObj);
       } else {
+        patchedOrigVersion = patchRejectedVersionBinary(skelBuf);
         const binary = new spine.SkeletonBinary(loader);
         binary.scale = 1;
         data = binary.readSkeletonData(skelBuf);
@@ -300,10 +353,46 @@ export class Spine38Player {
     if (this.data && (!this.data.version || this.data.version === '')) {
       this.data.version = probe.version || '';
     }
+    // 恢复被改写前的真实版本串(守卫仅影响解析,data.version 只用于显示)
+    if (this.data && patchedOrigVersion) this.data.version = patchedOrigVersion;
 
     // 6. 创建骨架 + 动画状态(手动驱动,不用内部时钟)
     const skeleton = new spine.Skeleton(data);
     const state = new spine.AnimationState(new spine.AnimationStateData(data));
+
+    // 6.1 自动选择命名皮肤:当 default 皮肤附件数远少于命名皮肤时(如 goblins 的 default 仅有
+    //     武器道具,而 goblin/goblingirl 有完整身体部件),自动启用第一个命名皮肤。
+    //     getAttachment 会回退到 data.defaultSkin,因此武器道具仍可正常显示。
+    //     必须在 setToSetupPose 之前设置皮肤,否则插槽的 setup attachment 会按 default 皮肤解析 → null。
+    const countAttachments = (skin) => {
+      const atts = skin.attachments;
+      if (!atts) return 0;
+      let c = 0;
+      if (Array.isArray(atts)) {
+        // 3.8 runtime: 按槽位索引的稀疏数组,元素是 {attName: attachment};
+        // length 只是槽位跨度(不是附件数),必须逐槽累加
+        for (const slotAtts of atts) {
+          if (slotAtts && typeof slotAtts === 'object') c += Object.keys(slotAtts).length;
+        }
+      } else if (typeof atts === 'object') {
+        // JSON 原始数据: {slotName: {attName: data}}
+        for (const slotAtts of Object.values(atts)) {
+          if (slotAtts && typeof slotAtts === 'object') c += Object.keys(slotAtts).length;
+        }
+      }
+      return c;
+    };
+    const allSkins = data.skins || [];
+    const defSkin = data.defaultSkin;
+    const namedSkins = allSkins.filter((s) => s !== defSkin && s.name !== 'default');
+    if (defSkin && namedSkins.length > 0) {
+      const defCount = countAttachments(defSkin);
+      const bestNamed = namedSkins.reduce((best, s) => countAttachments(s) > countAttachments(best) ? s : best, namedSkins[0]);
+      if (defCount < countAttachments(bestNamed) * 0.5) {
+        skeleton.skin = bestNamed;
+      }
+    }
+
     skeleton.setToSetupPose();
     this.skeleton = skeleton;
     this.state = state;
@@ -485,7 +574,9 @@ export class Spine38Player {
 
   get currentTime() {
     const track = this.state ? this.state.tracks[0] : null;
-    return track ? track.trackTime : 0;
+    if (!track || !track.animation) return 0;
+    // 单次播放结束后 trackTime 仍会推进(动画保持末帧),显示层钳到时长避免时间无限累计
+    return Math.min(track.trackTime, track.animation.duration || track.trackTime);
   }
 
   get duration() {
@@ -515,6 +606,85 @@ export class Spine38Player {
       this._textureByImage.set(image, tex);
     }
     return tex;
+  }
+
+  /**
+   * 无 atlas 时从 images/ 目录加载解包图片,合成 atlas 文本。
+   * 根据骨架 JSON 中的附件名逐一尝试加载对应图片(支持 png/jpg/webp),
+   * 每张图片作为独立 page + region 写入合成 atlas。
+   * @returns {{ atlasText: string, images: Map<string, HTMLImageElement> }}
+   */
+  async _loadFromImageDir(imageDir, skelBuf, probe, skeletonUrl) {
+    // 收集骨架中所有附件名(用于匹配图片文件名)
+    const attNames = new Set();
+    if (probe.kind === 'json') {
+      try {
+        const jsonObj = JSON.parse(new TextDecoder('utf-8').decode(skelBuf));
+        const skins = jsonObj.skins;
+        const skinList = Array.isArray(skins) ? skins : (skins ? Object.values(skins) : []);
+        for (const skin of skinList) {
+          const atts = (skin.attachments && typeof skin.attachments === 'object') ? skin.attachments : skin;
+          for (const slotAtts of Object.values(atts)) {
+            if (slotAtts && typeof slotAtts === 'object') {
+              for (const [name, data] of Object.entries(slotAtts)) {
+                // region: 无 type 或 type=region; mesh: type=mesh
+                const n = (data && typeof data === 'object' && data.name) ? data.name : name;
+                attNames.add(n);
+              }
+            }
+          }
+        }
+      } catch (_) { /* 解析失败则仅尝试通用名 */ }
+    }
+
+    // 也把骨架基名作为可能的图片名(部分资源只有一张大图)
+    const skelBase = decodeURIComponent(new URL(skeletonUrl, location.origin).pathname.split('/').pop() || '')
+      .replace(/\.[^.]+$/, '');
+    attNames.add(skelBase);
+
+    const IMG_EXTS = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'];
+    const images = new Map();
+    const loaded = []; // { name, img }
+
+    // 并行尝试加载所有候选图片
+    const candidates = [...attNames];
+    await Promise.all(candidates.map(async (name) => {
+      for (const ext of IMG_EXTS) {
+        if (images.has(name)) return; // 已命中
+        const url = `${imageDir}/${encodeURIComponent(name + ext)}`;
+        try {
+          const img = await loadImage(url);
+          images.set(name, img);
+          this._loadedImages.push(img);
+          loaded.push({ name, img, fileName: name + ext });
+          return; // 命中,不再尝试其他扩展名
+        } catch (_) { /* 404, 继续 */ }
+      }
+    }));
+
+    if (loaded.length === 0) {
+      throw new Error('atlas 文件不存在,且 images/ 目录中未找到匹配的解包图片');
+    }
+
+    // 合成 atlas 文本:每个图片同时作为 page 和 region
+    const lines = [];
+    for (const { name, img, fileName } of loaded) {
+      lines.push(fileName);
+      lines.push(`size: ${img.naturalWidth},${img.naturalHeight}`);
+      lines.push('format: RGBA8888');
+      lines.push('filter: Linear,Linear');
+      lines.push('repeat: none');
+      lines.push(name);
+      lines.push(`  rotate: false`);
+      lines.push(`  xy: 0, 0`);
+      lines.push(`  size: ${img.naturalWidth},${img.naturalHeight}`);
+      lines.push(`  orig: ${img.naturalWidth},${img.naturalHeight}`);
+      lines.push(`  offset: 0, 0`);
+      lines.push(`  index: -1`);
+      lines.push('');
+    }
+
+    return { atlasText: lines.join('\n'), images };
   }
 
   _createMeshRecord(slot, att) {
@@ -788,6 +958,89 @@ export class Spine38Player {
     if (visible) this._hiddenSlots.delete(name);
     else this._hiddenSlots.add(name);
     this._refreshMeshes();
+  }
+
+  /**
+   * 插槽详情(预览插槽面板用):附带当前附件名与可否预览图片。
+   * 比 getSlots 多出 attachment / hasImage 字段。
+   */
+  getSlotDetails() {
+    if (!this.skeleton) return [];
+    return this.skeleton.slots.map((s) => {
+      const att = s.getAttachment();
+      const renderable = !!(att && (att instanceof this.spine.RegionAttachment || att instanceof this.spine.MeshAttachment));
+      return {
+        name: s.data.name,
+        visible: !this._hiddenSlots.has(s.data.name),
+        attachment: renderable ? (att.name || s.data.name) : null,
+        hasImage: renderable && !!(att.region && att.region.texture),
+      };
+    });
+  }
+
+  /**
+   * 取插槽当前附件的独立 PNG dataUrl(悬浮预览 / 右键另存)。
+   * 从图集页面按 region 裁剪,处理 90° 旋转与 trim 偏移还原
+   * (裁剪算法与编辑器 spineIO.cropRegionToDataUrl 同源)。
+   * @returns {{ dataUrl: string, name: string, width: number, height: number } | null}
+   */
+  getAttachmentImage(slotName) {
+    if (!this.skeleton) return null;
+    const slot = this.skeleton.findSlot(slotName);
+    if (!slot) return null;
+    const att = slot.getAttachment();
+    if (!att) return null;
+    let texRegion = att.region;
+    if (texRegion && texRegion.renderObject && texRegion.renderObject.texture) texRegion = texRegion.renderObject;
+    if (!texRegion || !texRegion.texture) return null;
+    const image = texRegion.texture.getImage ? texRegion.texture.getImage() : null;
+    if (!image) return null;
+
+    const w = texRegion.width, h = texRegion.height;
+    const W = texRegion.originalWidth || w, H = texRegion.originalHeight || h;
+    const ox = texRegion.offsetX || 0, oy = texRegion.offsetY || 0;
+    const cv = document.createElement('canvas');
+    cv.width = Math.max(1, W); cv.height = Math.max(1, H);
+    const g = cv.getContext('2d');
+    g.save();
+    if (texRegion.rotate) {
+      // 3.8 运行时实测:旋转块 (bx,by) → 原图 (W-by, bx) ⇒ translate(W,0) + rotate(+90°)
+      g.translate(ox + W, oy);
+      g.rotate(Math.PI / 2);
+      g.drawImage(image, texRegion.x, texRegion.y, h, w, 0, 0, h, w);
+    } else {
+      // offsetY 为 y 上语义:内容底边距原图底边 oy → 画布顶部 = H - oy - h
+      g.drawImage(image, texRegion.x, texRegion.y, w, h, ox, H - oy - h, w, h);
+    }
+    g.restore();
+    return { dataUrl: cv.toDataURL('image/png'), name: att.name || slotName, width: W, height: H };
+  }
+
+  // ---------------- 皮肤 ----------------
+
+  getSkins() {
+    if (!this.data) return [];
+    const cur = this.skeleton && this.skeleton.skin ? this.skeleton.skin.name : null;
+    return (this.data.skins || []).map((s) => ({ name: s.name, active: s.name === cur }));
+  }
+
+  /**
+   * 切换皮肤(如 goblins 的 goblin / goblingirl)。
+   * 官方推荐流程:setSkinByName + setSlotsToSetupPose;
+   * getAttachment 回退 data.defaultSkin,因此 default 皮肤里的道具(武器等)不受影响。
+   */
+  setSkin(name) {
+    if (!this.skeleton || !this.data) return;
+    try {
+      this.skeleton.setSkinByName(name);
+      this.skeleton.setSlotsToSetupPose();
+      // 重新应用当前动画姿态(换肤立即生效,不闪回 setup 姿势)
+      this.state.apply(this.skeleton);
+      this.skeleton.updateWorldTransform();
+      this._refreshMeshes();
+    } catch (err) {
+      /* 皮肤名不存在等:忽略,保持原皮肤 */
+    }
   }
 
   getVersion() {

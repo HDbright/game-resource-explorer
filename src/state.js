@@ -53,9 +53,9 @@ export const DEFAULT_SETTINGS = {
   fontScale: 1, // 全局字体/界面缩放(作用于 #app 的 zoom,1 = 100%)
   // 各主题独立配置(强调色 / 背景色 / 前景色 / 背景图),互不共享
   themes: {
-    dark:   { accent: '', bgColor: '', fgColor: '', bgImage: '', bgImageOn: false, panelBg: '', menuBg: '', btnBg: '', hoverBg: '', borderColor: '' },
-    light:  { accent: '', bgColor: '', fgColor: '', bgImage: '', bgImageOn: false, panelBg: '', menuBg: '', btnBg: '', hoverBg: '', borderColor: '' },
-    custom: { accent: '', bgColor: '', fgColor: '', bgImage: '', bgImageOn: false, panelBg: '', menuBg: '', btnBg: '', hoverBg: '', borderColor: '' },
+    dark:   { accent: '', bgColor: '', fgColor: '', bgImage: '', bgImageOn: false, panelBg: '', menuBg: '', btnBg: '', hoverBg: '', borderColor: '', inputBg: '' },
+    light:  { accent: '', bgColor: '', fgColor: '', bgImage: '', bgImageOn: false, panelBg: '', menuBg: '', btnBg: '', hoverBg: '', borderColor: '', inputBg: '' },
+    custom: { accent: '', bgColor: '', fgColor: '', bgImage: '', bgImageOn: false, panelBg: '', menuBg: '', btnBg: '', hoverBg: '', borderColor: '', inputBg: '' },
   },
   // 图标库(节点图标选择面板):自定义分组 + 图标(emoji 或 PNG dataURL)
   iconGroups: [], // [{ id, name, sort }]

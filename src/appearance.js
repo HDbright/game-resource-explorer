@@ -12,9 +12,9 @@ let appliedColorOverrides = new Set();
 
 // 各主题的默认强调色 / 背景色 / 前景色(控件「恢复默认」与空值兜底用)
 const THEME_DEFAULTS = {
-  dark:   { accent: '#4f8cff', bgColor: '#1b1d23', fgColor: '#e6e8ee', panelBg: '#22242b', menuBg: '#2a2d36', btnBg: '#2a2d36', hoverBg: '#333642', borderColor: '#343845' },
-  light:  { accent: '#2f6fe0', bgColor: '#f3f4f7', fgColor: '#1f2329', panelBg: '#ffffff', menuBg: '#e8eaef', btnBg: '#e8eaef', hoverBg: '#dce0e7', borderColor: '#d2d6df' },
-  custom: { accent: '#4f8cff', bgColor: '#1b1d23', fgColor: '#e6e8ee', panelBg: '#22242b', menuBg: '#2a2d36', btnBg: '#2a2d36', hoverBg: '#333642', borderColor: '#343845' },
+  dark:   { accent: '#4f8cff', bgColor: '#1b1d23', fgColor: '#e6e8ee', panelBg: '#22242b', menuBg: '#2a2d36', btnBg: '#2a2d36', hoverBg: '#333642', borderColor: '#343845', inputBg: '#2a2d36' },
+  light:  { accent: '#2f6fe0', bgColor: '#f3f4f7', fgColor: '#1f2329', panelBg: '#ffffff', menuBg: '#e8eaef', btnBg: '#e8eaef', hoverBg: '#e8e8e8', borderColor: '#d2d6df', inputBg: '#f0f1f4' },
+  custom: { accent: '#4f8cff', bgColor: '#1b1d23', fgColor: '#e6e8ee', panelBg: '#22242b', menuBg: '#2a2d36', btnBg: '#2a2d36', hoverBg: '#333642', borderColor: '#343845', inputBg: '#2a2d36' },
 };
 
 // 解析当前选中的主题名(dark/light/custom;system 按系统配色映射为 dark/light)
@@ -44,6 +44,7 @@ function themeConfig(s, name) {
     btnBg: cfg.btnBg || def.btnBg,
     hoverBg: cfg.hoverBg || def.hoverBg,
     borderColor: cfg.borderColor || def.borderColor,
+    inputBg: cfg.inputBg || def.inputBg,
   };
 }
 
@@ -97,6 +98,7 @@ export function applyAppearance() {
   root.style.setProperty('--bg4', t.hoverBg);
   root.style.setProperty('--border', t.borderColor);
   root.style.setProperty('--btn-bg', t.btnBg);
+  root.style.setProperty('--input-bg', t.inputBg);
 
   // 颜色选择库覆盖(资源工具箱「颜色选择库」):在主题变量之后应用,优先级最高。
   // 键 = CSS 变量名(不含 -- 前缀,如 'accent' / 'bg2' / 'danger'),值 = #rrggbb;

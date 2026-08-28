@@ -58,7 +58,7 @@ export function createProject(name = '新建项目') {
     armature: {
       name: 'armature',
       bones: [
-        { name: 'root', parent: '', x: 0, y: 0, rotation: 0, length: 60, scaleX: 1, scaleY: 1, skew: 0, inheritTranslation: true, inheritRotation: true, inheritScale: true },
+        { name: 'root', parent: '', x: 0, y: 0, rotation: 0, length: 60, scaleX: 1, scaleY: 1, skew: 0, shearX: 0, shearY: 0, inheritTranslation: true, inheritRotation: true, inheritScale: true },
       ],
       slots: [],
       animations: [createAnimation('new_animation', 30)],
@@ -79,7 +79,7 @@ export function createAnimation(name, duration = 30) {
 }
 
 export function createBone(name, parent, x, y, rotation, length) {
-  return { name, parent, x, y, rotation, length: length || 50, scaleX: 1, scaleY: 1, skew: 0, inheritTranslation: true, inheritRotation: true, inheritScale: true, visible: true, locked: false };
+  return { name, parent, x, y, rotation, length: length || 50, scaleX: 1, scaleY: 1, skew: 0, shearX: 0, shearY: 0, inheritTranslation: true, inheritRotation: true, inheritScale: true, visible: true, locked: false };
 }
 
 export function createSlot(name, parent) {

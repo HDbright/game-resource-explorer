@@ -3,34 +3,49 @@
  *
  * 用法:  node spineProjectToJson.js <file.spine> [输出.json]
  *
- * ── 格式说明(逆向工程所得, 针对项目版本 3.8.x, 由 4.x 编辑器保存的文件布局) ──
+ * ── 格式说明(逆向工程所得, 针对项目版本 3.8.x, 由 4.x 编辑器保存的文件布局;
+ *     骨骼/网格几何/动画关键帧已用官方 spineboy-3.8 示例(goblins ess/pro)逐值核对) ──
  *
  * 1. 文件整体: raw DEFLATE 压缩(无 zlib 头), 解压后为[tag][value]流。
  * 2. 数值:
  *    - 浮点: 4 字节大端 float32(全精度, 导出 JSON 的两位小数即由此四舍五入)
  *    - varint: 标准 protobuf 变长整数(高位为延续位)
  *    - 颜色: tag 后跟 "1e 01" + RGBA 四字节
- * 3. 字符串: 内联 = [01] + 逐字符(最后一个字符 |0x80 作终止标记);
- *    引用 = 裸 varint, 指向字符串驻留表(intern table)中的编号。
- *    整个文件共享一张驻留表, 相同字符串只写一次全文。
- * 4. 对象值: [2b] 标记后跟 [01 + 内联子对象] 或 [varint 引用]。
+ * 3. 字符串/列表/对象通用形态: [01][数据] = 内联; 裸 varint = 驻留表(intern
+ *    table)引用编号。编辑器对重复值全局去重 —— 相同字符串/浮点数组(如链接网格
+ *    共享的 uvs/顶点/三角形/边)只写一次全文, 后续均为引用。
+ * 4. 对象值: [2b|2e|34] 标记后跟 [01 + 内联子对象] 或 [varint 引用]。
  *    例如插槽的 setup attachment 字段、动画关键帧的 attachment 引用。
  * 5. 对象图: 全文件对象按写入顺序分配递增 id, 骨骼=每根 4 个 id
- *    (骨骼本身 + 名称字符串 + 2 个子对象), 根/hip 因内联 "bone" 字符串各多 1 个。
- *    由此得出骨骼 id 表: root=8, hip=14, torso=19, front-upper-arm=23, ...
- *    rear-foot=79(本表由父引用与插槽骨骼引用双重校验)。
+ *    (骨骼本身 + 名称字符串 + 2 个子对象),root/hip 因内联 "bone" 字符串各多 1 个。
+ *    由此得出骨骼 id 表: root=8, hip=14, torso=18, ... 每骨 +4。
  * 6. 区块: [0f 01 <类型>] 标记(0x12=骨骼, 0x1b=插槽/附件, 0x07=动画...)。
  * 7. 记录: 骨骼 = "0c 01 1a 00 04 01" + 名称 + 字段; 插槽 = "01 0d 00 04 01" + 名称
  *    + 字段(02=骨骼引用); 附件 = [2b 01 10 几何字段...00] + 名称 + 标志;
- *    结束符 7e 00。边界框几何以 34 01 13 开头, 顶点在 "12 11 01 <n>" 后。
- * 8. 动画: 时间轴组 "13 01" 头部带目标引用, 时间轴 "14 01", 关键帧 "52 01 11 00
- *    <ref> 01 <ref>" 开头; 关键帧字段: 02=时间(帧, 30fps, 秒=帧/30),
- *    03=曲线(内联 01 <类型> 或引用), 04~07=贝塞尔控制点(默认线性 0.25/0/0.75/1),
- *    08=值(rotate 角度 / translate.x), 09=translate.y, 0d=attachment/事件引用等。
+ *    结束符 7e 00。
+ * 8. 附件名记录位于几何之后: <几何> [01+内联名|varint引用] 04 <varint>
+ *    [05 01 20 <varint>] [20|21|23]+varint …。链接网格的 04 字段为引用编号。
+ * 9. 网格附件: 2e 01 1b | 0c<uvs:11+内联|引用> 0d<ref> <三角形:01 n×u16BE 内联|
+ *    裸varint引用> 0e<ref> 10<宽f32> 11<高f32> 1a 1b 22 <多边形> [1c 链接记录]。
+ *    uvs/三角形为引用 → 链接网格(官方导出 "linkedmesh" 类型), 输出按 (宽,高,hull)
+ *    结构匹配回填共享几何并以 linked_source 标注来源。
+ * 10. 多边形体: 07<hull×4> 08<固定16> <边:01 n×u8 内联|裸varint引用> 09 0a 0b
+ *     12<顶点:11+内联|引用> 13 14 15 [1c 链接] 颜色 00。顶点数=vertices.length/2。
+ * 11. 动画: 记录头 "12 01 XX XX 04 01 <名>";时间线组 "13 01 04 00 <refA> 01 <骨骼refB>"
+ *     + 02 0f 01 <组内时间线数>;时间线 "14 01"(rotate/translate/scale/attachment,
+ *     头部 09 00 <refA> 01 <通道refB>——refB 为通道类型驻留 id, 同文件内
+ *     rotate/translate 恒定)与 "12 01 08"/"18 01"(deform, 头部为浮点串);
+ *     关键帧 "52 01 11 00 <refA> [01 <refB>]" + 字段: 02=时间(帧, 30fps, 秒=帧/30),
+ *     03=曲线(内联 01 <类型> 或引用), 04~07=贝塞尔控制点(默认线性 0.25/0/0.75/1),
+ *     08=值(rotate 角度 / translate.x), 09=translate.y, 0d=attachment/事件引用等;
+ *     帧尾 0d..10 varint 字段组 + 11 i32。键间 "01" 为记录分隔标记。
+ *     变形时间线的浮点串以哨兵 "11 00 00 00 00" 终止, 其后紧邻强锚点(键/组头/
+ *     时间线头), 原子跳过可防串内浮点误触 13 01/14 01 形成幻影记录。
+ *     官方导出会剔除编辑器全零通道(kind=zero)与变形时间线(kind=deform)。
  *
- * 注意: 插槽/附件/时间轴的引用编号尚未完全映射到名称(需要完整的对象 id 分配
- * 模拟), 这些引用以原始数字输出在 *_ref 字段中; 骨骼引用已完全解析。
- * 未识别的编辑器簿记区段以 raw 十六进制保留, 不影响已验证数据的可读性。
+ * 注意: 未识别的记录头(如 0x18 01 变形时间线)按 1 字节重同步; 插槽/附件/时间轴的
+ * 引用编号尚未完全映射到名称(需要完整的对象 id 分配模拟), 这些引用以原始数字输出
+ * 在 *_ref 字段中; 骨骼引用已完全解析。未识别的编辑器簿记区段以 raw 十六进制保留。
  */
 'use strict';
 const fs = require('fs');
@@ -156,16 +171,27 @@ function convert(file) {
   const slots = [], attachments = [];
   const DBG = !!process.env.SPJ_DEBUG;
   const dbg = (kind, extra) => { if (DBG) console.error(`[spj] 0x${p.toString(16)} ${kind} ${extra || ''}`); };
-  /** 浮点列表: 11 01 <n> <n × f32>(uvs/顶点/变形等) */
-  function parseFloatList() { expect(0x11, 0x01); const n = varint(); const a = []; for (let i = 0; i < n; i++) a.push(f32()); return a; }
+  /** 浮点列表: 11 <01 varint n + n×f32>(内联)| 11 <varint>(驻留引用 —— 编辑器对重复
+   *  数组全局去重:首次出现内联写全文,后续(如各皮肤共享的网格 uvs/顶点)仅写引用编号) */
+  function parseFloatList() {
+    expect(0x11);
+    if (peek() !== 0x01) return { __ref: varint() };
+    u8();
+    const n = varint(); const a = []; for (let i = 0; i < n; i++) a.push(f32()); return a;
+  }
   /** 未知编辑器簿记 → 跳到对象尾部 "1e 01 <RGBA> 00" 并读取颜色 */
   function skipToColorEnd(d) { while (p < buf.length - 6 && !(buf[p] === 0x1e && buf[p + 1] === 0x01 && buf[p + 6] === 0x00)) p++; d.color = color(); u8(); }
-  /** 多边形体(边界框/裁剪/网格共用): 07<顶点数×4> 08<hull×4> 01<n><边×2字节> 09 0a 0b 12<顶点> 13 14 15 [簿记] 颜色 00 */
+  /** 多边形体(边界框/裁剪/网格共用): 07<hull×4> 08<固定16> <edges: 01 n 边内联 | 裸varint引用>
+   *  09 0a 0b 12<顶点> 13 14 15 [簿记] 颜色 00(07 为 hull 而非顶点数 —— 已用官方导出逐值核对) */
   function parsePolygon(d) {
     for (;;) {
       const t = u8();
-      if (t === 0x07) d.vertexCount = Math.round(varint() / 4);
-      else if (t === 0x08) d.hull = Math.round(varint() / 4);
+      if (t === 0x07) d.hull = Math.round(varint() / 4);
+      else if (t === 0x08) { // 固定值 16(含义未知,23 处样本一致);edges 紧随其后:内联或驻留引用(链接网格共享)
+        varint();
+        if (peek() === 0x01) { p++; const n = varint(); const e = []; for (let i = 0; i < n; i++) e.push(u8()); d.edges = e; }
+        else if (peek() !== undefined && peek() >= 0x80) d.edges_ref = varint();
+      }
       else if (t === 0x01) { const n = varint(); const e = []; for (let i = 0; i < n; i++) e.push(u8()); d.edges = e; }
       else if (t === 0x09) d.f09 = f32();
       else if (t === 0x0a) d.f0a = f32();
@@ -201,11 +227,15 @@ function convert(file) {
         else if (t === 0x00) break;
         else d['t' + t.toString(16)] = f32();
       }
-    } else if (type === 0x1b) { // mesh: 0c<uvs> 0d<ref> 01<n><n×uint16BE 三角形> 0e<ref> 10<宽> 11<高> 1a 1b 22 <多边形> [簿记]
+    } else if (type === 0x1b) { // mesh: 0c<uvs> 0d<ref> <三角形: 01 n 内联 | 裸varint引用> 0e<ref> 10<宽> 11<高> 1a 1b 22 <多边形> [簿记]
       for (;;) {
         const t = u8();
         if (t === 0x0c) d.uvs = parseFloatList();
-        else if (t === 0x0d) d.f0d_ref = varint();
+        else if (t === 0x0d) { // f0d 引用;三角形列表紧随其后:内联(01)或驻留引用(链接网格与源网格共享)
+          d.f0d_ref = varint();
+          if (peek() === 0x01) { p++; const n = varint(); const tri = []; for (let i = 0; i < n; i++) tri.push((u8() << 8) | u8()); d.triangles = tri; }
+          else if (peek() !== undefined && peek() >= 0x80) d.triangles_ref = varint();
+        }
         else if (t === 0x01) { const n = varint(); const tri = []; for (let i = 0; i < n; i++) tri.push((u8() << 8) | u8()); d.triangles = tri; }
         else if (t === 0x0e) d.f0e_ref = varint();
         else if (t === 0x10) d.width = f32();
@@ -218,6 +248,8 @@ function convert(file) {
         else if (t === 0x00) break;
         else { skipToColorEnd(d); break; }
       }
+      // 链接网格:uvs/三角形为驻留引用(与源网格共享几何,导出 JSON 的 "linkedmesh" 类型)
+      if (d.uvs && d.uvs.__ref !== undefined || d.triangles_ref !== undefined) d.type = 'linkedmesh';
     } else { // boundingbox / clipping(裸多边形) / 其它
       p--; parsePolygon(d);
     }
@@ -231,11 +263,13 @@ function convert(file) {
   // 几何标记后跟合法字段标签(region:06-0e / mesh:0c / bbox:07),降低浮点数据中杂散 2b 01 10 的误报
   const isGeomStart = () => (peek() === 0x2b || peek() === 0x34 || peek() === 0x2e) && peek(1) === 0x01
     && ((peek(2) === 0x10 && peek(3) >= 0x06 && peek(3) <= 0x0e) || (peek(2) === 0x1b && peek(3) === 0x0c) || (peek(2) === 0x13 && peek(3) === 0x07));
-  const isBarePolygon = () => peek() === 0x07 && peek(2) === 0x08 && peek(3) === 0x10 && peek(4) === 0x01;
+  const isBarePolygon = () => peek() === 0x07 && peek(2) === 0x08 && peek(3) === 0x10 && (peek(4) === 0x01 || (peek(4) ?? 0) >= 0x80);
   const isSlotStart = () => (peek() === 0x01 && peek(1) === 0x0d && peek(2) === 0x00) || (peek() === 0x0c && peek(1) === 0x01 && peek(2) === 0x0d && peek(3) === 0x00);
   /**
-   * 严格锚点的附件名节点: [lead varint]? 01 (01+内联字符 | varint引用) 04 00 [05 01 20 00] 21 01 23 00
-   * 名称后必须紧跟 04 00 标志对 —— 逐字节向前探测,任何一环不符返回 null(调用方跳 1 字节重同步)。
+   * 严格锚点的附件名节点: [lead varint]? 01 (01+内联字符 | varint引用) 04 <varint> [05 01 20 <varint>] [20|21|23]+varint…
+   * 名称后必须紧跟 04 字段 —— 逐字节向前探测,任何一环不符返回 null(调用方跳 1 字节重同步)。
+   * 名称记录位于附件几何之后:<mesh 几何> "goblin/head" 04 00 … 21 01 23 00 <下一个记录>(已用
+   * 官方导出的宽高/hull/几何逐值核对),故名称套用到刚解析完的附件(curAtt)。
    */
   function tryNameNode() {
     let q = p, lead = null;
@@ -270,20 +304,20 @@ function convert(file) {
       if (v > 0xffff) return null;
       name = { __ref: v };
     }
-    // 名称后必须紧跟 04 00(标志对,强校验)
-    if (buf[q] !== 0x04 || buf[q + 1] !== 0x00) return null;
-    q += 2;
-    // 消费名称节点主体并应用到当前附件
+    // 名称后必须紧跟 04 字段(强校验):04 <varint>(普通附件=0,链接网格=引用编号)
+    if (buf[q] !== 0x04) return null;
+    q++;
+    { let sh = 0, b; do { b = buf[q]; if (b === undefined) return null; q++; sh += 7; } while ((b & 0x80) && sh < 21); }
     p = q;
-    if (typeof name === 'string') { if (curAtt) curAtt.name = name; }
-    else if (curAtt) { const rs = resolveRef(name.__ref); if (rs) curAtt.name = rs; else curAtt.name_ref = name.__ref; }
+    // 套用到刚解析完的附件(名称在几何之后)
+    if (typeof name === 'string') { if (curAtt && curAtt.name === undefined) curAtt.name = name; }
+    else if (curAtt && curAtt.name === undefined) { const rs = resolveRef(name.__ref); if (rs) curAtt.name = rs; else curAtt.name_ref = name.__ref; }
     if (lead !== null && curAtt && curAtt.lead_ref === undefined) curAtt.lead_ref = lead;
-    // 标志尾: 04 00 已消费;吃掉 05 01 20 00 / 20 00 / 21 01 / 23 00 等标志对
-    for (let g = 0; g < 6 && p < buf.length; g++) {
+    // 标志尾:吃掉 05 01 20 <varint> / 20|21|23|04|05 + varint 等标志对
+    for (let g = 0; g < 8 && p < buf.length; g++) {
       const t = peek();
-      if (t === 0x05 && peek(1) === 0x01 && peek(2) === 0x20 && peek(3) === 0x00) { p += 4; }
-      else if (t === 0x20 || t === 0x21 || t === 0x23) { p += 2; }
-      else if (t === 0x04 || t === 0x05) { p += 2; }
+      if (t === 0x05 && peek(1) === 0x01 && peek(2) === 0x20) { p += 3; varint(); }
+      else if (t === 0x20 || t === 0x21 || t === 0x23 || t === 0x04 || t === 0x05) { p++; varint(); }
       else break;
     }
     return true;
@@ -296,7 +330,7 @@ function convert(file) {
       curAtt = parseGeomBody(ty);
       curAtt._slotHint = curSlotName;
       attachments.push(curAtt);
-      if (DBG) console.error(`[spj] 0x${st.toString(16)} GEOM ${curAtt.type}`);
+      if (DBG) console.error(`[spj] 0x${st.toString(16)} GEOM ${curAtt.type}${curAtt.name ? ' ' + curAtt.name : ''}`);
       continue;
     }
     if (isBarePolygon()) { // 裁剪附件等:插槽记录后直接跟多边形体(无 2b/2e/34 标记)
@@ -316,8 +350,8 @@ function convert(file) {
       const slotTags = new Set([0x02, 0x03, 0x04, 0x05, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x7e]);
       for (;;) {
         if (!slotTags.has(peek())) {
-          if (isGeomStart()) { u8(); u8(); curAtt = parseGeomBody(u8()); attachments.push(curAtt); continue; }
-          if (isBarePolygon()) { curAtt = { type: 'clipping?' }; parsePolygon(curAtt); attachments.push(curAtt); continue; }
+          if (isGeomStart()) { u8(); u8(); curAtt = parseGeomBody(u8()); curAtt._slotHint = curSlotName; attachments.push(curAtt); continue; }
+          if (isBarePolygon()) { curAtt = { type: 'clipping?' }; curAtt._slotHint = curSlotName; parsePolygon(curAtt); attachments.push(curAtt); continue; }
           if (tryNameNode()) continue;
           p++; // 未知字节:跳 1 字节重同步
           continue;
@@ -361,7 +395,43 @@ function convert(file) {
   function isRecordStart() {
     const b = peek();
     if (b === 0x52) return peek(1) === 0x01 && peek(2) === 0x11 && peek(3) === 0x00; // 键=52 01 11 00 四字节锚点(防浮点数据中的杂散 52)
-    return b === 0x12 || b === 0x13 || b === 0x14 || (b === 0x0f && peek(1) === 0x01) || isGroupTrailer();
+    return b === 0x12 || b === 0x13 || b === 0x14 || (b === 0x18 && peek(1) === 0x01) || (b === 0x0f && peek(1) === 0x01) || isGroupTrailer();
+  }
+  /** 锚点预校验:52 01 11 00 会偶然命中变形时间线的浮点负载形成幻影键,其字段一旦错位会
+   *  整段吞掉后续动画组头。要求锚点后 refA(/01 refB) + 至少 2 个形态合法的连续字段才确认。 */
+  function keyPlausible(q) {
+    let r = q + 4, sh = 0, b;
+    do { b = buf[r]; if (b === undefined) return false; r++; sh += 7; if (sh > 14) return false; } while (b & 0x80);
+    if (buf[r] === 0x01) { r++; sh = 0; do { b = buf[r]; if (b === undefined) return false; r++; sh += 7; if (sh > 14) return false; } while (b & 0x80); }
+    let ok = 0;
+    for (let g = 0; g < 5 && ok < 2; g++) {
+      const t = buf[r];
+      if (t === 0x02 || (t >= 0x04 && t <= 0x0b)) { r += 5; ok++; } // tag + f32
+      else if (t === 0x03) { r++; if (buf[r] === 0x01) r += 2; else { sh = 0; do { b = buf[r]; if (b === undefined) return false; r++; sh += 7; if (sh > 14) return false; } while (b & 0x80); } ok++; } // 曲线:内联类型或 varint 引用
+      else if (t >= 0x0c && t <= 0x10) { r++; sh = 0; do { b = buf[r]; if (b === undefined) return false; r++; sh += 7; if (sh > 21) return false; } while (b & 0x80); ok++; } // varint 字段
+      else if (t === 0x11) { r += 5; ok++; } // i32
+      else break;
+    }
+    return ok >= 2;
+  }
+  /** 变形时间线的浮点串以哨兵 "11 00 00 00 00" 终止,其后紧邻强锚点(键/组头/时间线头)。
+   *  原子跳过整个串:逐字节重扫会让串内浮点数据误触 14 01/13 01 等模式形成幻影记录,
+   *  把后续真实关键帧挂到幻影时间线上(表现为部分骨骼键数大量缺失)。 */
+  function skipDeformBlob() {
+    const sent = Buffer.from([0x11, 0x00, 0x00, 0x00, 0x00]);
+    let q = p;
+    for (let g = 0; g < 8192; g++) {
+      q = buf.indexOf(sent, q);
+      if (q < 0 || q + 40 > buf.length) return false;
+      const w = buf.subarray(q + 5, q + 37);
+      if (w.indexOf(Buffer.from('52011100', 'hex')) >= 0 || w.indexOf(Buffer.from('13010400', 'hex')) >= 0
+        || w.indexOf(Buffer.from('14010900', 'hex')) >= 0 || w.indexOf(Buffer.from('03000400', 'hex')) >= 0) {
+        p = q + 5;
+        return true;
+      }
+      q += 1;
+    }
+    return false;
   }
   function parseKey() {
     expect(0x52, 0x01, 0x11, 0x00);
@@ -371,6 +441,12 @@ function convert(file) {
     for (;;) {
       if (isRecordStart()) break;
       const t = u8();
+      if (t === 0x01) { // 记录分隔标记:其后紧跟新记录(时间线/组头/键)时结束本键。
+        // 不识别它而按未知字段吞 varint 会把后续记录头当数值吃掉,造成大段错位(曾吞掉整个动画组头)
+        const nb = peek();
+        if (nb === 0x12 || nb === 0x13 || nb === 0x14 || nb === 0x18 || nb === 0x52 || (nb === 0x0f && peek(1) === 0x01)) break;
+        continue;
+      }
       if (t === 0x02) k.time = f32();
       else if (t === 0x03) { if (peek() === 0x01) { p++; k.curveType = u8(); } else k.curveRef = varint(); }
       else if (t === 0x04) k.c1 = f32();
@@ -381,14 +457,15 @@ function convert(file) {
       else if (t === 0x09) k.v2 = f32();
       else if (t === 0x0a) { if (peek() === 0x01 && peek(1) === 0x01) { p += 2; let s2 = ''; for (;;) { const c = u8(); if (c & 0x80) { s2 += String.fromCharCode(c & 0x7f); break; } s2 += String.fromCharCode(c); } if (k.eventName === undefined) k.eventName = s2; } else k.v3 = f32(); }
       else if (t === 0x0b) k.v4 = f32();
-      else if (t === 0x0c) { if (peek() === 0x11 && peek(1) === 0x01) k.values = parseFloatList(); else k.f0c = varint(); }
-      else if (t === 0x12) { if (peek() === 0x11 && peek(1) === 0x01) k.values = k.values || parseFloatList(); else k.f12 = varint(); }
+      else if (t === 0x0c) { if (peek() === 0x11) k.values = parseFloatList(); else k.f0c = varint(); }
+      else if (t === 0x12) { if (peek() === 0x11) k.values = k.values || parseFloatList(); else k.f12 = varint(); }
       else if (t === 0x0d) { if (peek() === 0x2b) { p++; k.attachment_ref = varint(); } else k.f0d = varint(); }
       else if (t === 0x0e) { if (peek() === 0x01 && peek(1) === 0x01) { p += 2; let s2 = ''; for (;;) { const c = u8(); if (c & 0x80) { s2 += String.fromCharCode(c & 0x7f); break; } s2 += String.fromCharCode(c); } k.eventName = s2; } else k.f0e = varint(); }
       else if (t === 0x0f) k.f0f = varint();
       else if (t === 0x10) k.f10 = varint();
       else if (t === 0x11) k.f11 = i32();
-      else k['t' + t.toString(16)] = varint();
+      else break; // 未知标签:终止本键。按 varint 吞未知字段曾把 18 01 等记录头当数值,
+      // 错位雪崩吞掉后续动画组头(0x18 01 与 12 01/14 01 同为时间线标记)
     }
     return k;
   }
@@ -396,7 +473,9 @@ function convert(file) {
   const animStart = p;
   while (p < buf.length && guard++ < 500000) {
     if (peek() === 0x07 && peek(1) === 0x0f && peek(2) === 0x01) { p += 4; continue; }
-    if (peek() === 0x12 && peek(1) === 0x01) {
+    // 动画记录: 12 01 XX XX 04 01 <名称>(第 4-5 字节必为 04 01);
+    // 12 01 08 <f32…> 是变形(deform)时间线,误按动画解析会在 expect(04 01) 抛错
+    if (peek() === 0x12 && peek(1) === 0x01 && peek(4) === 0x04 && peek(5) === 0x01) {
       p += 2; u8(); u8();
       expect(0x04, 0x01);
       const nm = strv();
@@ -406,13 +485,17 @@ function convert(file) {
       continue;
     }
     if (peek() === 0x0f && peek(1) === 0x01) { p += 3; continue; }
-    if (peek() === 0x13 && peek(1) === 0x01) {
+    // 组头: 真实形态 13 01 04 00 <refA> 01 <refB>(04 00 强锚点);合成/简化形态 13 01 01 <骨骼ref>
+    if (peek() === 0x13 && peek(1) === 0x01 && ((peek(2) === 0x04 && peek(3) === 0x00) || peek(2) === 0x01)) {
       p += 2;
       group = { target: null, refA: null, refB: null, tlIndex: 0 };
       if (peek() === 0x04 && peek(1) === 0x00) { p += 2; group.refA = varint(); }
       if (peek() === 0x01) { p++; group.refB = varint(); group.target = boneId.get(group.refB) ?? null; }
       continue;
     }
+    // 时间线: 14 01(09 00 <refA> 01 <refB> 头部 / 08 <f32…> 变形配置)、12 01 08 <f32…>(deform)、
+    // 时间线: 14 01(真实头部 "09 00 <refA> 01 <refB>" / 变形 "08 <f32串>";合成/简化形态无引用头)
+    // 与 12 01 08 / 18 01(变形)。变形浮点串以哨兵 "11 00000000" 终止,原子跳过防幻影锚点。
     if (peek() === 0x14 && peek(1) === 0x01) {
       p += 2;
       // 时间线类型推断:骨骼组内时间线按 rotate(0)/translate(1)/scale(2) 顺序存储(官方 Spine 二进制规范);
@@ -423,14 +506,28 @@ function convert(file) {
       tl = { group_refA: group?.refA ?? null, group_refB: group?.refB ?? null, target: group?.target ?? null, keys: [], inferredKind };
       if (peek() === 0x09 && peek(1) === 0x00) { p += 2; tl.refA = varint(); }
       if (peek() === 0x01) { p++; tl.refB = varint(); }
-      const trail = [];
-      while (peek() !== 0x0f && peek() !== 0x52 && trail.length < 8) trail.push(u8().toString(16));
-      tl.trail_raw = trail.join(' ');
+      if (tl.refA === undefined && tl.refB === undefined && peek() === 0x08) {
+        varint(); // 变形配置头部计数
+        skipDeformBlob();
+        tl._deform = true;
+      } else {
+        const trail = [];
+        while (peek() !== 0x0f && peek() !== 0x52 && trail.length < 8) trail.push(u8().toString(16));
+        tl.trail_raw = trail.join(' ');
+      }
+      if (anim) anim.timelines.push(tl);
+      continue;
+    }
+    if ((peek() === 0x12 && peek(1) === 0x01 && peek(2) === 0x08) || (peek() === 0x18 && peek(1) === 0x01)) {
+      p += 2;
+      tl = { group_refA: group?.refA ?? null, group_refB: group?.refB ?? null, target: group?.target ?? null, keys: [], inferredKind: 'deform' };
+      if (peek() !== 0x52) varint(); // 头部计数
+      skipDeformBlob();
       if (anim) anim.timelines.push(tl);
       continue;
     }
     if (peek() === 0x03 && isGroupTrailer()) { p++; varint(); p += 10; continue; }
-    if (peek() === 0x52 && peek(1) === 0x01 && peek(2) === 0x11 && peek(3) === 0x00) { const k = parseKey(); if (tl) tl.keys.push(k); continue; }
+    if (peek() === 0x52 && peek(1) === 0x01 && peek(2) === 0x11 && peek(3) === 0x00 && keyPlausible(p)) { const k = parseKey(); if (tl) tl.keys.push(k); continue; }
     u8(); // 未识别字节, 跳过续扫
   }
   const animEnd = p;
@@ -449,6 +546,7 @@ function convert(file) {
     if (k.v1 !== undefined) o.value = r2(k.v1);
     if (k.v2 !== undefined) o.value2 = r2(k.v2);
     if (k.attachment_ref !== undefined) o.attachment_ref = k.attachment_ref;
+    if (k.values !== undefined) { if (k.values.__ref !== undefined) o.values_ref = k.values.__ref; else o.values = k.values.map(r2); }
     const linear = Math.abs((k.c1 ?? 0) - 0.25) < 1e-6 && (k.c2 ?? 0) === 0 && Math.abs((k.c3 ?? 0) - 0.75) < 1e-6 && (k.c4 ?? 0) === 1;
     if (k.c1 !== undefined && !linear) o.curve = [r2(k.c1), r2(k.c2), r2(k.c3), r2(k.c4)];
     o.ref = k.refA + '/' + k.refB;
@@ -499,14 +597,29 @@ function convert(file) {
       if (a.height !== undefined) o.height = r2(a.height);
       if (a.scaleX !== undefined && a.scaleX !== 1) o.scaleX = r2(a.scaleX);
       if (a.scaleY !== undefined && a.scaleY !== 1) o.scaleY = r2(a.scaleY);
-      if (a.vertices) o.vertices = a.vertices.map(r2);
-      if (a.vertexCount) o.vertexCount = a.vertexCount;
+      if (a.vertices) { if (a.vertices.__ref !== undefined) o.vertices_ref = a.vertices.__ref; else { o.vertices = a.vertices.map(r2); o.vertexCount = a.vertices.length / 2; } }
       // mesh 附件完整几何:uvs/triangles/hull/edges(解码器已解析,导出 .skel 转换器需要)
-      if (a.uvs) o.uvs = a.uvs.map(r2);
+      if (a.uvs) { if (a.uvs.__ref !== undefined) o.uvs_ref = a.uvs.__ref; else o.uvs = a.uvs.map(r2); }
       if (a.triangles) o.triangles = a.triangles;
+      if (a.triangles_ref !== undefined) o.triangles_ref = a.triangles_ref;
       if (a.hull !== undefined) o.hull = a.hull;
       if (a.edges) o.edges = a.edges;
+      if (a.edges_ref !== undefined) o.edges_ref = a.edges_ref;
       if (a.edges_raw) o.edges_raw = a.edges_raw;
+      // 链接网格(uvs/三角形为驻留引用):按 (宽,高,hull) 与先前解析的内联网格匹配回填共享几何,
+      // linked_source 标注来源(编辑器仅存引用编号,此为结构匹配推断)
+      if (o.type === 'linkedmesh' && (o.uvs_ref !== undefined || o.vertices_ref !== undefined)) {
+        const cands = attachments.filter((s) => s !== a && s.type === 'mesh' && Array.isArray(s.uvs) && Array.isArray(s.vertices)
+          && s.width === a.width && s.height === a.height && s.hull === a.hull);
+        const src = cands.length === 1 ? cands[0] : (cands.find((s) => JSON.stringify(s.edges) === JSON.stringify(a.edges)) ?? null);
+        if (src) {
+          o.linked_source = src.name ?? ('#ref' + (src.name_ref ?? '?'));
+          if (o.uvs_ref !== undefined) o.uvs = src.uvs.map(r2);
+          if (o.vertices_ref !== undefined) { o.vertices = src.vertices.map(r2); o.vertexCount = src.vertices.length / 2; }
+          if (o.triangles_ref !== undefined && src.triangles) o.triangles = src.triangles;
+          if (o.edges_ref !== undefined && src.edges) o.edges = src.edges;
+        }
+      }
       if (a.color && a.color !== 'ffffffff') o.color = a.color;
       if (a.lead_ref !== undefined) o.lead_ref = a.lead_ref;
       if (a.link_ref !== undefined) o.link_ref = a.link_ref;
@@ -518,8 +631,11 @@ function convert(file) {
         // 问题:当骨骼缺少某些通道(如只有 translate 无 rotate)时,索引推断会错位
         // 修正:inferredKind 与 key 值矛盾时,以值为准
         let kind;
-        if (t.keys.some(k => k.attachment_ref !== undefined)) kind = 'attachment';
-        else if (t.keys.some(k => k.eventName !== undefined)) kind = 'event';
+        if (t.keys.some(k => k.eventName !== undefined)) kind = 'event';
+        else if (t.keys.some(k => k.attachment_ref !== undefined)) kind = 'attachment';
+        else if (t.keys.some(k => k.values !== undefined)) kind = 'deform';
+        else if (t._deform || t.inferredKind === 'deform') kind = 'deform'; // 12/14/18 01 变形时间线(08 浮点串头)
+        else if (t.keys.length && t.keys.every(k => (k.v1 ?? 0) === 0 && (k.v2 ?? 0) === 0)) kind = 'zero'; // 编辑器全零通道,官方导出剔除
         else {
           const hasV2 = t.keys.some(k => (k.v2 ?? 0) !== 0);
           const hasV1 = t.keys.some(k => k.v1 !== undefined);
@@ -565,7 +681,8 @@ if (require.main === module) {
 /**
  * 轻量探测:文件是否为可识别的 Spine 编辑器二进制工程(.spine)。
  * 校验:① 能以 raw DEFLATE 解压;② 头部前 32 字节内存在 x.y.z 版本串;
- * ③ 解压数据含骨骼区标记 0f 01 12。失败时抛错(错误信息即原因)。
+ * ③ 解压数据含首骨骼记录锚点 0c 01 1a 00(骨骼数因文件而异,不能用固定计数字节)。
+ * 失败时抛错(错误信息即原因)。
  */
 function probe(filePath) {
   let raw;
@@ -590,7 +707,7 @@ function probe(filePath) {
     if (/^(\d+)\.(\d+)\.(\d+)$/.test(s)) version = s;
   }
   if (!version) throw new Error('未检测到工程版本号(x.y.z)');
-  if (raw.indexOf(Buffer.from([0x0f, 0x01, 0x12])) < 0) {
+  if (raw.indexOf(Buffer.from([0x0c, 0x01, 0x1a, 0x00])) < 0) {
     throw new Error('未检测到骨骼区标记,不是 Spine 工程文件');
   }
   return { ok: true, version };

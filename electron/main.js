@@ -1496,6 +1496,28 @@ app.whenReady().then(async () => {
       return { ok: false, error: err.message };
     }
   });
+  // 保存对话框 + 写入 base64 图片(附件图片另存等;对话框取消返回 canceled)
+  ipcMain.handle('fs:saveImageBase64', async (_e, { defaultName = 'attachment.png', dataUrl = '' } = {}) => {
+    if (!win) return { canceled: true };
+    const r = await dialog.showSaveDialog(win, {
+      title: '另存图片',
+      defaultPath: defaultName,
+      filters: [
+        { name: 'PNG 图片', extensions: ['png'] },
+        { name: '所有文件', extensions: ['*'] },
+      ],
+    });
+    if (r.canceled || !r.filePath) return { canceled: true };
+    try {
+      const s = String(dataUrl || '');
+      const m = /^data:image\/[a-zA-Z0-9+.\-]+;base64,(.+)$/.exec(s);
+      const b64 = m ? m[1] : s.replace(/^data:[^,]+,/, '');
+      fs.writeFileSync(r.filePath, Buffer.from(b64, 'base64'));
+      return { ok: true, path: r.filePath };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
   // 重命名文件(仅改文件名,不跨目录移动):返回新路径或错误
   ipcMain.handle('fs:rename', (_e, oldPath, newPath) => {
     try {
@@ -1682,26 +1704,25 @@ app.whenReady().then(async () => {
     const tmpDir = path.join(app.getPath('userData'), 'spine_export_tmp');
     fs.mkdirSync(tmpDir, { recursive: true });
     const tmpJson = path.join(tmpDir, 'export_' + Date.now() + '.json');
-    try {
-      fs.writeFileSync(tmpJson, jsonContent, 'utf-8');
+    fs.writeFileSync(tmpJson, jsonContent, 'utf-8');
       const args = [tmpJson, outputPath];
       if (targetVersion && targetVersion !== 'auto') args.push('-v', spineMajorMinorToFull(targetVersion));
       return new Promise((resolve) => {
         let out = '', err = '';
+        let cleaned = false;
+        const cleanup = () => { if (!cleaned) { cleaned = true; try { fs.unlinkSync(tmpJson); } catch (e) { /* ignore */ } } };
         try {
           const cp = spawn(exe, args, { windowsHide: true });
           cp.stdout.on('data', (d) => { out += d.toString('utf8'); });
           cp.stderr.on('data', (d) => { err += d.toString('utf8'); });
-          cp.on('error', (e) => resolve({ ok: false, error: '启动转换程序失败:' + e.message }));
+          cp.on('error', (e) => { cleanup(); resolve({ ok: false, error: '启动转换程序失败:' + e.message }); });
           cp.on('close', (code) => {
+            cleanup(); // 必须等子进程退出后再删临时 JSON(否则转换器读不到输入文件)
             if (code === 0) resolve({ ok: true, outputPath, stdout: out.trim() });
             else resolve({ ok: false, error: (err || out || '转换失败(exit ' + code + ')').trim() });
           });
-        } catch (e) { resolve({ ok: false, error: e.message }); }
+        } catch (e) { cleanup(); resolve({ ok: false, error: e.message }); }
       });
-    } finally {
-      try { fs.unlinkSync(tmpJson); } catch (e) { /* ignore */ }
-    }
   });
   // 探测文件:版本 + 格式(供 UI 自动识别显示)
   ipcMain.handle('tool:spineProbe', async (_e, { inputPath }) => {

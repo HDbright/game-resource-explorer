@@ -10,6 +10,28 @@ const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tga', '.
 const AUDIO_EXTS = ['.mp3', '.wav', '.ogg', '.flac', '.wma', '.m4a'];
 const MODEL_EXTS = ['.glb', '.gltf', '.obj', '.fbx', '.dae', '.stl', '.blend', '.3ds', '.pmx', '.pmd', '.vrm'];
 
+/**
+ * 检查是否存在匹配的 atlas 文件(支持 -ess/-pro 后缀回退)。
+ * 优先级:1. 精确匹配 base.atlas  2. 去掉 -ess/-pro 后缀匹配  3. images/ 目录存在
+ */
+function findAtlas(files, base, dir) {
+  const lower = (s) => s.toLowerCase();
+  // 1. 精确匹配
+  if (files.some((f) => lower(f.name) === lower(base + '.atlas'))) return { found: true, exact: true };
+  // 2. 去掉 -ess/-pro 后缀
+  const stripped = base.replace(/-(?:ess|pro)$/i, '');
+  if (stripped !== base && files.some((f) => lower(f.name) === lower(stripped + '.atlas'))) return { found: true, exact: false };
+  // 3. images/ 目录(存在即视为有解包图片)
+  try {
+    const imgDir = path.join(dir, 'images');
+    if (fs.statSync(imgDir).isDirectory()) {
+      const imgFiles = fs.readdirSync(imgDir);
+      if (imgFiles.some((f) => /\.(png|jpe?g|webp|gif|bmp)$/i.test(f))) return { found: true, imagesDir: true };
+    }
+  } catch (_) { /* 目录不存在 */ }
+  return { found: false };
+}
+
 // 内置文本类资源扩展名(设置页「资源类型管理」可编辑 → 覆盖)
 const DOC_EXTS = {
   markdown: ['.md', '.markdown'],
@@ -121,14 +143,14 @@ function scanDir(dir, recursive, customTypes = [], customGroups = [], builtinOve
     // ---- Spine 二进制 .skel ----
     for (const sk of skelFiles) {
       const base = sk.name.slice(0, -'.skel'.length);
-      const hasAtlas = files.some((f) => f.name.toLowerCase() === (base + '.atlas').toLowerCase());
+      const atlasResult = findAtlas(files, base, d);
       const fp = path.join(d, sk.name);
       results.push({
         file: fp,
         dir: d,
         type: 'spine',
         base,
-        problems: hasAtlas ? [] : ['缺少同名 .atlas 文件'],
+        problems: atlasResult.found ? [] : ['缺少同名 .atlas 文件'],
         ...statOf(fp),
       });
     }
@@ -161,7 +183,7 @@ function scanDir(dir, recursive, customTypes = [], customGroups = [], builtinOve
       } catch (err) {
         // 改名失败(权限/占用等):仍按 .bin 骨架条目处理,并提示
       }
-      const hasAtlas = files.some((f) => f.name.toLowerCase() === (base + '.atlas').toLowerCase());
+      const atlasResult = findAtlas(files, base, d);
       binSkelBases.push(base.toLowerCase());
       const probMsg = `已识别为 Spine ${probe.version} 二进制骨架(扩展名 .bin)`;
       results.push({
@@ -171,8 +193,8 @@ function scanDir(dir, recursive, customTypes = [], customGroups = [], builtinOve
         base,
         binAsSkel: true,
         problems: renamed
-          ? (hasAtlas ? [`${probMsg},已统一改名为 ${skelName} 按骨架处理`] : [`${probMsg},已统一改名为 ${skelName},但缺少同名 .atlas 文件`])
-          : (hasAtlas ? [`${probMsg},改名 ${skelName} 失败(权限/占用?),按 .bin 处理`] : [`${probMsg},改名 ${skelName} 失败(权限/占用?),且缺少同名 .atlas 文件`]),
+          ? (atlasResult.found ? [`${probMsg},已统一改名为 ${skelName} 按骨架处理`] : [`${probMsg},已统一改名为 ${skelName},但缺少同名 .atlas 文件`])
+          : (atlasResult.found ? [`${probMsg},改名 ${skelName} 失败(权限/占用?),按 .bin 处理`] : [`${probMsg},改名 ${skelName} 失败(权限/占用?),且缺少同名 .atlas 文件`]),
         ...statOf(renamed ? skelPath : fp),
       });
     }
@@ -229,13 +251,13 @@ function scanDir(dir, recursive, customTypes = [], customGroups = [], builtinOve
 
       // Spine JSON: 含 skeleton + bones
       if (data.skeleton && Array.isArray(data.bones)) {
-        const hasAtlas = files.some((f) => f.name.toLowerCase() === (base + '.atlas').toLowerCase());
+        const atlasResult = findAtlas(files, base, d);
         results.push({
           file: fp,
           dir: d,
           type: 'spine',
           base,
-          problems: hasAtlas ? [] : ['缺少同名 .atlas 文件'],
+          problems: atlasResult.found ? [] : ['缺少同名 .atlas 文件'],
           ...statOf(fp),
         });
         continue;

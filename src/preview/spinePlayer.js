@@ -29,14 +29,22 @@ export class SpinePlayer {
     this._hiddenSlots = new Set();
   }
 
-  async load({ skeletonUrl, atlasUrl }) {
+  async load({ skeletonUrl, atlasUrl, imageDir }) {
     this.dispose();
 
     const PIXI = await getPixi();
+    this._pixi = PIXI; // getAttachmentImage 里创建 Sprite 用
 
     // 先加载 json/skel 与 atlas(注册的 spine loader 会把 atlas 解析为 TextureAtlas)
     await PIXI.Assets.load({ src: skeletonUrl });
-    await PIXI.Assets.load({ src: atlasUrl });
+    if (atlasUrl) {
+      await PIXI.Assets.load({ src: atlasUrl });
+    } else if (imageDir) {
+      // 无 atlas 文件:从 images/ 目录加载解包图片,合成 atlas 并注册为 Blob URL
+      atlasUrl = await this._buildAtlasFromImageDir(PIXI, skeletonUrl, imageDir);
+    } else {
+      throw new Error('缺少 .atlas 图集文件');
+    }
 
     // 兼容 Spine 3.8 格式:skins 为对象 {skinName: {slot: {...}}},新版 spine-core 需要数组格式
     const skeletonAsset = PIXI.Assets.get(skeletonUrl);
@@ -53,6 +61,37 @@ export class SpinePlayer {
     this.spine = Spine.from({ skeleton: skeletonUrl, atlas: atlasUrl });
     this.spine.autoUpdate = false;
     this.spineData = this.spine.skeleton.data;
+
+    // 自动选择命名皮肤:当 default 皮肤附件数远少于命名皮肤时(如 goblins 的 default 仅有
+    // 武器道具,而 goblin/goblingirl 有完整身体部件),自动启用附件数最多的命名皮肤。
+    // getAttachment 会回退到 data.defaultSkin,因此 default 中的附件仍可正常显示。
+    {
+      const sk = this.spine.skeleton;
+      const data = this.spineData;
+      const countAttachments = (skin) => {
+        const atts = skin.attachments;
+        if (Array.isArray(atts)) return atts.length;
+        if (atts && typeof atts === 'object') {
+          let c = 0;
+          for (const v of Object.values(atts)) {
+            if (v && typeof v === 'object') c += Array.isArray(v) ? v.length : Object.keys(v).length;
+          }
+          return c;
+        }
+        return 0;
+      };
+      const allSkins = data.skins || [];
+      const defSkin = data.defaultSkin;
+      const namedSkins = allSkins.filter((s) => s !== defSkin && s.name !== 'default');
+      if (defSkin && namedSkins.length > 0) {
+        const defCount = countAttachments(defSkin);
+        const bestNamed = namedSkins.reduce((best, s) => countAttachments(s) > countAttachments(best) ? s : best, namedSkins[0]);
+        if (defCount < countAttachments(bestNamed) * 0.5) {
+          sk.skin = bestNamed;
+          sk.setSlotsToSetupPose();
+        }
+      }
+    }
 
     this.actions = (this.spineData.animations || []).map((a) => ({
       name: a.name,
@@ -112,7 +151,9 @@ export class SpinePlayer {
   get currentTime() {
     if (!this.spine) return 0;
     const track = this.spine.state.tracks[0];
-    return track ? track.trackTime : 0;
+    if (!track || !track.animation) return 0;
+    // 单次播放结束后 trackTime 仍会推进(动画保持末帧),显示层钳到时长避免时间无限累计
+    return Math.min(track.trackTime, track.animation.duration || track.trackTime);
   }
 
   get duration() {
@@ -235,8 +276,152 @@ export class SpinePlayer {
     this._applyHiddenSlots();
   }
 
+  /**
+   * 插槽详情(预览插槽面板用):附带当前附件名与可否预览图片。
+   */
+  getSlotDetails() {
+    if (!this.spine) return [];
+    return this.spine.skeleton.slots.map((s) => {
+      const att = s.getAttachment();
+      const renderable = !!(att && att.region && att.region.texture);
+      return {
+        name: s.data.name,
+        visible: !this._hiddenSlots.has(s.data.name),
+        attachment: renderable ? (att.name || s.data.name) : null,
+        hasImage: renderable,
+      };
+    });
+  }
+
+  /**
+   * 取插槽当前附件的独立 PNG dataUrl(悬浮预览 / 右键另存)。
+   * 4.x 的 attachment.region.texture 已是按 region 裁好的 pixi 纹理,
+   * 用临时 Sprite + renderer.extract 直接导出画布。
+   * @returns {{ dataUrl: string, name: string, width: number, height: number } | null}
+   */
+  getAttachmentImage(slotName) {
+    if (!this.spine || !this.app || !this._pixi) return null;
+    const sk = this.spine.skeleton;
+    const slot = sk.findSlot(slotName);
+    if (!slot) return null;
+    const att = slot.getAttachment();
+    if (!att || !att.region || !att.region.texture) return null;
+    try {
+      const tex = att.region.texture;
+      const sprite = new this._pixi.Sprite(tex);
+      const cv = this.app.renderer.extract.canvas(sprite);
+      sprite.destroy({ texture: false, textureSource: false });
+      const w = tex.frame ? Math.round(tex.frame.width) : cv.width;
+      const h = tex.frame ? Math.round(tex.frame.height) : cv.height;
+      return { dataUrl: cv.toDataURL('image/png'), name: att.name || slotName, width: w, height: h };
+    } catch (err) {
+      return null;
+    }
+  }
+
+  // ---------------- 皮肤 ----------------
+
+  getSkins() {
+    if (!this.spineData) return [];
+    const sk = this.spine ? this.spine.skeleton : null;
+    const cur = sk && sk.skin ? sk.skin.name : null;
+    return (this.spineData.skins || []).map((s) => ({ name: s.name, active: s.name === cur }));
+  }
+
+  /** 切换皮肤(4.x 官方流程:setSkinByName + setSlotsToSetupPose + update(0) 重放当前姿态) */
+  setSkin(name) {
+    if (!this.spine) return;
+    try {
+      this.spine.skeleton.setSkinByName(name);
+      this.spine.skeleton.setSlotsToSetupPose();
+      this.spine.update(0);
+    } catch (err) {
+      /* 皮肤名不存在等:忽略,保持原皮肤 */
+    }
+  }
+
   getVersion() {
     return this.spineData ? this.spineData.version || '' : '';
+  }
+
+  /**
+   * 无 atlas 文件时从 images/ 目录加载解包图片,合成 atlas 并注册为 Blob URL。
+   * @returns {string} atlas Blob URL
+   */
+  async _buildAtlasFromImageDir(PIXI, skeletonUrl, imageDir) {
+    // 从骨架 JSON 收集附件名
+    const attNames = new Set();
+    try {
+      const skelRes = await fetch(skeletonUrl);
+      const skelJson = await skelRes.json();
+      const skins = skelJson.skins;
+      const skinList = Array.isArray(skins) ? skins : (skins ? Object.values(skins) : []);
+      for (const skin of skinList) {
+        const atts = (skin.attachments && typeof skin.attachments === 'object') ? skin.attachments : skin;
+        for (const slotAtts of Object.values(atts)) {
+          if (slotAtts && typeof slotAtts === 'object') {
+            for (const [name, data] of Object.entries(slotAtts)) {
+              const n = (data && typeof data === 'object' && data.name) ? data.name : name;
+              attNames.add(n);
+            }
+          }
+        }
+      }
+    } catch (_) { /* ignore */ }
+
+    // 也把骨架基名加入候选
+    const skelBase = skeletonUrl.split('/').pop() || '';
+    attNames.add(skelBase.replace(/\.[^.]+$/, ''));
+
+    const IMG_EXTS = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'];
+    const loaded = []; // { name, img, fileName }
+    const imgCache = new Map();
+
+    await Promise.all([...attNames].map(async (name) => {
+      for (const ext of IMG_EXTS) {
+        if (imgCache.has(name)) return;
+        const url = `${imageDir}/${encodeURIComponent(name + ext)}`;
+        try {
+          const img = new Image();
+          await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = reject;
+            img.src = url;
+          });
+          imgCache.set(name, img);
+          loaded.push({ name, img, fileName: name + ext });
+          return;
+        } catch (_) { /* 404 */ }
+      }
+    }));
+
+    if (loaded.length === 0) {
+      throw new Error('atlas 文件不存在,且 images/ 目录中未找到匹配的解包图片');
+    }
+
+    // 合成 atlas 文本
+    const lines = [];
+    for (const { name, img, fileName } of loaded) {
+      lines.push(fileName);
+      lines.push(`size: ${img.naturalWidth},${img.naturalHeight}`);
+      lines.push('format: RGBA8888');
+      lines.push('filter: Linear,Linear');
+      lines.push('repeat: none');
+      lines.push(name);
+      lines.push('  rotate: false');
+      lines.push('  xy: 0, 0');
+      lines.push(`  size: ${img.naturalWidth},${img.naturalHeight}`);
+      lines.push(`  orig: ${img.naturalWidth},${img.naturalHeight}`);
+      lines.push('  offset: 0, 0');
+      lines.push('  index: -1');
+      lines.push('');
+    }
+
+    // 注册为 Blob URL 供 PIXI.Assets.load 使用
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+    const atlasBlobUrl = URL.createObjectURL(blob);
+    await PIXI.Assets.load({ src: atlasBlobUrl });
+    return atlasBlobUrl;
   }
 
   dispose() {

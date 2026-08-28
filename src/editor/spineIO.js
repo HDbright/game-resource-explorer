@@ -11,6 +11,30 @@
  */
 
 import { createProject, uniqueName, defaultEase } from './model.js';
+import { computeWorldTransforms } from './animator.js';
+
+/** 长度缺失兜底:length=0 且有子骨骼的骨骼,按 setup 姿态到首个子骨骼的世界距离估算长度
+ *  (.spine 逆向解码可能不带 length;Spine 骨骼通常指向子骨骼,估算值与真实值视觉一致) */
+function estimateBoneLengths(p) {
+  try {
+    const worlds = computeWorldTransforms(p, null);
+    const byParent = new Map();
+    for (const b of p.armature.bones) {
+      if (!byParent.has(b.parent)) byParent.set(b.parent, []);
+      byParent.get(b.parent).push(b);
+    }
+    for (const b of p.armature.bones) {
+      if (b.length) continue;
+      const kids = byParent.get(b.name) || [];
+      // 仅单子骨骼估算(方向明确);多子骨骼(root/hip 等结构点)保持 0 → 渲染为圆点,与 Spine 一致
+      if (kids.length !== 1) continue;
+      const w = worlds.get(b.name), kw = worlds.get(kids[0].name);
+      if (!w || !kw) continue;
+      const d = Math.hypot(kw.tx - w.tx, kw.ty - w.ty);
+      if (d > 0.5) b.length = Math.round(d * 10) / 10;
+    }
+  } catch (err) { /* 估算失败不影响导入 */ }
+}
 
 // ---------------- atlas 解析 ----------------
 
@@ -174,7 +198,7 @@ const easeOf = (k) => k.ease && k.ease.type ? k.ease : curveToEase(k.curve, k);
  * @param {object} json Spine 骨架 JSON(3.8 或 4.x)
  * @param {object} spine { atlasText, pages: [{name, dataUrl}] }
  */
-export function importSpineProject(json, { atlasText, pages }) {
+export function importSpineProject(json, { atlasText, pages, base }) {
   if (!json || !json.skeleton || !Array.isArray(json.bones)) throw new Error('不是有效的 Spine 骨架 JSON');
   const version = String(json.skeleton.spine || '');
   const family = version.startsWith('4') ? '4' : '3';
@@ -185,10 +209,17 @@ export function importSpineProject(json, { atlasText, pages }) {
     ? json.skins.map((s) => ({ name: s.name, attachments: s.attachments }))
     : Object.entries(json.skins || {}).map(([name, att]) => ({ name, attachments: att }));
   if (!skinsRaw.length) throw new Error('JSON 中没有皮肤数据');
-  const skin = skinsRaw.find((s) => s.name === 'default') || skinsRaw[0];
+  // 默认皮肤:优先第一套非 default 皮肤(default 为共享附件的基础皮肤,单独显示只有零散
+  // 附件;goblins 应直接显示 goblin 全身)——与层级树皮肤节点的切换范围一致
+  const skin = skinsRaw.find((s) => s.name !== 'default') || skinsRaw.find((s) => s.name === 'default') || skinsRaw[0];
 
   const p = createProject(json.skeleton.hash ? String(json.skeleton.hash).slice(0, 12) : 'spine项目');
   p.name = 'spine_' + (skin.name === 'default' ? 'project' : skin.name);
+  // 骨架名:层级树根节点显示用。运行时 JSON 不含 skeleton.name,取文件基名(与 Spine
+  // 编辑器树根显示工程文件名一致),其次 hash,最后落回项目名
+  p.armature.name = String(base || json.skeleton.name || json.skeleton.hash || p.name).slice(0, 48);
+  // default 皮肤(共享附件:武器等两套皮肤公用的部件)—— 激活皮肤未覆盖的插槽回退用它
+  const fallbackSkin = skin.name === 'default' ? null : (skinsRaw.find((s) => s.name === 'default') || null);
   p.frameRate = 30;
   p.spine = {
     version,
@@ -214,7 +245,10 @@ export function importSpineProject(json, { atlasText, pages }) {
   const images = [];
   const dispBySlot = new Map(); // slotName → displays[]
   const ensureImage = (attName, att) => {
-    const pathName = att.path || attName;
+    // 区块路径解析与官方运行时一致:att.path → att.name(goblin 等皮肤附件的 name 即
+    // 图片路径 "goblin/head",key 只是插槽内条目名)→ 附件条目名。漏了 name 兜底时
+    // 非 default 皮肤的网格区块全部查不到 → 舞台图片全不渲染
+    const pathName = att.path || att.name || attName;
     const region = atlas.regions.get(pathName);
     const imgId = 'img_' + pathName.replace(/[^\w]/g, '_');
     let im = images.find((x) => x.name === pathName);
@@ -240,6 +274,27 @@ export function importSpineProject(json, { atlasText, pages }) {
       list.push(disp);
     }
     dispBySlot.set(slotName, list);
+  }
+  // Spine 皮肤语义:default 皮肤为共享回退 —— 激活皮肤未覆盖的插槽使用 default 的附件
+  // (goblins:goblin 皮肤不含武器槽,dagger/spear/shield 来自 default,Spine 中武器常驻显示)
+  if (fallbackSkin) {
+    for (const [slotName, atts] of Object.entries(fallbackSkin.attachments || {})) {
+      if (dispBySlot.has(slotName)) continue;
+      const list = [];
+      for (const [attName, att] of Object.entries(atts || {})) {
+        const disp = { name: attName, imageId: '', transform: { x: att.x || 0, y: att.y || 0, rotation: att.rotation || 0, scaleX: att.scaleX === undefined ? 1 : att.scaleX, scaleY: att.scaleY === undefined ? 1 : att.scaleY }, pivot: { x: 0.5, y: 0.5 }, raw: att, shared: true };
+        if (att.linkedMesh) {
+          const src = findLinkedSource(fallbackSkin.attachments, slotName, attName, att);
+          disp.linkedTo = src ? src.name : null;
+          if (src) { const im = ensureImage(src.attName, src.att); if (im) disp.imageId = im.id; }
+        } else {
+          const im = ensureImage(attName, att);
+          if (im) disp.imageId = im.id;
+        }
+        list.push(disp);
+      }
+      dispBySlot.set(slotName, list);
+    }
   }
   p.images = images;
 
@@ -292,6 +347,7 @@ export function importSpineProject(json, { atlasText, pages }) {
     scan(a.bones); scan(a.slots); scan(rawKeep);
     return { name, duration: Math.max(1, Math.round(maxT * fps)), loop: true, bones, slots, rawKeep };
   });
+  estimateBoneLengths(p);
   return p;
 }
 
@@ -316,6 +372,93 @@ function parseSpineColor(hex) {
   };
 }
 
+/** Spine 导入项目的皮肤列表归一:raw.skins(3.8 对象 / 4.x 数组)→ [{name, attachments}] */
+export function spineSkinsOf(p) {
+  const raw = p && p.spine && p.spine.raw;
+  if (!raw || !raw.skins) return [];
+  return Array.isArray(raw.skins)
+    ? raw.skins.map((s) => ({ name: s.name, attachments: s.attachments || {} }))
+    : Object.entries(raw.skins).map(([name, att]) => ({ name, attachments: att || {} }));
+}
+
+/**
+ * 切换 Spine 导入项目的当前皮肤:按新皮肤重建图片表与各插槽的显示列表
+ * (附件名与官方运行时皮肤对齐,舞台 RT 侧由调用方同步 skin 引用)。
+ * @returns {boolean} 皮肤存在并切换成功
+ */
+export function switchSpineSkin(p, skinName) {
+  const skins = spineSkinsOf(p);
+  const skin = skins.find((s) => s.name === skinName);
+  if (!p || !p.spine || !p.spine.raw || !skin) return false;
+  const atlas = p.spine.atlasText ? parseAtlasText(p.spine.atlasText) : { pages: [], regions: new Map() };
+  const images = [];
+  const dispBySlot = new Map(); // slotName → displays[]
+  const ensureImage = (attName, att) => {
+    // 区块路径解析与官方运行时一致:att.path → att.name(goblin 等皮肤附件的 name 即
+    // 图片路径 "goblin/head",key 只是插槽内条目名)→ 附件条目名。此前漏了 name 兜底,
+    // 非 default 皮肤的网格区块全部查不到 → 舞台图片全不渲染
+    const pathName = att.path || att.name || attName;
+    const region = atlas.regions.get(pathName);
+    let im = images.find((x) => x.name === pathName);
+    if (!im && region) {
+      im = { id: 'img_' + pathName.replace(/[^\w]/g, '_'), name: pathName, w: region.ow || region.w, h: region.oh || region.h, dataUrl: '', spineRegion: region };
+      images.push(im);
+    }
+    return im || null;
+  };
+  for (const [slotName, atts] of Object.entries(skin.attachments || {})) {
+    const list = [];
+    for (const [attName, att] of Object.entries(atts || {})) {
+      const disp = { name: attName, imageId: '', transform: { x: att.x || 0, y: att.y || 0, rotation: att.rotation || 0, scaleX: att.scaleX === undefined ? 1 : att.scaleX, scaleY: att.scaleY === undefined ? 1 : att.scaleY }, pivot: { x: 0.5, y: 0.5 }, raw: att };
+      if (att.linkedMesh) {
+        const src = findLinkedSource(skin.attachments, slotName, attName, att);
+        disp.linkedTo = src ? src.name : null;
+        if (src) { const im = ensureImage(src.attName, src.att); if (im) disp.imageId = im.id; }
+      } else {
+        const im = ensureImage(attName, att);
+        if (im) disp.imageId = im.id;
+      }
+      list.push(disp);
+    }
+    dispBySlot.set(slotName, list);
+  }
+  // default 皮肤回退:激活皮肤未覆盖的插槽沿用 default 附件(Spine 皮肤语义,武器常驻)
+  {
+    const fb = skins.find((s) => s.name === 'default');
+    if (fb && fb !== skin) {
+      for (const [slotName, atts] of Object.entries(fb.attachments || {})) {
+        if (dispBySlot.has(slotName)) continue;
+        const list = [];
+        for (const [attName, att] of Object.entries(atts || {})) {
+          const disp = { name: attName, imageId: '', transform: { x: att.x || 0, y: att.y || 0, rotation: att.rotation || 0, scaleX: att.scaleX === undefined ? 1 : att.scaleX, scaleY: att.scaleY === undefined ? 1 : att.scaleY }, pivot: { x: 0.5, y: 0.5 }, raw: att, shared: true };
+          if (att.linkedMesh) {
+            const src = findLinkedSource(fb.attachments, slotName, attName, att);
+            disp.linkedTo = src ? src.name : null;
+            if (src) { const im = ensureImage(src.attName, src.att); if (im) disp.imageId = im.id; }
+          } else {
+            const im = ensureImage(attName, att);
+            if (im) disp.imageId = im.id;
+          }
+          list.push(disp);
+        }
+        dispBySlot.set(slotName, list);
+      }
+    }
+  }
+  p.images = images;
+  for (const s of p.armature.slots) {
+    const list = dispBySlot.get(s.name) || [];
+    s.displays = list;
+    // 显示索引重算:setup attachment(raw.attachment)在新列表中的位置,找不到 → 隐藏
+    let di = -1;
+    if (s.raw && s.raw.attachment) { const f = list.findIndex((d) => d.name === s.raw.attachment); if (f >= 0) di = f; }
+    s.displayIndex = di;
+  }
+  p.spine.skin = skin.name;
+  p.spine.regionNames = [...atlas.regions.keys()];
+  return true;
+}
+
 // ---------------- Spine 编辑器工程(.spine 解码数据)导入 ----------------
 
 /**
@@ -337,6 +480,7 @@ export function importSpineEditorProject(decoded, opts = {}) {
   const version = String((decoded.skeleton && decoded.skeleton.spine) || '');
   const base = (opts.srcPath || '').replace(/^.*[\\/]/, '').replace(/\.spine$/i, '') || 'spine_project';
   const p = createProject(base);
+  p.armature.name = base; // 层级树根节点显示工程文件名(与 Spine 编辑器一致)
   p.frameRate = 30;
   p.spine = {
     version,
@@ -368,7 +512,10 @@ export function importSpineEditorProject(decoded, opts = {}) {
     if (!name || String(name).startsWith('#ref')) return null;
     let im = images.find((x) => x.name === name);
     if (!im) {
-      const f = imageFiles.find((x) => x.name === name);
+      // 精确匹配(Spine 附件路径 "goblin/head" ↔ 源图相对路径 goblin/head)优先;
+      // 基名兜底:源图目录结构不同(顶层 head.png)或附件名无路径前缀时仍可对上
+      const base = String(name).replace(/^.*\//, '');
+      const f = imageFiles.find((x) => x.name === name) || imageFiles.find((x) => x.name.replace(/^.*\//, '') === base);
       im = { id: 'img_' + String(name).replace(/[^\w]/g, '_'), name, w: (f && f.w) || 0, h: (f && f.h) || 0, dataUrl: (f && f.dataUrl) || '' };
       images.push(im);
     }
@@ -384,8 +531,9 @@ export function importSpineEditorProject(decoded, opts = {}) {
       pivot: { x: 0.5, y: 0.5 },
       raw: a,
     };
-    // 仅 region 附件有源图(mesh/边界框等 Pro 附件在编辑器中无独立贴图形态)
-    if (a.type === 'region') {
+    // region / mesh(+linkedmesh)附件挂源图:Spine 工程源图按皮肤分目录(images/goblin/
+    // 等),附件路径 "goblin/head" 即源图相对路径;mesh 在编辑器中以源图矩形近似显示(无网格变形)
+    if (a.type === 'region' || a.type === 'mesh' || a.type === 'linkedmesh') {
       const im = ensureImage(a.name);
       if (im) disp.imageId = im.id;
     }
@@ -441,6 +589,7 @@ export function importSpineEditorProject(decoded, opts = {}) {
     return { name, duration: Math.max(1, Math.round(maxT * fps)), loop: true, bones, slots: {} };
   });
   if (!p.armature.animations.length) p.armature.animations.push({ name: 'new_animation', duration: 30, loop: true, bones: {}, slots: {} });
+  estimateBoneLengths(p);
   return p;
 }
 

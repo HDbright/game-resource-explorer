@@ -15,8 +15,9 @@ export const PROJECT_COLOR_CATALOG = [
     colors: [
       { key: 'bg', varName: '--bg', label: '主背景', dark: { hex: '#1b1d23', cnName: '深空蓝灰', enName: 'Deep Slate' }, light: { hex: '#f3f4f7', cnName: '云雾白', enName: 'Cloud White' }, usage: '窗口底色:首页、资源列表、预览区外围的整页背景(body / #app)' },
       { key: 'bg2', varName: '--bg2', label: '面板背景', dark: { hex: '#22242b', cnName: '石墨面板', enName: 'Graphite Panel' }, light: { hex: '#ffffff', cnName: '纯白', enName: 'Pure White' }, usage: '顶栏工具栏、标签条、预览面板、对话框底色(.toolbar / .tabs / 模态框)' },
-      { key: 'bg3', varName: '--bg3', label: '菜单卡片背景', dark: { hex: '#2a2d36', cnName: '铁灰', enName: 'Iron Gray' }, light: { hex: '#e8eaef', cnName: '银灰', enName: 'Silver Gray' }, usage: '侧栏菜单、卡片、按钮默认底色(--btn-bg 同源,设置页可单独覆盖)' },
-      { key: 'bg4', varName: '--bg4', label: '悬停高亮', dark: { hex: '#333642', cnName: '暮云灰', enName: 'Dusk Gray' }, light: { hex: '#dce0e7', cnName: '浅鸽灰', enName: 'Dove Gray' }, usage: '列表行、按钮、菜单项鼠标悬停(hover)高亮' },
+      { key: 'bg3', varName: '--bg3', label: '菜单悬浮背景', dark: { hex: '#2a2d36', cnName: '铁灰', enName: 'Iron Gray' }, light: { hex: '#e8eaef', cnName: '银灰', enName: 'Silver Gray' }, usage: '菜单/列表项鼠标悬停、卡片、按钮默认底色(--btn-bg 同源)' },
+      { key: 'input-bg', varName: '--input-bg', label: '文本框背景', dark: { hex: '#2a2d36', cnName: '铁灰输入', enName: 'Iron Input' }, light: { hex: '#f0f1f4', cnName: '淡灰输入', enName: 'Light Input' }, usage: '文本输入框、下拉选择框、文本标签的背景色(独立于菜单悬浮背景)' },
+      { key: 'bg4', varName: '--bg4', label: '悬停高亮', dark: { hex: '#333642', cnName: '暮云灰', enName: 'Dusk Gray' }, light: { hex: '#e8e8e8', cnName: '浅灰', enName: 'Light Gray' }, usage: '列表行、按钮、菜单项鼠标悬停(hover)高亮;右键菜单背景;当前选中节点背景' },
       { key: 'border', varName: '--border', label: '边框线', dark: { hex: '#343845', cnName: '铅灰线', enName: 'Lead Gray' }, light: { hex: '#d2d6df', cnName: '雾线灰', enName: 'Mist Line' }, usage: '卡片、输入框、按钮描边与分割线' },
       { key: 'tree-line', varName: '--tree-line', label: '树连接线', dark: { hex: '#3a3e4a', cnName: '青灰线', enName: 'Slate Line' }, light: { hex: '#c4c9d4', cnName: '灰蓝线', enName: 'Cadet Line' }, usage: '侧栏分类树 / 菜单树的层级折线连接线' },
       { key: 'text', varName: '--text', label: '主文字', dark: { hex: '#e6e8ee', cnName: '月白', enName: 'Moon White' }, light: { hex: '#1f2329', cnName: '墨黑', enName: 'Ink Black' }, usage: '标题、正文、按钮文字等主要文字色' },

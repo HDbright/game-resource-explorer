@@ -373,7 +373,7 @@ export function renderSettingsPage(container, opts = {}) {
       <section class="settings-card collapsed" data-card="theme">
         <h3 class="settings-card-head">${cardHeadHtml('theme', '主题背景')}</h3>
         <div class="settings-card-body">
-          <p class="settings-hint">深色 / 浅色 / 自定义 / 跟随系统 四种主题各自独立保存「强调色 / 背景色 / 前景色 / 模块背景 / 菜单背景 / 按钮背景 / 悬停高亮 / 边框 / 背景图」,互不共享;「跟随系统」会按系统配色自动套用深色或浅色主题的设置。下方颜色控件始终编辑当前所选主题的配置,切换主题模式时自动载入该主题自己的设定。修改后实时预览,点「保存设置」固化,下次启动自动应用。</p>
+          <p class="settings-hint">深色 / 浅色 / 自定义 / 跟随系统 四种主题各自独立保存「强调色 / 背景色 / 前景色 / 模块背景 / 菜单悬浮背景 / 文本框背景 / 按钮背景 / 悬停高亮 / 边框 / 背景图」,互不共享;「跟随系统」会按系统配色自动套用深色或浅色主题的设置。下方颜色控件始终编辑当前所选主题的配置,切换主题模式时自动载入该主题自己的设定。修改后实时预览,点「保存设置」固化,下次启动自动应用。</p>
           <div class="form-row">
             <label class="f-label">主题模式</label>
             <div class="seg" id="tb-theme">
@@ -386,56 +386,72 @@ export function renderSettingsPage(container, opts = {}) {
           <div class="form-row">
             <label class="f-label">强调色</label>
             <span class="path-edit">
-              <input id="tb-accent" class="text-input" type="color" value="#4f8cff" style="width:48px;padding:2px;" />
+              <input id="tb-accent" class="text-input color-pick" type="color" value="#4f8cff" />
+              <input id="tb-accent-hex" class="color-hex" type="text" value="#4f8cff" spellcheck="false" />
               <button class="btn sm ghost" id="tb-accent-reset">恢复默认</button>
             </span>
           </div>
           <div class="form-row">
             <label class="f-label">背景色</label>
             <span class="path-edit">
-              <input id="tb-bgcolor" class="text-input" type="color" value="#1b1d23" style="width:48px;padding:2px;" />
+              <input id="tb-bgcolor" class="text-input color-pick" type="color" value="#1b1d23" />
+              <input id="tb-bgcolor-hex" class="color-hex" type="text" value="#1b1d23" spellcheck="false" />
               <button class="btn sm ghost" id="tb-bgcolor-reset">恢复默认</button>
             </span>
           </div>
           <div class="form-row">
             <label class="f-label">前景色</label>
             <span class="path-edit">
-              <input id="tb-fgcolor" class="text-input" type="color" value="#e6e8ee" style="width:48px;padding:2px;" />
+              <input id="tb-fgcolor" class="text-input color-pick" type="color" value="#e6e8ee" />
+              <input id="tb-fgcolor-hex" class="color-hex" type="text" value="#e6e8ee" spellcheck="false" />
               <button class="btn sm ghost" id="tb-fgcolor-reset">恢复默认</button>
             </span>
           </div>
           <div class="form-row">
             <label class="f-label">模块背景色</label>
             <span class="path-edit">
-              <input id="tb-panelbg" class="text-input" type="color" value="#22242b" style="width:48px;padding:2px;" />
+              <input id="tb-panelbg" class="text-input color-pick" type="color" value="#22242b" />
+              <input id="tb-panelbg-hex" class="color-hex" type="text" value="#22242b" spellcheck="false" />
               <button class="btn sm ghost" id="tb-panelbg-reset">恢复默认</button>
             </span>
           </div>
           <div class="form-row">
-            <label class="f-label">菜单背景色</label>
+            <label class="f-label">菜单悬浮背景色</label>
             <span class="path-edit">
-              <input id="tb-menubg" class="text-input" type="color" value="#2a2d36" style="width:48px;padding:2px;" />
+              <input id="tb-menubg" class="text-input color-pick" type="color" value="#2a2d36" />
+              <input id="tb-menubg-hex" class="color-hex" type="text" value="#2a2d36" spellcheck="false" />
               <button class="btn sm ghost" id="tb-menubg-reset">恢复默认</button>
+            </span>
+          </div>
+          <div class="form-row">
+            <label class="f-label">文本框背景色</label>
+            <span class="path-edit">
+              <input id="tb-inputbg" class="text-input color-pick" type="color" value="#2a2d36" />
+              <input id="tb-inputbg-hex" class="color-hex" type="text" value="#2a2d36" spellcheck="false" />
+              <button class="btn sm ghost" id="tb-inputbg-reset">恢复默认</button>
             </span>
           </div>
           <div class="form-row">
             <label class="f-label">按钮背景色</label>
             <span class="path-edit">
-              <input id="tb-btnbg" class="text-input" type="color" value="#2a2d36" style="width:48px;padding:2px;" />
+              <input id="tb-btnbg" class="text-input color-pick" type="color" value="#2a2d36" />
+              <input id="tb-btnbg-hex" class="color-hex" type="text" value="#2a2d36" spellcheck="false" />
               <button class="btn sm ghost" id="tb-btnbg-reset">恢复默认</button>
             </span>
           </div>
           <div class="form-row">
             <label class="f-label">悬停高亮色</label>
             <span class="path-edit">
-              <input id="tb-hoverbg" class="text-input" type="color" value="#333642" style="width:48px;padding:2px;" />
+              <input id="tb-hoverbg" class="text-input color-pick" type="color" value="#333642" />
+              <input id="tb-hoverbg-hex" class="color-hex" type="text" value="#333642" spellcheck="false" />
               <button class="btn sm ghost" id="tb-hoverbg-reset">恢复默认</button>
             </span>
           </div>
           <div class="form-row">
             <label class="f-label">边框颜色</label>
             <span class="path-edit">
-              <input id="tb-border" class="text-input" type="color" value="#343845" style="width:48px;padding:2px;" />
+              <input id="tb-border" class="text-input color-pick" type="color" value="#343845" />
+              <input id="tb-border-hex" class="color-hex" type="text" value="#343845" spellcheck="false" />
               <button class="btn sm ghost" id="tb-border-reset">恢复默认</button>
             </span>
           </div>
@@ -803,11 +819,12 @@ export function renderSettingsPage(container, opts = {}) {
   const tbBtnBg = container.querySelector('#tb-btnbg');
   const tbHoverBg = container.querySelector('#tb-hoverbg');
   const tbBorder = container.querySelector('#tb-border');
+  const tbInputBg = container.querySelector('#tb-inputbg');
 
   const THEME_DEFAULTS = {
-    dark:   { accent: '#4f8cff', bgColor: '#1b1d23', fgColor: '#e6e8ee', panelBg: '#22242b', menuBg: '#2a2d36', btnBg: '#2a2d36', hoverBg: '#333642', borderColor: '#343845' },
-    light:  { accent: '#2f6fe0', bgColor: '#f3f4f7', fgColor: '#1f2329', panelBg: '#ffffff', menuBg: '#e8eaef', btnBg: '#e8eaef', hoverBg: '#dce0e7', borderColor: '#d2d6df' },
-    custom: { accent: '#4f8cff', bgColor: '#1b1d23', fgColor: '#e6e8ee', panelBg: '#22242b', menuBg: '#2a2d36', btnBg: '#2a2d36', hoverBg: '#333642', borderColor: '#343845' },
+    dark:   { accent: '#4f8cff', bgColor: '#1b1d23', fgColor: '#e6e8ee', panelBg: '#22242b', menuBg: '#2a2d36', btnBg: '#2a2d36', hoverBg: '#333642', borderColor: '#343845', inputBg: '#2a2d36' },
+    light:  { accent: '#2f6fe0', bgColor: '#f3f4f7', fgColor: '#1f2329', panelBg: '#ffffff', menuBg: '#e8eaef', btnBg: '#e8eaef', hoverBg: '#e8e8e8', borderColor: '#d2d6df', inputBg: '#f0f1f4' },
+    custom: { accent: '#4f8cff', bgColor: '#1b1d23', fgColor: '#e6e8ee', panelBg: '#22242b', menuBg: '#2a2d36', btnBg: '#2a2d36', hoverBg: '#333642', borderColor: '#343845', inputBg: '#2a2d36' },
   };
   // 当前编辑所针对的主题名(跟随系统 -> 解析为 dark/light)
   const editThemeName = () => {
@@ -818,6 +835,45 @@ export function renderSettingsPage(container, opts = {}) {
     return sel;
   };
   const getThemeCfg = (name) => (state.settings.themes && state.settings.themes[name]) || {};
+  // 同步所有颜色色块旁的 16 进制代码输入框
+  const syncHexLabels = () => {
+    container.querySelector('#tb-accent-hex').value = tbAccent.value;
+    container.querySelector('#tb-bgcolor-hex').value = tbBgColor.value;
+    container.querySelector('#tb-fgcolor-hex').value = tbFgColor.value;
+    container.querySelector('#tb-panelbg-hex').value = tbPanelBg.value;
+    container.querySelector('#tb-menubg-hex').value = tbMenuBg.value;
+    container.querySelector('#tb-btnbg-hex').value = tbBtnBg.value;
+    container.querySelector('#tb-hoverbg-hex').value = tbHoverBg.value;
+    container.querySelector('#tb-border-hex').value = tbBorder.value;
+    container.querySelector('#tb-inputbg-hex').value = tbInputBg.value;
+  };
+  // 校验并规范化 hex 颜色值(#RGB → #RRGGBB),无效返回 null
+  const normalizeHex = (v) => {
+    let s = String(v || '').trim();
+    if (!s.startsWith('#')) s = '#' + s;
+    if (/^#[0-9a-fA-F]{3}$/.test(s)) s = '#' + s[1]+s[1]+s[2]+s[2]+s[3]+s[3];
+    return /^#[0-9a-fA-F]{6}$/.test(s) ? s.toLowerCase() : null;
+  };
+  // hex 输入框 → 色块 + 主题字段 反向同步
+  const bindHexInput = (hexInput, colorInput, field) => {
+    hexInput.addEventListener('change', () => {
+      const hex = normalizeHex(hexInput.value);
+      if (hex) {
+        colorInput.value = hex;
+        writeThemeField(field, hex);
+      }
+      hexInput.value = colorInput.value; // 无效值回退为当前色块值
+    });
+  };
+  bindHexInput(container.querySelector('#tb-accent-hex'), tbAccent, 'accent');
+  bindHexInput(container.querySelector('#tb-bgcolor-hex'), tbBgColor, 'bgColor');
+  bindHexInput(container.querySelector('#tb-fgcolor-hex'), tbFgColor, 'fgColor');
+  bindHexInput(container.querySelector('#tb-panelbg-hex'), tbPanelBg, 'panelBg');
+  bindHexInput(container.querySelector('#tb-menubg-hex'), tbMenuBg, 'menuBg');
+  bindHexInput(container.querySelector('#tb-btnbg-hex'), tbBtnBg, 'btnBg');
+  bindHexInput(container.querySelector('#tb-hoverbg-hex'), tbHoverBg, 'hoverBg');
+  bindHexInput(container.querySelector('#tb-border-hex'), tbBorder, 'borderColor');
+  bindHexInput(container.querySelector('#tb-inputbg-hex'), tbInputBg, 'inputBg');
   // 把某主题的配置载入控件
   const loadThemeControls = () => {
     const name = editThemeName();
@@ -831,15 +887,24 @@ export function renderSettingsPage(container, opts = {}) {
     tbBtnBg.value = cfg.btnBg || def.btnBg;
     tbHoverBg.value = cfg.hoverBg || def.hoverBg;
     tbBorder.value = cfg.borderColor || def.borderColor;
+    tbInputBg.value = cfg.inputBg || def.inputBg;
     tbBgImage.value = cfg.bgImage || '';
     tbBgOn.checked = !!cfg.bgImageOn;
+    syncHexLabels();
   };
+  // 主题字段 → CSS 变量键映射(清除 colorOverrides 冲突用)
+  const FIELD_TO_CSS_KEY = { accent: 'accent', bgColor: 'bg', fgColor: 'text', panelBg: 'bg2', menuBg: 'bg3', btnBg: 'btn-bg', hoverBg: 'bg4', borderColor: 'border', inputBg: 'input-bg' };
   // 写入当前编辑主题的配置 + 实时预览(立即落盘)
   const writeThemeField = (field, value) => {
     const name = editThemeName();
     if (!state.settings.themes) state.settings.themes = { dark: {}, light: {}, custom: {} };
     if (!state.settings.themes[name]) state.settings.themes[name] = {};
     state.settings.themes[name][field] = value;
+    // 清除颜色选择库中同名 CSS 变量的覆盖,避免 colorOverrides 优先级盖住主题设置
+    const cssKey = FIELD_TO_CSS_KEY[field];
+    if (cssKey && state.settings.colorOverrides && cssKey in state.settings.colorOverrides) {
+      delete state.settings.colorOverrides[cssKey];
+    }
     saveState();
     applyAppearance();
   };
@@ -861,54 +926,69 @@ export function renderSettingsPage(container, opts = {}) {
       applyAppearance();
     });
   });
-  tbAccent.addEventListener('input', () => writeThemeField('accent', tbAccent.value));
-  tbBgColor.addEventListener('input', () => writeThemeField('bgColor', tbBgColor.value));
-  tbFgColor.addEventListener('input', () => writeThemeField('fgColor', tbFgColor.value));
-  tbPanelBg.addEventListener('input', () => writeThemeField('panelBg', tbPanelBg.value));
-  tbMenuBg.addEventListener('input', () => writeThemeField('menuBg', tbMenuBg.value));
-  tbBtnBg.addEventListener('input', () => writeThemeField('btnBg', tbBtnBg.value));
-  tbHoverBg.addEventListener('input', () => writeThemeField('hoverBg', tbHoverBg.value));
-  tbBorder.addEventListener('input', () => writeThemeField('borderColor', tbBorder.value));
+  tbAccent.addEventListener('input', () => { writeThemeField('accent', tbAccent.value); syncHexLabels(); });
+  tbBgColor.addEventListener('input', () => { writeThemeField('bgColor', tbBgColor.value); syncHexLabels(); });
+  tbFgColor.addEventListener('input', () => { writeThemeField('fgColor', tbFgColor.value); syncHexLabels(); });
+  tbPanelBg.addEventListener('input', () => { writeThemeField('panelBg', tbPanelBg.value); syncHexLabels(); });
+  tbMenuBg.addEventListener('input', () => { writeThemeField('menuBg', tbMenuBg.value); syncHexLabels(); });
+  tbBtnBg.addEventListener('input', () => { writeThemeField('btnBg', tbBtnBg.value); syncHexLabels(); });
+  tbHoverBg.addEventListener('input', () => { writeThemeField('hoverBg', tbHoverBg.value); syncHexLabels(); });
+  tbBorder.addEventListener('input', () => { writeThemeField('borderColor', tbBorder.value); syncHexLabels(); });
+  tbInputBg.addEventListener('input', () => { writeThemeField('inputBg', tbInputBg.value); syncHexLabels(); });
   tbBgOn.addEventListener('change', () => writeThemeField('bgImageOn', tbBgOn.checked));
   container.querySelector('#tb-accent-reset').addEventListener('click', () => {
     const def = (THEME_DEFAULTS[editThemeName()] || THEME_DEFAULTS.dark).accent;
     tbAccent.value = def;
     writeThemeField('accent', def);
+    syncHexLabels();
   });
   container.querySelector('#tb-bgcolor-reset').addEventListener('click', () => {
     const def = (THEME_DEFAULTS[editThemeName()] || THEME_DEFAULTS.dark).bgColor;
     tbBgColor.value = def;
     writeThemeField('bgColor', def);
+    syncHexLabels();
   });
   container.querySelector('#tb-fgcolor-reset').addEventListener('click', () => {
     const def = (THEME_DEFAULTS[editThemeName()] || THEME_DEFAULTS.dark).fgColor;
     tbFgColor.value = def;
     writeThemeField('fgColor', def);
+    syncHexLabels();
   });
   container.querySelector('#tb-panelbg-reset').addEventListener('click', () => {
     const def = (THEME_DEFAULTS[editThemeName()] || THEME_DEFAULTS.dark).panelBg;
     tbPanelBg.value = def;
     writeThemeField('panelBg', def);
+    syncHexLabels();
   });
   container.querySelector('#tb-menubg-reset').addEventListener('click', () => {
     const def = (THEME_DEFAULTS[editThemeName()] || THEME_DEFAULTS.dark).menuBg;
     tbMenuBg.value = def;
     writeThemeField('menuBg', def);
+    syncHexLabels();
   });
   container.querySelector('#tb-btnbg-reset').addEventListener('click', () => {
     const def = (THEME_DEFAULTS[editThemeName()] || THEME_DEFAULTS.dark).btnBg;
     tbBtnBg.value = def;
     writeThemeField('btnBg', def);
+    syncHexLabels();
   });
   container.querySelector('#tb-hoverbg-reset').addEventListener('click', () => {
     const def = (THEME_DEFAULTS[editThemeName()] || THEME_DEFAULTS.dark).hoverBg;
     tbHoverBg.value = def;
     writeThemeField('hoverBg', def);
+    syncHexLabels();
   });
   container.querySelector('#tb-border-reset').addEventListener('click', () => {
     const def = (THEME_DEFAULTS[editThemeName()] || THEME_DEFAULTS.dark).borderColor;
     tbBorder.value = def;
     writeThemeField('borderColor', def);
+    syncHexLabels();
+  });
+  container.querySelector('#tb-inputbg-reset').addEventListener('click', () => {
+    const def = (THEME_DEFAULTS[editThemeName()] || THEME_DEFAULTS.dark).inputBg;
+    tbInputBg.value = def;
+    writeThemeField('inputBg', def);
+    syncHexLabels();
   });
   container.querySelector('#tb-bgimage-pick').addEventListener('click', async () => {
     try {

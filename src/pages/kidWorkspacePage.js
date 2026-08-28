@@ -435,7 +435,7 @@ const CSS = `.kid-wb{--kblue:#4f7cff;--kgold:#f59e0b;--kdiamond:#22d3ee;--kred:#
 @media (prefers-color-scheme: light){
   .kid-wb.theme-project{
     --kbg: var(--bg, #f3f4f7); --kbg-top: var(--bg, #f3f4f7);
-    --kcard: var(--bg2, #ffffff); --kcard2: var(--bg3, #e8eaef); --kcard3: var(--bg4, #dce0e7);
+    --kcard: var(--bg2, #ffffff); --kcard2: var(--bg3, #e8eaef); --kcard3: var(--bg4, #e8e8e8);
     --kborder: var(--border, #d2d6df); --kborder2: var(--border, #d2d6df);
     --ktext: var(--text, #1f2329); --ktext2: var(--text2, #6b7280); --ktext3: var(--text2, #6b7280);
     --kaccent: var(--accent, #2f6fe0); --kaccent2: var(--accent2, #1f5fd0); --kblue: var(--accent, #2f6fe0);

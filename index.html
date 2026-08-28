@@ -149,27 +149,41 @@
                   <div class="ctrl-row">
                     <label class="ctrl-label">动作</label>
                     <button class="icon-btn" id="anim-prev" title="上一个动作">◀</button>
-                    <select id="anim-select"></select>
+                    <button class="btn sm anim-cur" id="anim-cur" title="展开/折叠动作列表">—</button>
                     <button class="icon-btn" id="anim-next" title="下一个动作">▶</button>
                     <span class="anim-dur" id="anim-dur"></span>
-                    <label class="ctrl-label" style="margin-left:14px">背景</label>
-                    <input type="color" id="bg-color" value="#22242b" title="调色盘选背景色(立即生效)" />
-                    <button class="btn sm bg-save-btn" id="bg-save" title="把调色盘当前颜色保存为自定义颜色">存</button>
-                    <button class="btn sm" id="bg-dark" title="深色背景 #22242b">深</button>
-                    <button class="btn sm" id="bg-light" title="浅色背景 #eef0f5">浅</button>
-                    <button class="btn sm" id="bg-custom" title="使用自定义颜色">自定</button>
+                    <select id="anim-select" hidden></select>
+                    <label class="ctrl-label skin-ctrl" style="margin-left:14px" hidden>皮肤</label>
+                    <select id="skin-select" title="切换皮肤(多皮肤资源)" hidden></select>
+                    <span class="bg-popover-wrap" title="背景:深 / 浅 / 棋盘(透明)/ 自定调色">
+                      <button class="btn sm bg-swatch-trigger" id="bg-trigger" type="button" aria-haspopup="dialog" aria-expanded="false"></button>
+                      <div class="bg-popover" id="bg-popover" hidden>
+                        <div class="bg-pop-row">
+                          <button class="btn sm" id="bg-dark" title="深色背景 #22242b">深</button>
+                          <button class="btn sm" id="bg-light" title="浅色背景 #c9ccd3">浅</button>
+                          <button class="btn sm bg-checker-btn" id="bg-checker" title="棋盘背景(透明)">棋盘</button>
+                        </div>
+                        <div class="bg-pop-row">
+                          <button class="btn sm" id="bg-custom" title="左键应用自定义背景色;右键打开调色盘选色">自定 · 调色</button>
+                        </div>
+                      </div>
+                      <!-- 调色输入:锚定在色块处(原生取色器跟随输入框位置,不能挪到屏幕外) -->
+                      <input type="color" id="bg-color" value="#22242b" style="position:absolute;left:0;top:0;width:0;height:0;opacity:0;border:0;padding:0" />
+                    </span>
                     <label class="chk"><input type="checkbox" id="show-bones" /> 骨骼</label>
                     <label class="chk"><input type="checkbox" id="flip-x" /> 镜像</label>
                     <button class="icon-btn" id="btn-rotate" title="旋转 90°">↻</button>
                     <button class="btn sm" id="pv-capture" title="截图当前帧(透明背景 PNG/WebP)">📷 截图</button>
+                    <button class="btn sm" id="slot-toggle" title="展开/折叠插槽列表" hidden>▸ 插槽</button>
+                    <button class="btn sm" id="slot-visibility" title="隐藏全部插槽附件" hidden>全隐</button>
                     <div class="ctrl-spacer"></div>
                     <span class="status" id="pv-status"></span>
                   </div>
+                  <div class="ctrl-row action-row" id="action-row" hidden>
+                    <div class="slot-list action-list" id="action-list"></div>
+                  </div>
                   <div class="ctrl-row slot-row" id="slot-row" hidden>
-                    <label class="ctrl-label">插槽</label>
-                    <button class="btn sm" id="slot-all">全部显示</button>
-                    <button class="btn sm" id="slot-none">全部隐藏</button>
-                    <div class="slot-list" id="slot-list"></div>
+                    <div class="slot-list" id="slot-list" hidden></div>
                   </div>
                 </div>
               </div>

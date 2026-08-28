@@ -782,6 +782,38 @@ function loadSpine38() {
   return spine38;
 }
 
+/**
+ * 官方 3.8 运行时对版本串 "3.8.75"(3.8.7 beta 编辑器导出)直接抛
+ * "Unsupported skeleton data, please export with a newer version of Spine."。
+ * 该版本数据格式与 3.8 final 兼容(仅版本串触发守卫),这里把二进制内的
+ * 版本串原地改写为等长的 "3.8.99" 绕过守卫;返回是否命中改写。
+ * @param {Uint8Array} bytes 二进制骨架(原地修改)
+ */
+function patchRejectedVersion3875(bytes) {
+  const readVarint = (pos) => {
+    let value = 0;
+    for (let shift = 0; shift <= 28; shift += 7) {
+      if (pos >= bytes.length) return null;
+      const b = bytes[pos++];
+      value |= (b & 0x7f) << shift;
+      if ((b & 0x80) === 0) return { value, nextPos: pos };
+    }
+    return null;
+  };
+  // 3.x 二进制布局:varint串(hash) + varint串(version)
+  const hash = readVarint(0);
+  if (!hash || hash.value <= 0) return false;
+  const ver = readVarint(hash.nextPos + hash.value - 1);
+  if (!ver || ver.value !== 7) return false; // "3.8.75" 6 字节 -> varint 编码长度 7
+  const start = ver.nextPos;
+  let s = '';
+  for (let i = 0; i < 6; i++) s += String.fromCharCode(bytes[start + i]);
+  if (s !== '3.8.75') return false;
+  const repl = '3.8.99';
+  for (let i = 0; i < 6; i++) bytes[start + i] = repl.charCodeAt(i);
+  return true;
+}
+
 async function skelToJson(inputPath, outputPath) {
   const srcBuf = fs.readFileSync(inputPath);
   // ⚠️ vendored 3.8/4.x 的 BinaryInput 构造用 `new DataView(data.buffer)`,不处理 Buffer.byteOffset。
@@ -808,6 +840,7 @@ async function skelToJson(inputPath, outputPath) {
       texture: { getImage: () => ({ width: 1024, height: 1024 }) },
     };
     hookTimelines(spine38); // 记录 setFrame 参数,供序列化还原
+    patchRejectedVersion3875(bytes); // 绕过 3.8 运行时对 "3.8.75" 版本串的拒绝守卫
     const bin = new spine38.SkeletonBinary(new spine38.AtlasAttachmentLoader({ findRegion: () => fakeRegion }));
     sd = bin.readSkeletonData(bytes);
     if (!sd) throw new Error('3.x SkeletonBinary 解析失败');

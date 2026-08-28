@@ -37,9 +37,25 @@ export async function createPlayer(app, item) {
   }
 
   if (item.type === 'spine') {
+    const skelBase = basename(item.filePath).replace(/\.[^.]+$/, '');
     const skeletonUrl = `${root}/${encodeURIComponent(basename(item.filePath))}`;
-    const atlasName = basename(item.filePath).replace(/\.[^.]+$/, '') + '.atlas';
-    const atlasUrl = `${root}/${encodeURIComponent(atlasName)}`;
+
+    // atlas 匹配链:
+    //   1. 同名 atlas (goblins-ess.atlas)
+    //   2. 去掉 -ess / -pro 后缀的 atlas (goblins.atlas)
+    //   3. images/ 目录下的解包图片(无 atlas 时回退)
+    const atlasCandidates = [skelBase + '.atlas'];
+    const stripped = skelBase.replace(/-(?:ess|pro)$/i, '');
+    if (stripped !== skelBase) atlasCandidates.push(stripped + '.atlas');
+
+    let atlasUrl = null;
+    for (const name of atlasCandidates) {
+      const url = `${root}/${encodeURIComponent(name)}`;
+      try {
+        const res = await fetch(url);
+        if (res.ok) { atlasUrl = url; break; }
+      } catch (_) { /* ignore */ }
+    }
 
     // 版本探测:3.x 资源(JSON 或二进制 skel)→ 3.8 运行时;
     // 其余(4.x JSON / 4.x skel)→ 4.x 运行时。
@@ -52,7 +68,7 @@ export async function createPlayer(app, item) {
       probe = null; // 探测失败则走默认 4.x 运行时,由其报错
     }
     const player = isLegacy(probe) ? new Spine38Player(app) : new SpinePlayer(app);
-    await player.load({ skeletonUrl, atlasUrl });
+    await player.load({ skeletonUrl, atlasUrl, imageDir: atlasUrl ? null : `${root}/images` });
     return { player };
   }
 

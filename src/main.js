@@ -2433,6 +2433,25 @@ function installSmoke() {
           out.anim = ed.project.armature.animations.map((a) => a.name + ':' + a.duration).join(',');
           const tl = ed.project.armature.animations[0].bones.hip && ed.project.armature.animations[0].bones.hip.translate;
           out.keys = tl ? tl.map((k) => k.frame + '/' + k.v.x + ',' + k.v.y).join(' ') : '';
+          // 焦点附件诊断:Options·图片关闭时,选中的附件(自身可见)应仍单独渲染;
+          // 移动/缩放模式下骨骼显示关闭时,选中附件的宿主骨骼也应单独绘制(_boneHits)
+          try {
+            const slotX = ed.project.armature.slots.find((s) => s.displays.length);
+            if (slotX) {
+              const toolPrev = ed.tool;
+              ed.setTool('move');
+              ed.showImages = false;
+              ed.showBones = false;
+              ed.select({ type: 'att', slot: slotX.name, index: 0 });
+              await sleep(200);
+              out.focusImgHiddenShown = (ed.stage.hitImages || []).map((h) => h.slotName).join(',');
+              out.focusBoneHiddenShown = (ed.stage._boneHits || []).map((h) => h.name).join(',');
+              ed.setTool(toolPrev);
+              ed.showImages = true;
+              ed.showBones = true;
+              ed.select(null, null);
+            }
+          } catch (err) { out.focusErr = err.message; }
           out.spineMeta = {
             project: ed.project.spine.project,
             version: ed.project.spine.version,

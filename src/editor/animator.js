@@ -106,6 +106,8 @@ export function sampleAnimation(anim, frame) {
     if (ro) o.rotation = ro[0];
     const sc = sampleChannel(ch.scale, frame, (k) => [k.v.scaleX, k.v.scaleY], (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t)]);
     if (sc) { o.scaleX = sc[0]; o.scaleY = sc[1]; }
+    const sh = sampleChannel(ch.shear, frame, (k) => [k.v.shearX || 0, k.v.shearY || 0], (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t)]);
+    if (sh) { o.shearX = sh[0]; o.shearY = sh[1]; }
     if (Object.keys(o).length) out.bones[boneName] = o;
   }
   for (const [slotName, ch] of Object.entries(anim.slots || {})) {
@@ -139,7 +141,7 @@ function mul(m, n) {
  * poseOverrides: sampleAnimation 的 bones 部分(可为 null,即绑定姿势)。
  * 返回 Map<boneName, {…矩阵, rotation(rad), scaleX, scaleY, bone}>
  */
-export function computeWorldTransforms(project, poseOverrides) {
+export function computeWorldTransforms(project, poseOverrides, setupOverrides) {
   const result = new Map();
   const bones = project.armature.bones;
   const byName = new Map(bones.map((b) => [b.name, b]));
@@ -148,17 +150,26 @@ export function computeWorldTransforms(project, poseOverrides) {
     const hit = result.get(bone.name);
     if (hit) return hit;
     const ov = poseOverrides && poseOverrides[bone.name];
+    const co = setupOverrides && setupOverrides[bone.name]; // 补偿覆盖层(编辑器预览,不入存档)
+    const pick = (k, dflt) => co && co[k] !== undefined ? co[k] : ov && ov[k] !== undefined ? ov[k] : dflt;
     const pose = {
-      x: ov && ov.x !== undefined ? ov.x : bone.x,
-      y: ov && ov.y !== undefined ? ov.y : bone.y,
-      rotation: ov && ov.rotation !== undefined ? ov.rotation : bone.rotation,
-      scaleX: ov && ov.scaleX !== undefined ? ov.scaleX : bone.scaleX,
-      scaleY: ov && ov.scaleY !== undefined ? ov.scaleY : bone.scaleY,
+      x: pick('x', bone.x),
+      y: pick('y', bone.y),
+      rotation: pick('rotation', bone.rotation),
+      scaleX: pick('scaleX', bone.scaleX),
+      scaleY: pick('scaleY', bone.scaleY),
+      shearX: pick('shearX', bone.shearX || 0),
+      shearY: pick('shearY', bone.shearY || 0),
     };
     const rad = (pose.rotation * Math.PI) / 180;
-    const cos = Math.cos(rad), sin = Math.sin(rad);
-    // L = T(x,y) · R(rot) · S(scale)
-    const L = { a: cos * pose.scaleX, b: sin * pose.scaleX, c: -sin * pose.scaleY, d: cos * pose.scaleY, tx: pose.x, ty: pose.y };
+    const shx = (pose.shearX * Math.PI) / 180;
+    const shy = (pose.shearY * Math.PI) / 180;
+    // L = T(x,y) · R(rot) · Shear(shx,shy) · S(scale)  (Spine 标准公式)
+    const la = Math.cos(rad + shx) * pose.scaleX;
+    const lb = Math.sin(rad + shx) * pose.scaleX;
+    const lc = -Math.sin(rad - shy) * pose.scaleY;
+    const ld = Math.cos(rad - shy) * pose.scaleY;
+    const L = { a: la, b: lb, c: lc, d: ld, tx: pose.x, ty: pose.y };
     const parent = bone.parent ? byName.get(bone.parent) : null;
     let m;
     if (!parent) {
@@ -191,8 +202,9 @@ export function computeWorldTransforms(project, poseOverrides) {
   return result;
 }
 
-/** 骨骼尖端世界坐标(length 方向) */
+/** 骨骼尖端世界坐标(length 方向);RT 路径优先用 localToWorld 真值(tipX/tipY) */
 export function boneTipWorld(world, bone) {
+  if (Number.isFinite(world.tipX) && Number.isFinite(world.tipY)) return { x: world.tipX, y: world.tipY };
   const len = bone.length || 0;
   return { x: world.tx + world.a * len, y: world.ty + world.b * len };
 }

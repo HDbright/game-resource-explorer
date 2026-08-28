@@ -56,6 +56,8 @@ export function renderToolboxPage(container, tool) {
   }
   const body = document.createElement('div');
   body.className = 'tool-body';
+  // 应用型工具(自带完整 UI,如骨骼动画编辑器)撑满宿主,去掉内边距避免浪费屏幕区域
+  if (tool === 'todo' || tool === 'kidworkspace' || tool === 'boneeditor') body.classList.add('tool-body--app');
   container.appendChild(body);
   cfg.render(body);
 }

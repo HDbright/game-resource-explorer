@@ -24,6 +24,7 @@ export class PreviewController {
     this.currentItemId = null;
     this.actions = [];
     this.actionIndex = 0;
+    this.lastSkinName = null; // 上次手动选择的皮肤名(跨条目尝试沿用)
     this.loadToken = 0;
     this.fitPending = false;
     this.lastT = 0;
@@ -60,6 +61,11 @@ export class PreviewController {
       width: this.canvas ? this.canvas.clientWidth || 800 : 800,
       height: this.canvas ? this.canvas.clientHeight || 600 : 600,
       background: 0x22242b,
+      // 棋盘(透明)背景需要画布携带 alpha:pixi v8 在建 GL 上下文时按 background.alpha<1
+      // 决定 getContext('webgl', { alpha }) —— 初始不透明会导致上下文 alpha:false,
+      // 之后运行时把 background.alpha 设为 0 也无法透明。故初始 alpha=0(上下文可透明),
+      // 纯色模式由 setBgColor 立即置回 alpha=1。
+      backgroundAlpha: 0,
       antialias: true,
       resolution: Math.min(window.devicePixelRatio || 1, 2),
       autoDensity: true,
@@ -73,8 +79,9 @@ export class PreviewController {
     this._bindEvents();
     this.lastT = performance.now();
     requestAnimationFrame(this._loop);
-    // 初始化完成后应用挂起的背景色(启动时 main 在 init 前调用 setBgColor)
+    // 初始化完成后应用挂起的背景(启动时 main 在 init 前调用 setBgColor / setBgChecker)
     if (this._pendingBgColor) this.setBgColor(this._pendingBgColor);
+    if (this._pendingBgChecker) this.setBgChecker(true);
   }
 
   _bindEvents() {
@@ -190,6 +197,12 @@ export class PreviewController {
       this.applyPlayback();
       this.player.setTimeScale(this.speed);
       this.player.setShowBones(document.getElementById('show-bones').checked);
+      // 沿用上次手动选择的皮肤(仅当新资源含同名皮肤;'default' 不记忆,
+      // 避免覆盖多皮肤资源的自动选肤启发式)
+      if (typeof player.getSkins === 'function' && this.lastSkinName) {
+        const skins = player.getSkins();
+        if (skins.some((s) => s.name === this.lastSkinName)) player.setSkin(this.lastSkinName);
+      }
       // 默认缩放 100%(原始尺寸),内容中心对齐视口中心;用户可点 ⤢ 手动适配窗口
       this.fitPending = false;
       let bounds = null;
@@ -284,7 +297,20 @@ export class PreviewController {
 
   setBgColor(color) {
     this._pendingBgColor = color;
-    if (this.app) this.app.renderer.background.color = parseInt(color.replace('#', ''), 16);
+    if (this.app) {
+      this.app.renderer.background.color = parseInt(color.replace('#', ''), 16);
+      this.app.renderer.background.alpha = 1; // 纯色模式恒不透明
+    }
+  }
+
+  /** 棋盘(透明)背景:画布 alpha=0,棋盘格由 UI 层给 wrap 加 CSS 类呈现 */
+  setBgChecker(on) {
+    this._pendingBgChecker = !!on;
+    if (!this.app) return;
+    this.app.renderer.background.alpha = on ? 0 : 1;
+    if (!on && this._pendingBgColor) {
+      this.app.renderer.background.color = parseInt(this._pendingBgColor.replace('#', ''), 16);
+    }
   }
 
   setFlip(v) {
@@ -321,6 +347,33 @@ export class PreviewController {
   setSlotVisible(name, visible) {
     if (this.player && typeof this.player.setSlotVisible === 'function') {
       this.player.setSlotVisible(name, visible);
+    }
+  }
+
+  /** 插槽详情(含当前附件名;无此能力的播放器回退 getSlots) */
+  getSlotDetails() {
+    if (this.player && typeof this.player.getSlotDetails === 'function') return this.player.getSlotDetails();
+    return this.getSlots().map((s) => ({ ...s, attachment: null, hasImage: false }));
+  }
+
+  /** 插槽当前附件的独立 PNG(悬浮预览 / 右键另存);无附件或能力不支持返回 null */
+  getAttachmentImage(slotName) {
+    return this.player && typeof this.player.getAttachmentImage === 'function'
+      ? this.player.getAttachmentImage(slotName)
+      : null;
+  }
+
+  // ---------------- 皮肤(代理到播放器;Laya/DragonBones 播放器无此能力时返回空) ----------------
+
+  getSkins() {
+    return this.player && typeof this.player.getSkins === 'function' ? this.player.getSkins() : [];
+  }
+
+  setSkin(name) {
+    if (this.player && typeof this.player.setSkin === 'function') {
+      this.player.setSkin(name);
+      // 'default' 是「回到无皮肤」的显式选择,不作为跨条目的记忆值
+      this.lastSkinName = name === 'default' ? null : name;
     }
   }
 
