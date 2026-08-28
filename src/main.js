@@ -163,6 +163,37 @@ async function probeState() {
   };
 }
 
+/** 冒烟辅助:目录页「查看」下拉切换视图(旧 .view-btn 按钮组已重构为下拉菜单) */
+async function switchFolderView(mode, sleep) {
+  const dd = document.querySelector('.view-dropdown-btn');
+  if (!dd) return false;
+  dd.click();
+  await sleep(150);
+  const item = [...document.querySelectorAll('.view-menu-item')]
+    .find((el) => el.dataset.view === mode && el.dataset.group === 'view');
+  if (!item) return false;
+  item.click();
+  await sleep(150);
+  return true;
+}
+
+/**
+ * 冒烟辅助:找第一个「真实资源分类」的树节点。
+ * 菜单树重构后侧栏混排了工具箱(tb_)/场景(sc_)/菜单(__m_)节点,dataset.id 前缀无法区分,
+ * 须对 state.categories 的 id 白名单匹配(否则可能点进工具页,污染整条 folder 链路步骤)。
+ * 优先选直属条目 ≥ minItems 的分类(空分类/历史冒烟残留分类会让后续步骤取不到行)。
+ */
+function findResourceCatNode(minItems = 2) {
+  const count = (cid) => state.items.filter((i) => (i.categoryId || '') === cid).length;
+  const nodes = [...document.querySelectorAll('.cat-node')];
+  for (const need of [minItems, 1, 0]) {
+    const ids = new Set(state.categories.filter((c) => count(c.id) >= need).map((c) => c.id));
+    const el = nodes.find((n) => ids.has(n.dataset.id));
+    if (el) return el;
+  }
+  return null;
+}
+
 function installSmoke() {
   window.__smokeStep = async (step) => {
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -568,7 +599,7 @@ function installSmoke() {
         // 旋转
         p.rotateClockwise();
         out.rotation = +p.viewC.rotation.toFixed(3);
-        // 侧栏折叠(顶栏「资源树」按钮切换,图标变化表示状态:☰=隐藏可显示 / ▤=显示可隐藏)
+        // 侧栏折叠(顶栏「资源树」按钮切换;按钮为 SVG 图标,以 title 文本表示状态)
         const sb = document.getElementById('sidebar');
         const tbtn = document.getElementById('btn-toggle-side');
         // 先确保从「可见」状态开始(清理上次冒烟 localStorage 残留)
@@ -576,10 +607,10 @@ function installSmoke() {
         const initVisible = !sb.classList.contains('hidden');
         tbtn.click(); // 隐藏
         out.sidebarHidden = sb.classList.contains('hidden');
-        out.toggleIconWhenHidden = (tbtn.textContent || '').includes('☰');
+        out.toggleIconWhenHidden = (tbtn.title || '').includes('显示'); // 隐藏时提示「显示资源树」
         tbtn.click(); // 显示
         out.sidebarShown = !sb.classList.contains('hidden');
-        out.toggleIconWhenShown = (tbtn.textContent || '').includes('▤');
+        out.toggleIconWhenShown = (tbtn.title || '').includes('隐藏'); // 可见时提示「隐藏资源树」
         out.toggleOk = initVisible && out.sidebarHidden && out.toggleIconWhenHidden
           && out.sidebarShown && out.toggleIconWhenShown;
         // 结束时强制恢复侧栏可见,避免影响后续步骤
@@ -770,12 +801,14 @@ function installSmoke() {
         renderCategories();
         const treeNames = [...document.querySelectorAll('.cat-node .cat-name')].map((el) => el.textContent);
         const treeDnd = treeNames.filter((n) => n.startsWith('__dnd_'));
+        // 无类型标签的分类会在每个资源类型根下各显示一份:按首次出现顺序去重后,单份顺序应与状态层一致
+        const treeDndOnce = treeDnd.filter((n, i) => treeDnd.indexOf(n) === i);
         const orderDnd = (arr) => arr.filter((n) => n.startsWith('__dnd_'));
         const out = {
           ok: orderAfter.indexOf('__dnd_C__') < orderAfter.indexOf('__dnd_A__')
             && orderAfter2.indexOf('__dnd_A__') > orderAfter2.indexOf('__dnd_B__')
             && orderAfter2.indexOf('__dnd_B__') > orderAfter2.indexOf('__dnd_C__')
-            && treeDnd.join(',') === orderDnd(orderAfter2).join(','),
+            && treeDndOnce.join(',') === orderDnd(orderAfter2).join(','),
           orderAfter: orderDnd(orderAfter),
           orderAfter2: orderDnd(orderAfter2),
           treeDnd,
@@ -829,13 +862,15 @@ function installSmoke() {
           catGone: !state.categories.some((c) => c.id === catA.id || c.id === subA.id),
           itemGone: !state.items.some((i) => i.id === itemA.id),
         };
-        // 模式2:动画移未分类 + 子分类提升为上一级(默认选项)
+        // 模式2:动画移未分类 + 子分类提升为上一级(默认选项已改为「删除」,需显式选「移动」)
         const itemB = addItem({ categoryId: catB.id, type: 'spine', filePath: 'E:/fake/del_b.json', displayName: '__del_item_b__' });
         const subB = addCategory({ name: '__del_B1__', parentId: catB.id });
         await sleep(600);
         renderCategories();
         await openCatMenu('__del_B__');
         const mask2 = document.querySelector('.modal-mask');
+        const rbMove = mask2 && mask2.querySelector('input[name="delcat-anim"][value="move"]');
+        if (rbMove) { rbMove.checked = true; rbMove.dispatchEvent(new Event('change')); }
         const ok2 = mask2 && [...mask2.querySelectorAll('.modal-foot .btn')].find((b) => b.textContent === '删除');
         if (ok2) ok2.click();
         await sleep(250);
@@ -865,7 +900,7 @@ function installSmoke() {
           .find((n) => (n.querySelector('.cat-name') || {}).textContent === '__im_X__');
         if (catNodeX) {
           const arrow = catNodeX.querySelector('.cat-arrow');
-          if (arrow && (arrow.textContent === '▶' || arrow.textContent === '▼')) arrow.click();
+          if (arrow && arrow.textContent === '▶') arrow.click(); // 仅折叠时展开(展开态点击会反而折叠)
           await sleep(150);
         }
         renderCategories();
@@ -898,7 +933,7 @@ function installSmoke() {
             .find((n) => (n.querySelector('.cat-name') || {}).textContent === '未分类');
           if (uncatNode) {
             const arrow = uncatNode.querySelector('.cat-arrow');
-            if (arrow && (arrow.textContent === '▶' || arrow.textContent === '▼')) arrow.click();
+            if (arrow && arrow.textContent === '▶') arrow.click(); // 仅折叠时展开(展开态点击会反而折叠)
             await sleep(150);
           }
           renderCategories();
@@ -919,7 +954,7 @@ function installSmoke() {
           } else {
             out.propShown = false;
           }
-          out.ok = out.menuItems.join() === ['播放', '打开目录', '编辑', '重命名', '移动到...', '收藏', '删除', '属性'].join()
+          out.ok = out.menuItems.join() === ['播放', '打开目录', '编辑信息', '重命名', '移动到...', '收藏', '删除', '属性'].join()
             && out.movedToUncat && out.propShown;
         } else {
           out.ok = false;
@@ -998,14 +1033,12 @@ function installSmoke() {
         }
         renderCategories();
         out.subInTree = !!findNode('__sub_1__');
-        // 4) 类型根节点(「XX资源」)右键 → 新建目录(顶级;顶栏按钮已移除)
+        // 4) 类型根节点「＋」按钮 → 新建资源分类(顶级;旧 data-id="all" 伪节点与右键新建已随菜单树重构移除)
         renderCategories();
-        const rootNode = document.querySelector('.cat-node[data-id="all"]');
-        if (rootNode) rootNode.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 220, clientY: 220 }));
-        await sleep(150);
-        const rootMenu = document.querySelector('.ctx-menu');
-        out.rootMenuItems = rootMenu ? [...rootMenu.querySelectorAll('.ctx-item')].map((el) => el.textContent) : [];
-        out.rootNewDirClicked = clickMenuItem('新建目录');
+        const typeRoot = [...document.querySelectorAll('.cat-node')]
+          .find((n) => n.dataset.id && n.dataset.id.startsWith('__m_') && n.querySelector('.cat-ops .icon-btn'));
+        out.plusBtnFound = !!typeRoot;
+        if (typeRoot) typeRoot.querySelector('.cat-ops .icon-btn').click();
         await sleep(200);
         const mask3 = document.querySelector('.modal-mask');
         out.newDirTitle = mask3 ? (mask3.querySelector('.modal-title') || {}).textContent || '' : '';
@@ -1015,8 +1048,7 @@ function installSmoke() {
         out.rootDirTop = !!rootDir && rootDir.parentId === '';
         out.ok = out.menuShown && out.subCreated && out.moveOk && out.subInTree
           && JSON.stringify(out.menuItems) === JSON.stringify(['添加资源', '批量添加', '新建目录', '编辑分类目录', '移动...', '删除'])
-          && out.rootMenuItems.includes('新建目录') && out.rootNewDirClicked
-          && out.newDirTitle === '新建目录' && out.topBtnGone && out.rootDirTop;
+          && out.plusBtnFound && out.newDirTitle === '新建资源分类' && out.topBtnGone && out.rootDirTop;
         // 清理
         if (rootDir) removeCategory(rootDir.id);
         for (const c of state.categories.filter((c) => c.name.startsWith('__tree_') || c.name === '__sub_1__')) {
@@ -1088,7 +1120,7 @@ function installSmoke() {
       }
       case 'folder': {
         // 点选第一个分类 → 目录列表页可见 + 统计条
-        const catNode = [...document.querySelectorAll('.cat-node')].find((n) => n.dataset.id && !n.dataset.id.startsWith('__') && n.dataset.id !== 'all' && !n.dataset.id.startsWith('fav:'));
+        const catNode = findResourceCatNode();
         if (!catNode) return { err: 'no-cat-node' };
         const before = state.settings.resourceTab;
         catNode.click();
@@ -1105,21 +1137,18 @@ function installSmoke() {
         };
       }
       case 'viewmode': {
-        // 视图切换:icon → .res-grid;detail → .res-table;设置持久化
+        // 视图切换(「查看」下拉):icon → .res-grid;detail → .res-table;设置持久化
         const out = {};
-        const iconBtn = [...document.querySelectorAll('.view-btn')].find((b) => b.dataset.view === 'icon');
-        if (iconBtn) iconBtn.click();
+        out.iconSwitched = await switchFolderView('icon', sleep);
         await sleep(400);
         out.iconGrid = !!document.querySelector('.res-grid');
         out.settingsIcon = state.settings.listViewMode === 'icon';
-        const detailBtn = [...document.querySelectorAll('.view-btn')].find((b) => b.dataset.view === 'detail');
-        if (detailBtn) detailBtn.click();
+        out.detailSwitched = await switchFolderView('detail', sleep);
         await sleep(400);
         out.detailTable = !!document.querySelector('.res-table');
         out.settingsDetail = state.settings.listViewMode === 'detail';
         // 恢复 list 视图
-        const listBtn = [...document.querySelectorAll('.view-btn')].find((b) => b.dataset.view === 'list');
-        if (listBtn) listBtn.click();
+        out.listRestored = await switchFolderView('list', sleep);
         await sleep(200);
         return out;
       }
@@ -1160,16 +1189,14 @@ function installSmoke() {
       case 'thumb': {
         // 图标模式下动画条目有 dataURL 缩略图
         const out = {};
-        const iconBtn = [...document.querySelectorAll('.view-btn')].find((b) => b.dataset.view === 'icon');
-        if (iconBtn) iconBtn.click();
+        out.viewSwitched = await switchFolderView('icon', sleep);
         await sleep(2500); // 等待缩略图生成
         const thumbs = [...document.querySelectorAll('.res-thumb')].filter((el) => el.dataset.item);
         out.thumbCount = thumbs.length;
         out.withSrc = thumbs.filter((el) => el.src && el.src.startsWith('data:')).length;
         out.audioFallbacks = document.querySelectorAll('.res-thumb.audio-fallback').length;
         // 恢复 list 视图
-        const listBtn = [...document.querySelectorAll('.view-btn')].find((b) => b.dataset.view === 'list');
-        if (listBtn) listBtn.click();
+        await switchFolderView('list', sleep);
         await sleep(200);
         return out;
       }
@@ -1237,40 +1264,69 @@ function installSmoke() {
         };
         const vis = (id) => { const el = document.getElementById(id); return !!(el && !el.hidden); };
         const backBtn = () => document.getElementById('btn-back-special');
-        const clickAll = () => {
-          const all = document.querySelector('.cat-node[data-id="all"]');
-          if (all) all.click();
-          return !!all;
+        // 菜单树重构后已无 data-id="all" 伪节点:点击任意资源分类节点(兜底:带「＋」的资源类型根)应切回资源区
+        const clickResNode = () => {
+          const ids = new Set(state.categories.map((c) => c.id));
+          const cat = [...document.querySelectorAll('.cat-node')].find((el) => ids.has(el.dataset.id));
+          if (cat) { cat.click(); return true; }
+          const root = [...document.querySelectorAll('.cat-node')]
+            .find((el) => el.dataset.id && el.dataset.id.startsWith('__m_') && el.querySelector('.cat-ops .icon-btn'));
+          if (root) { root.click(); return true; }
+          return false;
         };
 
-        // 1) 打开资源工具箱子页面(astc 转 png):展开工具箱根 → 点"文件格式转换"名称直接打开该工具
-        const tbRoot = [...document.querySelectorAll('.cat-node')]
-          .find((el) => (el.querySelector('.cat-name') || {}).textContent === '资源工具箱');
-        if (tbRoot) { const ar = tbRoot.querySelector('.cat-arrow'); if (ar) ar.click(); } // 展开工具箱(名称点击不展开)
+        // 1) 打开资源工具箱子页面(树内工具叶节点;按菜单节点 action 定位根,名称可被用户改):
+        //    展开工具箱根 → 点工具叶节点名(如「ASTC → PNG」;兜底取根之后首个叶子节点)
+        const tbMenu = state.menuNodes.find((m) => (m.action || '') === 'toolbox' && !m.hidden);
+        const tbRoot = tbMenu ? document.querySelector(`.cat-node[data-id="${tbMenu.id}"]`) : null;
+        if (tbRoot) {
+          const ar = tbRoot.querySelector('.cat-arrow');
+          if (ar && ar.textContent === '▶') ar.click(); // 仅未展开时点击
+        }
         await sleep(200);
-        out.openedTool = clickNodeByName('文件格式转换'); // 名称点击 → openTool('astc2png')
+        out.openedTool = clickNodeByName('ASTC → PNG');
+        if (!out.openedTool && tbRoot) {
+          const nodes = [...document.querySelectorAll('.cat-node')];
+          const i = nodes.indexOf(tbRoot);
+          for (let j = i + 1; j < nodes.length; j++) {
+            const a = nodes[j].querySelector('.cat-arrow');
+            if (a && a.textContent === '·' && !nodes[j].classList.contains('fav-root') && !nodes[j].classList.contains('fav-cat')) {
+              nodes[j].click();
+              out.openedTool = true;
+              break;
+            }
+          }
+        }
         await sleep(250);
         out.toolboxVisible = vis('page-toolbox');
         out.backShownOnTool = !backBtn().hidden;
 
-        // 2) 工具箱页点资源分类节点('all') → 必须切回资源区
-        out.clickedAll1 = clickAll();
+        // 2) 工具箱页点资源分类节点 → 必须切回资源区
+        out.clickedRes1 = clickResNode();
         await sleep(250);
         out.toolboxHidden = !vis('page-toolbox');
         out.resAfterTool = vis('page-home') || vis('page-folder');
         out.backHiddenAfterRes = backBtn().hidden;
 
-        // 3) 打开游戏场景管理(主页)
-        out.openedScene = clickNodeByName('游戏场景管理');
-        await sleep(250);
-        out.sceneVisible = vis('page-scene');
-        out.backShownOnScene = !backBtn().hidden;
+        // 3) 打开游戏场景管理(主页;按菜单节点 action 定位——名称可被用户改,节点可被删除)
+        const sceneNode = state.menuNodes.find((m) => (m.action || '') === 'scene' && !m.hidden);
+        const sceneDom = sceneNode ? document.querySelector(`.cat-node[data-id="${sceneNode.id}"]`) : null;
+        out.sceneAvailable = !!sceneDom;
+        if (sceneDom) {
+          sceneDom.click();
+          await sleep(250);
+          out.openedScene = true;
+          out.sceneVisible = vis('page-scene');
+          out.backShownOnScene = !backBtn().hidden;
 
-        // 4) 场景主页点资源分类节点('all') → 必须切回资源区
-        out.clickedAll2 = clickAll();
-        await sleep(250);
-        out.sceneHidden = !vis('page-scene');
-        out.resAfterScene = vis('page-home') || vis('page-folder');
+          // 4) 场景主页点资源分类节点 → 必须切回资源区
+          out.clickedRes2 = clickResNode();
+          await sleep(250);
+          out.sceneHidden = !vis('page-scene');
+          out.resAfterScene = vis('page-home') || vis('page-folder');
+        } else {
+          out.sceneSkipped = true; // 当前库无场景根节点(用户删除/隐藏)时跳过场景段
+        }
 
         // 5) 打开设置页
         const setBtn = document.getElementById('btn-settings');
@@ -1279,24 +1335,24 @@ function installSmoke() {
         out.settingsVisible = vis('page-settings');
         out.backHiddenOnSettings = backBtn().hidden; // 设置页用自身返回按钮
 
-        // 6) 设置页点资源分类节点('all') → 必须切回资源区
-        out.clickedAll3 = clickAll();
+        // 6) 设置页点资源分类节点 → 必须切回资源区
+        out.clickedRes3 = clickResNode();
         await sleep(250);
         out.settingsHidden = !vis('page-settings');
         out.resAfterSettings = vis('page-home') || vis('page-folder');
 
         out.ok = out.toolboxVisible && out.toolboxHidden && out.resAfterTool
-          && out.sceneVisible && out.sceneHidden && out.resAfterScene
+          && (!out.sceneAvailable || (out.sceneVisible && out.sceneHidden && out.resAfterScene && out.backShownOnScene))
           && out.settingsVisible && out.settingsHidden && out.resAfterSettings
-          && out.backShownOnTool && out.backShownOnScene && out.backHiddenAfterRes
+          && out.backShownOnTool && out.backHiddenAfterRes
           && out.backHiddenOnSettings;
         return out;
       }
       case 'toolhome': {
         // 回归:点击"资源工具箱"根名称 → 右侧进入工具箱主页(汇总视图),且含全部子菜单入口卡片
         const out = {};
-        const tbRoot = [...document.querySelectorAll('.cat-node')]
-          .find((el) => (el.querySelector('.cat-name') || {}).textContent === '资源工具箱');
+        const tbMenu = state.menuNodes.find((m) => (m.action || '') === 'toolbox' && !m.hidden);
+        const tbRoot = tbMenu ? document.querySelector(`.cat-node[data-id="${tbMenu.id}"]`) : null;
         if (!tbRoot) return { err: 'no-toolbox-root' };
         tbRoot.click(); // 名称点击 → 进入工具箱主页
         await sleep(250);
@@ -1313,19 +1369,26 @@ function installSmoke() {
         out.afterToolboxHidden = document.getElementById('page-toolbox').hidden;
         out.breadcrumb = (document.getElementById('breadcrumb').textContent || '').trim();
         out.enteredSub = document.querySelectorAll('.tool-grid').length === 0 && !document.getElementById('page-toolbox').hidden;
-        // 侧栏「资源工具箱」下应有「FGUI导出源」叶子菜单 → 点击进入 FGUI 导出源功能页
-        const tbRoot2 = [...document.querySelectorAll('.cat-node')]
-          .find((el) => (el.querySelector('.cat-name') || {}).textContent === '资源工具箱');
+        // 进入 FGUI 导出源功能页:优先侧栏树叶子;树未直接渲染(嵌套在子目录/折叠)时回主页点入口卡片兜底
+        const tbRoot2 = tbMenu ? document.querySelector(`.cat-node[data-id="${tbMenu.id}"]`) : null;
         const tbArrow = tbRoot2 ? tbRoot2.querySelector('.cat-arrow') : null;
         if (tbArrow && tbArrow.textContent === '▶') tbArrow.click(); // 展开工具箱(未展开时)
         await sleep(150);
         const fguiLeaf = [...document.querySelectorAll('.cat-node')]
           .find((el) => (el.querySelector('.cat-name') || {}).textContent === 'FGUI导出源');
         out.fguiLeafFound = !!fguiLeaf;
-        if (fguiLeaf) fguiLeaf.click();
+        if (fguiLeaf) {
+          fguiLeaf.click();
+        } else if (tbRoot2) {
+          tbRoot2.click(); // 回工具箱主页
+          await sleep(250);
+          const card = [...document.querySelectorAll('.tool-entry-title')]
+            .find((el) => el.textContent === 'FGUI 导出源');
+          if (card) card.closest('.tool-entry').click();
+        }
         await sleep(250);
         out.fguiPageTitle = (document.querySelector('#page-toolbox .tool-title') || {}).textContent || '';
-        out.fguiOk = out.fguiLeafFound && out.fguiPageTitle === 'FGUI 导出源';
+        out.fguiOk = out.fguiPageTitle === 'FGUI 导出源';
         // 入口卡片数随工具增加而增长(补丁·155 加「颜色选择库」后为 13);断言用 >= 防止老断言 6 再次过期
         out.ok = out.toolboxVisible && out.homeGrid === 1 && out.entries >= 6 && out.enteredSub && out.fguiOk;
         return out;
@@ -1434,7 +1497,7 @@ function installSmoke() {
         }
         out.ok = out.hasBtns
           && out.zoomAfterActual === '100'
-          && /scale\(1\)/.test(out.transformAfterActual || '')
+          && /scale\(1[ ,)]/.test(out.transformAfterActual || '') // 浏览器会把 scale(1) 规范化为 scale(1, 1)
           && /scale\(/.test(out.transformAfterFit || '')
           && Number(out.zoomAfterFit) > 0 && Number(out.zoomAfterFit) <= 100;
         return out;
@@ -1626,9 +1689,9 @@ function installSmoke() {
         if (q('img-bg-dark')) q('img-bg-dark').click();
         await sleep(100);
         out.settingAfterDark = state.settings.bgColor;
-        // 浏览器会把 #eef0f5 解析为 rgb(238, 240, 245) 存回 style.background
+        // 浏览器会把 #c9ccd3 解析为 rgb(201, 204, 211) 存回 style.background(浅色随主题调整为 bgColor.js BG_LIGHT)
         out.ok = out.hasColor && out.hasDark && out.hasLight
-          && out.bgAfterLight === 'rgb(238, 240, 245)' && out.settingAfterLight === '#eef0f5'
+          && out.bgAfterLight === 'rgb(201, 204, 211)' && out.settingAfterLight === '#c9ccd3'
           && out.settingAfterDark === '#22242b';
         // 还原用户原背景色设置与查看区背景
         setSetting('bgColor', orig);
@@ -1695,7 +1758,7 @@ function installSmoke() {
           await sleep(200);
         }
         // 点一个分类目录节点 → 右侧应切到目录列表页
-        const catNode = [...document.querySelectorAll('.cat-node')].find((n) => n.dataset.id && !n.dataset.id.startsWith('__') && n.dataset.id !== 'all' && !n.dataset.id.startsWith('fav:'));
+        const catNode = findResourceCatNode();
         if (catNode) {
           catNode.click();
           await sleep(300);
@@ -1710,7 +1773,7 @@ function installSmoke() {
         // 切到动画 tab,再进第一个分类目录(确保有可编辑条目)
         const animTab = [...document.querySelectorAll('#resource-tabs .tab')].find((b) => b.dataset.tab === 'anim');
         if (animTab) { animTab.click(); await sleep(250); }
-        let catNode = [...document.querySelectorAll('.cat-node')].find((n) => n.dataset.id && !n.dataset.id.startsWith('__') && n.dataset.id !== 'all' && !n.dataset.id.startsWith('fav:'));
+        let catNode = findResourceCatNode();
         if (!catNode) return { err: 'no-cat-node' };
         catNode.click();
         await sleep(300);
@@ -1796,10 +1859,11 @@ function installSmoke() {
       }
       case 'batchmenu': {
         // 编辑模式多选右键:编辑(批量标签)/移动到.../收藏 三个批量功能
+        // 注意:所有失败路径都必须走 finally 清理(退出编辑模式 + 还原状态),否则会泄漏编辑模式污染后续步骤
         const out = {};
         const animTab = [...document.querySelectorAll('#resource-tabs .tab')].find((b) => b.dataset.tab === 'anim');
         if (animTab) { animTab.click(); await sleep(250); }
-        let catNode = [...document.querySelectorAll('.cat-node')].find((n) => n.dataset.id && !n.dataset.id.startsWith('__') && n.dataset.id !== 'all' && !n.dataset.id.startsWith('fav:'));
+        let catNode = findResourceCatNode();
         if (!catNode) return { err: 'no-cat-node' };
         catNode.click();
         await sleep(300);
@@ -1811,88 +1875,97 @@ function installSmoke() {
         // ⚠️ 不能用全局 [data-item]:home 页 .type-cat-item 也有 data-item(隐藏但 DOM 存在)
         const folderSel = '#page-folder [data-item]';
         const itemRows = [...document.querySelectorAll(folderSel)];
-        if (itemRows.length < 2) return { err: 'no-two-items' };
+        if (itemRows.length < 2) { out.err = 'no-two-items'; return out; }
         const targets = itemRows.slice(0, 2).map((el) => el.dataset.item);
         const origCats = targets.map((id) => (state.items.find((i) => i.id === id) || {}).categoryId || '');
-        // 点选前两个条目(每次点击触发 renderMainArea 重建 DOM,须重新查询)
-        for (const id of targets) {
-          const el = [...document.querySelectorAll(folderSel)].find((r) => r.dataset.item === id);
-          if (el) { el.click(); await sleep(150); }
+        let fcSmoke = null;
+        try {
+          // 点选前两个条目(每次点击触发 renderMainArea 重建 DOM,须重新查询)
+          for (const id of targets) {
+            const el = [...document.querySelectorAll(folderSel)].find((r) => r.dataset.item === id);
+            if (el) { el.click(); await sleep(150); }
+          }
+          out.selectedCount = (document.getElementById('res-count') || {}).textContent || '';
+          const ctx = (x, y) => new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: x, clientY: y });
+          // 右键第一个条目 → 批量菜单(#page-folder 限定)
+          document.querySelector('#page-folder [data-item]').dispatchEvent(ctx(300, 300));
+          await sleep(200);
+          out.menuItems = [...document.querySelectorAll('.ctx-item')].map((el) => el.textContent);
+          out.menuOk = out.menuItems.includes('编辑标签 (2 项)') && out.menuItems.includes('移动到...') && out.menuItems.includes('收藏') && out.menuItems.includes('删除') && out.menuItems.includes('取消选择');
+          // ① 批量标签:点「编辑标签 (2 项)」→ 输入新标签 → 直接点保存(不按回车,验证 commit 提交未确认输入)
+          const bTag = [...document.querySelectorAll('.ctx-item')].find((el) => el.textContent.startsWith('编辑标签'));
+          if (!bTag) { out.err = 'no-batch-edit-menu'; return out; }
+          bTag.click();
+          await sleep(300);
+          const bTagInput = document.querySelector('.tag-editor .tag-input');
+          if (!bTagInput) { out.err = 'no-batch-tag-editor'; return out; }
+          bTagInput.value = '__批量标签__';
+          bTagInput.focus();
+          await sleep(100);
+          // 不按回车,直接点保存
+          const bSave = [...document.querySelectorAll('.modal-foot .btn')].find((b) => b.textContent.trim() === '保存');
+          if (!bSave) { out.err = 'no-batch-save'; return out; }
+          bSave.click();
+          await sleep(400);
+          out.taggedCount = state.items.filter((i) => targets.includes(i.id) && (i.tags || []).includes('__批量标签__')).length;
+          out.batchTagOk = out.taggedCount === 2;
+          // ② 批量收藏:右键 → 收藏 → 输入新收藏分类名 → 确定
+          document.querySelector('#page-folder [data-item]').dispatchEvent(ctx(300, 300));
+          await sleep(200);
+          const bFav = [...document.querySelectorAll('.ctx-item')].find((el) => el.textContent === '收藏');
+          if (!bFav) { out.err = 'no-fav-menu'; return out; }
+          bFav.click();
+          await sleep(300);
+          const favInput = document.querySelector('.modal-body input[type="text"]');
+          if (!favInput) { out.err = 'no-fav-input'; return out; }
+          favInput.value = '__批量收藏__';
+          const favOk = [...document.querySelectorAll('.modal-foot .btn')].find((el) => el.textContent.trim() === '确定');
+          favOk.click();
+          await sleep(400);
+          fcSmoke = state.favCategories.find((c) => c.name === '__批量收藏__');
+          out.favCatCreated = !!fcSmoke;
+          out.favCount = fcSmoke ? state.favItems.filter((f) => f.favCategoryId === fcSmoke.id && targets.includes(f.itemId)).length : 0;
+          out.batchFavOk = out.favCount === 2;
+          // ③ 批量移动:右键 → 移动到... → 目录树弹窗(旧 radio 列表已重构为 moveTreeDialog)选「未分类」根行 → 移动
+          document.querySelector('#page-folder [data-item]').dispatchEvent(ctx(300, 300));
+          await sleep(200);
+          const bMv = [...document.querySelectorAll('.ctx-item')].find((el) => el.textContent === '移动到...');
+          if (!bMv) { out.err = 'no-move-menu'; return out; }
+          bMv.click();
+          await sleep(300);
+          const mtree = document.querySelector('.mtree-tree');
+          const rootRow = mtree ? mtree.querySelector('.mtree-row') : null;
+          if (rootRow && !rootRow.classList.contains('selected')) { rootRow.click(); await sleep(120); }
+          const mvBtn = [...document.querySelectorAll('.modal-foot .btn')].find((b) => b.textContent.trim() === '移动');
+          if (!mvBtn) { out.err = 'no-move-btn'; return out; }
+          mvBtn.click();
+          await sleep(400);
+          out.movedCount = state.items.filter((i) => targets.includes(i.id) && (i.categoryId || '') === '').length;
+          out.batchMoveOk = out.movedCount === 2;
+        } finally {
+          // 清理:退出编辑模式 + 恢复分类/标签 + 删收藏分类(任何失败路径都不泄漏编辑模式)
+          const editBtnExit = document.getElementById('edit-mode-btn');
+          if (editBtnExit && document.querySelector('[data-edit-act]')) editBtnExit.click();
+          await sleep(250);
+          if (fcSmoke) removeFavCategory(fcSmoke.id);
+          targets.forEach((id, idx) => {
+            removeFavItem(id, undefined); // 清所有收藏引用
+            updateItem(id, { tags: [], categoryId: origCats[idx] });
+            thumbnailService.invalidate(id);
+          });
+          renderCategories(); renderItems(); renderMainArea();
         }
-        out.selectedCount = (document.getElementById('res-count') || {}).textContent || '';
-        const ctx = (x, y) => new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: x, clientY: y });
-        // 右键第一个条目 → 批量菜单(#page-folder 限定)
-        document.querySelector('#page-folder [data-item]').dispatchEvent(ctx(300, 300));
-        await sleep(200);
-        out.menuItems = [...document.querySelectorAll('.ctx-item')].map((el) => el.textContent);
-        out.menuOk = out.menuItems.includes('编辑标签 (2 项)') && out.menuItems.includes('移动到...') && out.menuItems.includes('收藏') && out.menuItems.includes('删除') && out.menuItems.includes('取消选择');
-        // ① 批量标签:点「编辑标签 (2 项)」→ 输入新标签 → 直接点保存(不按回车,验证 commit 提交未确认输入)
-        const bTag = [...document.querySelectorAll('.ctx-item')].find((el) => el.textContent.startsWith('编辑标签'));
-        if (!bTag) return { err: 'no-batch-edit-menu' };
-        bTag.click();
-        await sleep(300);
-        const bTagInput = document.querySelector('.tag-editor .tag-input');
-        if (!bTagInput) return { err: 'no-batch-tag-editor' };
-        bTagInput.value = '__批量标签__';
-        bTagInput.focus();
-        await sleep(100);
-        // 不按回车,直接点保存
-        const bSave = [...document.querySelectorAll('.modal-foot .btn')].find((b) => b.textContent.trim() === '保存');
-        if (!bSave) return { err: 'no-batch-save' };
-        bSave.click();
-        await sleep(400);
-        out.taggedCount = state.items.filter((i) => targets.includes(i.id) && (i.tags || []).includes('__批量标签__')).length;
-        out.batchTagOk = out.taggedCount === 2;
-        // ② 批量收藏:右键 → 收藏 → 输入新收藏分类名 → 确定
-        document.querySelector('#page-folder [data-item]').dispatchEvent(ctx(300, 300));
-        await sleep(200);
-        const bFav = [...document.querySelectorAll('.ctx-item')].find((el) => el.textContent === '收藏');
-        if (!bFav) return { err: 'no-fav-menu' };
-        bFav.click();
-        await sleep(300);
-        const favInput = document.querySelector('.modal-body input[type="text"]');
-        if (!favInput) return { err: 'no-fav-input' };
-        favInput.value = '__批量收藏__';
-        const favOk = [...document.querySelectorAll('.modal-foot .btn')].find((el) => el.textContent.trim() === '确定');
-        favOk.click();
-        await sleep(400);
-        const fcSmoke = state.favCategories.find((c) => c.name === '__批量收藏__');
-        out.favCatCreated = !!fcSmoke;
-        out.favCount = fcSmoke ? state.favItems.filter((f) => f.favCategoryId === fcSmoke.id && targets.includes(f.itemId)).length : 0;
-        out.batchFavOk = out.favCount === 2;
-        // ③ 批量移动:右键 → 移动到... → 选第一个分类 → 移动
-        document.querySelector('#page-folder [data-item]').dispatchEvent(ctx(300, 300));
-        await sleep(200);
-        const bMv = [...document.querySelectorAll('.ctx-item')].find((el) => el.textContent === '移动到...');
-        if (!bMv) return { err: 'no-move-menu' };
-        bMv.click();
-        await sleep(300);
-        const radios = [...document.querySelectorAll('.fav-pick-list input[type="radio"]')];
-        const targetRadio = radios[1]; // [0] 是「未分类」
-        if (!targetRadio) return { err: 'no-move-radio' };
-        targetRadio.checked = true;
-        const mvBtn = [...document.querySelectorAll('.modal-foot .btn')].find((b) => b.textContent.trim() === '移动');
-        if (!mvBtn) return { err: 'no-move-btn' };
-        mvBtn.click();
-        await sleep(400);
-        out.movedCount = state.items.filter((i) => targets.includes(i.id) && (i.categoryId || '') === targetRadio.value).length;
-        out.batchMoveOk = out.movedCount === 2;
-        // 清理:退出编辑模式 + 恢复分类/标签 + 删收藏分类
-        const editBtnExit = document.getElementById('edit-mode-btn');
-        if (editBtnExit) editBtnExit.click();
-        await sleep(250);
-        if (fcSmoke) removeFavCategory(fcSmoke.id);
-        targets.forEach((id, idx) => {
-          removeFavItem(id, undefined); // 清所有收藏引用
-          updateItem(id, { tags: [], categoryId: origCats[idx] });
-          thumbnailService.invalidate(id);
-        });
-        renderCategories(); renderItems(); renderMainArea();
         return out;
       }
       case 'ctrlshift': {
         // Ctrl+点击进入编辑选择模式并选中;Shift+点击范围选中;编辑模式点击保持滚动位置。自清理。
         const out = {};
+        // 起始状态归零:前序步骤若泄漏编辑模式,Ctrl+点击会走「编辑模式 toggle」分支而非进入选中
+        if (document.querySelector('[data-edit-act]')) {
+          const eb0 = document.getElementById('edit-mode-btn');
+          if (eb0) eb0.click();
+          await sleep(250);
+        }
         const catX = addCategory({ name: '__cs_cat__' });
         const ids = [];
         for (let i = 0; i < 30; i++) {
@@ -1949,8 +2022,7 @@ function installSmoke() {
         const out = {};
         const animTab = [...document.querySelectorAll('#resource-tabs .tab')].find((b) => b.dataset.tab === 'anim');
         if (animTab) { animTab.click(); await sleep(250); }
-        const catNode = [...document.querySelectorAll('.cat-node')]
-          .find((n) => n.dataset.id && !n.dataset.id.startsWith('__') && n.dataset.id !== 'all' && !n.dataset.id.startsWith('fav:'));
+        const catNode = findResourceCatNode();
         if (!catNode) return { err: 'no-cat-node' };
         catNode.click();
         await sleep(300);
@@ -1967,9 +2039,8 @@ function installSmoke() {
         out.rowTitle = row ? row.title : '';
         out.rowHasCat = row ? row.title.includes('目录:') : false;
         out.rowHasTag = row ? row.title.includes('标签:') : false;
-        // 图标视图:卡片 title + rc-tags chip
-        const iconBtn = [...document.querySelectorAll('.view-btn')].find((b) => b.dataset.view === 'icon');
-        if (iconBtn) iconBtn.click();
+        // 图标视图(「查看」下拉切换):卡片 title + rc-tags chip
+        out.viewSwitched = await switchFolderView('icon', sleep);
         await sleep(400);
         const card = document.querySelector(`#page-folder .res-card[data-item="${id}"]`);
         out.cardFound = !!card;
@@ -1981,8 +2052,7 @@ function installSmoke() {
         out.iconTagOk = out.rcTagText.includes('__冒烟提示__');
         // 清理:移除标签 + 恢复列表视图
         updateItem(id, { tags: [] });
-        const listBtn = [...document.querySelectorAll('.view-btn')].find((b) => b.dataset.view === 'list');
-        if (listBtn) listBtn.click();
+        await switchFolderView('list', sleep);
         await sleep(200);
         renderMainArea();
         return out;
@@ -2121,9 +2191,12 @@ function installSmoke() {
           await sleep2(200);
           return !!ok;
         };
+        // 场景根按菜单节点 action 定位(名称可被用户改;节点被删除/隐藏时整步跳过——功能依赖该节点存在)
+        const scNode = state.menuNodes.find((m) => (m.action || '') === 'scene' && !m.hidden);
+        const scDom = () => (scNode ? document.querySelector(`.cat-node[data-id="${scNode.id}"]`) : null);
+        if (!scNode || !scDom()) return { ok: true, skipped: 'no-scene-node' };
         // 1) 进入场景主页,点「+ 新建目录」→ 对话框 → 创建顶级目录(旧签名 bug 修复验证)
-        const scRoot = findNode('游戏场景管理');
-        if (scRoot) scRoot.click();
+        scDom().click();
         await sleep2(250);
         out.homeVisible = !document.getElementById('page-scene').hidden;
         const addCatBtn = document.getElementById('sc-add-cat');
@@ -2134,26 +2207,23 @@ function installSmoke() {
         out.homeModalHasInput = !!q('.modal-mask input');
         await fillAndOk('__scene_dir_1__');
         out.homeDirCreated = !!state.sceneCategories.find((c) => c.name === '__scene_dir_1__' && !c.parentId);
-        // 2) 侧栏场景根节点右键 → 新建目录
+        // 2) 侧栏场景根节点右键:菜单树重构后为「菜单项管理」菜单(新建子目录=菜单节点,非场景目录)
         renderCategories();
         await sleep2(150);
-        const scRoot2 = findNode('游戏场景管理');
+        const scRoot2 = scDom();
         if (scRoot2) scRoot2.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 220, clientY: 220 }));
         await sleep2(150);
         out.rootMenuItems = q('.ctx-menu') ? [...q('.ctx-menu').querySelectorAll('.ctx-item')].map((el) => el.textContent) : [];
-        out.rootNewDir = clickMenu('新建目录');
-        await sleep2(200);
-        out.rootModalTitle = (q('.modal-mask .modal-title') || {}).textContent || '';
-        await fillAndOk('__scene_dir_2__');
-        out.rootDirCreated = !!state.sceneCategories.find((c) => c.name === '__scene_dir_2__' && !c.parentId);
-        // 3) 分类节点:数量 + 拖拽属性 + 右键菜单(与资源目录节点对齐)
+        out.rootMenuOk = out.rootMenuItems.includes('新建子目录') && out.rootMenuItems.includes('编辑目录节点');
+        // 3) 目录节点:数量 + 拖拽属性 + 右键「新建目录」创建子目录(与资源目录节点对齐)
         renderCategories();
         await sleep2(150);
         // 展开场景根节点(分类节点仅在展开时渲染)
-        const scRoot3 = findNode('游戏场景管理');
+        const scRoot3 = scDom();
         const scArrow = scRoot3 ? scRoot3.querySelector('.cat-arrow') : null;
         if (scArrow && scArrow.textContent === '▶') scArrow.click();
         await sleep2(150);
+        const d1 = state.sceneCategories.find((c) => c.name === '__scene_dir_1__');
         const dirNode = findNode('__scene_dir_1__');
         out.dirCount = dirNode ? ((dirNode.querySelector('.cat-count') || {}).textContent || '') : '';
         out.dirDraggable = dirNode ? dirNode.draggable : false;
@@ -2163,6 +2233,12 @@ function installSmoke() {
         out.dirMenuItems = q('.ctx-menu') ? [...q('.ctx-menu').querySelectorAll('.ctx-item')].map((el) => el.textContent) : [];
         out.dirMenuOk = out.dirMenuItems.includes('添加场景') && out.dirMenuItems.includes('新建目录')
           && out.dirMenuItems.includes('编辑目录') && out.dirMenuItems.includes('移动到顶级') && out.dirMenuItems.includes('删除目录');
+        out.dirNewSub = clickMenu('新建目录');
+        await sleep2(200);
+        out.subModalTitle = (q('.modal-mask .modal-title') || {}).textContent || '';
+        await fillAndOk('__scene_dir_2__');
+        const d2 = state.sceneCategories.find((c) => c.name === '__scene_dir_2__');
+        out.subDirCreated = !!d2 && !!d1 && d2.parentId === d1.id;
         // 清理
         for (const nm of ['__scene_dir_1__', '__scene_dir_2__']) {
           const c = state.sceneCategories.find((x) => x.name === nm);
@@ -2171,8 +2247,9 @@ function installSmoke() {
         renderCategories(); renderMainArea();
         out.ok = out.homeVisible && out.addCatBtnText.includes('新建目录') && out.homeModalTitle === '新建目录'
           && out.homeModalHasInput && out.homeDirCreated
-          && out.rootMenuItems.includes('新建目录') && out.rootNewDir && out.rootModalTitle === '新建目录' && out.rootDirCreated
-          && out.dirCount !== '' && out.dirDraggable && !!out.dirDragId && out.dirMenuOk;
+          && out.rootMenuOk
+          && out.dirCount !== '' && out.dirDraggable && !!out.dirDragId && out.dirMenuOk
+          && out.dirNewSub && out.subDirCreated;
         return out;
       }
       case 'crud':
@@ -2410,8 +2487,8 @@ function installSmoke() {
         // 路径挂在 window.__spineProjPath;验证 打开→内存解码→编辑器项目→最近记录→属性面板区块
         const out = {};
         try {
-          const tbRoot = [...document.querySelectorAll('.cat-node')]
-            .find((el) => (el.querySelector('.cat-name') || {}).textContent === '资源工具箱');
+          const tbMenu = state.menuNodes.find((m) => (m.action || '') === 'toolbox' && !m.hidden);
+          const tbRoot = tbMenu ? document.querySelector(`.cat-node[data-id="${tbMenu.id}"]`) : null;
           if (!tbRoot) return { err: 'no-toolbox-root' };
           tbRoot.click(); await sleep(200);
           const card = [...document.querySelectorAll('.tool-entry')]
@@ -2424,6 +2501,9 @@ function installSmoke() {
           if (!ed) return out;
           out.homeVisible = !(document.querySelector('.be-home') || { hidden: true }).hidden; // 默认首页
           out.hasTestFile = !!window.__spineProjPath;
+          // 合成 .spine 由主进程生成;极少数环境下生成失败(require 不到 makeTestSpine)时明确跳过,
+          // 而不是把 undefined 传进 importSpineProjectFile 抛 TypeError
+          if (!out.hasTestFile) return { ...out, ok: true, skipped: 'no-synthetic-spine' };
           await ed.importSpineProjectFile(window.__spineProjPath);
           await sleep(600);
           out.view = ed.view;

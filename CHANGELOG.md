@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-08-29（补丁·181）
+
+### [修复] 冒烟测试套件:12 项断言/交互过期 + 环境稳健性,双环境(开发库/打包库)全绿
+
+- **UI 重构跟进(断言常量/选择器过期)**:`features` 侧栏折叠按钮已改 SVG 图标,断言由 ☰/▤ 文本改按 title(「显示/隐藏资源树」);`itemmenu` 条目菜单「编辑」已改名「编辑信息」;`img-bg` 浅色背景常量 `#eef0f5`→`#c9ccd3`(bgColor.js BG_LIGHT);`img-mode` transform 被浏览器规范化为 `scale(1, 1)`,正则放宽;`viewmode`/`thumb`/`tipicon` 视图切换按钮组(`.view-btn`)已重构为「查看」下拉,新增 `switchFolderView()` 辅助经下拉切换(thumb 步骤由此恢复真实缩略图计数,此前恒为 0)。
+- **批量移动对话框重构跟进**:`batchmenu` 步骤③ 移动到...已从 radio 列表(`.fav-pick-list`)重构为 `moveTreeDialog` 目录树,改为与 `itemmenu` 一致的 mtree 交互(选「未分类」根行 → 移动)。
+- **菜单树重构跟进(选择器失效)**:侧栏已无 `data-id="all"` 伪节点/「文件格式转换」分组,新增 `findResourceCatNode()` 按 `state.categories` 白名单匹配真实资源分类节点(防误点工具箱 tb_/场景 sc_ 节点进入工具页污染后续步骤),并优先选有条目的分类(空分类会让后续步骤取不到行);`subcat` 步骤④ 类型根新建入口改为「＋」按钮 →「新建资源分类」;`navfix` 工具入口改为树内工具叶节点(「ASTC → PNG」,兜底首个叶子),工具箱/场景根按 `menuNodes` action 定位(名称可被用户改);`scenetree` 场景根右键已是「菜单项管理」菜单(断言菜单项),顶级目录创建回归主页按钮、子目录创建走目录节点右键;`toolhome` FGUI 树叶未直接渲染(嵌套/折叠)时回主页点入口卡片兜底;场景根节点被用户删除/隐藏时 `navfix`/`scenetree` 相关断言优雅跳过(`skipped` 标记)而非失败。
+- **测试自身缺陷(会级联污染)**:`batchmenu` 各失败路径提前 `return` 跳过清理,泄漏编辑模式 + 2 个选中项到 `ctrlshift`(Ctrl+点击走 toggle 分支 →「已选 3 项」)——改为 try/finally 统一清理,`ctrlshift` 起始归零防御;`itemmenu` 展开箭头判断「▶或▼都点」在节点已展开时会反而折叠(开发库持久化展开态),改为仅 ▶ 时展开。
+- **产品默认值变更跟进**:`delcat` 删除目录对话框默认已改为「删除所有动画」,模式② 改为显式勾选「移动到未分类」再确认。
+- **打包版合成 .spine**:`scripts/makeTestSpine.js`(仅依赖 node 内置模块)纳入 `build.files` 随 app.asar 分发——打包版冒烟的 `boneeditor-spineproj` 从 `Cannot find module` + TypeError 变为完整解码链验证(v2.4.15 的打包版启动崩溃正是此类 packaged-only 问题,此举让该路径可被持续冒烟);极少数无合成文件环境改为明确 `skipped` 而非抛错。
+- **验证**:开发库(`npm run smoke`)与打包版(release/win-unpacked `--smoke`)全量冒烟均零 `err`、全部断言 `ok:true`(环境缺失项按 skipped 跳过);打包版 `boneeditor-spineproj` 完整通过(root/hip 骨骼、walk:15 动画、按键插值全断言)。
+
+---
+
 ## 2026-08-29（补丁·180）
 
 ### [新增] 骨骼编辑器「文件」菜单:打开对话框记住上次打开的目录

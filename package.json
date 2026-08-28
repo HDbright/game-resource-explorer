@@ -25,6 +25,7 @@
       "dist/**",
       "electron/**",
       "vendor/**",
+      "scripts/makeTestSpine.js",
       "package.json"
     ],
     "extraResources": [

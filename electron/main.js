@@ -848,7 +848,7 @@ async function runSmoke() {
       spineProjPath = process.env.SMOKE_SPINE_PROJ;
       log('smoke .spine (real): ' + spineProjPath);
     } else {
-      const { writeTestSpine } = require('../scripts/makeTestSpine'); // 惰性加载:仅开发/冒烟环境存在
+      const { writeTestSpine } = require('../scripts/makeTestSpine'); // 惰性加载:开发环境在项目 scripts/,打包版已随 build.files 纳入 app.asar
       spineProjPath = writeTestSpine(path.join(out, 'spine-smoke-test.spine'));
       log('synthetic .spine: ' + spineProjPath);
     }
