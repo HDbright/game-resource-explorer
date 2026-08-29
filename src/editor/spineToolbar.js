@@ -47,6 +47,7 @@ const ICO = {
   cursor: '<svg viewBox="0 0 14 14" width="12" height="12"><path d="M3 1.5 11.5 7.2l-3.8.6 2 3.6-1.8 1-2-3.7L3.5 12z" fill="#c8cdd6"/></svg>',
   tag: '<svg viewBox="0 0 14 14" width="12" height="12"><path d="M7.6 1.5h4.9v4.9L7.3 11.6a1.5 1.5 0 0 1-2.1 0L2.4 8.8a1.5 1.5 0 0 1 0-2.1z" fill="none" stroke="#c8cdd6" stroke-width="1.3" stroke-linejoin="round"/><circle cx="10.1" cy="3.9" r="1.1" fill="#c8cdd6"/></svg>',
 };
+export { ICO };
 
 export class SpineToolbar {
   constructor(page) {
@@ -65,7 +66,7 @@ export class SpineToolbar {
     const ctx = this.page.ctx;
     const el = document.createElement('div');
     el.className = 'spine-tb' + (this.minimized ? ' hidden' : '');
-    // 位置恢复:新格式 {l,t} JSON / 旧格式纯数字(仅水平偏移)
+    // 位置恢复:新格式 {l,t} JSON / 旧格式纯数字(仅水平偏移);有存档 = 用户拖过,此后不再自动居中
     const saved = localStorage.getItem(X_KEY);
     if (saved) {
       try {
@@ -77,6 +78,7 @@ export class SpineToolbar {
         if (Number.isFinite(x)) el.style.left = x + 'px';
       }
     }
+    this._userMoved = !!saved;
 
     const group = (label) => {
       const g = document.createElement('div');
@@ -236,7 +238,7 @@ export class SpineToolbar {
       const startX = e.clientX, startY = e.clientY;
       const startL = el.offsetLeft, startT = el.offsetTop;
       try { handle.setPointerCapture(e.pointerId); } catch (err) { /* 合成事件无活动指针,忽略 */ }
-      const zf = (() => { try { const z = parseFloat(getComputedStyle(document.getElementById('app')).zoom); return Number.isFinite(z) && z > 0 ? z : 1; } catch (err) { return 1; } })();
+      const zf = this._zoomFactor();
       const mv = (ev) => {
         let L = startL + (ev.clientX - startX) / zf;
         let T = startT + (ev.clientY - startY) / zf;
@@ -267,12 +269,13 @@ export class SpineToolbar {
 
     this.el = el;
     this.center.appendChild(el);
-    // 默认位置:吸附舞台底边。双 rAF 等首次布局完成(挂载瞬间舞台高度可能还是 0)
+    // 默认位置:舞台底部水平居中。双 rAF 等首次布局完成(挂载瞬间舞台高度可能还是 0)
     this.settle(true);
-    // 舞台尺寸变化(摄影表显隐/窗口缩放)时:RO 回调在布局之后,同步钳制+吸附最可靠
+    // 舞台尺寸变化(摄影表显隐/窗口缩放)时:RO 回调在布局之后,同步钳制/居中+吸附最可靠
     this._ro = new ResizeObserver(() => {
       if (this.minimized) { this.alignMinHost(); return; }
-      this.clampPos();
+      if (this._userMoved) this.clampPos();
+      else this.centerX();
       this.snapBottom();
       this.alignMinHost();
     });
@@ -280,20 +283,48 @@ export class SpineToolbar {
     this.sync();
   }
 
-  /** 布局稳定后执行钳制/吸附/对齐(双 rAF 确保测量有效);snap=是否强制吸附底边 */
-  settle(snap = false) {
+  /** 布局稳定后执行钳制/居中/吸附/对齐(双 rAF 确保测量有效);forceSnap=是否强制吸附底边 */
+  settle(forceSnap = false) {
     requestAnimationFrame(() => requestAnimationFrame(() => {
       if (!this.el || !this.center) return;
-      this.clampPos();
-      if (snap) this.snapBottom();
+      if (this._userMoved) {
+        this.clampPos();
+        if (forceSnap) this.snapBottom();
+      } else {
+        this.centerX();
+        this.snapBottom();
+      }
       this.alignMinHost();
     }));
   }
 
-  /** 底边吸附:面板贴齐舞台底边 */
+  /** 应用级 CSS zoom 系数(外观「字体字号缩放」写 #app.style.zoom):rect 为视觉像素,换算 CSS 像素须除回 */
+  _zoomFactor() {
+    try {
+      const z = parseFloat(getComputedStyle(document.getElementById('app')).zoom);
+      return Number.isFinite(z) && z > 0 ? z : 1;
+    } catch (err) { return 1; }
+  }
+
+  /** 水平居中:未被用户拖动时的默认停靠位(Spine:舞台底部居中)。
+   *  基于 rect 实测位置做位移(免疫 clientWidth 整数取整与应用 zoom 语义差异);面板比舞台宽时两侧均衡溢出 */
+  centerX() {
+    if (!this.el || !this.center || this.minimized) return;
+    const cRect = this.center.getBoundingClientRect();
+    const eRect = this.el.getBoundingClientRect();
+    const dx = ((cRect.left + cRect.width / 2) - (eRect.left + eRect.width / 2)) / this._zoomFactor();
+    this.el.style.left = Math.round(this.el.offsetLeft + dx) + 'px';
+    this.el.style.bottom = 'auto';
+    this.el.style.transform = 'none';
+  }
+
+  /** 底边吸附:面板贴齐舞台底边(rect 实测位移,免疫 clientHeight 整数取整误差) */
   snapBottom() {
     if (!this.el || !this.center || this.minimized) return;
-    this.el.style.top = (this.center.clientHeight - this.el.offsetHeight) + 'px';
+    const cRect = this.center.getBoundingClientRect();
+    const eRect = this.el.getBoundingClientRect();
+    const dy = (cRect.bottom - eRect.bottom) / this._zoomFactor();
+    this.el.style.top = Math.round(this.el.offsetTop + dy) + 'px';
     this.el.style.bottom = 'auto';
     this.el.style.transform = 'none';
   }
@@ -496,8 +527,8 @@ export class SpineToolbar {
     keyState(this.keyMove, 'translate');
     keyState(this.keyScale, 'scale');
     keyState(this.keyShear, 'shear');
-    // 未被用户拖离时,保持吸附舞台底边(Spine 面板默认停靠位)
-    if (!this._userMoved) this.snapBottom();
+    // 未被用户拖离时,保持默认停靠位(舞台底部水平居中,Spine 面板默认位置)
+    if (!this._userMoved) { this.centerX(); this.snapBottom(); }
     this.alignMinHost();
   }
 
@@ -536,16 +567,6 @@ export class SpineToolbar {
     this.settle(false);
   }
 
-  /** 布局稳定后执行钳制/吸附/对齐(双 rAF 确保测量有效);snapBottom=强制吸附舞台底边 */
-  settle(snapBottom = false) {
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      if (!this.el || !this.center) return;
-      this.clampPos();
-      if (snapBottom) this.snapBottom();
-      this.alignMinHost();
-    }));
-  }
-
   /** 最小化图标与缩放控件右对齐(缩放控件右缘为基准,按应用缩放归一) */
   alignMinHost() {
     const host = document.querySelector('.be-spine-min-host');
@@ -556,7 +577,7 @@ export class SpineToolbar {
       const vcRect = vc ? vc.getBoundingClientRect() : null;
       const cRect = this.center.getBoundingClientRect();
       if (vcRect && cRect.width) {
-        const zf = (() => { const z = parseFloat(getComputedStyle(document.getElementById('app')).zoom); return Number.isFinite(z) && z > 0 ? z : 1; })();
+        const zf = this._zoomFactor();
         const right = (vcRect.right - cRect.left) / zf; // 缩放控件右缘(相对舞台 CSS 像素)
         host.style.left = '0px';
         const w = host.offsetWidth || 30;

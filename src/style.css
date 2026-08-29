@@ -3784,6 +3784,8 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .be-caret { width: 14px; flex: none; font-size: 15px; font-weight: 700; color: rgba(255,255,255,.35); text-align: center; line-height: 1; }
 .be-caret.open:hover, .be-caret:not(:empty):hover { color: #fff; }
 .be-tree-sec-row { font-weight: 600; color: rgba(255,255,255,.85); margin-top: 10px; border-top: 1px solid #6e6e6e; }
+/* 骨架名分组图标(Spine Setup 模式按钮同款) */
+.be-tree-sec-row .be-tree-ico-img { width: 14px; height: 14px; flex: none; margin-right: 4px; vertical-align: -2px; }
 .be-tree-ico { font-size: 12px; flex: none; }
 .be-tree-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .be-tree-name.dim { opacity: .45; }
@@ -3904,6 +3906,11 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .be-tl-content { flex: 1; display: flex; min-height: 0; }
 .be-tl-center { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; background: #3a3d46; }
 .be-tl-side { width: 170px; flex: none; border-left: 1px solid var(--border); background: #414141; display: flex; flex-direction: column; min-height: 0; }
+/* 侧栏左边框拖拽调宽手柄(与 .be-col-resize 同款;侧栏默认宽度对齐层级树右列) */
+.be-tl-side-resize { flex: none; width: 6px; cursor: ew-resize; background: #414141; position: relative; z-index: 10; }
+.be-tl-side-resize:hover { background: rgba(79,140,255,.18); }
+.be-tl-side-resize::after { content: ''; position: absolute; top: 50%; left: 1px; width: 3px; height: 46px; margin-top: -23px; border-radius: 2px; background: #5a5e68; transition: background .15s; }
+.be-tl-side-resize:hover::after { background: var(--accent); }
 .be-tl-tabs { display: flex; flex: none; border-bottom: 1px solid var(--border); }
 .be-tl-tabs button { flex: 1; padding: 5px 0; background: transparent; border: none; border-bottom: 2px solid transparent; color: var(--text2); font-size: 12px; cursor: pointer; }
 .be-tl-tabs button:hover { color: var(--text); }
@@ -3997,7 +4004,11 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .be-recent-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; font-size: 12.5px; color: var(--text2); position: relative; }
 .be-recent-item:hover { background: var(--bg3); border-color: var(--accent); color: var(--text); }
 .be-recent-ico { flex: none; }
-.be-recent-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 14px; }
+/* 两行布局:上行文件名(带扩展名),下行打开时间 + 类型徽标 */
+.be-recent-main { flex: 1; min-width: 0; }
+.be-recent-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 14px; }
+.be-recent-meta { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+.be-recent-time { font-size: 10.5px; color: var(--text3); white-space: nowrap; }
 .be-recent-kind { flex: none; font-size: 10.5px; color: var(--text3); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
 /* 悬浮显示的删除按钮(与 Spine 转换页 .spc-del 同款交互) */
 .be-recent-del { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; border-radius: 50%; border: none; background: var(--bg4); color: var(--text2); font-size: 11px; line-height: 16px; text-align: center; cursor: pointer; display: none; padding: 0; }
@@ -4036,6 +4047,12 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 /* 骨骼动画编辑器:工具栏激活态低反差(仅比默认背景亮几档,细描边提示) */
 .be-toolbar .btn.active { background: var(--bg4); border-color: var(--accent); color: var(--text); }
 .be-toolbar .btn.active:hover { background: var(--bg4); color: var(--text); }
+/* 顶栏按钮内嵌小图标(骨架/动画模式,Spine 原版按钮图标) */
+.be-toolbar .btn .be-btn-ico { width: 15px; height: 15px; vertical-align: -3px; margin-right: 4px; }
+/* 保存按钮:工程有未保存修改时橙色高亮 + ● 标记(保存/载入后熄灭) */
+.be-toolbar .btn.be-save-btn.dirty { background: rgba(255,159,67,.16); border-color: #ff9f43; color: #ffb74d; }
+.be-toolbar .btn.be-save-btn.dirty:hover { background: rgba(255,159,67,.28); color: #ffcf9e; }
+.be-toolbar .btn.be-save-btn.dirty::after { content: '●'; margin-left: 5px; font-size: 9px; vertical-align: 1px; }
 
 /* ================= Spine 风格悬浮工具面板(舞台下方,可拖动/最小化) ================= */
 /* 五个独立工具面板,间隙排列,底部对齐 */

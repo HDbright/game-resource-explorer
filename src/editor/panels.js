@@ -9,6 +9,7 @@ import {
 } from './model.js';
 import { applyEase } from './animator.js';
 import { resolveRegionDataUrl, spineSkinsOf } from './spineIO.js';
+import icoSkeleton from '../assets/spine-icons/skin_button-setup.png';
 
 function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
@@ -215,11 +216,12 @@ export class EditorPanels {
       }
       this.refreshOutline();
     });
-    // 全部折叠:皮肤/骨骼只留根级 + 附件折叠 + 底部绘制顺序/事件/动画分组一并折叠
-    toolBtn('⊖', '全部折叠(只留根级)', () => {
+    // 全部折叠:保留骨架名/root/各分组头(皮肤/约束/绘制顺序/事件/动画),仅收起深层内容
+    // —— 不折叠 #bones(它会隐藏整棵骨架子树),骨骼按深度折叠、分组各自收起子节点
+    toolBtn('⊖', '全部折叠(保留骨架与分组节点)', () => {
       for (const b of bonesInTreeOrder(p)) if ((b._depth || 0) > 0) this.treeCollapsed.add(b.name);
-      this.treeCollapsed.add('#bones');
       this.treeCollapsed.add('#skins');
+      this.treeCollapsed.add('#constraints');
       this.treeCollapsed.add('#zorder');
       this.treeCollapsed.add('#events');
       this.treeCollapsed.add('#anims');
@@ -289,51 +291,7 @@ export class EditorPanels {
       return row;
     };
 
-    // 骨架根行(无眼睛/锁,点击取消选择):显示骨架名 —— Spine 导入 = 文件基名/工程名
-    gridRow({
-      cls: 'arm', sel: ctx.selection && !ctx.selection.type, depth: 0,
-      content: `<span class="be-tree-ico">🎭</span><span class="be-tree-name">${esc(p.armature.name || p.name)}</span>`,
-      onClick: () => ctx.select(null, null),
-    });
-
-    // ---- 「皮肤」分组(Spine 树):子节点只列皮肤名称(不展开具体内容);点击切换舞台显示的
-    // 皮肤;当前皮肤橙色高亮。default 为共享附件的基础皮肤,不计入切换列表;没有多套
-    // (非 default)皮肤时不显示子节点 ----
-    const skinsAll = spineSkinsOf(p);
-    const skins = skinsAll.filter((s) => s.name !== 'default');
-    if (skinsAll.length) {
-      const showKids = skins.length >= 2; // 单套/零套可选皮肤:分组节点保留但不列子节点
-      const collapsed = !filter && this.treeCollapsed.has('#skins');
-      gridRow({
-        cls: 'be-tree-sec-row', depth: 0,
-        content: `<span class="be-caret ${!collapsed && showKids ? 'open' : ''}">${showKids ? (collapsed ? '▸' : '▾') : ''}</span>`
-          + `<span class="be-tree-sec-label">👕 皮肤</span>`
-          + `<span class="be-tree-badge">${showKids ? `${skins.length} 套 · 当前 ${esc(p.spine.skin || '')}` : esc(p.spine.skin || skinsAll[0].name)}</span>`,
-        onClick: () => {
-          if (!showKids) return;
-          const k = '#skins';
-          if (this.treeCollapsed.has(k)) this.treeCollapsed.delete(k); else this.treeCollapsed.add(k);
-          this.refreshOutline();
-        },
-      });
-      if (showKids && (!collapsed || filter)) {
-        for (let i = 0; i < skins.length; i++) {
-          const sk = skins[i];
-          if (filter && !match(sk.name)) continue;
-          const cur = p.spine.skin === sk.name;
-          const srow = gridRow({
-            cls: 'be-tree-skin' + (cur ? ' cur' : ''), depth: 1, isLast: i === skins.length - 1,
-            content: `<span class="be-caret"></span>`
-              + `<svg class="be-ico-skin" viewBox="0 0 16 16" width="13" height="13"><path d="M8 1.5 C6.2 1.5 5 2.3 4.3 3.2 L2 5.4 l1.8 1.8 .7-.6 V14 h7 V6.6 l.7.6 L14 5.4 l-2.3-2.2 C11 2.3 9.8 1.5 8 1.5 Z" fill="none" stroke="${cur ? '#ffb74d' : '#90a4ae'}" stroke-width="1.3"/></svg>`
-              + `<span class="be-tree-name">${esc(sk.name)}</span>`
-              + (cur ? '<span class="be-tree-badge">✓ 当前</span>' : ''),
-            onClick: () => ctx.switchSpineSkin?.(sk.name),
-          });
-          srow.title = `皮肤:${sk.name}${cur ? '(当前)' : ''}\n点击在舞台切换为该皮肤`;
-        }
-      }
-    }
-
+    // (骨架根行已并入下方「骨骼」分组标题:分组直接显示骨架名,避免重复一行)
     const slotByBone = new Map();
     for (const s of p.armature.slots) {
       if (!slotByBone.has(s.parent)) slotByBone.set(s.parent, []);
@@ -449,12 +407,19 @@ export class EditorPanels {
         }
       }
     };
-    // ---- 骨骼区(Spine 树:「骨骼」分组标题行 + 骨骼层级,插槽挂在宿主骨骼下) ----
+    // ---- 骨骼区(Spine 树):分组标题 = 骨架名(Spine 导入 = 工程文件基名,自建 = 项目名)
+    // + Setup 图标 + 骨骼数;插槽挂在宿主骨骼下。折叠骨架 = 收起整个子树
+    // (骨骼 + 皮肤/约束/绘制顺序/事件/动画,均为骨架的子节点 —— 与 Spine 官方树一致) ----
     const bonesCollapsed = !filter && this.treeCollapsed.has('#bones');
+    const kidsOn = !bonesCollapsed || filter;
     if (bones.length) {
+      const armName = p.armature.name && p.armature.name !== 'armature' ? p.armature.name : '';
+      const rootName = armName || p.name || '骨骼';
       gridRow({
         cls: 'be-tree-sec-row', depth: 0,
-        content: `<span class="be-caret ${bonesCollapsed ? '' : 'open'}">${bonesCollapsed ? '▸' : '▾'}</span><span class="be-tree-sec-label">🦴 骨骼</span><span class="be-tree-badge">${bones.length}</span>`,
+        content: `<span class="be-caret ${bonesCollapsed ? '' : 'open'}">${bonesCollapsed ? '▸' : '▾'}</span>`
+          + `<img class="be-tree-ico-img" src="${icoSkeleton}" draggable="false">`
+          + `<span class="be-tree-sec-label">${esc(rootName)}</span><span class="be-tree-badge">${bones.length}</span>`,
         onClick: () => {
           const k = '#bones';
           if (this.treeCollapsed.has(k)) this.treeCollapsed.delete(k); else this.treeCollapsed.add(k);
@@ -462,15 +427,54 @@ export class EditorPanels {
         },
       });
     }
-    if (!bonesCollapsed || filter) {
+    if (kidsOn) {
       for (let i = 0; i < bones.length; i++) mkBoneRow(bones[i], (bones[i]._depth || 0) + 1);
     }
 
-    // ---- 其余 section:绘制顺序 / 事件 / 动画(Spine 同树分组) ----
+    // ---- 「皮肤」分组(骨架子节点,与 root 骨骼同级):子节点只列皮肤名称(不展开具体
+    // 内容);点击切换舞台显示的皮肤;当前皮肤橙色高亮。default 为共享附件的基础皮肤,不计入
+    // 切换列表;没有多套(非 default)皮肤时不显示子节点 ----
+    const skinsAll = spineSkinsOf(p);
+    const skins = skinsAll.filter((s) => s.name !== 'default');
+    if (kidsOn && skinsAll.length) {
+      const showKids = skins.length >= 2; // 单套/零套可选皮肤:分组节点保留但不列子节点
+      const collapsed = !filter && this.treeCollapsed.has('#skins');
+      gridRow({
+        cls: 'be-tree-sec-row', depth: 1, isLast: false,
+        content: `<span class="be-caret ${!collapsed && showKids ? 'open' : ''}">${showKids ? (collapsed ? '▸' : '▾') : ''}</span>`
+          + `<span class="be-tree-sec-label">👕 皮肤</span>`
+          + `<span class="be-tree-badge">${showKids ? `${skins.length} 套 · 当前 ${esc(p.spine.skin || '')}` : esc(p.spine.skin || skinsAll[0].name)}</span>`,
+        onClick: () => {
+          if (!showKids) return;
+          const k = '#skins';
+          if (this.treeCollapsed.has(k)) this.treeCollapsed.delete(k); else this.treeCollapsed.add(k);
+          this.refreshOutline();
+        },
+      });
+      if (showKids && (!collapsed || filter)) {
+        for (let i = 0; i < skins.length; i++) {
+          const sk = skins[i];
+          if (filter && !match(sk.name)) continue;
+          const cur = p.spine.skin === sk.name;
+          const srow = gridRow({
+            cls: 'be-tree-skin' + (cur ? ' cur' : ''), depth: 2, isLast: i === skins.length - 1,
+            content: `<span class="be-caret"></span>`
+              + `<svg class="be-ico-skin" viewBox="0 0 16 16" width="13" height="13"><path d="M8 1.5 C6.2 1.5 5 2.3 4.3 3.2 L2 5.4 l1.8 1.8 .7-.6 V14 h7 V6.6 l.7.6 L14 5.4 l-2.3-2.2 C11 2.3 9.8 1.5 8 1.5 Z" fill="none" stroke="${cur ? '#ffb74d' : '#90a4ae'}" stroke-width="1.3"/></svg>`
+              + `<span class="be-tree-name">${esc(sk.name)}</span>`
+              + (cur ? '<span class="be-tree-badge">✓ 当前</span>' : ''),
+            onClick: () => ctx.switchSpineSkin?.(sk.name),
+          });
+          srow.title = `皮肤:${sk.name}${cur ? '(当前)' : ''}\n点击在舞台切换为该皮肤`;
+        }
+      }
+    }
+
+    // ---- 其余 section(骨架子节点):约束 / 绘制顺序 / 事件 / 动画(Spine 同树分组) ----
     const mkSection = (id, icon, label, count) => {
+      if (!kidsOn) return false; // 骨架折叠时整棵子树隐藏
       const collapsed = !filter && this.treeCollapsed.has('#' + id);
       gridRow({
-        cls: 'be-tree-sec-row', depth: 0,
+        cls: 'be-tree-sec-row', depth: 1,
         content: `<span class="be-caret ${collapsed ? '' : 'open'}">${collapsed ? '▸' : '▾'}</span><span class="be-tree-sec-label">${icon} ${label}</span><span class="be-tree-badge">${count}</span>`,
         onClick: () => {
           const k = '#' + id;
@@ -481,6 +485,22 @@ export class EditorPanels {
       return !collapsed || !!filter;
     };
 
+    // 约束(Spine 工程 raw:IK / 变换 / 路径约束列表,只读展示)
+    const raw = p.spine && p.spine.raw;
+    const cons = [];
+    if (raw) {
+      for (const c of raw.ik || []) cons.push({ name: c.name, type: 'IK' });
+      for (const c of raw.transform || []) cons.push({ name: c.name, type: '变换' });
+      for (const c of raw.path || []) cons.push({ name: c.name, type: '路径' });
+    }
+    if (cons.length && mkSection('constraints', '🔗', '约束', cons.length)) {
+      for (const c of cons) {
+        if (filter && !match(c.name)) continue;
+        const row = gridRow({ cls: 'be-tree-zorder', depth: 2, content: `<span class="be-tree-ico">🔗</span><span class="be-tree-name">${esc(c.name)}</span><span class="be-tree-badge">${c.type}</span>`, onClick: () => {} });
+        row.title = `${c.type}约束:${c.name}(运行时求解,编辑器只读展示)`;
+      }
+    }
+
     // 绘制顺序
     if (p.armature.slots.length && mkSection('zorder', '❖', '绘制顺序', p.armature.slots.length)) {
       for (const s of slotsInZOrder(p)) {
@@ -488,7 +508,7 @@ export class EditorPanels {
         gridRow({
           cls: 'be-tree-zorder',
           sel: ctx.selection?.type === 'slot' && ctx.selection.name === s.name,
-          depth: 1,
+          depth: 2,
           content: `<span class="be-ico-slot"></span><span class="be-tree-name">${esc(s.name)}</span><span class="be-tree-badge">${esc(s.parent)}</span>`,
           onClick: () => ctx.select('slot', s.name),
         });
@@ -496,11 +516,11 @@ export class EditorPanels {
     }
 
     // 事件
-    const evNames = (p.spine && p.spine.raw && p.spine.raw.events) ? Object.keys(p.spine.raw.events) : [];
+    const evNames = (raw && raw.events) ? Object.keys(raw.events) : [];
     if (evNames.length && mkSection('events', '⚡', '事件', evNames.length)) {
       for (const n of evNames) {
         if (filter && !match(n)) continue;
-        gridRow({ cls: 'be-tree-zorder', depth: 1, content: `<span class="be-tree-ico">⚡</span><span class="be-tree-name">${esc(n)}</span>`, onClick: () => {} });
+        gridRow({ cls: 'be-tree-zorder', depth: 2, content: `<span class="be-tree-ico">⚡</span><span class="be-tree-name">${esc(n)}</span>`, onClick: () => {} });
       }
     }
 
@@ -510,7 +530,7 @@ export class EditorPanels {
         if (filter && !match(a.name)) continue;
         const cur = ctx.anim && ctx.anim.name === a.name;
         gridRow({
-          cls: 'be-tree-zorder', sel: cur, depth: 1,
+          cls: 'be-tree-zorder', sel: cur, depth: 2,
           content: `<span class="be-tree-ico">▶</span><span class="be-tree-name">${esc(a.name)}</span><span class="be-tree-badge">${a.duration}帧</span>`,
           onClick: () => ctx.setAnimation(a.name),
         });

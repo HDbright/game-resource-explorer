@@ -16,6 +16,10 @@ import { EASE_PRESETS, bonesInTreeOrder, defaultEase } from './model.js';
 import { channelLabel, drawEaseCurve } from './panels.js';
 
 const CH_COLOR = { translate: '#4f8cff', rotate: '#46a758', scale: '#b8842f', shear: '#e6a817', color: '#c05fd8', display: '#5fa8c0' };
+// 动画/曲线侧栏宽度:最小保留原固定宽(容纳曲线画布),最大与层级树右列上限一致
+const SIDE_MIN = 170;
+const SIDE_MAX = 600;
+const SIDE_W_KEY = 'beTlSideW';
 const BONE_CH = [
   { id: 'translate', label: '位移' },
   { id: 'rotate', label: '旋转' },
@@ -38,6 +42,13 @@ export class EditorTimeline {
     this.collapsed = new Set(); // 展开状态:骨骼名折叠集合
     this.clipboard = null;      // 复制的关键帧 { channel, v, ease }
     this.sideTab = 'anim';      // 右侧侧栏当前标签:anim | curve
+    // 侧栏宽度:用户拖拽值优先;null = 未拖过,默认跟随层级树面板宽度(左边框对齐)
+    this.sideWUser = (() => {
+      try {
+        const w = parseFloat(localStorage.getItem(SIDE_W_KEY));
+        return Number.isFinite(w) && w >= SIDE_MIN ? Math.min(SIDE_MAX, w) : null;
+      } catch (err) { return null; }
+    })();
     this._scrubbing = false;
     this._dragKey = null;
     this.loopStart = 0;         // 循环起始帧
@@ -69,6 +80,7 @@ export class EditorTimeline {
           <div class="be-tl-playhead"></div>
           <div class="be-tl-endline"></div>
         </div>
+        <div class="be-tl-side-resize" title="拖拽调整动画/曲线面板宽度(默认与层级树面板左边缘对齐;双击恢复对齐)"></div>
         <div class="be-tl-side">
           <div class="be-tl-tabs">
             <button data-tab="anim" class="active">动画</button>
@@ -80,8 +92,11 @@ export class EditorTimeline {
       </div>`;
     this._buildTransport();
     this._bindSide();
+    this._bindSideResize();
     this._bindRight();
     this._applySide();
+    this._applySideW();
+    this._watchRightcol();
     this.refresh();
   }
 
@@ -179,10 +194,74 @@ export class EditorTimeline {
   _applySide() {
     const side = this.el?.querySelector('.be-tl-side');
     if (side) side.style.display = this.sideMin ? 'none' : '';
+    // 收起时连左边框拖拽手柄一起隐藏,空间全部让渡给摄影表
+    const rz = this.el?.querySelector('.be-tl-side-resize');
+    if (rz) rz.style.display = this.sideMin ? 'none' : '';
     if (this.btnSide) {
       this.btnSide.innerHTML = this.sideMin ? '«' : '»';
       this.btnSide.title = this.sideMin ? '展开动画/曲线面板' : '收起动画/曲线面板';
     }
+  }
+
+  // ---------------- 侧栏宽度(左边框拖拽 / 默认对齐层级树面板) ----------------
+
+  /** 默认宽度 = 层级树所在右列宽度(两者都锚定窗口右缘,宽度一致即左边框垂直对齐;按应用缩放归一) */
+  _defaultSideW() {
+    const rc = this.el?.closest('.be-root')?.querySelector('.be-rightcol');
+    if (!rc) return 300;
+    const w = rc.getBoundingClientRect().width / this._zoomFactor();
+    return Math.max(SIDE_MIN, Math.min(SIDE_MAX, Math.round(w)));
+  }
+
+  /** 应用侧栏宽度:用户拖拽值优先,否则跟随层级树面板宽度 */
+  _applySideW() {
+    const side = this.el?.querySelector('.be-tl-side');
+    if (side) side.style.width = (this.sideWUser ?? this._defaultSideW()) + 'px';
+  }
+
+  /** 左边框拖拽调宽:向左拖变宽;松手持久化;双击恢复跟随层级树面板 */
+  _bindSideResize() {
+    const rz = this.el.querySelector('.be-tl-side-resize');
+    if (!rz) return;
+    rz.addEventListener('pointerdown', (e) => {
+      if (this.sideMin) return;
+      e.preventDefault();
+      const side = this.el.querySelector('.be-tl-side');
+      const zf = this._zoomFactor();
+      const startX = e.clientX;
+      const startW = side.getBoundingClientRect().width / zf;
+      const maxW = Math.max(SIDE_MIN, Math.min(SIDE_MAX, this.el.querySelector('.be-tl-content').clientWidth * 0.6));
+      let curW = startW;
+      const mv = (ev) => {
+        curW = Math.max(SIDE_MIN, Math.min(maxW, startW - (ev.clientX - startX) / zf));
+        this.sideWUser = curW;
+        side.style.width = curW + 'px';
+        this.updatePlayhead(); // 轨道区原点随宽度变化,播放头/时长线同步
+      };
+      const up = () => {
+        window.removeEventListener('pointermove', mv);
+        window.removeEventListener('pointerup', up);
+        try { localStorage.setItem(SIDE_W_KEY, String(Math.round(curW))); } catch (err) { /* ignore */ }
+        this.refresh(); // 刻度尺/轨道宽度按新侧栏宽度重算
+      };
+      window.addEventListener('pointermove', mv);
+      window.addEventListener('pointerup', up);
+    });
+    rz.addEventListener('dblclick', () => {
+      if (this.sideWUser == null) return;
+      this.sideWUser = null;
+      try { localStorage.removeItem(SIDE_W_KEY); } catch (err) { /* ignore */ }
+      this._applySideW();
+      this.refresh();
+    });
+  }
+
+  /** 层级树面板宽度被拖拽/恢复时,侧栏跟随对齐(仅未手动拖宽时) */
+  _watchRightcol() {
+    const rc = this.el?.closest('.be-root')?.querySelector('.be-rightcol');
+    if (!rc || typeof ResizeObserver !== 'function') return;
+    this._roSide = new ResizeObserver(() => { if (this.sideWUser == null) this._applySideW(); });
+    this._roSide.observe(rc);
   }
 
   refreshHead() {
@@ -811,6 +890,7 @@ export class EditorTimeline {
   destroy() {
     if (this._onWinMove) window.removeEventListener('pointermove', this._onWinMove);
     if (this._onWinUp) window.removeEventListener('pointerup', this._onWinUp);
+    if (this._roSide) { this._roSide.disconnect(); this._roSide = null; }
     this.el = null;
   }
 }

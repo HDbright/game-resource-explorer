@@ -728,6 +728,15 @@ export class EditorStage {
         att = data.defaultSkin.getAttachment(rtSlot.data.index, disp.name);
       }
       rtSlot.setAttachment(att);
+      // 附件编辑值(disp.transform)→ 运行时附件偏移:RT 渲染几何取自运行时附件,
+      // 不同步则舞台图像不随「移动/旋转/缩放图片」变化(数值变了图不动)
+      if (att && att.x !== undefined && disp && disp.transform) {
+        const et = disp.transform;
+        att.x = et.x || 0;
+        att.y = et.y || 0;
+        att.rotation = et.rotation || 0;
+        if (att.scaleX !== undefined) { att.scaleX = et.scaleX ?? 1; att.scaleY = et.scaleY ?? 1; }
+      }
       // 图片补偿覆盖层 → 附件本地偏移(编辑器预览;捕获 _compOrig 供关闭还原)
       const cov2 = this._compImg && this._compImg.get(es.name);
       if (cov2 && att && att.x !== undefined) {
@@ -737,6 +746,10 @@ export class EditorStage {
         att.rotation = cov2.rotation !== undefined ? cov2.rotation : att._compOrig.rotation;
       } else if (!cov2 && att && att._compOrig) {
         att.x = att._compOrig.x; att.y = att._compOrig.y; att.rotation = att._compOrig.rotation;
+      }
+      // RegionAttachment 几何用预计算 offset(改 x/y/rotation/scale 后必须重算,否则图不动)
+      if (att && typeof att.updateOffset === 'function') {
+        try { att.updateOffset(); } catch (err) { /* 运行时版本差异,忽略 */ }
       }
       const col = ov && ov.r !== undefined ? ov : es.color;
       if (rtSlot.r !== col.r / 255 || rtSlot.g !== col.g / 255 || rtSlot.b !== col.b / 255 || rtSlot.a !== (ov && ov.a !== undefined ? ov.a : es.color.a ?? 1)) {
@@ -1639,11 +1652,27 @@ export class EditorStage {
     return null;
   }
 
+  /** 无父骨骼的父空间 = 世界空间。RT 路径的 worlds 为翻转(pixi y-down)系:
+   *  根级骨骼的父空间必须同样带 Y 翻转,否则根骨骼拖拽位移按 pixi 系计算、
+   *  按 spine 系(y-up)渲染,上下方向恰好相反(附件/子骨骼用真实翻转矩阵故不受影响)。 */
+  _rootSpace() {
+    return (this._spineRT && this._spineProjRef === this.ctx.project)
+      ? { a: 1, b: 0, c: 0, d: -1, tx: 0, ty: 0 }
+      : { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
+  }
+
+  /** 旋转拖拽的屏幕→存储符号:RT 路径世界系翻转(spine 逆时针为正,屏幕 = -存储值)
+   *  → 鼠标顺时针时存储值须减少;自绘路径(pixi 顺时针为正,屏幕 = +存储值)→ 增加。
+   *  骨骼与图片附件旋转共用,保证两路径下方向均与鼠标一致。 */
+  _rotSign() {
+    return (this._spineRT && this._spineProjRef === this.ctx.project) ? -1 : 1;
+  }
+
   // ---------------- 指针事件 ----------------
 
   _onDown(e) {
     if (!this.app) return;
-    this.app.canvas.setPointerCapture?.(e.pointerId);
+    try { this.app.canvas.setPointerCapture?.(e.pointerId); } catch (err) { /* 合成事件无活动指针,忽略 */ }
     const ctx = this.ctx;
     const wp = this.toWorld(e.clientX, e.clientY);
     // 右键:拖动平移;原地点击(未拖动)切换上一工具(Spine 习惯)
@@ -1750,10 +1779,12 @@ export class EditorStage {
       if (!multi) {
         this._beginEdit('移动骨骼');
         const pw = bone.parent ? this.worlds.get(bone.parent) : null;
+        const pwM = pw ? { a: pw.a, b: pw.b, c: pw.c, d: pw.d, tx: pw.tx || 0, ty: pw.ty || 0 } : this._rootSpace();
         const bw2 = this.worlds.get(bone.name);
         // 记录拖拽起点与起始线性矩阵(Axes 轴向移动的基准,拖拽中矩阵随骨骼移动变化不可复用)
         this._drag = { kind: 'move', bone, sw: wp, sl: { x: bone.x, y: bone.y },
-          pw: pw ? { a: pw.a, b: pw.b, c: pw.c, d: pw.d, tx: pw.tx || 0, ty: pw.ty || 0 } : { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 },
+          pw: pwM,
+          slGrab: worldToParentLocal(pwM, wp.x, wp.y), // 抓取点父局部(相对位移基准,防按下瞬移)
           bw: bw2 ? { a: bw2.a, b: bw2.b, c: bw2.c, d: bw2.d } : { a: 1, b: 0, c: 0, d: 1 },
           comp: this._captureComp(bone) };
       }
@@ -1788,10 +1819,12 @@ export class EditorStage {
         const bone = tgt.bone;
         this._beginEdit('移动骨骼');
         const pw = bone.parent ? this.worlds.get(bone.parent) : null;
+        const pwM = pw ? { a: pw.a, b: pw.b, c: pw.c, d: pw.d, tx: pw.tx || 0, ty: pw.ty || 0 } : this._rootSpace();
         const bw2 = this.worlds.get(bone.name);
         this._drag = {
           kind: 'move', bone, sw: wp, sl: { x: bone.x, y: bone.y },
-          pw: pw ? { a: pw.a, b: pw.b, c: pw.c, d: pw.d, tx: pw.tx || 0, ty: pw.ty || 0 } : { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 },
+          pw: pwM,
+          slGrab: worldToParentLocal(pwM, wp.x, wp.y), // 抓取点父局部(相对位移基准,防按下瞬移)
           bw: bw2 ? { a: bw2.a, b: bw2.b, c: bw2.c, d: bw2.d } : { a: 1, b: 0, c: 0, d: 1 },
           comp: this._captureComp(bone),
         };
@@ -1865,19 +1898,19 @@ export class EditorStage {
     if (d.kind === 'move' && d.bone) {
       const bone = d.bone;
       const axes = ctx.axes || 'world';
-      const spine = !!ctx.project.spine;
       let x, y;
       if (axes === 'parent') {
-        // 父级轴向:光标锚定,直接取指针的父骨骼局部坐标
+        // 父级轴向:以抓取点为基准的相对位移(此前直接取指针父局部绝对坐标,抓取点不在骨骼
+        // 原点时按下即把骨骼瞬移到指针 —— 表现为「点击组件就跳跃、上下拖动似反向」)
         const local = worldToParentLocal(d.pw, wp.x, wp.y);
-        x = local.x; y = local.y;
+        x = d.sl.x + (local.x - d.slGrab.x);
+        y = d.sl.y + (local.y - d.slGrab.y);
       } else {
         // 世界/本地轴向:起始位置 + 沿指定坐标系的拖拽位移
         const v = apply2(inv2(d.pw), wp.x - d.sw.x, wp.y - d.sw.y); // 世界位移 → 父局部
         // 本地轴:自由拖拽下与世界轴等价(位移经骨骼基只是恒等往返,仅箭头单轴约束时有差异)
-        const dx = v.x, dy = v.y;
-        x = d.sl.x + dx;
-        y = d.sl.y + dy;
+        x = d.sl.x + v.x;
+        y = d.sl.y + v.y;
       }
       ctx.editBone(bone.name, { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 });
       // 补偿(Spine Compensate):移动骨骼时子骨骼/图片保持世界姿态(骨架编辑模式,精确矩阵法)
@@ -1890,8 +1923,7 @@ export class EditorStage {
       if (!w) return;
       // 增量累计:跨 ±180° 不跳变 -> 动画模式·本地/父级轴可连续拖出多圈(720°/-540° 等)
       const phiC = this._phiC(d.piv || { x: w.tx, y: w.ty }, wp);
-      const s = this.ctx.project.spine ? -1 : 1; // spine 逆时针为正,pixi 角顺时针为正
-      d.acc += s * angleDelta(phiC, d.lastPhiC);
+      d.acc += this._rotSign() * angleDelta(phiC, d.lastPhiC); // 按 RT/自绘渲染路径取符号(此前 spine 恒 -1,自绘 spine 工程反向)
       d.lastPhiC = phiC;
       let local = d.startLocal + d.acc;
       if (e.shiftKey) local = Math.round(local / 15) * 15; // Shift:15° 增量吸附
@@ -1914,7 +1946,7 @@ export class EditorStage {
     if (d.kind === 'rotateSlot' && d.disp) {
       // 旋转图片附件:轴心=图片矩形几何中心(固定),值=Attachment.Rotation(骨骼数值不变)
       const phiC = this._phiC(d.piv, wp);
-      d.acc += angleDelta(phiC, d.lastPhiC);
+      d.acc += this._rotSign() * angleDelta(phiC, d.lastPhiC); // RT 翻转系下符号与骨骼旋转一致,方向才与鼠标同向
       d.lastPhiC = phiC;
       let r = d.startRot + d.acc;
       if (e.shiftKey) r = Math.round(r / 15) * 15; // Shift:15° 增量吸附
@@ -1935,6 +1967,7 @@ export class EditorStage {
         }
         t.rotation = r;
         this.render();
+        this.ctx.syncTransformUI?.(); // 数值实时回显(不等松手)
       }
       return;
     }
@@ -1947,6 +1980,7 @@ export class EditorStage {
       t.x = Math.round((d.baseX + local.x - d.startLocal.x) * 10) / 10;
       t.y = Math.round((d.baseY + local.y - d.startLocal.y) * 10) / 10;
       this.render();
+      this.ctx.syncTransformUI?.(); // 数值实时回显(不等松手)
       return;
     }
     if (d.kind === 'scaleSlot' && d.disp) {
@@ -1957,6 +1991,7 @@ export class EditorStage {
       t.scaleX = Math.round(d.baseSx * r2 * 100) / 100;
       t.scaleY = Math.round(d.baseSy * r2 * 100) / 100;
       this.render();
+      this.ctx.syncTransformUI?.(); // 数值实时回显(不等松手)
       return;
     }
     if (d.kind === 'length' && d.bone) {
@@ -2042,10 +2077,10 @@ export class EditorStage {
       const wp = this.toWorld(e.clientX, e.clientY);
       const dist = Math.hypot(wp.x - d.p0.x, wp.y - d.p0.y);
       if (dist < 4 / this.camera.zoom) return; // 误触
-      const pw = d.parentName ? this.worlds.get(d.parentName) : null;
+      const pw = d.parentName ? this.worlds.get(d.parentName) : this._rootSpace();
       const local = worldToParentLocal(pw, d.p0.x, d.p0.y);
       const worldAng = (Math.atan2(wp.y - d.p0.y, wp.x - d.p0.x) * 180) / Math.PI;
-      const parentAng = pw ? (Math.atan2(pw.b, pw.a) * 180) / Math.PI : 0;
+      const parentAng = d.parentName ? (Math.atan2(pw.b, pw.a) * 180) / Math.PI : 0;
       const rot = worldAng - parentAng;
       this.ctx.createBone(d.parentName || '', Math.round(local.x), Math.round(local.y), Math.round(rot * 10) / 10, Math.round(dist));
       return;
