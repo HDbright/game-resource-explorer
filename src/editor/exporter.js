@@ -23,6 +23,19 @@ export async function saveProjectFile(p) {
   return r && r.ok ? r.path : null;
 }
 
+/** 直写覆盖保存(无对话框):保存到已关联的 .lbone.json 路径。
+ *  .spine 工程为 Spine 专有二进制格式不可直写,首次保存经对话框选定 .lbone.json 后走本函数。 */
+export async function writeProjectFile(path, p) {
+  try {
+    const text = projectToJson(p);
+    const b64 = btoa(unescape(encodeURIComponent(text)));
+    const r = await window.api.writeFileBase64(path, 'data:application/json;base64,' + b64);
+    return r && r.ok !== false ? path : null;
+  } catch (err) {
+    return null;
+  }
+}
+
 export async function openProjectFile() {
   const pr = await window.api.pickFiles({
     title: '打开骨骼动画项目',

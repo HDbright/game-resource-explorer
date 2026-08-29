@@ -27,7 +27,16 @@ ipcMain.handle('fs:stat', (_e, p) => {
   try { const s = fs.statSync(p); return { size: s.size, mtime: Math.round(s.mtimeMs) }; } catch (e) { return null; }
 });
 ipcMain.handle('fs:readBase64', async () => ({ ok: false, error: 'smoke stub' }));
-ipcMain.handle('fs:writeFileBase64', async () => ({ ok: false, error: 'smoke stub' }));
+// 真实写文件:保存直写(writeProjectFile)与保存流程验证
+ipcMain.handle('fs:writeFileBase64', async (_e, p, dataUrl) => {
+  try {
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    const m = /^data:[^,]+,base64,(.+)$/.exec(String(dataUrl || ''));
+    const b64 = m ? m[1] : String(dataUrl || '').replace(/^data:[^,]+,/, '');
+    fs.writeFileSync(p, Buffer.from(b64, 'base64'));
+    return { ok: true, path: p };
+  } catch (err) { return { ok: false, error: err.message }; }
+});
 // 真实读文本:phase 3「打开最近 .lbone.json」走真实文件
 ipcMain.handle('fs:readText', (_e, p) => {
   try { return { ok: true, text: fs.readFileSync(p, 'utf8') }; } catch (err) { return { ok: false, error: err.message }; }
@@ -413,6 +422,8 @@ app.whenReady().then(async () => {
           }
           ed.refresh();
           await sleep(200);
+          // 打开 .lbone.json 后:已关联保存路径(Ctrl+S 直写覆盖,不再弹框)
+          res.savePathAfterOpen = ed._savePath;
           const secs = [...document.querySelectorAll('.be-tab-body[data-body="outline"] .be-tree-sec-row .be-tree-sec-label')].map((e) => e.textContent.trim());
           res.sections = secs;
           // 顶级「骨骼」分组已改为骨架名(项目名/工程基名)+ Setup 图标;原独立骨架根行(.arm)已移除
@@ -497,6 +508,15 @@ app.whenReady().then(async () => {
         check('保存:撤销回基线后熄灭', sv2.cleanAfterUndo === true);
         check('保存:再次修改后高亮', sv2.dirtyBeforeSave === true);
         check('保存:点击保存后熄灭', sv2.cleanAfterSave === true, 'name=' + sv2.savedName);
+        // 打开 .lbone.json 的直存语义:保存后关联路径仍是原文件(弹框会另选路径),且内容已更新
+        {
+          const fp = await win.webContents.executeJavaScript(`(async () => {
+            const P = ${JSON.stringify(PROJ_PATH)};
+            const rf = await window.api.readText(P);
+            return { hasEdit: !!(rf && rf.ok && rf.text.includes('smoke-renamed-2')), path: window.__beEditor._savePath };
+          })()`, true);
+          check('保存:打开的工程直写覆盖(不弹框)', fp.path === PROJ_PATH && fp.hasEdit === true, JSON.stringify(fp.path));
+        }
         await win.webContents.executeJavaScript(`localStorage.setItem('boneEditorRecent', '[]')`, true);
 
         // ---------- 8) 手柄拖拽中数值实时回显(不等松手) ----------
@@ -645,6 +665,26 @@ app.whenReady().then(async () => {
           res.shearDuring = tb.inHx.value;
           pu(sx(wSh.tx + 25 * Math.cos(dirSh + Math.PI / 4)), sy(wSh.ty + 25 * Math.sin(dirSh + Math.PI / 4)));
           await sleep(80);
+
+          // —— 保存语义:新建工程(无关联路径)首次保存弹框 → 关联路径;二次保存直写同一路径 ——
+          ed.beginEdit('冒烟改工程名3');
+          ed.project.name = 'smoke-save-flow';
+          ed.refresh();
+          await sleep(100);
+          res.savePathBefore = ed._savePath;
+          ed.btnSave.click();
+          await sleep(400);
+          const p1 = ed._savePath;
+          const rf1 = p1 ? await window.api.readText(p1) : null;
+          res.saveFlow1 = { pathSet: !!p1, fileOk: !!(rf1 && rf1.ok && rf1.text.includes('smoke-save-flow')), dirty: ed._dirty };
+          ed.beginEdit('冒烟改工程名4');
+          ed.project.name = 'smoke-save-flow-2';
+          ed.refresh();
+          await sleep(100);
+          ed.btnSave.click();
+          await sleep(400);
+          const rf2 = p1 ? await window.api.readText(p1) : null;
+          res.saveFlow2 = { samePath: ed._savePath === p1, fileUpdated: !!(rf2 && rf2.ok && rf2.text.includes('smoke-save-flow-2')), dirty: ed._dirty };
           return res;
         })()`, true);
 
@@ -662,6 +702,9 @@ app.whenReady().then(async () => {
         check('方向:骨骼·上拖 Y=-30(与鼠标一致)', near(tv.boneUpDuring, -30, 1.5), 'before=' + tv.boneUpBefore + ' during=' + tv.boneUpDuring);
         check('实时:骨骼·缩放拖拽中 scaleX≈2(不等松手)', near(tv.scaleDuring, 2, 0.05), 'before=' + tv.scaleBefore + ' during=' + tv.scaleDuring);
         check('实时:骨骼·倾斜拖拽中 shearX≈45(不等松手)', near(tv.shearDuring, 45, 2), 'before=' + tv.shearBefore + ' during=' + tv.shearDuring);
+        check('保存:新建工程无关联路径', tv.savePathBefore == null, JSON.stringify(tv.savePathBefore));
+        check('保存:首次保存弹框并关联路径', tv.saveFlow1 && tv.saveFlow1.pathSet === true && tv.saveFlow1.fileOk === true && tv.saveFlow1.dirty === false, JSON.stringify(tv.saveFlow1));
+        check('保存:二次保存直写同一路径(不弹框)', tv.saveFlow2 && tv.saveFlow2.samePath === true && tv.saveFlow2.fileUpdated === true && tv.saveFlow2.dirty === false, JSON.stringify(tv.saveFlow2));
 
         console.log(failures === 0 ? 'ALL PASS' : failures + ' FAILURES');
       }

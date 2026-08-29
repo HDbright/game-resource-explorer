@@ -17,7 +17,7 @@ import { EditorPanels } from '../editor/panels.js';
 import { EditorTimeline } from '../editor/timeline.js';
 import { SpineToolbar, ICO as TB_ICO } from '../editor/spineToolbar.js';
 import { loadDbBundle } from '../preview/dbPlayer.js';
-import { packProjectAtlas, buildDragonBonesExport, saveProjectFile, exportDragonBonesFiles } from '../editor/exporter.js';
+import { packProjectAtlas, buildDragonBonesExport, saveProjectFile, writeProjectFile, exportDragonBonesFiles } from '../editor/exporter.js';
 import icoModeSetup from '../assets/spine-icons/skin_button-setup.png';
 import icoModeAnim from '../assets/spine-icons/skin_button-animate.png';
 import icoToolScale from '../assets/spine-icons/scale-red.png';
@@ -109,6 +109,7 @@ class BoneEditor {
     // 未保存修改跟踪(顶栏保存按钮高亮):_savedSnap = 最近一次保存/载入时的项目快照
     this._dirty = false;
     this._savedSnap = null;
+    this._savePath = null; // 已关联的 .lbone.json 保存路径(打开项目/首次保存后设置;Ctrl+S 直写覆盖)
 
     // ---- ctx 状态 ----
     this.mode = 'setup';
@@ -1685,6 +1686,7 @@ class BoneEditor {
     this.beginEdit(label);
     this.view = 'editor';
     this.project = p;
+    this._savePath = null; // 导入/新建默认无关联保存路径(打开 .lbone.json 的入口随后自行设置)
     this.animName = (p.armature.animations[0] || {}).name || null;
     this.selection = null;
     this.keySel = null;
@@ -1746,6 +1748,7 @@ class BoneEditor {
       if (!r || !r.ok) throw new Error('读取项目文件失败:' + (r && r.error));
       const p = JSON.parse(r.text);
       this._loadProject(p, '打开项目');
+      this._savePath = rec.path; // 打开 .lbone.json:后续保存直接覆盖该文件
       recordBoneRecent(rec.path, 'project');
       toast('项目已打开');
     } catch (err) {
@@ -1768,6 +1771,7 @@ class BoneEditor {
     this.redoStack.length = 0;
     this._dirty = false;
     this._savedSnap = null;
+    this._savePath = null;
     try { localStorage.removeItem(DRAFT_KEY); } catch (e) { /* ignore */ }
     this.refresh();
     this.stage.camera = { x: (this.stage.container?.clientWidth || 800) / 2, y: (this.stage.container?.clientHeight || 500) / 2, zoom: 1 };
@@ -1795,6 +1799,7 @@ class BoneEditor {
         this.view = 'editor';
         this.beginEdit('新建项目');
         this.project = createProject();
+        this._savePath = null; // 全新工程:无关联保存路径(首次保存弹框选定)
         this.animName = this.project.armature.animations[0].name;
         this.selection = null;
         this.keySel = null;
@@ -1866,6 +1871,7 @@ class BoneEditor {
       let p;
       try { p = JSON.parse(r.text); } catch (err) { throw new Error('不是有效的项目或 Spine JSON 文件'); }
       this._loadProject(p, '打开项目');
+      this._savePath = projPath; // 打开 .lbone.json:后续保存直接覆盖该文件
       recordBoneRecent(projPath, 'project');
       toast('项目已打开');
     } catch (err) {
@@ -1982,13 +1988,20 @@ class BoneEditor {
   }
 
   async saveProject() {
+    // 已有关联保存路径(.lbone.json):直接覆盖保存,不再弹框(标准「保存 vs 另存为」语义;
+    // .spine 工程为 Spine 专有二进制格式不可直写,首次保存经对话框选定 .lbone.json 后即走直存)
+    if (this._savePath) {
+      const ok = await writeProjectFile(this._savePath, this.project);
+      if (ok) { recordBoneRecent(ok, 'project'); this._markSaved(); toast('已保存:' + ok); return; }
+      toast('直写保存失败,已回退为另存对话框', 'warn');
+    }
     const p = await saveProjectFile(this.project);
-    if (p) { recordBoneRecent(p, 'project'); this._markSaved(); toast('已保存:' + p); }
+    if (p) { this._savePath = p; recordBoneRecent(p, 'project'); this._markSaved(); toast('已保存:' + p); }
   }
 
   async saveProjectAs() {
     const r = await saveProjectFile(this.project);
-    if (r) { recordBoneRecent(r, 'project'); this._markSaved(); toast('已另存为:' + r); }
+    if (r) { this._savePath = r; recordBoneRecent(r, 'project'); this._markSaved(); toast('已另存为:' + r); }
   }
 
   async exportDb() {
