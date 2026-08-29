@@ -13,6 +13,7 @@ const { skelToJson, probeSkeleton } = require('./tools/skel');
 const { spineFix } = require('./tools/spineFix');
 const { skToSpine, skToSpineText, probeLayaSk } = require('./tools/layaSk2Spine');
 const { probe: probeSpineProjectFile, convertFile: convertSpineProjectFile, convert: convertSpineProjectInMemory } = require('./tools/spineProjectToJson');
+const skani = require('./skaniFile.js');
 // 注:合成 .spine 的 makeTestSpine 在冒烟分支内惰性 require——顶层 require 会在打包版崩溃
 // (electron-builder 只打包 electron/ 目录,app.asar 内没有 ../scripts/)
 const fgui = require('./tools/fgui');
@@ -964,6 +965,15 @@ async function runSmoke() {
 
   log('smoke done');
   log('[smoke] db stats: ' + JSON.stringify(dbStats()));
+  // 看门狗强退:个别环境下 app.exit 后事件循环冻结(疑似退出期与挂起 IPC 交互的 Electron 缺陷),
+  // 派生分离进程(electron 以 node 模式)3 秒后强杀;正常退出时 kill 落空不影响
+  try {
+    const { spawn } = require('child_process');
+    spawn(process.execPath, ['-e', `setTimeout(()=>{try{process.kill(${process.pid})}catch(e){}}, 3000)`], {
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+      detached: true, stdio: 'ignore', windowsHide: true,
+    }).unref();
+  } catch (e) { /* ignore */ }
   app.exit(0);
 }
 
@@ -1695,6 +1705,28 @@ app.whenReady().then(async () => {
         resolve({ ok: false, error: e.message });
       }
     });
+  });
+  // ---- .skani 工程文件(ZIP 容器 + 明文内核;见 docs/skani-format.md) ----
+  ipcMain.handle('skani:write', (_e, args) => skani.skaniWrite(args));
+  ipcMain.handle('skani:read', (_e, args) => skani.skaniRead(args));
+  // 草稿:userData/draft.skani(原子写;替代 localStorage 大对象草稿)
+  ipcMain.handle('skani:draftWrite', (_e, { docJson, assets }) => {
+    try {
+      const f = skani.draftPath(app.getPath('userData'));
+      return skani.skaniWrite({ path: f, docJson, assets });
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+  ipcMain.handle('skani:draftRead', () => {
+    const f = skani.draftPath(app.getPath('userData'));
+    if (!fs.existsSync(f)) return { ok: false, noDraft: true };
+    return skani.skaniRead({ path: f });
+  });
+  ipcMain.handle('skani:draftClear', () => {
+    try {
+      const f = skani.draftPath(app.getPath('userData'));
+      for (const x of [f, f + '.bak']) try { fs.unlinkSync(x); } catch (e) { /* ignore */ }
+      return { ok: true };
+    } catch (err) { return { ok: false, error: err.message }; }
   });
   // Spine JSON 内容 -> .skel 二进制(骨骼动画编辑器导出用):写临时 JSON -> 调用 C++ 转换器 -> 清理
   ipcMain.handle('tool:jsonToSkel', async (_e, { jsonContent, outputPath, targetVersion }) => {

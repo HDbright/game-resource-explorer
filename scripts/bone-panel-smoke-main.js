@@ -12,8 +12,23 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const dbm = require('../electron/db.js');
+const skani = require('../electron/skaniFile.js');
 
 app.setName('bone-panel-smoke');
+
+// .skani 工程文件 IPC(与 electron/main.js 同款;本脚本即主进程)
+ipcMain.handle('skani:write', (_e, args) => skani.skaniWrite(args));
+ipcMain.handle('skani:read', (_e, args) => skani.skaniRead(args));
+ipcMain.handle('skani:draftWrite', (_e, { docJson, assets }) => skani.skaniWrite({ path: skani.draftPath(app.getPath('userData')), docJson, assets }));
+ipcMain.handle('skani:draftRead', () => {
+  const f = skani.draftPath(app.getPath('userData'));
+  return fs.existsSync(f) ? skani.skaniRead({ path: f }) : { ok: false, noDraft: true };
+});
+ipcMain.handle('skani:draftClear', () => {
+  const f = skani.draftPath(app.getPath('userData'));
+  for (const x of [f, f + '.bak']) { try { fs.unlinkSync(x); } catch (e) { /* ignore */ } }
+  return { ok: true };
+});
 
 // ---- IPC 桩(db 只读,写空操作,不污染真实库) ----
 ipcMain.handle('db:read', () => dbm.readDb());
@@ -666,7 +681,7 @@ app.whenReady().then(async () => {
           pu(sx(wSh.tx + 25 * Math.cos(dirSh + Math.PI / 4)), sy(wSh.ty + 25 * Math.sin(dirSh + Math.PI / 4)));
           await sleep(80);
 
-          // —— 保存语义:新建工程(无关联路径)首次保存弹框 → 关联路径;二次保存直写同一路径 ——
+          // —— 保存语义:新建工程首次保存(默认 .skani)→ 关联路径;二次保存直写;重开往返 ——
           ed.beginEdit('冒烟改工程名3');
           ed.project.name = 'smoke-save-flow';
           ed.refresh();
@@ -675,16 +690,39 @@ app.whenReady().then(async () => {
           ed.btnSave.click();
           await sleep(400);
           const p1 = ed._savePath;
-          const rf1 = p1 ? await window.api.readText(p1) : null;
-          res.saveFlow1 = { pathSet: !!p1, fileOk: !!(rf1 && rf1.ok && rf1.text.includes('smoke-save-flow')), dirty: ed._dirty };
+          res.saveFlow1 = { pathSet: !!p1, isSkani: !!p1 && /\.skani$/i.test(p1), dirty: ed._dirty };
           ed.beginEdit('冒烟改工程名4');
           ed.project.name = 'smoke-save-flow-2';
           ed.refresh();
           await sleep(100);
           ed.btnSave.click();
           await sleep(400);
-          const rf2 = p1 ? await window.api.readText(p1) : null;
-          res.saveFlow2 = { samePath: ed._savePath === p1, fileUpdated: !!(rf2 && rf2.ok && rf2.text.includes('smoke-save-flow-2')), dirty: ed._dirty };
+          res.saveFlow2 = { samePath: ed._savePath === p1, dirty: ed._dirty };
+          // .skani 重开往返:内容/溯源/编辑状态恢复
+          const rr = p1 ? await window.api.skaniRead({ path: p1 }) : null;
+          if (rr && rr.ok) {
+            const doc = JSON.parse(rr.docJson);
+            res.skaniRoundtrip = {
+              name: doc.project.name,
+              nameOk: doc.project.name === 'smoke-save-flow-2',
+              bones: doc.project.armature.bones.length,
+              imgRef: doc.project.images[0] && doc.project.images[0].assetRef,
+              imgHydrated: !!(rr.assets && rr.assets[0] && rr.assets[0].dataUrl),
+              noDataUrlInDoc: !rr.docJson.includes('data:image'),
+              source: doc.source && doc.source.kind,
+            };
+            // openSkani 打开并校验
+            await ed.openSkani(p1);
+            await sleep(300);
+            res.skaniReopen = {
+              name: ed.project.name,
+              boneCount: ed.project.armature.bones.length,
+              imgDataUrl: (ed.project.images[0] || {}).dataUrl || '',
+              savePath: ed._savePath === p1,
+            };
+          } else {
+            res.skaniRoundtrip = { err: rr && rr.error };
+          }
           return res;
         })()`, true);
 
@@ -703,8 +741,10 @@ app.whenReady().then(async () => {
         check('实时:骨骼·缩放拖拽中 scaleX≈2(不等松手)', near(tv.scaleDuring, 2, 0.05), 'before=' + tv.scaleBefore + ' during=' + tv.scaleDuring);
         check('实时:骨骼·倾斜拖拽中 shearX≈45(不等松手)', near(tv.shearDuring, 45, 2), 'before=' + tv.shearBefore + ' during=' + tv.shearDuring);
         check('保存:新建工程无关联路径', tv.savePathBefore == null, JSON.stringify(tv.savePathBefore));
-        check('保存:首次保存弹框并关联路径', tv.saveFlow1 && tv.saveFlow1.pathSet === true && tv.saveFlow1.fileOk === true && tv.saveFlow1.dirty === false, JSON.stringify(tv.saveFlow1));
-        check('保存:二次保存直写同一路径(不弹框)', tv.saveFlow2 && tv.saveFlow2.samePath === true && tv.saveFlow2.fileUpdated === true && tv.saveFlow2.dirty === false, JSON.stringify(tv.saveFlow2));
+        check('保存:首次保存默认 .skani 并关联路径', tv.saveFlow1 && tv.saveFlow1.pathSet === true && tv.saveFlow1.isSkani === true && tv.saveFlow1.dirty === false, JSON.stringify(tv.saveFlow1));
+        check('保存:二次保存直写同一路径(不弹框)', tv.saveFlow2 && tv.saveFlow2.samePath === true && tv.saveFlow2.dirty === false, JSON.stringify(tv.saveFlow2));
+        check('skani:容器往返(资产外置/明文内核/溯源)', !!(tv.skaniRoundtrip && tv.skaniRoundtrip.nameOk && tv.skaniRoundtrip.noDataUrlInDoc === true && tv.skaniRoundtrip.imgHydrated === true && tv.skaniRoundtrip.source === 'fresh'), JSON.stringify(tv.skaniRoundtrip));
+        check('skani:openSkani 重开(模型/图片回填/路径关联)', !!(tv.skaniReopen && tv.skaniReopen.name === 'smoke-save-flow-2' && tv.skaniReopen.boneCount >= 1 && String(tv.skaniReopen.imgDataUrl).startsWith('data:image') && tv.skaniReopen.savePath === true), JSON.stringify(tv.skaniReopen));
 
         console.log(failures === 0 ? 'ALL PASS' : failures + ' FAILURES');
       }
@@ -712,7 +752,19 @@ app.whenReady().then(async () => {
       console.error('SMOKE-ERR', err && err.stack ? err.stack : err);
       failures++;
     }
-    app.exit(failures === 0 ? 0 : 1);
+    // 兜底强退:本环境下 app.exit 后事件循环冻结(疑似退出期与挂起 IPC 交互的 Electron 缺陷),
+    // 进程内定时器无法触发 —— 派生分离的看门狗(electron 以 node 模式运行)3 秒后强杀本进程
+    const code = failures === 0 ? 0 : 1;
+    try { win.destroy(); } catch (e) { /* ignore */ }
+    try {
+      const { spawn } = require('child_process');
+      const killer = spawn(process.execPath, ['-e', `setTimeout(()=>{try{process.kill(${process.pid})}catch(e){}}, 3000)`], {
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+        detached: true, stdio: 'ignore', windowsHide: true,
+      });
+      killer.unref();
+    } catch (e) { /* ignore */ }
+    app.exit(code);
   });
   win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
 });

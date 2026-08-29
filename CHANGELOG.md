@@ -3,7 +3,31 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.4.18`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.4.19`）。
+
+---
+
+## 2026-08-29（补丁·184）
+
+### [新增] .skani 专属工程文件格式(ZIP 容器 + 明文内核)+ 草稿迁移 + 冒烟退出看门狗
+
+- **格式设计**(`docs/skani-format.md` 完整方案):明文内核 + ZIP 容器(否决纯二进制——写坏即废/不可 diff/版本演进昂贵;与 .docx/.odt 同构)。布局:`meta.json`(格式头 format/version/docSha1)+ `doc.json`(模型 + source 溯源 + editor 视角状态)+ `images/<sha1>.<ext>`(内容哈希命名自动去重,原图不 base64 省 33%)+ 可选 `thumb.png`;`assets.json` 顺序清单桥接 doc.assetRef ↔ 哈希条目。
+- **主进程实现**(`electron/skaniFile.js`,自研极简 zip 读写无三方依赖:CRC32 查表 + local header/central directory/EOCD + deflateRaw;sha1 命名;一律 tmp+rename 原子写,正式保存自动 .bak);IPC `skani:write/read/draftWrite/draftRead/draftClear` + preload 暴露。
+- **编辑器接入**(`src/pages/boneEditorPage.js`):「另存为」默认 **.skani**(明文 .lbone.json 保留可选);.skani 打开(对话框/最近记录)→ 溯源恢复(.spine 来源还原 _spineSrc 供「回写运行时文件」)+ editor 视角状态恢复;旧 .lbone.json 完全兼容读写;图片/图集页 dataUrl 打包剥离、打开回填,缺图条目降级占位不阻断;来源信息(fresh/spine/spineproj/lbone/skani)随档。
+- **草稿迁移**:localStorage 大对象草稿 → `userData/draft.skani`(主进程原子写,解除 5MB 上限);旧 localStorage 草稿兼容读取;关闭项目/回首页清草稿。
+- **冒烟**:专项断言新增 .skani 组(保存默认 .skani/二次直写/容器往返资产外置+明文内核+溯源/openSkani 重开模型与图片回填+路径关联);全量 56 步零 err。修复本环境 `app.exit` 后事件循环冻结致冒烟挂起(退出前派生分离看门狗强杀兜底,两处冒烟出口同款)。
+
+---
+---
+
+## 2026-08-29（补丁·183）
+
+### [新增] 保存/另存为标准语义:已关联路径直写覆盖
+
+- 打开 .lbone.json(打开对话框/最近记录)即关联该路径:Ctrl+S/顶栏保存直接覆盖不再弹框;直写失败(路径失效)自动回退另存对话框。
+- 从 .spine/Spine JSON/DragonBones 导入或新建:首次保存弹框选定 .lbone.json 后同样直存;另存为换路径后跟随;关闭/新建/回首页解除关联(`_savePath` 生命周期)。
+- .spine 为 Spine 专有二进制工程格式不可直写(解码器只读,模型仅覆盖子集,重建丢 mesh/IK/事件且可能损坏原文件);「回写 .spine 工程运行时文件」(export/ .json+.skel)入口不变。
+- 验证:专项冒烟断言(打开直写/新建首存弹框/二次直写同路径)ALL PASS;全量冒烟零 err。
 
 ---
 

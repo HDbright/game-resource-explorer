@@ -63,6 +63,46 @@ function recordBoneRecent(path, kind) {
   try { localStorage.setItem(RECENT_KEY, JSON.stringify(list)); } catch (e) { /* 忽略 */ }
 }
 
+// ---------------- .skani 专属工程文件(ZIP 容器 + 明文内核;docs/skani-format.md) ----------------
+
+const SKANI_FORMAT = 'skani';
+const SKANI_VERSION = 2;
+
+/**
+ * 打包:project → { docJson, assets }。
+ * 模型内所有 dataUrl 字段剥离(images[].dataUrl / spine.pages[].dataUrl),
+ * 按稳定顺序以 assetRef 序号引用;assets 顺序 = images 全部 + spine.pages 全部。
+ */
+function skaniPack(project, source, editor) {
+  const assets = [];
+  const doc = {
+    format: SKANI_FORMAT,
+    version: SKANI_VERSION,
+    project: JSON.parse(JSON.stringify(project, (k, v) => (k === 'dataUrl' && typeof v === 'string') ? undefined : v)),
+    source: source || { kind: 'fresh' },
+    editor: editor || {},
+  };
+  const p = doc.project;
+  (p.images || []).forEach((im, i) => { im.assetRef = i; assets.push((project.images[i] || {}).dataUrl || null); });
+  const pages = (p.spine && p.spine.pages) || [];
+  const origPages = (project.spine && project.spine.pages) || [];
+  pages.forEach((pg, j) => { pg.assetRef = (p.images || []).length + j; assets.push((origPages[j] || {}).dataUrl || null); });
+  return { docJson: JSON.stringify(doc), assets: assets.map((d) => ({ dataUrl: d })) };
+}
+
+/** 解包:doc + 按序资产 → 回填 dataUrl 的 project(缺失资产保持 undefined,舞台缺图占位) */
+function skaniHydrateDoc(doc, assets) {
+  const p = doc.project;
+  const fill = (arr) => (arr || []).forEach((x) => {
+    const d = assets && assets[x.assetRef] && assets[x.assetRef].dataUrl;
+    if (d) x.dataUrl = d;
+    delete x.assetRef;
+  });
+  fill(p.images);
+  if (p.spine) fill(p.spine.pages);
+  return p;
+}
+
 // 「打开项目 / 打开 Spine 工程文件」记住上次打开目录:两个入口共用一份记忆;目录已不存在时回退系统默认位置
 const OPEN_DIR_KEY = 'boneEditorOpenDir';
 
@@ -498,8 +538,8 @@ class BoneEditor {
   }
 
   /** 恢复上次编辑草稿(用户主动点击,不自动加载) */
-  restoreDraft() {
-    const d = this._loadDraft();
+  async restoreDraft() {
+    const d = await this._loadDraftAsync();
     if (!d || !(d.armature.bones.length || d.armature.slots.length || d.spine)) { toast('没有可恢复的草稿', 'warn'); return; }
     this.view = 'editor';
     this.beginEdit('恢复草稿');
@@ -685,6 +725,7 @@ class BoneEditor {
       toast('同目录未找到 .atlas,导入后无贴图(仅骨骼/动画数据)', 'warn');
     }
     const p = importSpineProject(json, { atlasText, pages, base });
+    this._skaniSrc = { kind: 'spine', path: jsonPath };
     this._loadProject(p, '导入 Spine 项目');
     recordBoneRecent(jsonPath, 'spine');
     toast(`已导入 Spine ${p.spine.version}:${p.armature.bones.length} 骨骼 / ${p.armature.slots.length} 插槽 / ${p.armature.animations.length} 动画 / 皮肤「${p.spine.skin}」`);
@@ -725,6 +766,7 @@ class BoneEditor {
       await this.importSpinePath(runtimeJson);
       // 记录 .spine 工程来源(供「回写工程运行时文件」使用)
       this._spineSrc = { path: spinePath, dir, base, runtimeJson };
+      this._skaniSrc = { kind: 'spineproj', path: spinePath, runtimeJson };
       if (this.project.spine) this.project.spine.srcPath = spinePath;
       // 附加标记:来源为 .spine 工程,在最近记录中注明
       recordBoneRecent(spinePath, 'spineproj');
@@ -739,6 +781,7 @@ class BoneEditor {
     const imageFiles = await this._loadSpineProjectImages(spinePath, decoded);
     const p = importSpineEditorProject(decoded, { srcPath: spinePath, imageFiles });
     this._spineSrc = { path: spinePath, dir, base, runtimeJson: null };
+    this._skaniSrc = { kind: 'spineproj', path: spinePath, runtimeJson: null };
     if (p.spine) p.spine.srcPath = spinePath;
     this._loadProject(p, '打开 Spine 工程');
     recordBoneRecent(spinePath, 'spineproj');
@@ -1151,9 +1194,13 @@ class BoneEditor {
       hint.hidden = !inBlankProject;
       const rb = hint.querySelector('.be-restore-draft');
       if (rb) {
-        const d = this._loadDraft();
-        const restorable = !!(d && (d.armature.bones.length || d.armature.slots.length || d.spine));
-        rb.hidden = !inBlankProject || !restorable;
+        rb.hidden = !inBlankProject; // 先按视图隐藏,草稿命中后再显示(避免闪烁)
+        if (inBlankProject) {
+          this._loadDraftAsync().then((d) => {
+            const restorable = !!(d && (d.armature.bones.length || d.armature.slots.length || d.spine));
+            if (rb.isConnected) rb.hidden = !restorable;
+          });
+        }
       }
     }
     this._renderRecent();
@@ -1171,15 +1218,30 @@ class BoneEditor {
   _saveDraftNow() {
     // 空白等待态不写草稿:避免覆盖「恢复上次编辑」可用的草稿(关闭项目时显式清除)
     if (this.isBlank) return;
-    try { localStorage.setItem(DRAFT_KEY, serialize(this.project)); } catch (e) { /* 超限时忽略 */ }
+    this._draftCache = this.project;
+    // 草稿存 userData/draft.skani(主进程原子写);旧 localStorage 大对象草稿已淘汰
+    try {
+      const { docJson, assets } = skaniPack(this.project, this._skaniSourceInfo(), {});
+      window.api.skaniDraftWrite({ docJson, assets }).catch(() => { /* 草稿失败静默 */ });
+    } catch (e) { /* 忽略 */ }
   }
 
-  _loadDraft() {
+  async _loadDraftAsync() {
+    if (this._draftCache !== undefined) return this._draftCache;
+    this._draftCache = null;
+    try {
+      const r = await window.api.skaniDraftRead();
+      if (r && r.ok && r.docJson) {
+        const doc = JSON.parse(r.docJson);
+        if (doc.project) this._draftCache = skaniHydrateDoc(doc, r.assets);
+        return this._draftCache;
+      }
+    } catch (e) { /* 落到旧 localStorage 草稿迁移 */ }
     try {
       const s = localStorage.getItem(DRAFT_KEY);
-      if (!s) return null;
-      return deserialize(s);
-    } catch (e) { return null; }
+      if (s) { this._draftCache = deserialize(s); return this._draftCache; }
+    } catch (e) { /* ignore */ }
+    return this._draftCache;
   }
 
   // ---------------- 编辑意图 ----------------
@@ -1687,6 +1749,7 @@ class BoneEditor {
     this.view = 'editor';
     this.project = p;
     this._savePath = null; // 导入/新建默认无关联保存路径(打开 .lbone.json 的入口随后自行设置)
+    this._skaniSrc = p.spine && p.spine.project ? { kind: 'spineproj', path: p.spine.srcPath || '' } : (p.spine ? { kind: 'spine' } : { kind: 'fresh' });
     this.animName = (p.armature.animations[0] || {}).name || null;
     this.selection = null;
     this.keySel = null;
@@ -1709,7 +1772,7 @@ class BoneEditor {
       ${list.map((r) => {
         const file = _fileBase(r.path) || r.name || '';
         const time = _fmtRecentTime(r.openedAt);
-        const kindTxt = r.kind === 'spine' ? 'Spine' : r.kind === 'spineproj' ? 'Spine 工程' : '项目';
+        const kindTxt = r.kind === 'skani' ? '工程' : r.kind === 'spine' ? 'Spine' : r.kind === 'spineproj' ? 'Spine 工程' : '项目';
         const tip = `${file}${time ? ' · ' + time : ''}\n${r.path || ''}`;
         return `
         <div class="be-recent-item" data-path="${escapeHtml(r.path || '')}" title="${escapeHtml(tip)}">
@@ -1742,6 +1805,7 @@ class BoneEditor {
     const rec = getBoneRecent().find((r) => _normPath(r.path) === _normPath(path));
     if (!rec) { toast('记录不存在', 'warn'); return; }
     try {
+      if (rec.kind === 'skani') { await this.openSkani(rec.path); return; }
       if (rec.kind === 'spineproj') { await this.importSpineProjectFile(rec.path); return; }
       if (rec.kind === 'spine') { await this.importSpinePath(rec.path); return; }
       const r = await window.api.readText(rec.path);
@@ -1749,6 +1813,7 @@ class BoneEditor {
       const p = JSON.parse(r.text);
       this._loadProject(p, '打开项目');
       this._savePath = rec.path; // 打开 .lbone.json:后续保存直接覆盖该文件
+      this._skaniSrc = { kind: 'lbone', path: rec.path };
       recordBoneRecent(rec.path, 'project');
       toast('项目已打开');
     } catch (err) {
@@ -1772,7 +1837,10 @@ class BoneEditor {
     this._dirty = false;
     this._savedSnap = null;
     this._savePath = null;
+    this._skaniSrc = { kind: 'fresh' };
+    this._draftCache = null;
     try { localStorage.removeItem(DRAFT_KEY); } catch (e) { /* ignore */ }
+    try { window.api.skaniDraftClear(); } catch (e) { /* ignore */ }
     this.refresh();
     this.stage.camera = { x: (this.stage.container?.clientWidth || 800) / 2, y: (this.stage.container?.clientHeight || 500) / 2, zoom: 1 };
     this.stage.render();
@@ -1800,6 +1868,7 @@ class BoneEditor {
         this.beginEdit('新建项目');
         this.project = createProject();
         this._savePath = null; // 全新工程:无关联保存路径(首次保存弹框选定)
+        this._skaniSrc = { kind: 'fresh' };
         this.animName = this.project.armature.animations[0].name;
         this.selection = null;
         this.keySel = null;
@@ -1841,16 +1910,19 @@ class BoneEditor {
   async openProject() {
     try {
       const pr = await window.api.pickFiles({
-        title: '打开项目 / Spine 工程或动画(.spine .json .atlas .png 可多选)',
+        title: '打开项目 / Spine 工程或动画(.skani .spine .json .atlas .png 可多选)',
         multi: true,
         defaultPath: await lastOpenDir(),
         filters: [
-          { name: '骨骼动画相关文件', extensions: ['lbone.json', 'json', 'atlas', 'png', 'spine'] },
+          { name: '骨骼动画相关文件', extensions: ['skani', 'lbone.json', 'json', 'atlas', 'png', 'spine'] },
         ],
       });
       const paths = (!pr || pr.canceled) ? [] : (pr.filePaths || []);
       if (!paths.length) return;
       rememberOpenDir(paths);
+      // -1) 本编辑器 .skani 工程 → 直接打开
+      const skaniP = paths.find((p) => /\.skani$/i.test(p));
+      if (skaniP) { await this.openSkani(skaniP); return; }
       // 0) Spine 编辑器工程文件(.spine)-> 逆向解码为可编辑项目
       const spineProj = paths.find((p) => /\.spine$/i.test(p));
       if (spineProj) { await this.importSpineProjectFile(spineProj); return; }
@@ -1872,6 +1944,7 @@ class BoneEditor {
       try { p = JSON.parse(r.text); } catch (err) { throw new Error('不是有效的项目或 Spine JSON 文件'); }
       this._loadProject(p, '打开项目');
       this._savePath = projPath; // 打开 .lbone.json:后续保存直接覆盖该文件
+      this._skaniSrc = { kind: 'lbone', path: projPath };
       recordBoneRecent(projPath, 'project');
       toast('项目已打开');
     } catch (err) {
@@ -1987,21 +2060,87 @@ class BoneEditor {
     }
   }
 
+  /** 保存为 .skani(ZIP 容器;溯源与编辑器状态随存) */
+  async skaniSaveTo(path) {
+    try {
+      const source = this._skaniSourceInfo();
+      const editor = { axes: this.axes, compBones: !!this.compBones, compImages: !!this.compImages, skin: (this.project.spine && this.project.spine.skin) || undefined };
+      const { docJson, assets } = skaniPack(this.project, source, editor);
+      const r = await window.api.skaniWrite({ path, docJson, assets });
+      return r && r.ok ? path : null;
+    } catch (err) {
+      console.warn('[skani] 保存失败:', err);
+      return null;
+    }
+  }
+
+  /** 打开 .skani 工程(含溯源恢复/缺图降级) */
+  async openSkani(path) {
+    try {
+      const r = await window.api.skaniRead({ path });
+      if (!r || !r.ok) throw new Error((r && r.error) || '读取失败');
+      const doc = JSON.parse(r.docJson);
+      if (doc.format !== SKANI_FORMAT) throw new Error('不是 .skani 工程');
+      if (doc.version > SKANI_VERSION) toast('工程由更新版本保存,按当前版本尽力打开', 'warn');
+      const project = skaniHydrateDoc(doc, r.assets);
+      this._loadProject(project, '打开工程');
+      // 溯源:.spine 工程来源恢复 _spineSrc(「回写运行时文件」可用)
+      if (doc.source && doc.source.kind === 'spineproj' && doc.source.path) {
+        const sp = doc.source.path;
+        this._spineSrc = { path: sp, dir: sp.replace(/[\\/][^\\/]+$/, ''), base: sp.replace(/^.*[\\/]/, '').replace(/\.spine$/i, ''), runtimeJson: doc.source.runtimeJson || null };
+      }
+      // 编辑器状态(视角,非内容)
+      if (doc.editor) {
+        if (doc.editor.axes) this.axes = doc.editor.axes;
+        this.compBones = !!doc.editor.compBones;
+        this.compImages = !!doc.editor.compImages;
+      }
+      this._skaniSrc = doc.source || { kind: 'skani', path };
+      this._savePath = path;
+      recordBoneRecent(path, 'skani');
+      this.refresh();
+      if (r.missing && r.missing.length) toast(`工程已打开;${r.missing.length} 张图片条目缺失(显示占位)`, 'warn');
+      else toast('工程已打开:' + path);
+    } catch (err) {
+      toast('打开失败:' + err.message, 'err');
+    }
+  }
+
+  /** 导入来源信息(随 .skani 存档;用于溯源与「重新导入」) */
+  _skaniSourceInfo() {
+    if (this._skaniSrc) return { ...this._skaniSrc };
+    if (this._spineSrc) return { kind: 'spineproj', path: this._spineSrc.path, runtimeJson: this._spineSrc.runtimeJson };
+    if (this.project.spine) return { kind: 'spine' };
+    return { kind: 'fresh' };
+  }
+
   async saveProject() {
-    // 已有关联保存路径(.lbone.json):直接覆盖保存,不再弹框(标准「保存 vs 另存为」语义;
-    // .spine 工程为 Spine 专有二进制格式不可直写,首次保存经对话框选定 .lbone.json 后即走直存)
+    // 已有关联保存路径:直接覆盖保存,不再弹框(.skani 走容器写,.lbone.json 走明文写)
     if (this._savePath) {
-      const ok = await writeProjectFile(this._savePath, this.project);
-      if (ok) { recordBoneRecent(ok, 'project'); this._markSaved(); toast('已保存:' + ok); return; }
+      const ok = /\.skani$/i.test(this._savePath)
+        ? await this.skaniSaveTo(this._savePath)
+        : await writeProjectFile(this._savePath, this.project);
+      if (ok) { recordBoneRecent(ok, /\.skani$/i.test(ok) ? 'skani' : 'project'); this._markSaved(); toast('已保存:' + ok); return; }
       toast('直写保存失败,已回退为另存对话框', 'warn');
     }
-    const p = await saveProjectFile(this.project);
-    if (p) { this._savePath = p; recordBoneRecent(p, 'project'); this._markSaved(); toast('已保存:' + p); }
+    await this.saveProjectAs();
   }
 
   async saveProjectAs() {
-    const r = await saveProjectFile(this.project);
-    if (r) { this._savePath = r; recordBoneRecent(r, 'project'); this._markSaved(); toast('已另存为:' + r); }
+    // 默认推荐 .skani 专属工程格式;明文 .lbone.json 保留(调试/外部工具)
+    const r = await saveProjectFile(this.project, {
+      ext: '.skani',
+      filters: [{ name: '骨骼动画工程', extensions: ['skani'] }, { name: '骨骼动画项目(明文)', extensions: ['lbone.json', 'json'] }],
+      content: '',
+    });
+    if (!r) return;
+    const okPath = /\.skani$/i.test(r) ? await this.skaniSaveTo(r) : await writeProjectFile(r, this.project);
+    if (okPath) {
+      this._savePath = okPath;
+      recordBoneRecent(okPath, /\.skani$/i.test(okPath) ? 'skani' : 'project');
+      this._markSaved();
+      toast('已保存:' + okPath);
+    }
   }
 
   async exportDb() {

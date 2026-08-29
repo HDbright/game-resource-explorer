@@ -62,6 +62,11 @@ contextBridge.exposeInMainWorld('api', {
   probeSpineProject: (args) => ipcRenderer.invoke('tool:probeSpineProject', args),
   spineProject2json: (args) => ipcRenderer.invoke('tool:spineProject2json', args),
   decodeSpineProject: (args) => ipcRenderer.invoke('tool:decodeSpineProject', args),
+  skaniWrite: (args) => ipcRenderer.invoke('skani:write', args),
+  skaniRead: (args) => ipcRenderer.invoke('skani:read', args),
+  skaniDraftWrite: (args) => ipcRenderer.invoke('skani:draftWrite', args),
+  skaniDraftRead: () => ipcRenderer.invoke('skani:draftRead'),
+  skaniDraftClear: () => ipcRenderer.invoke('skani:draftClear'),
   filesIdentical: (args) => ipcRenderer.invoke('tool:filesIdentical', args),
 
   // ---- 资源工具箱:Spine 骨骼格式/版本转换(C++ SpineSkeletonDataConverter) ----

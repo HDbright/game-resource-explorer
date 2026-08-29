@@ -13,12 +13,13 @@ import { slotsInZOrder } from './model.js';
 
 export function projectToJson(p) { return JSON.stringify(p, null, 1); }
 
-export async function saveProjectFile(p) {
+export async function saveProjectFile(p, opts = {}) {
   const r = await window.api.saveText({
-    title: '保存骨骼动画项目',
-    defaultName: (p.name || 'project') + '.lbone.json',
-    filters: [{ name: '骨骼动画项目', extensions: ['lbone.json', 'json'] }],
-    content: projectToJson(p),
+    title: opts.title || '保存骨骼动画项目',
+    defaultName: (p.name || 'project') + (opts.ext || '.lbone.json'),
+    filters: opts.filters || [{ name: '骨骼动画项目', extensions: ['lbone.json', 'json'] }],
+    // .skani 流程对话框仅取路径,内容由调用方随后经 skaniWrite 写入
+    content: opts.content !== undefined ? opts.content : projectToJson(p),
   });
   return r && r.ok ? r.path : null;
 }
