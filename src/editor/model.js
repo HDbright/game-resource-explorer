@@ -79,7 +79,7 @@ export function createAnimation(name, duration = 30) {
 }
 
 export function createBone(name, parent, x, y, rotation, length) {
-  return { name, parent, x, y, rotation, length: length || 50, scaleX: 1, scaleY: 1, skew: 0, shearX: 0, shearY: 0, inheritTranslation: true, inheritRotation: true, inheritScale: true, visible: true, locked: false };
+  return { name, parent, x, y, rotation, length: length || 50, scaleX: 1, scaleY: 1, skew: 0, shearX: 0, shearY: 0, inheritTranslation: true, inheritRotation: true, inheritScale: true, visible: true, locked: false, icon: '', iconColor: '', color: '' };
 }
 
 export function createSlot(name, parent) {

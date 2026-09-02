@@ -3,7 +3,23 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.4.19`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.4.20`）。
+
+---
+
+## 2026-09-02（补丁·185）
+
+### [新增+修复] 骨骼自定义图标(Spine 官方图标集)+ 层级树/时间轴官方图标化 + 骨骼色持久化 + .spine 解码器补绑修复
+
+- **骨骼自定义图标**(`src/editor/panels.js`):内置 **49 个 Spine 官方图标**(`public/assets/bone-icons/`),mask 剪影 + 着色显示;默认形状规则对齐 Spine 树标准——显式 `bone.icon` → 骨骼名匹配图标名 → 约束目标骨骼为 circle(IK/变换/路径的 target)→ 零长度骨骼为 null;图标选择面板按序排列(基本形 → 罗马数字 → 箭头 → 身体部件 → 符号),支持按名筛选。
+- **层级树/面板官方图标化**:新增 `src/assets/spine-icons/`(30 个皮肤位图);层级树骨骼行按类型显示 bone/boneConstrained/null/IK/IKTarget/Path/slot-colored/mesh/skinPlaceholder 图标;**可见性列**统一为「eye 位图(可见)/ #616161 小圆点(隐藏)」;时间轴三个标签(动画/曲线/摄影表)与页面各面板 tab 全部换成官方图标。
+- **工程数据骨骼色统一**(`stage.js` / `spineIO.js`):解析 Spine 工程的骨骼 `color` 属性(如 muzzle `#ffb900`,支持 RRGGBB(AA) hex)并持久化到模型字段;层级树、舞台骨骼、标签**统一取工程色**(此前仅按名称哈希着色);新增 `cssColorToHex()`(rgb()/hsl()/hex → hex)供取色器 input 使用。
+- **舞台增强**(`stage.js`):网格附件选中后生成**顶点命中表** `\_meshVertHits`,悬停顶点高亮;舞台背景(棋盘格/纯色/格子线,设置可切换)改为**屏幕空间平铺**不随相机移动;底部 Spine 工具栏遮挡区预留 `bottomReserve`,「适配缩放」后内容不再落到底部面板下方。
+- **时间轴帧号输入**(`timeline.js`):当前帧改为可输入 `number` 控件,回车跳转到指定帧;输入播放中不被刷新覆盖,失焦/非法输入自动恢复实际帧。
+- **.spine 解码器修复**(`electron/tools/spineProjectToJson.js`,+474):① 未命名附件按「最近未命名附件」**LIFO 补绑**(修复 alien-pro 等工程把名字安到错误附件:`[几何][SLOT+内联网格][名]` 交错顺序下邻接 `curAtt` 绑定失效);`slot_hint` 以命名时刻上下文为准;② 加权网格 `81` 标记不再误判为未知标签(此前丢宽高与多边形体);③ 多边形 hull **varint 双字节**解析(hull≥64 时单字节假设会漏检整个附件);④ 名字/归属兜底新增**签名孪生**(同型同宽高 + uv 比对)与槽名去序号(windmill ×15 槽共享附件)策略。
+- **裁剪缓存按项目隔离**(`spineIO.js`):`imageId = 'img_' + 附件名` 跨项目重名(head/foot…,spineboy 与 alien 大量重名)会串号——先开 spineboy 再开 alien,后者资源库与舞台全部命中前者裁剪图。改用 `WeakMap<project, Map<imageId, dataUrl>>`,随项目对象回收,皮肤切换仍可复用。
+- **atlas 导出修复**:页名替换仅命中 `nameMap` 的 key(跳过 region 名),修复盲目追加 `_edit` 破坏 region 名(`crosshair`/`eye-indifferent` 等)导致运行时查不到贴图区块。
+- **新增验证脚本**:`scripts/verify-spine-skins.js`(皮肤区段解码 vs 官方导出 JSON 逐项比对)、`scripts/tree-line-check.js`(层级树连线连续性 + 皮肤附件行结构独立模拟断言)。
 
 ---
 

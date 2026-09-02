@@ -47,6 +47,13 @@ function bladeHalfWidth(len, z) { return Math.max((len || 0) * 0.06, 1.5 / z); }
 /** Spine 分支继承着色:单子链继承父色,分支的每个子节点依次取调色板新色,后代继承。
  *  调色板以红/绿/黄三色为主(高亮度,与暗色棋盘背景强反差),后接亮橙/青/品红扩充分支区分度 */
 const SPINE_PALETTE = [0xff3b30, 0x35d461, 0xffd21e, 0xff8a1e, 0x35c8ff, 0xff5cc8, 0xc8f53a];
+/** 工程数据骨骼色('#rrggbb' 或 raw 'rrggbbaa')→ 0xRRGGBB;无效返回 null */
+function boneDataColor(bone) {
+  const s = bone && (bone.color || (bone.raw && bone.raw.color));
+  if (typeof s !== 'string') return null;
+  const m = /^#?([0-9a-fA-F]{6})/.exec(s);
+  return m ? parseInt(m[1], 16) : null;
+}
 function assignSpineBoneColors(bones) {
   const byParent = new Map();
   for (const b of bones) { const k = b.parent || ''; if (!byParent.has(k)) byParent.set(k, []); byParent.get(k).push(b); }
@@ -61,6 +68,11 @@ function assignSpineBoneColors(bones) {
   if (roots.length === 1) walk(roots[0], 0xf0f0f0);
   else roots.forEach((r) => walk(r, SPINE_PALETTE[ci++ % SPINE_PALETTE.length]));
   for (const b of bones) if (!map.has(b.name)) map.set(b.name, SPINE_PALETTE[ci++ % SPINE_PALETTE.length]);
+  // 工程数据颜色优先(Spine 编辑器骨骼 color 属性,如 muzzle #ffb900):层级树/舞台/标签统一
+  for (const b of bones) {
+    const dc = boneDataColor(b);
+    if (dc !== null) map.set(b.name, dc);
+  }
   return map;
 }
 
@@ -77,6 +89,8 @@ export class EditorStage {
     this.imgCache = new Map(); // imageId → { img, tex, dataUrl }
     this.hitImages = [];      // [{ slotName, quad:[{x,y}×4 }] 按绘制顺序
     this._boneHits = [];      // [{ name, origin:{x,y}, tip:{x,y} }]
+    this._meshVertHits = [];  // 选中网格附件的顶点命中表 [{ vi, x, y }](pixi 世界)
+    this._hoverMeshVert = null; // 悬停顶点索引(高亮)
     this._spineRT = null;     // Spine 运行时句柄 { spine, data, skeleton, skin }
     this._spineProjRef = null;
     this._spineFailedRef = null; // 运行时初始化失败的工程对象(同一工程失败一次即永久降级,直到工程被替换)
@@ -116,13 +130,8 @@ export class EditorStage {
     container.appendChild(app.canvas);
     this.app = app;
 
-    // 透明背景棋盘格(#5A595D / #535253 交错,参考 Spine):屏幕空间平铺,不随相机移动
-    const bgCanvas = document.createElement('canvas');
-    bgCanvas.width = 96; bgCanvas.height = 96;
-    const bgCtx = bgCanvas.getContext('2d');
-    bgCtx.fillStyle = '#5A595D'; bgCtx.fillRect(0, 0, 96, 96);
-    bgCtx.fillStyle = '#535253'; bgCtx.fillRect(0, 0, 48, 48); bgCtx.fillRect(48, 48, 48, 48);
-    this.bgSprite = new PIXI.TilingSprite({ texture: PIXI.Texture.from(bgCanvas), width: 8, height: 8 });
+    // 舞台背景(棋盘格/纯色/格子线,设置窗口可切换):屏幕空间平铺,不随相机移动
+    this.bgSprite = new PIXI.TilingSprite({ texture: this._bgTexture(), width: 8, height: 8 });
     app.stage.addChildAt(this.bgSprite, 0);
     this._sizeBg();
 
@@ -274,11 +283,18 @@ export class EditorStage {
     const b = this.contentBounds();
     const w = this.container.clientWidth || 800, h = this.container.clientHeight || 500;
     if (!b) { this.camera = { x: w / 2, y: h / 2, zoom: 1 }; this.render(); return; }
+    // 底部悬浮工具面板(Spine 工具栏)遮挡区预留:适配缩放后内容落在面板上沿以上,不与其重叠
+    let bottomReserve = 80;
+    try {
+      const tb = this.container.parentElement && this.container.parentElement.querySelector('.spine-tb:not(.hidden)');
+      if (tb) bottomReserve = Math.max(80, tb.getBoundingClientRect().height / this._zoomFactor() + 24);
+    } catch (err) { /* ignore */ }
     const pad = 80;
-    const z = Math.min(3, Math.max(0.08, Math.min((w - pad * 2) / Math.max(1, b.w), (h - pad * 2) / Math.max(1, b.h))));
+    const z = Math.min(3, Math.max(0.08, Math.min((w - pad * 2) / Math.max(1, b.w), (h - pad - bottomReserve) / Math.max(1, b.h))));
     this.camera.zoom = z;
     this.camera.x = w / 2 - (b.x + b.w / 2) * z;
-    this.camera.y = h / 2 - (b.y + b.h / 2) * z;
+    // 垂直方向在 [顶部 pad, 底部工具面板上沿] 的可视带内居中
+    this.camera.y = (pad + (h - bottomReserve)) / 2 - (b.y + b.h / 2) * z;
     this.render();
   }
 
@@ -296,6 +312,61 @@ export class EditorStage {
     if (!this.bgSprite || !this.app) return;
     this.bgSprite.width = this.app.screen.width;
     this.bgSprite.height = this.app.screen.height;
+  }
+
+  // ---------------- 舞台背景样式 ----------------
+
+  /** 背景配置(localStorage 持久化):{ style: 'checker'|'solid'|'grid', color } */
+  _bgConfig() {
+    const def = { style: 'checker', color: '#5b5b5b' };
+    try {
+      return { ...def, ...JSON.parse(localStorage.getItem('beStageBg') || '{}') };
+    } catch (err) { return def; }
+  }
+
+  /** 按配置构建平铺纹理(2x2 小图,TilingSprite 自动平铺) */
+  _bgTexture() {
+    const cfg = this._bgConfig();
+    const cv = document.createElement('canvas');
+    const g = cv.getContext('2d');
+    if (cfg.style === 'solid') {
+      // 纯色背景(默认 #5b5b5b)
+      cv.width = cv.height = 2;
+      g.fillStyle = cfg.color || '#5b5b5b';
+      g.fillRect(0, 0, 2, 2);
+    } else if (cfg.style === 'grid') {
+      // 格子线背景:纯色底 + 细网格线(32px 单元,亮 8% 描边)
+      const cell = 32;
+      cv.width = cv.height = cell;
+      g.fillStyle = cfg.color || '#5b5b5b';
+      g.fillRect(0, 0, cell, cell);
+      g.strokeStyle = 'rgba(255,255,255,.10)';
+      g.lineWidth = 1;
+      g.beginPath();
+      g.moveTo(0.5, 0); g.lineTo(0.5, cell);
+      g.moveTo(0, 0.5); g.lineTo(cell, 0.5);
+      g.stroke();
+    } else {
+      // 棋盘格(#5A595D / #535253 交错,参考 Spine)
+      cv.width = cv.height = 96;
+      g.fillStyle = '#5A595D'; g.fillRect(0, 0, 96, 96);
+      g.fillStyle = '#535253'; g.fillRect(0, 0, 48, 48); g.fillRect(48, 48, 48, 48);
+    }
+    return this.PIXI.Texture.from(cv);
+  }
+
+  /** 设置舞台背景(设置窗口调用):持久化 + 换纹理 + 重绘 */
+  setBackground(cfg) {
+    const cur = this._bgConfig();
+    const next = { style: cfg.style || cur.style, color: cfg.color || cur.color };
+    try { localStorage.setItem('beStageBg', JSON.stringify(next)); } catch (err) { /* ignore */ }
+    if (this.bgSprite && !this._disposed) {
+      const old = this.bgSprite.texture;
+      this.bgSprite.texture = this._bgTexture();
+      try { old.destroy(true); } catch (err) { /* ignore */ }
+      this._sizeBg();
+      this.render();
+    }
   }
 
   /** 渲染 Spine 风格标尺(水平 + 垂直),带自适应小刻度 */
@@ -556,6 +627,7 @@ export class EditorStage {
         this._drawTreeHover();
         this._drawTransformHandle();
         this._drawImgBoxes();
+        this._drawMeshOverlay();
         // 载入自动适配:内容(骨骼/图片)有尺寸即先适配;纹理全部就绪后做最终适配并收手
         // (此前仅 _loadProject 时同步 fitAll 一次,Spine RT 异步初始化后无人再适配 -> 内容不居中)
         // 注意:①fitAll 末尾会调 render -> 须防重入,否则无限递归卡死渲染线程;
@@ -608,7 +680,76 @@ export class EditorStage {
     this._drawTreeHover();
     this._drawTransformHandle();
     this._drawImgBoxes();
+    this._drawMeshOverlay();
     this.renderRulers();
+  }
+
+  /** 选中网格附件(mesh/linkedmesh)的编辑线框:边(橙)+ 内部三角(弱白)+ 顶点方块。
+   *  顶点记录进 _meshVertHits 供命中/拖拽;非加权网格顶点可直接拖动修改变形(Spine 编辑网格)。 */
+  _drawMeshOverlay() {
+    this._meshVertHits = [];
+    const ctx = this.ctx;
+    if (!this._spineRT || this._spineProjRef !== ctx.project) return;
+    const sel = ctx.selection;
+    if (!sel || (sel.type !== 'att' && sel.type !== 'slot')) return;
+    const slot = ctx.project.armature.slots.find((s) => s.name === (sel.type === 'att' ? sel.slot : sel.name));
+    if (!slot) return;
+    const di = sel.type === 'att'
+      ? (sel.index >= 0 && sel.index < (slot.displays || []).length ? sel.index : slot.displayIndex)
+      : slot.displayIndex;
+    const disp = slot.displays && slot.displays[di >= 0 ? di : 0];
+    if (!disp) return;
+    const rec = this._spineMeshes.get(slot.name + '|' + disp.name);
+    if (!rec || !rec.att || !(rec.att instanceof this._spineRT.spine.MeshAttachment)) return;
+    const att = rec.att;
+    const pos = rec.positions;
+    const nv = pos.length / 2;
+    const g = this.boneG;
+    const z = this.camera.zoom;
+    const lw = Math.max(1 / z, 1);
+    // 内部三角网(弱白):三角形索引 → 世界顶点连线
+    const tris = att.triangles;
+    if (tris && tris.length) {
+      for (let i = 0; i + 2 < tris.length; i += 3) {
+        const a = tris[i] * 2, b = tris[i + 1] * 2, c = tris[i + 2] * 2;
+        if (tris[i] >= nv || tris[i + 1] >= nv || tris[i + 2] >= nv) continue;
+        g.moveTo(pos[a], pos[a + 1]).lineTo(pos[b], pos[b + 1])
+          .lineTo(pos[c], pos[c + 1]).closePath();
+      }
+      g.stroke({ width: Math.max(0.7 / z, 0.7), color: 0xffffff, alpha: 0.16 });
+    }
+    // 边(hull + 内部边,橙):edges 为顶点索引对 [a,b, a,b, …]
+    const edges = att.edges;
+    if (edges && edges.length) {
+      for (let i = 0; i + 1 < edges.length; i += 2) {
+        const a = edges[i] * 2, b = edges[i + 1] * 2;
+        if (edges[i] >= nv || edges[i + 1] >= nv) continue;
+        g.moveTo(pos[a], pos[a + 1]).lineTo(pos[b], pos[b + 1]);
+      }
+      g.stroke({ width: lw, color: COLOR_SEL, alpha: 0.9 });
+    }
+    // 顶点方块(悬停放大高亮)
+    const sz = 4 / z, szH = 6 / z;
+    for (let vi = 0; vi < nv; vi++) {
+      const x = pos[vi * 2], y = pos[vi * 2 + 1];
+      const hov = this._hoverMeshVert === vi;
+      const s = hov ? szH : sz;
+      g.rect(x - s / 2, y - s / 2, s, s)
+        .fill({ color: hov ? COLOR_SEL : 0xffffff, alpha: 0.95 })
+        .stroke({ width: 1 / z, color: hov ? 0xffffff : 0x232630, alpha: 0.9 });
+      this._meshVertHits.push({ vi, x, y, slot, disp, att });
+    }
+  }
+
+  /** 网格顶点命中:半径 6px(屏幕)内取最近顶点 */
+  _hitMeshVertex(wx, wy) {
+    const th = 6 / this.camera.zoom;
+    let best = null, bestD = th;
+    for (const h of this._meshVertHits) {
+      const d = Math.hypot(wx - h.x, wy - h.y);
+      if (d <= bestD) { bestD = d; best = h; }
+    }
+    return best;
   }
 
   /** 初始化 Spine 3.8 运行时(region 元数据来自 atlas;纹理用编辑器裁剪 region 图) */
@@ -708,6 +849,17 @@ export class EditorStage {
     const ctx = this.ctx;
     const p = ctx.project;
     const { spine, data, skeleton, skin } = this._spineRT;
+    // 0) 整体回 setup 姿势:切换动画后运行时残留状态(约束混合值 / drawOrder 重排 /
+    //    deform 顶点 / 剪切)不会被编辑器姿态写入覆盖(仅 x/y/旋转/缩放),残留导致
+    //    切回原动画后姿势错误 —— 官方 AnimationState 同样按「setup + 时间线」逐帧重建
+    if (!ghost) { // 洋葱皮 ghost 不改骨架,只读当前姿态
+      try {
+        skeleton.setToSetupPose();
+        for (const c of skeleton.ikConstraints || []) { if (c.data.mix !== undefined) c.mix = c.data.mix; if (c.data.bendDirection !== undefined) c.bendDirection = c.data.bendDirection; if (c.data.softness !== undefined) c.softness = c.data.softness; }
+        for (const c of skeleton.transformConstraints || []) { const d = c.data; if (d.rotateMix !== undefined) c.rotateMix = d.rotateMix; if (d.translateMix !== undefined) c.translateMix = d.translateMix; if (d.scaleMix !== undefined) c.scaleMix = d.scaleMix; if (d.shearMix !== undefined) c.shearMix = d.shearMix; }
+        for (const c of skeleton.pathConstraints || []) { const d = c.data; if (d.position !== undefined) c.position = d.position; if (d.spacing !== undefined) c.spacing = d.spacing; if (d.mix !== undefined) c.mix = d.mix; }
+      } catch (err) { /* 运行时版本差异,忽略 */ }
+    }
     // Options·图片关闭时的焦点附件:选中的附件(自身可见)仍单独显示 —— 与骨骼
     // 「显示关闭时仅绘制焦点骨骼」的行为一致;两处循环共用同一焦点索引保证几何/纹理一致
     const selAtt = !ctx.showImages && !ghost && ctx.selection && ctx.selection.type === 'att' ? ctx.selection : null;
@@ -777,8 +929,12 @@ export class EditorStage {
     // 2) 应用保留的原始时间线(官方 timeline.apply):
     //    白名单 = 变形/IK/变换/路径/绘制顺序/剪切 —— 编辑器不采样这些;
     //    位移/旋转/缩放与插槽颜色/附件由编辑器键驱动,跳过避免覆盖。
-    //    setup 模式下 time 传 0 之前的时间由各 timeline 的 setup 分支恢复初始值。
-    const rtAnim = ctx.anim && data.animations[ctx.anim.name];
+    //    setup 模式下时间线传 0 之前的时间由各 timeline 的 setup 分支恢复初始值。
+    //    注意:vendor spine-core(4.x 风格读取器)的 skeletonData.animations 是数组,
+    //    按名字键取恒为 undefined → 保留时间线从未被应用(alien death 的变换约束
+    //    mixes 停留在 setup 默认 1,把 eye 骨骼缩放吸回 ~1 倍,眼球无法放大)
+    const rtAnims = Array.isArray(data.animations) ? data.animations : Object.values(data.animations || {});
+    const rtAnim = ctx.anim && rtAnims.find((a) => a && a.name === ctx.anim.name);
     if (rtAnim && rtAnim.timelines && rtAnim.timelines.length) {
       const t = ctx.mode === 'anim' ? (ctx.frame / (p.frameRate || 30)) : -1;
       const APPLY = [
@@ -859,10 +1015,11 @@ export class EditorStage {
           const geometry = new this.PIXI.MeshGeometry({ positions, uvs: new Float32Array(uvs), indices });
           const mesh = new this.PIXI.Mesh({ geometry, texture: cache.tex });
           mesh.blendMode = BLEND_MAP[rtSlot.data.blendMode] || 'normal';
-          rec = { mesh, positions, geometry };
+          rec = { mesh, positions, geometry, att, slot: es, disp };
           this._spineMeshes.set(key, rec);
           host.addChild(mesh);
         } else {
+          rec.att = att; rec.slot = es; rec.disp = disp; // 每帧刷新引用(皮肤/附件切换)
           rec.positions.set(positions);
           rec.geometry.attributes.aPosition.buffer.update();
           host.addChild(rec.mesh);
@@ -1007,6 +1164,17 @@ export class EditorStage {
     const px = (n) => n / z; // 屏幕像素 → 世界单位
     const bones = ctx.project.armature.bones;
     this._boneColorMap = assignSpineBoneColors(bones);
+    // 受约束骨骼集合(运行时 JSON raw.ik/transform/path 的 bones 成员):
+    // 刀片画空心(官方 boneConstrained 图标形态),普通骨骼实心(skin_icon-bone 形态)
+    const cstBones = new Set();
+    {
+      const raw = ctx.project.spine && ctx.project.spine.raw;
+      if (raw) {
+        for (const c of raw.ik || []) for (const bn of c.bones || []) cstBones.add(bn);
+        for (const c of raw.transform || []) for (const bn of c.bones || []) cstBones.add(bn);
+        for (const c of raw.path || []) for (const bn of c.bones || []) cstBones.add(bn);
+      }
+    }
     // 「显示·骨骼」关闭时:仅单独绘制 选中 + 层级树悬停 的骨骼(树中选哪根/悬停哪根显示哪根);命中列表同步只含焦点骨骼。
     // 移动/缩放等变换模式下操作图片附件时,选中/悬停的是插槽或附件 —— 其宿主骨骼一并纳入
     // 焦点(配合图片隐藏时的焦点附件例外,构成可完整编辑的最小可视集合)
@@ -1043,20 +1211,33 @@ export class EditorStage {
       // Spine 骨骼形态:细长锥形刀片 + 关节圆环;刀片根部两角落在圆环边上,尾部内凹成锥角
       const segLen = Math.hypot(tip.x - w.tx, tip.y - w.ty);
       const bw = bladeHalfWidth(bone.length, z);          // 刀片根部半宽
-      const jr = segLen * z < 3.5                          // 圆环半径:有刀片时=根部半宽(直径=最宽处),零长骨骼固定小环
+      const jr = segLen * z < 3.5                          // 圆环半径:有刀片时=刀片半宽(圆环直径=刀片最宽处),零长骨骼固定小环
         ? Math.max(px(2.2), 2.2 / z)
-        : Math.min(bw, px(4));
+        : bw;
       if (segLen * z >= 3.5) {
         const ux2 = (tip.x - w.tx) / segLen, uy2 = (tip.y - w.ty) / segLen;
         const pxp = -uy2, pyp = ux2; // 垂直方向
-        // 根部两角:圆环边上(垂直方向 ±jr);尾部凹点:圆心后侧(锥角顶点贴圆边)
-        g.moveTo(w.tx + pxp * jr, w.ty + pyp * jr)
-          .lineTo(tip.x, tip.y)
-          .lineTo(w.tx - pxp * jr, w.ty - pyp * jr)
-          .lineTo(w.tx - ux2 * jr, w.ty - uy2 * jr)
+        // 刀片几何(与关节圆环、下一级骨骼精确衔接):
+        // ① 圆环直径 = 刀片最宽处(根部,2×bw),根角(±bw)恰好落在圆环边上;
+        // ② 顶角 = 骨骼轴端 tip(即下一级骨骼关节圆环的中点);
+        // ③ 背边(+)近轴平行、临近顶角收进;刃边(-)自带微凸弧;根部内凹包住圆(凹点=圆最后缘)
+        const backRX = w.tx + pxp * bw, backRY = w.ty + pyp * bw;         // 背边根角(+bw,圆环边)
+        const edgeRX = w.tx - pxp * bw, edgeRY = w.ty - pyp * bw;         // 刃边根角(-bw,圆环边)
+        const backCX = w.tx + ux2 * segLen * 0.8 + pxp * bw * 0.82;       // 背边控制点(大部分平行,末端收进顶角)
+        const backCY = w.ty + uy2 * segLen * 0.8 + pyp * bw * 0.82;
+        const edgeCX = w.tx + ux2 * segLen * 0.45 - pxp * bw * 1.05;      // 刃边控制点(微凸)
+        const edgeCY = w.ty + uy2 * segLen * 0.45 - pyp * bw * 1.05;
+        const notchX = w.tx - ux2 * jr, notchY = w.ty - uy2 * jr;         // 根部凹点(圆环最后缘)
+        const constrained = cstBones.has(bone.name);
+        g.moveTo(backRX, backRY)
+          .quadraticCurveTo(backCX, backCY, tip.x, tip.y)               // 背边 → 顶角(轴端)
+          .quadraticCurveTo(edgeCX, edgeCY, edgeRX, edgeRY)             // 弯刃边回到根角
+          .lineTo(notchX, notchY)                                       // 根部内凹(包住圆环)
           .closePath();
-        g.fill({ color, alpha: alpha * 0.9 });
-        g.stroke({ width: Math.max(px(0.8), 0.8 / z), color, alpha });
+        // 实心 = 普通骨骼;空心(仅描边)= 受约束骨骼(boneConstrained 形态)
+        if (!constrained) g.fill({ color, alpha: alpha * 0.9 });
+        const sw = constrained ? 1.4 : 0.8;
+        g.stroke({ width: Math.max(px(sw), sw / z), color, alpha: constrained ? Math.min(1, alpha + 0.15) : alpha });
       }
       // 关节环:深底 + 骨骼色描边
       g.circle(w.tx, w.ty, jr)
@@ -1694,6 +1875,28 @@ export class EditorStage {
       return;
     }
 
+    // 网格附件顶点(选中网格的线框顶点):选择/移动工具下优先命中,拖拽修改变形
+    if (ctx.tool === 'select' || ctx.tool === 'move') {
+      const mv = this._hitMeshVertex(wp.x, wp.y);
+      if (mv) {
+        if (mv.slot.locked) { toast('插槽已锁定,解锁后可编辑', 'info'); return; }
+        const di = Math.max(0, mv.slot.displays.indexOf(mv.disp));
+        const cur = ctx.selection;
+        const keep = cur && cur.type === 'att' && cur.slot === mv.slot.name && cur.index === di;
+        if (!keep) ctx.select({ type: 'att', slot: mv.slot.name, index: di });
+        if (ctx.mode === 'anim') { toast('网格顶点编辑请在 Setup 模式进行(动画中会被变形时间线覆盖)', 'info'); return; }
+        if (!Array.isArray(mv.att.vertices) && !(mv.att.vertices instanceof Float32Array)) { toast('网格顶点数据不可用', 'info'); return; }
+        this._beginEdit('编辑网格顶点');
+        this._drag = {
+          kind: 'meshvert', att: mv.att, slot: mv.slot, disp: mv.disp, vi: mv.vi,
+          boneName: mv.slot.parent,
+          startW: { x: wp.x, y: wp.y },
+          baseVerts: mv.att.vertices.slice(),
+        };
+        return;
+      }
+    }
+
     // 旋转/缩放/倾斜工具:点击关节或骨线即开始对应操作
     if (ctx.tool === 'rotate' || ctx.tool === 'scale' || ctx.tool === 'shear') {
       // 旋转工具:轴心手柄优先(选中插槽=图片几何中心;选中骨骼=原点;无选中=根节点)
@@ -1869,6 +2072,14 @@ export class EditorStage {
     }
     const d = this._drag;
     if (!d) {
+      // 网格顶点悬停:高亮 + 抓取光标(选择/移动工具)
+      if ((ctx.tool === 'select' || ctx.tool === 'move') && this._meshVertHits.length) {
+        const mvH = this._hitMeshVertex(wp.x, wp.y);
+        const hv = mvH ? mvH.vi : null;
+        if (hv !== this._hoverMeshVert) { this._hoverMeshVert = hv; this.render(); }
+        if (mvH) { this.app.canvas.style.cursor = 'grab'; return; }
+        this._hoverMeshVert = null;
+      }
       // 图片悬停追踪(变换模式):白色虚线包围框跟随
       {
         const t = ctx.tool;
@@ -1892,6 +2103,63 @@ export class EditorStage {
       this.camera.x = d.cx + (e.clientX - d.sx) / zf;
       this.camera.y = d.cy + (e.clientY - d.sy) / zf;
       if (this._rbtn && Math.hypot(e.clientX - this._rbtn.x, e.clientY - this._rbtn.y) > 4) this._rbtn.moved = true;
+      this.render();
+      return;
+    }
+    if (d.kind === 'meshvert' && d.att) {
+      // 网格顶点拖拽:pixi 世界位移 → spine 位移(y 翻转)→ 各绑定骨骼局部(逆线性矩阵)。
+      // 非加权:顶点即骨骼局部对;加权(weights=[x,y,w]×绑定):对每个绑定加同一世界增量的
+      // 骨骼局部分量 —— 世界位置 = Σ w·bone(x,y),线性 ⇒ 位移精确(权重和=1 时)。
+      // 同步写入编辑器 raw.vertices(它是 raw.skins 的内联引用,导出直接生效)。
+      const att = d.att;
+      const dxs = wp.x - d.startW.x, dys = -(wp.y - d.startW.y);
+      const localOf = (boneName) => {
+        const W = this.worlds.get(boneName);
+        if (!W) return null;
+        // W 为 pixi 系 {a,b,c,d}(x'=a·x+c·y; y'=b·x+d·y),且 pixi=(spine_x, −spine_y)
+        // ⇒ spine 线性矩阵 [[W.a, W.c], [−W.b, −W.d]];求逆作用于 spine 位移(dxs, dys):
+        // 单位矩阵自检:lx=dxs, ly=−dys(pixi 下移 = spine 负 y)✓
+        const det = W.b * W.c - W.a * W.d || 1e-9;
+        return { x: (-W.d * dxs - W.c * dys) / det, y: (W.b * dxs + W.a * dys) / det };
+      };
+      const setV = (i, x, y) => { att.vertices[i] = x; att.vertices[i + 1] = y; };
+      const r2v = (v) => Math.round(v * 100) / 100;
+      if (att.bones) {
+        // 定位 vi 的绑定段:att.bones 游标 v,全局绑定号 b
+        let v = 0, b = 0;
+        for (let i = 0; i < d.vi; i++) { const n = att.bones[v]; v += n + 1; b += n; }
+        const cnt = att.bones[v];
+        const skelBones = this._spineRT.skeleton.bones;
+        for (let j = 0; j < cnt; j++) {
+          const boneIdx = att.bones[v + 1 + j];
+          const rb = skelBones[boneIdx];
+          const dl = localOf(rb && rb.data && rb.data.name);
+          if (!dl) continue;
+          const o = 3 * (b + j);
+          setV(o, r2v(d.baseVerts[o] + dl.x), r2v(d.baseVerts[o + 1] + dl.y));
+        }
+        const rawV = d.disp && d.disp.raw && d.disp.raw.vertices;
+        if (Array.isArray(rawV)) {
+          // raw 同构流:每顶点 [cnt, (bone,x,y,w)×cnt]
+          let r = 0;
+          for (let i = 0; i < d.vi; i++) r += 1 + 4 * rawV[r];
+          for (let j = 0; j < rawV[r]; j++) {
+            const base = r + 1 + 4 * j, o = 3 * (b + j);
+            rawV[base + 1] = att.vertices[o];
+            rawV[base + 2] = att.vertices[o + 1];
+          }
+        }
+      } else {
+        const dl = localOf(d.boneName);
+        if (!dl) return;
+        const i2 = d.vi * 2;
+        setV(i2, r2v(d.baseVerts[i2] + dl.x), r2v(d.baseVerts[i2 + 1] + dl.y));
+        const rawV = d.disp && d.disp.raw && d.disp.raw.vertices;
+        if (Array.isArray(rawV) && i2 + 1 < rawV.length) {
+          rawV[i2] = att.vertices[i2];
+          rawV[i2 + 1] = att.vertices[i2 + 1];
+        }
+      }
       this.render();
       return;
     }
@@ -2102,7 +2370,7 @@ export class EditorStage {
       this.render();
       return;
     }
-    if ((d.kind === 'move' || d.kind === 'rotate' || d.kind === 'rotateSlot' || d.kind === 'moveSlot' || d.kind === 'scaleSlot' || d.kind === 'length' || d.kind === 'scale' || d.kind === 'shear') && this._editLabel) {
+    if ((d.kind === 'move' || d.kind === 'rotate' || d.kind === 'rotateSlot' || d.kind === 'moveSlot' || d.kind === 'scaleSlot' || d.kind === 'length' || d.kind === 'scale' || d.kind === 'shear' || d.kind === 'meshvert') && this._editLabel) {
       this._editLabel = null;
       this.ctx.refresh(); // 提交后全量刷新(时间轴上出现关键帧)
     }

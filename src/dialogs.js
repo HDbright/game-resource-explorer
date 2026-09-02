@@ -148,9 +148,19 @@ export function showContextMenu(x, y, items) {
   };
 
   for (const it of items) {
+    if (it === '-') { // 分隔线
+      const sep = document.createElement('div');
+      sep.className = 'ctx-sep';
+      menu.appendChild(sep);
+      continue;
+    }
     const item = document.createElement('div');
     item.className = 'ctx-item' + (it.danger ? ' danger' : '') + (it.disabled ? ' disabled' : '');
-    item.textContent = it.label;
+    if (it.icon) { // 菜单项图标(HTML,官方 tab 图标)
+      item.innerHTML = it.icon + '<span class="ctx-item-label"></span>';
+      item.querySelector('.ctx-item-label').textContent = it.label;
+    } else item.textContent = it.label;
+    if (it.title) item.title = it.title; // 悬停提示(如禁用项的原因说明)
     if (it.sub && it.sub.length) {
       item.classList.add('has-sub');
       item.addEventListener('mouseenter', () => { cancelHide(); showSub(item, it); });

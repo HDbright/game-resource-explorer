@@ -3796,10 +3796,21 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .be-tree-att-toggle { font-size: 10px; color: rgba(255,255,255,.55); cursor: pointer; flex: none; padding: 0 2px; }
 .be-tree-att-toggle:hover { color: #fff; }
 .be-ico-bone { width: 12px; height: 4px; border-radius: 2px; background: hsl(var(--h, 200), 70%, 60%); transform: rotate(-24deg); flex: none; }
+/* 骨骼图标(官方 bone/null/boneConstrained 素材,mask 蒙版按骨骼名色相着色保持区分) */
+.be-ico-bone2 { flex: none; width: 14px; height: 15px; background-color: hsl(var(--h, 200), 70%, 60%); -webkit-mask: var(--ico) center / contain no-repeat; mask: var(--ico) center / contain no-repeat; }
+/* 骨骼行末尾的约束徽标(IK/变换/路径;悬停 title 显示约束名) */
+.be-tree-csts { margin-left: auto; display: flex; align-items: center; gap: 2px; }
+.be-tree-cst { width: 12px; height: 13px; flex: none; }
+/* 附件图标为图片形态时(mesh 用官方素材) */
+.be-ico-att-img { display: block; width: 13px; height: 13px; }
 .be-ico-slot { width: 9px; height: 9px; border: 1.5px solid #7aa2f7; border-radius: 50%; flex: none; box-sizing: border-box; }
-/* 树连线:浅灰;竖线精确对齐父折叠符号中心,横线由父符号连到本行符号;尾部节点为 └ 型 */
+/* 插槽官方彩色图标(skin_icon-slot-colored) */
+.be-ico-slot2 { width: 14px; height: 14px; flex: none; }
+/* 树连线:浅灰;竖线精确对齐父折叠符号中心,横线由父符号连到本行符号;尾部节点为 └ 型
+   (皮肤占位符 be-tree-skinph 同样参与:插槽 > 占位符 的父子连线) */
 .be-tree-bone[data-depth]:not([data-depth="0"]) .be-tree-main::before,
 .be-tree-slot[data-depth] .be-tree-main::before,
+.be-tree-skinph[data-depth] .be-tree-main::before,
 .be-tree-att-row[data-depth] .be-tree-main::before,
 .be-tree-skin[data-depth] .be-tree-main::before {
   content:''; position:absolute; top:0; bottom:0; width:1px; background:#8f8f8f; pointer-events:none;
@@ -3807,8 +3818,11 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 }
 /* 尾部节点:竖线止于横线处,形成 └ 型(非尾部为 ├ 贯穿型);!important 压过基础规则的更高特异性 */
 .be-tree-row[data-last="1"] .be-tree-main::before { bottom: 10px !important; }
+/* 祖先延续线:展开的中间节点下方,非末位祖先层级的竖线由后代行补画,保证同级连线连续 */
+.be-tree-guide { position:absolute; top:0; bottom:0; width:1px; background:#8f8f8f; pointer-events:none; }
 .be-tree-bone[data-depth]:not([data-depth="0"]) .be-tree-main::after,
 .be-tree-slot[data-depth] .be-tree-main::after,
+.be-tree-skinph[data-depth] .be-tree-main::after,
 .be-tree-att-row[data-depth] .be-tree-main::after,
 .be-tree-skin[data-depth] .be-tree-main::after {
   content:''; position:absolute; top:10px; width:7px; height:1px; background:#8f8f8f; pointer-events:none;
@@ -3820,6 +3834,14 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 /* 附件子项 */
 .be-tree-att-row { color: rgba(255,255,255,.7); font-size: 11px; }
 .be-tree-att-row.current { color: #fff; font-weight: 600; }
+/* 其他皮肤的附件条目:浅绿标识(点击切换皮肤;default 条目原名,其余带 皮肤名/ 前缀) */
+.be-tree-att-row.skin-alt .be-tree-name { color: #aed581; }
+.be-tree-att-row.skin-alt:hover .be-tree-name { color: #dcedc8; }
+.be-tree-att-row.skin-alt .be-ico-att { opacity: .7; }
+/* 皮肤占位符(多皮肤 Spine 树中间层:插槽 > 皮肤占位符[官方 skinPlaceholder 图标] > 当前皮肤附件) */
+.be-tree-skinph .be-tree-name { color: rgba(255,255,255,.85); }
+.be-tree-skinph .be-tree-badge { color: #aed581; }
+.be-tree-skinph .be-tree-ico-img { width: 15px; height: 15px; }
 .be-ico-att { width: 13px; height: 12px; flex: none; display: block; }
 .be-tree-att-row:not(.current) .be-ico-att { opacity: .55; }
 /* 皮肤节点(「皮肤」分组的子节点:仅名称;当前皮肤橙色高亮,点击切换舞台显示) */
@@ -3898,7 +3920,11 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .be-tl-ico.be-ab-btn.active { background: rgba(78,205,196,.18); color: #4ecdc4; }
 /* 循环播放按钮:未开启时透明底,开启时仅图标变青色、不加底色 */
 .be-tl-ico.be-loop-btn.active { background: transparent; color: #4ecdc4; }
-.be-tl-frame { font-family: var(--mono); font-size: 11px; color: var(--text); min-width: 72px; text-align: center; background: #535353; border-radius: 5px; padding: 2px 5px; }
+/* 当前帧可输入跳转框(与 AB 数值框同风格,稍宽)+ "/ N 帧" 后缀 */
+.be-tl-frame-input { width: 46px; height: 18px; margin: 0; padding: 0 3px; border: 1px solid var(--border); border-radius: 4px; background: #535353; color: var(--text); font-size: 11px; font-family: var(--mono); text-align: center; }
+.be-tl-frame-input:focus { outline: none; border-color: #4ecdc4; }
+.be-tl-frame-input::-webkit-outer-spin-button, .be-tl-frame-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.be-tl-frame-suffix { font-family: var(--mono); font-size: 11px; color: var(--text-dim, #9aa0ab); padding: 0 2px; }
 .be-tl-dur { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--text2); }
 .be-tl-dur input { width: 48px; height: 22px; border: 1px solid var(--border); border-radius: 4px; background: #535353; color: var(--text); padding: 0 4px; font-size: 11px; }
 
@@ -4227,3 +4253,75 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 
 /* 颜色选择库:快捷键按钮内的等宽键名显示(补丁·157) */
 .clib-hk { font-family: var(--mono); font-size: 11px; }
+
+/* 上下文菜单分隔线 */
+.ctx-sep { height: 1px; margin: 4px 6px; background: var(--border); }
+.ctx-item .ctx-ico { width: 14px; height: 14px; object-fit: contain; vertical-align: -2px; margin-right: 6px; opacity: .9; }
+.ctx-item .ctx-item-label { vertical-align: middle; }
+
+
+/* ==========================================================================
+   以下为骨骼动画编辑器改进功能样式(自 spine_editor 项目同步):
+   滚动条统一配色 / 设置窗口 / 图标选择面板 / 骨骼属性头部 / 扁平属性表 /
+   裁剪面板 / 最小化面板按钮 / 视图菜单图标 / 可见性圆点
+   ========================================================================== */
+
+/* ===================== Toast Notifications ==================== */
+
+#toast-root { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 10000; display: flex; flex-direction: column-reverse; align-items: center; gap: 8px; pointer-events: none; }
+.toast {
+  background: var(--bg3, #333); color: var(--text, #eee); padding: 8px 20px; border-radius: 8px;
+  font-size: 13px; box-shadow: 0 4px 16px rgba(0,0,0,.35); opacity: 0; transform: translateY(12px);
+  transition: opacity .25s, transform .25s; pointer-events: auto; max-width: 420px; text-align: center;
+  white-space: pre-wrap; word-break: break-word;
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+
+/* ===================== Input ==================== */
+
+.input, input[type="text"], textarea {
+  background: var(--input-bg, #1e2128); border: 1px solid var(--border, #2d3039); color: var(--text, #eee);
+  border-radius: var(--radius, 6px); padding: 6px 10px; font-size: 13px; font-family: inherit;
+  outline: none; transition: border-color .15s;
+}
+.input:focus, input[type="text"]:focus, textarea:focus { border-color: var(--accent, #4ecdc4); }
+
+/* ===================== Fullscreen reset ==================== */
+
+html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: var(--bg, #181a20); color: var(--text, #eee); font-family: var(--font, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif); }
+#app { width: 100%; height: 100%; }
+
+/* 裁剪附件面板头部图标 */
+.be-clip-ico { font-size: 16px; line-height: 1; }
+
+/* 上下文菜单分隔线 */
+.ctx-sep { height: 1px; margin: 4px 6px; background: var(--border, #2d3039); }
+
+/* ===================== Tab / Menu Icons(官方 tab 图标) ==================== */
+
+.be-tab-ico { width: 14px; height: 14px; object-fit: contain; vertical-align: -2px; margin-right: 5px; }
+.be-tab .be-tab-ico { opacity: .85; }
+.be-tab.active .be-tab-ico, .be-tab:hover .be-tab-ico { opacity: 1; }
+.be-tl-cur .be-tab-ico { margin-right: 5px; }
+.be-tl-tabs .be-tab-ico { width: 13px; height: 13px; vertical-align: -2px; margin-right: 4px; }
+.ctx-item .ctx-ico { width: 14px; height: 14px; object-fit: contain; vertical-align: -2px; margin-right: 6px; opacity: .9; }
+.ctx-item .ctx-item-label { vertical-align: middle; }
+
+/* ===================== 最小化面板还原图标(顶栏 ⧉ 前) ==================== */
+
+.be-min-host { display: inline-flex; align-items: center; gap: 3px; }
+.be-min-btn {
+  width: 26px; height: 26px; padding: 0; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px dashed #6e6e6e; border-radius: 5px; background: transparent;
+  transition: border-color .15s, background .15s;
+}
+.be-min-btn:hover { border-color: var(--accent, #4ecdc4); border-style: solid; background: rgba(78, 205, 196, .08); }
+.be-min-btn-ico { width: 14px; height: 14px; object-fit: contain; display: block; }
+
+/* 最小化分区文本按钮(属性面板分区右键最小化) */
+.be-min-btn-txt { width: auto; padding: 0 8px; font-size: 11px; color: var(--text2, #aaa); border-style: solid; }
+.be-min-btn-txt:hover { color: var(--text, #eee); }
+/* 层级树标签条/摄影表标题:右键可最小化(提示光标) */
+.be-tabs, .be-tl-cur { cursor: default; }
+

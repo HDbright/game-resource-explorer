@@ -14,6 +14,9 @@
 import { showContextMenu } from '../dialogs.js';
 import { EASE_PRESETS, bonesInTreeOrder, defaultEase } from './model.js';
 import { channelLabel, drawEaseCurve } from './panels.js';
+import icoTabDopesheet from '../assets/spine-icons/skin_icon-tabDopesheet.png';
+import icoTabAnimations from '../assets/spine-icons/skin_icon-tabAnimations.png';
+import icoTabGraph from '../assets/spine-icons/skin_icon-tabGraph.png';
 
 const CH_COLOR = { translate: '#4f8cff', rotate: '#46a758', scale: '#b8842f', shear: '#e6a817', color: '#c05fd8', display: '#5fa8c0' };
 // 动画/曲线侧栏宽度:最小保留原固定宽(容纳曲线画布),最大与层级树右列上限一致
@@ -83,8 +86,8 @@ export class EditorTimeline {
         <div class="be-tl-side-resize" title="拖拽调整动画/曲线面板宽度(默认与层级树面板左边缘对齐;双击恢复对齐)"></div>
         <div class="be-tl-side">
           <div class="be-tl-tabs">
-            <button data-tab="anim" class="active">动画</button>
-            <button data-tab="curve">曲线</button>
+            <button data-tab="anim" class="active"><img class="be-tab-ico" src="${icoTabAnimations}" draggable="false" alt="">动画</button>
+            <button data-tab="curve"><img class="be-tab-ico" src="${icoTabGraph}" draggable="false" alt="">曲线</button>
           </div>
           <div class="be-tl-side-anim"></div>
           <div class="be-tl-side-curve" hidden></div>
@@ -151,8 +154,29 @@ export class EditorTimeline {
     const sep = () => { const s = document.createElement('span'); s.className = 'be-tl-sep'; bar.appendChild(s); };
     sep();
 
+    // 当前帧:可输入帧号回车跳转(输入中不被播放刷新覆盖;失焦/非法输入恢复实际帧)
+    this.frameInput = document.createElement('input');
+    this.frameInput.type = 'number';
+    this.frameInput.min = 0;
+    this.frameInput.className = 'be-tl-frame-input';
+    this.frameInput.title = '当前帧:输入帧号后回车跳转';
+    const commitFrame = () => {
+      const raw = parseFloat(this.frameInput.value);
+      if (!Number.isFinite(raw)) { this.frameInput.value = Math.round(this.ctx.frame); return; }
+      const max = this.ctx.anim ? this.ctx.anim.duration : Infinity;
+      const v = Math.max(0, Math.min(max, Math.round(raw)));
+      this.ctx.setFrame(v);
+      this.frameInput.value = v;
+    };
+    this.frameInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); commitFrame(); this.frameInput.blur(); }
+      if (e.key === 'Escape') { this.frameInput.value = Math.round(this.ctx.frame); this.frameInput.blur(); }
+    });
+    this.frameInput.addEventListener('change', commitFrame);
+    this.frameInput.addEventListener('blur', () => { this.frameInput.value = Math.round(this.ctx.frame); });
+    bar.appendChild(this.frameInput);
     this.frameLabel = document.createElement('span');
-    this.frameLabel.className = 'be-tl-frame';
+    this.frameLabel.className = 'be-tl-frame-suffix';
     bar.appendChild(this.frameLabel);
     sep();
 
@@ -267,7 +291,15 @@ export class EditorTimeline {
   refreshHead() {
     const ctx = this.ctx;
     const cur = this.el.querySelector('.be-tl-cur');
-    if (cur) cur.textContent = ctx.anim ? `摄影表 · ${ctx.anim.name}` : '摄影表';
+    if (cur) {
+      cur.innerHTML = `<img class="be-tab-ico" src="${icoTabDopesheet}" draggable="false" alt=""><span>${ctx.anim ? `摄影表 · ${ctx.anim.name}` : '摄影表'}</span>`;
+      // 右键标题:最小化摄影表面板(顶栏 ⧉ 前出现还原图标)
+      if (!cur._minCtxBound) {
+        cur._minCtxBound = true;
+        cur.title = '摄影表面板(右键:最小化)';
+        cur.addEventListener('contextmenu', (e) => { e.preventDefault(); ctx.minimizeDopesheet?.(); });
+      }
+    }
     this.durInput.value = ctx.anim ? ctx.anim.duration : 30;
     this.btnPlay.innerHTML = ctx.playing ? '⏸' : '▶';
     this.btnPlay.classList.toggle('active', !!ctx.playing);
@@ -453,18 +485,26 @@ export class EditorTimeline {
       }
     }
 
+    // 轨道列表与层级树联动:选中骨骼 → 仅显示该骨骼轨道;选中插槽/附件 → 仅显示该插槽轨道
+    // (选中节点即使暂无关键帧也显示 —— 它是自动打帧的落点);无选中 → 仅显示有关键帧的轨道
+    const selType = ctx.selection && ctx.selection.type;
+    const selBoneName = selType === 'bone' ? ctx.selection.name : null;
+    const selSlotName = selType === 'slot' ? ctx.selection.name : (selType === 'att' ? ctx.selection.slot : null);
+    const hasSel = !!(selBoneName || selSlotName);
+
     // ---- 骨骼轨道 ----
     for (const bone of bonesInTreeOrder(ctx.project)) {
       const name = bone.name;
       const chs = (anim && anim.bones[name]) || {};
       const hasKeys = BONE_CH.some((c) => (chs[c.id] || []).length);
+      if (selBoneName ? name !== selBoneName : (hasSel || !hasKeys)) continue; // 联动过滤 + 无键隐藏
       const isCollapsed = this.collapsed.has(name);
       const sel = ctx.selection?.type === 'bone' && ctx.selection.name === name;
 
       const tRow = document.createElement('div');
       tRow.className = 'be-track bone' + (sel ? ' sel' : '');
       tRow.style.paddingLeft = (4 + (bone._depth || 0) * 14) + 'px';
-      tRow.innerHTML = `<span class="be-caret ${isCollapsed ? '' : 'open'}">${hasKeys ? '▾' : '▸'}</span><span class="be-track-name">${name}</span>`;
+      tRow.innerHTML = `<span class="be-caret ${isCollapsed ? '' : 'open'}">${isCollapsed ? '▸' : '▾'}</span><span class="be-track-name">${name}</span>`;
       tRow.querySelector('.be-caret').addEventListener('click', (e) => {
         e.stopPropagation();
         if (this.collapsed.has(name)) this.collapsed.delete(name); else this.collapsed.add(name);
@@ -477,15 +517,16 @@ export class EditorTimeline {
       if (hasKeys && anim) this._renderKeys(l, name, BONE_CH.map((c) => c.id), false);
       if (anim && !isCollapsed) {
         for (const c of BONE_CH) {
+          const marked = (anim.bones[name] && (anim.bones[name][c.id] || []).length) > 0;
+          if (!marked) continue; // 无关键帧的通道行隐藏
           const ctRow = document.createElement('div');
           ctRow.className = 'be-track ch';
           ctRow.style.paddingLeft = (18 + (bone._depth || 0) * 14) + 'px';
-          const marked = (anim.bones[name] && (anim.bones[name][c.id] || []).length) > 0;
-          ctRow.innerHTML = `<span class="be-dot" style="background:${marked ? CH_COLOR[c.id] : 'var(--bg4)'}"></span><span>${c.label}</span>`;
+          ctRow.innerHTML = `<span class="be-dot" style="background:${CH_COLOR[c.id]}"></span><span>${c.label}</span>`;
           ctRow.addEventListener('click', () => ctx.select('bone', name));
           ctRow.addEventListener('dblclick', () => ctx.insertBoneKeys(name, [c.id]));
           const cl = mkRow(ctRow, { kind: 'ch', target: name, channel: c.id }, lanes);
-          if (marked) this._renderKeys(cl, name, [c.id], true);
+          this._renderKeys(cl, name, [c.id], true);
         }
       }
     }
@@ -495,11 +536,12 @@ export class EditorTimeline {
       const name = slot.name;
       const chs = (anim && anim.slots[name]) || {};
       const hasKeys = SLOT_CH.some((c) => (chs[c.id] || []).length);
+      if (selSlotName ? name !== selSlotName : (hasSel || !hasKeys)) continue; // 联动过滤 + 无键隐藏
       const isCollapsed = this.collapsed.has('s:' + name);
       const sel = ctx.selection?.type === 'slot' && ctx.selection.name === name;
       const tRow = document.createElement('div');
       tRow.className = 'be-track slot' + (sel ? ' sel' : '');
-      tRow.innerHTML = `<span class="be-caret ${isCollapsed ? '' : 'open'}">${hasKeys ? '▾' : '▸'}</span><span class="be-track-name">${name}</span>`;
+      tRow.innerHTML = `<span class="be-caret ${isCollapsed ? '' : 'open'}">${isCollapsed ? '▸' : '▾'}</span><span class="be-track-name">${name}</span>`;
       tRow.querySelector('.be-caret').addEventListener('click', (e) => {
         e.stopPropagation();
         const k = 's:' + name;
@@ -512,19 +554,70 @@ export class EditorTimeline {
       if (hasKeys && anim) this._renderKeys(l, name, SLOT_CH.map((c) => c.id), false);
       if (anim && !isCollapsed) {
         for (const c of SLOT_CH) {
+          const marked = (anim.slots[name] && (anim.slots[name][c.id] || []).length) > 0;
+          if (!marked) continue; // 无关键帧的通道行隐藏
           const ctRow = document.createElement('div');
           ctRow.className = 'be-track ch';
-          const marked = (anim.slots[name] && (anim.slots[name][c.id] || []).length) > 0;
-          ctRow.innerHTML = `<span class="be-dot" style="background:${marked ? CH_COLOR[c.id] : 'var(--bg4)'}"></span><span>${c.label}</span>`;
+          ctRow.innerHTML = `<span class="be-dot" style="background:${CH_COLOR[c.id]}"></span><span>${c.label}</span>`;
           ctRow.addEventListener('click', () => ctx.select('slot', name));
           ctRow.addEventListener('dblclick', () => ctx.insertSlotKeys(name, [c.id]));
           const cl = mkRow(ctRow, { kind: 'ch', target: name, channel: c.id }, lanes);
-          if (marked) this._renderKeys(cl, name, [c.id], true);
+          this._renderKeys(cl, name, [c.id], true);
         }
       }
     }
 
     this._drawRuler();
+    this.updatePlayhead();
+  }
+
+  /**
+   * 拖拽中轻量刷新:只更新当前选中目标的轨道关键帧(不重建整个 DOM 树)。
+   * 舞台手柄拖拽(pointermove 高频触发)期间由 ctx.editBone 调用,把全量 refresh()
+   * 从每次 17ms(64 骨骼×52 插槽全量重建)降为 <1ms;拖拽结束(pointerup)再全量重建一次。
+   */
+  lightweightRefresh(target, isSlot = false) {
+    if (!this.el) return;
+    const anim = this.ctx.anim;
+    if (!anim) return;
+    const store = isSlot ? anim.slots[target] : anim.bones[target];
+    if (!store) return;
+    // 定位该目标对应的轨道 lane(骨级行 + 展开的通道行)
+    const lanes = this.el.querySelectorAll('.be-lane');
+    for (const lane of lanes) {
+      const t = lane.dataset.target || '';
+      const ch = lane.dataset.channel || '';
+      if (t !== target || !ch) continue;
+      // 清空该 lane 的关键帧元素,保留 lane 本身(轨道名行不重建)
+      const kids = [...lane.children];
+      for (const k of kids) k.remove();
+      const isBone = !isSlot;
+      if (isBone && BONE_CH.some((c) => c.id === ch)) {
+        this._renderKeys(lane, target, [ch], true);
+      } else if (!isBone && SLOT_CH.some((c) => c.id === ch)) {
+        this._renderKeys(lane, target, [ch], true);
+      }
+    }
+    // 骨级行(汇总通道并集)
+    for (const lane of lanes) {
+      if ((lane.dataset.target || '') !== target || lane.dataset.channel) continue;
+      const kids = [...lane.children];
+      for (const k of kids) k.remove();
+      const CHS = isSlot ? SLOT_CH.map((c) => c.id) : BONE_CH.map((c) => c.id);
+      this._renderKeys(lane, target, CHS, false);
+    }
+    // 首键兜底:「无关键帧的通道行/轨道不渲染」意味着拖拽前无键的通道没有 lane ——
+    // 拖拽中打进第一个关键帧时 lane 缺失,补一次全量重建让轨道出现(仅此一次,后续照常轻量)。
+    // 轨道处于折叠态时通道行本就不存在,属正常,不触发兜底。
+    const collapseKey = isSlot ? 's:' + target : target;
+    if (!this.collapsed.has(collapseKey)) {
+      const CHS = isSlot ? SLOT_CH : BONE_CH;
+      for (const c of CHS) {
+        if (!(store[c.id] || []).length) continue;
+        const laneMissing = ![...this.el.querySelectorAll('.be-lane')].some((l) => l.dataset.target === target && l.dataset.channel === c.id);
+        if (laneMissing) { this.refresh(); return; }
+      }
+    }
     this.updatePlayhead();
   }
 
@@ -656,7 +749,9 @@ export class EditorTimeline {
         dk.key.frame = f;
         dk.moved = true;
         this.ctx.keySel = { target: this.ctx.keySel.target, channel: this.ctx.keySel.channel, frame: f };
-        this.refresh();
+        // 拖拽中只重绘受影响轨道(全量重建 ~17ms/次,pointermove 高频触发掉帧);松手再全量
+        const chId = this.ctx.keySel.channel;
+        this.lightweightRefresh(this.ctx.keySel.target, chId === 'color' || chId === 'display');
       }
     };
     this._onWinUp = () => {
@@ -884,7 +979,9 @@ export class EditorTimeline {
     }
     if (ph) ph.style.display = this.ctx.mode === 'anim' ? 'block' : 'none';
     const dur = this.ctx.anim ? this.ctx.anim.duration : 0;
-    if (this.frameLabel) this.frameLabel.textContent = `${Math.round(this.ctx.frame)} / ${dur} 帧`;
+    // 输入中不覆盖(避免打字被播放刷新打断);后缀显示总帧数
+    if (this.frameInput && document.activeElement !== this.frameInput) this.frameInput.value = Math.round(this.ctx.frame);
+    if (this.frameLabel) this.frameLabel.textContent = `/ ${dur} 帧`;
   }
 
   destroy() {

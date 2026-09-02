@@ -25,7 +25,28 @@ import icoToolShear from '../assets/spine-icons/skin_icon-shear.png';
 import icoToolCreate from '../assets/spine-icons/skin_icon-drawBones.png';
 import icoTglBones from '../assets/spine-icons/skin_icon-boneComp.png';
 import icoTglImages from '../assets/spine-icons/skin_icon-attachmentComp.png';
-import { importSpineProject, importSpineEditorProject, exportSpineFiles, buildSpineJsonFromModel, parseAtlasText, cropRegionToDataUrl, switchSpineSkin } from '../editor/spineIO.js';
+import { importSpineProject, importSpineEditorProject, exportSpineFiles, buildSpineJsonFromModel, parseAtlasText, cropRegionToDataUrl, switchSpineSkin, spineSkinsOf } from '../editor/spineIO.js';
+import icoTabTree from '../assets/spine-icons/skin_icon-tabTree.png';
+import icoTabDopesheet from '../assets/spine-icons/skin_icon-tabDopesheet.png';
+import icoTabGraph from '../assets/spine-icons/skin_icon-tabGraph.png';
+import icoViewsMinimize from '../assets/spine-icons/skin_icon-viewsMinimize.png';
+import icoTabOverview from '../assets/spine-icons/skin_icon-tabOverview.png';
+import icoTabSkins from '../assets/spine-icons/skin_icon-tabSkins.png';
+import icoTabMeshTools from '../assets/spine-icons/skin_icon-tabMeshTools.png';
+import icoTabSlotColor from '../assets/spine-icons/skin_icon-tabSlotColor.png';
+import icoTabAnimations from '../assets/spine-icons/skin_icon-tabAnimations.png';
+import icoTabGhosting from '../assets/spine-icons/skin_icon-tabGhosting.png';
+import icoTabPlayback from '../assets/spine-icons/skin_icon-tabPlayback.png';
+import icoTabTimeline from '../assets/spine-icons/skin_icon-tabTimeline.png';
+import icoTabGraphPresets from '../assets/spine-icons/skin_icon-graphPresets.png';
+import icoTabMetrics from '../assets/spine-icons/skin_icon-tabMetrics.png';
+import icoTabOutline from '../assets/spine-icons/skin_icon-tabOutline.png';
+import icoTabInsert from '../assets/spine-icons/skin_icon-tabInsert.png';
+import icoTabAudio from '../assets/spine-icons/skin_icon-tabAudio.png';
+import icoTabPreview from '../assets/spine-icons/skin_icon-tabPreview.png';
+import icoMinTree from '../assets/spine-icons/skin_icon-tabTree.png';
+import icoMinDopesheet from '../assets/spine-icons/skin_icon-tabDopesheet.png';
+import icoMinTools from '../assets/spine-icons/skin_icon-weights.png';
 import { packImages } from '../atlasPacker.js';
 import { loongDocToDbSke, importDragonBonesProject } from '../editor/dbIO.js';
 
@@ -210,6 +231,8 @@ class BoneEditor {
       get selection() { return self.selection; },
       get multiSel() { return self.multiSel; },
       get allSelectedBones() { return self.allSelectedBones; },
+      // 舞台手柄拖拽进行中(editBone 据此跳过时间轴全量重建,拖拽结束 pointerup 再全量刷新)
+      get stageDragging() { return !!(self.stage && self.stage._drag); },
       get propCollapsed() { return self.propCollapsed; },
       get propMinimized() { return self.propMinimized; },
       get treeHoverBone() { return self._treeHoverBone; },
@@ -248,6 +271,7 @@ class BoneEditor {
       onAutoFit: () => self._syncZoomLabel(),
       onZoomChange: () => self._syncZoomLabel(),
       editBone: (name, props) => self.editBone(name, props),
+      minimizeDopesheet: () => self._setTimelineHidden(true),
       createBone: (...a) => self.createBone(...a),
       bindImageAt: (id, x, y) => self.bindImageAt(id, x, y),
       reparentBone: (n, p) => self.reparentBone(n, p),
@@ -358,7 +382,7 @@ class BoneEditor {
           <div class="be-rightcol">
             <div class="be-left">
               <div class="be-tabs">
-                <button class="be-tab active" data-tab="outline">层级树</button>
+                <button class="be-tab active" data-tab="outline"><img class="be-tab-ico" src="${icoTabTree}" draggable="false">层级树</button>
                 <button class="be-tab" data-tab="lib">资源库</button>
                 <button class="be-tab" data-tab="zorder">层级</button>
               </div>
@@ -389,6 +413,9 @@ class BoneEditor {
     this.propsHost = c.querySelector('.be-props');
     this.timelineHost = c.querySelector('.be-timeline-host');
     this.rootEl = c.querySelector('.be-root');
+    // 面板标题右键最小化:层级树面板标题(标签条)
+    const tabsBar = c.querySelector('.be-tabs');
+    tabsBar?.addEventListener('contextmenu', (e) => { e.preventDefault(); this._setColHidden(true); });
     // UI 缩放系数(rect 像素 / CSS 像素,应用级 zoom 时 ≠1):拖拽位移换算 + 持久化存 CSS 设定值,避免保存/恢复循环累积误差
     this._uiScale = (() => {
       try {
@@ -601,8 +628,163 @@ class BoneEditor {
     this.propRestoreHost = document.createElement('span');
     this.propRestoreHost.className = 'be-prop-restore';
     tb.appendChild(this.propRestoreHost);
+    // 已最小化面板的还原图标区(⧉ 一键最小化按钮之前):每个隐藏面板一个图标按钮,点击还原
+    this.minHost = document.createElement('span');
+    this.minHost.className = 'be-min-host';
+    tb.appendChild(this.minHost);
+    // 一键最小化|还原所有面板(层级树/属性列、摄影表、浮动工具栏)
+    this.btnMinAll = mkBtn(
+      '<img class="be-btn-ico" src="' + icoViewsMinimize + '" draggable="false">',
+      '最小化/还原所有面板', () => this._toggleAllPanels());
+    sep();
+    // 视图菜单(Spine 视图菜单):面板显隐开关,勾选态实时反映
+    this.btnView = mkBtn('👁 视图 ▾', '面板与视图元素显示开关', () => this._openViewMenu(this.btnView));
     this._syncToolbar();
   }
+
+  /** 视图菜单:各面板/视图元素的显示开关(勾选 = 当前可见);菜单勾选态读取实际 DOM 状态 */
+  _openViewMenu(btn) {
+    const r = btn.getBoundingClientRect();
+    const tlVisible = () => !(this.timelineHost && this.timelineHost.hidden);
+    const colVisible = () => { const c = this.container.querySelector('.be-rightcol'); return c ? !c.hidden : true; };
+    const ICONS = {
+      rights: icoTabOverview, skins: icoTabSkins, meshTools: icoTabMeshTools, colors: icoTabSlotColor,
+      animate: icoTabAnimations, graph: icoTabGraph, ghosting: icoTabGhosting, dopesheet: icoTabDopesheet,
+      playback: icoTabPlayback, timeline: icoTabTimeline, curves: icoTabGraphPresets, tree: icoTabTree,
+      metrics: icoTabMetrics, outline: icoTabOutline, issues: icoTabInsert, audio: icoTabAudio,
+      preview: icoTabPreview,
+    };
+    const chk = (label, iconKey, get, set) => ({
+      icon: '<img class="ctx-ico" src="' + ICONS[iconKey] + '" draggable="false">',
+      label: (get() ? '☑ ' : '☐ ') + label,
+      onClick: () => { set(!get()); this.refresh(); },
+    });
+    const soon = '当前版本暂未实现';
+    showContextMenu(r.left, r.bottom + 4, [
+      chk('权限', 'rights', () => this.viewPanels.has('rights'), () => this._togglePanel('rights')),
+      chk('皮肤', 'skins', () => this.viewPanels.has('skins'), () => this._togglePanel('skins')),
+      chk('网格工具', 'meshTools', () => this.viewPanels.has('meshTools'), () => this._togglePanel('meshTools')),
+      chk('颜色', 'colors', () => this.viewPanels.has('colors'), () => this._togglePanel('colors')),
+      '-',
+      chk('动画', 'animate', tlVisible, () => this._setTimelineHidden(tlVisible())),
+      chk('图表', 'graph', () => this.viewPanels.has('graph'), () => this._togglePanel('graph')),
+      chk('幻影', 'ghosting', () => this.onion, () => { this.onion = !this.onion; }),
+      chk('摄影表', 'dopesheet', tlVisible, () => this._setTimelineHidden(tlVisible())),
+      chk('播放', 'playback', () => this.viewPanels.has('play'), () => this._togglePanel('play')),
+      chk('时间轴', 'timeline', tlVisible, () => this._setTimelineHidden(tlVisible())),
+      chk('曲线', 'curves', tlVisible, () => this._setTimelineHidden(tlVisible())),
+      chk('层级树', 'tree', colVisible, () => this._setColHidden(colVisible())),
+      '-',
+      chk('指示', 'metrics', () => this.showRulers, () => { this.showRulers = !this.showRulers; }),
+      chk('轮廓', 'outline', colVisible, () => this._setColHidden(colVisible())),
+      chk('问题', 'issues', () => this.viewPanels.has('issues'), () => this._togglePanel('issues')),
+      chk('音频', 'audio', () => this.viewPanels.has('audio'), () => this._togglePanel('audio')),
+      chk('预览', 'preview', () => this.viewPanels.has('preview'), () => this._togglePanel('preview')),
+    ]);
+  }
+
+  /** 视图面板开关集合(未实现面板的占位状态;切换仅记录供菜单勾选反映) */
+  get viewPanels() {
+    if (!this._viewPanels) {
+      this._viewPanels = new Set(['animate', 'timeline', 'tree', 'outline']);
+    }
+    return this._viewPanels;
+  }
+
+  _togglePanel(key) {
+    const s = this.viewPanels;
+    if (s.has(key)) s.delete(key); else s.add(key);
+  }
+
+  /** 最小化面板图标(顶栏 ⧉ 前):隐藏面板时出现,点击还原 */
+  _syncMinButtons() {
+    if (!this.minHost) return;
+    // 签名防抖:refresh 高频调用,状态未变不重建 DOM
+    const sig = [
+      this.container.querySelector('.be-rightcol')?.hidden ? 1 : 0,
+      this.timelineHost?.hidden ? 1 : 0,
+      [...(this.propMinimized || [])].sort().join('|'),
+    ].join(',');
+    if (this._minSig === sig) return;
+    this._minSig = sig;
+    this.minHost.innerHTML = '';
+    // 隐藏面板:层级树/属性列、摄影表
+    const defs = [
+      { tip: '层级树 / 属性', icon: icoMinTree, hidden: () => this.container.querySelector('.be-rightcol')?.hidden, restore: () => this._setColHidden(false) },
+      { tip: '摄影表', icon: icoMinDopesheet, hidden: () => this.timelineHost?.hidden, restore: () => this._setTimelineHidden(false) },
+    ];
+    for (const d of defs) {
+      if (!d.hidden()) continue;
+      const b = document.createElement('button');
+      b.className = 'be-min-btn';
+      b.innerHTML = `<img class="be-min-btn-ico" src="${d.icon}" draggable="false" alt="">`;
+      b.title = d.tip + '(点击还原)';
+      b.addEventListener('click', () => { d.restore(); this._syncMinButtons(); });
+      this.minHost.appendChild(b);
+    }
+    // 属性面板最小化分区(右键分区标题最小化的):文本按钮,点击还原
+    for (const title of this.propMinimized || []) {
+      const b = document.createElement('button');
+      b.className = 'be-min-btn be-min-btn-txt';
+      b.textContent = title.length > 8 ? title.slice(0, 8) + '…' : title;
+      b.title = title + '(点击还原)';
+      b.addEventListener('click', () => {
+        this.propMinimized.delete(title);
+        this.panels?._persistPropState?.();
+        this.panels?.refreshProps?.();
+        this._syncMinButtons();
+      });
+      this.minHost.appendChild(b);
+    }
+  }
+
+  /** 时间轴(摄影表)显隐:显式设值(供视图菜单与一键最小化共用) */
+  _setTimelineHidden(hidden) {
+    if (!this.timelineHost) return;
+    this.timelineHost.hidden = !!hidden;
+    const rz = this.container.querySelector('.be-tl-resize');
+    if (rz) rz.hidden = !!hidden;
+    this._syncMinButtons();
+    this.stage?.syncViewport();
+  }
+
+  /** 左侧层级树/属性列显隐:显式设值 */
+  _setColHidden(hidden) {
+    const col = this.container.querySelector('.be-rightcol');
+    if (!col) return;
+    col.hidden = !!hidden;
+    const rz = this.container.querySelector('.be-col-resize');
+    if (rz) rz.hidden = !!hidden;
+    this._syncMinButtons();
+    this.stage?.syncViewport();
+  }
+
+  /**
+   * 一键最小化|还原所有面板:层级树/属性列、摄影表时间轴、浮动工具栏。
+   * 最小化时快照当前显隐,还原时按快照恢复(若面板本就隐藏则保持隐藏)。
+   */
+  _toggleAllPanels() {
+    const tlVisible = () => !(this.timelineHost && this.timelineHost.hidden);
+    const colVisible = () => { const c = this.container.querySelector('.be-rightcol'); return c ? !c.hidden : true; };
+    // 舞台区浮动工具面板排除在外(不随一键最小化)
+    if (!this._allMinimized) {
+      this._minSnap = { tl: tlVisible(), col: colVisible() };
+      this._setTimelineHidden(true);
+      this._setColHidden(true);
+      this._syncMinButtons();
+      this._allMinimized = true;
+      toast('已最小化所有面板');
+    } else {
+      const snap = this._minSnap || { tl: true, col: true };
+      this._setTimelineHidden(!snap.tl);
+      this._setColHidden(!snap.col);
+      this._syncMinButtons();
+      this._allMinimized = false;
+      toast('已还原面板');
+    }
+    this.btnMinAll?.classList.toggle('active', this._allMinimized);
+  }
+
 
   /** 文件菜单:项目管理 + 导入导出(原工具栏按钮全部收拢于此) */
   _openFileMenu(btn) {
@@ -629,7 +811,138 @@ class BoneEditor {
       { label: '▶ 导出预览', onClick: () => this.previewExport() },
       { label: '🧩 纹理解包器…', onClick: () => this.textureUnpackTool() },
       { label: '📦 纹理打包器…', onClick: () => this.texturePackTool() },
+      { label: '⚙ 设置…', onClick: () => this.openSettings() },
     ]);
+  }
+
+  /**
+   * 设置窗口:项目参数(原层级树下方「项目/Spine 项目」面板迁移至此)+ 舞台背景样式。
+   * 修改即生效;项目字段计入未保存标记,背景样式独立持久化(localStorage,不入工程文件)。
+   */
+  openSettings() {
+    const p = this.project;
+    const body = document.createElement('div');
+    body.className = 'modal-body be-settings';
+
+    const section = (title) => {
+      const s = document.createElement('div');
+      s.className = 'be-settings-sec';
+      const h = document.createElement('div');
+      h.className = 'be-settings-title';
+      h.textContent = title;
+      s.appendChild(h);
+      body.appendChild(s);
+      return s;
+    };
+    const row = (parent, label, ctrl) => {
+      const r = document.createElement('div');
+      r.className = 'be-settings-row';
+      const l = document.createElement('span');
+      l.className = 'be-settings-l';
+      l.textContent = label;
+      r.appendChild(l);
+      if (ctrl) r.appendChild(ctrl);
+      parent.appendChild(r);
+      return r;
+    };
+    const ro = (v) => {
+      const s = document.createElement('span');
+      s.className = 'be-settings-ro';
+      s.textContent = String(v);
+      return s;
+    };
+    /** 项目字段编辑:直接写入 + 未保存标记 + 轻量刷新(树/时间轴按需) */
+    const edit = (apply, refreshUI) => {
+      this.beginEdit('设置·项目参数');
+      apply();
+      this._refreshDirty();
+      this._syncToolbar();
+      if (refreshUI) refreshUI();
+    };
+
+    // ---- 项目 ----
+    const s1 = section('项目');
+    const nameInp = document.createElement('input');
+    nameInp.type = 'text';
+    nameInp.className = 'input';
+    nameInp.value = p.name;
+    nameInp.addEventListener('change', () => edit(() => { p.name = nameInp.value.trim() || '未命名项目'; }));
+    row(s1, '项目名', nameInp);
+    row(s1, '骨骼数', ro(p.armature.bones.length));
+    row(s1, '插槽数', ro(p.armature.slots.length));
+    row(s1, '动画数', ro(p.armature.animations.length));
+
+    // ---- 骨架 ----
+    const s2 = section('骨架');
+    const armInp = document.createElement('input');
+    armInp.type = 'text';
+    armInp.className = 'input';
+    armInp.value = p.armature.name;
+    armInp.addEventListener('change', () => edit(() => { p.armature.name = armInp.value.trim() || 'armature'; }, () => this.panels?.refreshOutline?.()));
+    row(s2, '骨架名', armInp);
+    const fpsInp = document.createElement('input');
+    fpsInp.type = 'number';
+    fpsInp.min = 1; fpsInp.max = 120;
+    fpsInp.className = 'input';
+    fpsInp.style.width = '80px';
+    fpsInp.value = p.frameRate || 30;
+    fpsInp.addEventListener('change', () => edit(() => { p.frameRate = Math.max(1, Math.min(120, Math.round(+fpsInp.value || 30))); fpsInp.value = p.frameRate; }, () => this.timeline?.refresh?.()));
+    row(s2, '帧率 fps', fpsInp);
+
+    // ---- Spine 工程/项目(仅 Spine 导入显示) ----
+    if (p.spine) {
+      const s3 = section(p.spine.project ? 'Spine 工程(.spine)' : 'Spine 项目');
+      row(s3, '版本', ro(p.spine.version || ''));
+      if (p.spine.project) row(s3, '来源', ro((p.spine.srcPath || '').replace(/^.*[\\/]/, '') || ''));
+      const skinsSwitch = spineSkinsOf(p).filter((s) => s.name !== 'default');
+      if (!p.spine.project && skinsSwitch.length >= 2) {
+        const sel = document.createElement('select');
+        sel.className = 'input';
+        for (const s of skinsSwitch) {
+          const op = document.createElement('option');
+          op.value = s.name;
+          op.textContent = s.name;
+          sel.appendChild(op);
+        }
+        sel.value = p.spine.skin || skinsSwitch[0].name;
+        sel.addEventListener('change', () => { handle.close(); this.switchSpineSkin(sel.value); });
+        row(s3, '皮肤', sel);
+      } else {
+        row(s3, '皮肤', ro(p.spine.skin || ''));
+      }
+      row(s3, 'atlas 页', ro(`${(p.spine.pages || []).length} 页 / ${(p.spine.regionNames || []).length} 区块`));
+    }
+
+    // ---- 舞台背景 ----
+    const s4 = section('舞台背景');
+    const cfg = this.stage ? this.stage._bgConfig() : { style: 'checker', color: '#5b5b5b' };
+    const styleSel = document.createElement('select');
+    styleSel.className = 'input';
+    for (const [v, lbl] of [['checker', '棋盘格(默认)'], ['solid', '纯色背景'], ['grid', '格子线背景']]) {
+      const op = document.createElement('option');
+      op.value = v;
+      op.textContent = lbl;
+      styleSel.appendChild(op);
+    }
+    styleSel.value = cfg.style;
+    row(s4, '背景样式', styleSel);
+    const colorInp = document.createElement('input');
+    colorInp.type = 'color';
+    colorInp.value = cfg.color || '#5b5b5b';
+    colorInp.title = '纯色/格子线背景的颜色(棋盘格为固定双色)';
+    const colorRow = row(s4, '背景颜色', colorInp);
+    const syncColorVis = () => { colorRow.style.visibility = styleSel.value === 'checker' ? 'hidden' : ''; };
+    syncColorVis();
+    const applyBg = () => this.stage?.setBackground?.({ style: styleSel.value, color: colorInp.value });
+    styleSel.addEventListener('change', () => { syncColorVis(); applyBg(); });
+    colorInp.addEventListener('input', applyBg);
+
+    let handle;
+    handle = openModal({
+      title: '⚙ 设置',
+      body,
+      foot: footButtons([{ text: '关闭', cls: 'primary', onClick: () => handle.close() }]),
+    });
   }
 
   _syncToolbar() {
@@ -653,25 +966,7 @@ class BoneEditor {
     this.btnUndo.disabled = !this.undoStack.length;
     this.btnRedo.disabled = !this.redoStack.length;
     // 顶栏右侧:最小化面板恢复图标(点击恢复显示)
-    if (this.propRestoreHost) {
-      this.propRestoreHost.innerHTML = '';
-      for (const key of this.propMinimized) {
-        const b = document.createElement('button');
-        b.className = 'be-prop-restore-btn';
-        b.textContent = '🗗';
-        b.title = `${key} (已最小化,点击恢复)`;
-        b.addEventListener('click', () => {
-          this.propMinimized.delete(key);
-          try { localStorage.setItem('bePropMinimized', JSON.stringify([...this.propMinimized])); } catch (err) { /* ignore */ }
-          this.refresh();
-        });
-        const lbl = document.createElement('span');
-        lbl.className = 'be-prop-restore-lbl';
-        lbl.textContent = key.split(':')[0].slice(0, 4);
-        b.prepend(lbl);
-        this.propRestoreHost.appendChild(b);
-      }
-    }
+    this._syncMinButtons();
   }
 
   /** Spine 项目守卫:结构增删会破坏原引用,仅允许变换/动画/颜色编辑 */
@@ -686,10 +981,12 @@ class BoneEditor {
       const r = await window.api.pickFiles({
         title: '选择 Spine 骨架 JSON',
         multi: false,
+        defaultPath: await lastOpenDir(),
         filters: [{ name: 'Spine JSON', extensions: ['json'] }],
       });
       const jsonPath = (!r || r.canceled) ? null : (r.filePaths || [])[0];
       if (!jsonPath) return;
+      rememberOpenDir([jsonPath]);
       await this.importSpinePath(jsonPath);
     } catch (err) {
       toast('导入失败:' + err.message, 'err');
@@ -937,10 +1234,12 @@ class BoneEditor {
       const r = await window.api.pickFiles({
         title: '选择 DragonBones 骨架 JSON 或 LoongBones 项目文档',
         multi: false,
+        defaultPath: await lastOpenDir(),
         filters: [{ name: '骨骼动画数据', extensions: ['json'] }],
       });
       const jsonPath = (!r || r.canceled) ? null : (r.filePaths || [])[0];
       if (!jsonPath) return;
+      rememberOpenDir([jsonPath]);
       const jr = await window.api.readText(jsonPath);
       if (!jr || !jr.ok) throw new Error('读取 JSON 失败');
       const json = JSON.parse(jr.text);
@@ -1005,13 +1304,15 @@ class BoneEditor {
       const jsonPath = dir + '\\' + base + '.json';
       await window.api.writeFileBase64(jsonPath, 'data:application/json;base64,' + btoa(unescape(encodeURIComponent(result.json))));
       const files = [base + '.json'];
-      // 有 atlas 数据时同步导出
+      // 有 atlas 数据时同步导出(页图使用 base 命名)
       if (this.project.spine?.atlasText) {
         const { serializeAtlas } = await import('../editor/spineIO.js');
         const nameMap = new Map();
-        for (const pg of this.project.spine.pages || []) {
+        const pages = this.project.spine.pages || [];
+        for (let i = 0; i < pages.length; i++) {
+          const pg = pages[i];
           const ext = (pg.name.match(/\.[^.]+$/)?.[0]) || '.png';
-          const newN = pg.name.slice(0, -ext.length) + '_edit' + ext;
+          const newN = i === 0 ? base + ext : base + '_' + i + ext;
           nameMap.set(pg.name, newN);
           await window.api.writeFileBase64(dir + '\\' + newN, pg.dataUrl);
           files.push(newN);
@@ -1063,13 +1364,16 @@ class BoneEditor {
       const targetVer = ver ? ver.split('.').slice(0, 2).join('.') : 'auto';
       const skelR = await window.api.jsonToSkel({ jsonContent: result.json, outputPath: dir + '\\' + base + '.skel', targetVersion: targetVer });
       if (skelR && skelR.ok) files.push(base + '.skel');
-      // .atlas + 页图
+      // .atlas + 页图(页图使用 base 命名,与 .json/.skel/.atlas 保持一致)
       if (this.project.spine?.atlasText) {
         const { serializeAtlas } = await import('../editor/spineIO.js');
         const nameMap = new Map();
-        for (const pg of this.project.spine.pages || []) {
+        const pages = this.project.spine.pages || [];
+        for (let i = 0; i < pages.length; i++) {
+          const pg = pages[i];
           const ext = (pg.name.match(/\.[^.]+$/)?.[0]) || '.png';
-          const newN = pg.name.slice(0, -ext.length) + '_edit' + ext;
+          // 单页:base.png  多页:base.png / base_1.png / base_2.png …
+          const newN = i === 0 ? base + ext : base + '_' + i + ext;
           nameMap.set(pg.name, newN);
           await window.api.writeFileBase64(dir + '\\' + newN, pg.dataUrl);
           files.push(newN);
@@ -1335,7 +1639,13 @@ class BoneEditor {
       return;
     }
     this.stage.render();
-    this.timeline.refresh();
+    // 拖拽中只更新受影响轨道的关键帧(全量 refresh 重建 64 骨骼×52 插槽 DOM,~17ms/次,
+    // pointermove 高频触发即掉帧卡顿);松手(_onUp)后再全量刷新补齐
+    if (this.ctx.stageDragging) {
+      this.timeline?.lightweightRefresh?.(name, false);
+    } else {
+      this.timeline?.refresh?.();
+    }
     this.spineToolbar?.sync?.();
   }
 
@@ -1967,10 +2277,12 @@ class BoneEditor {
       const pr = await window.api.pickFiles({
         title: '选择要解包的纹理图集(.atlas,页图取同目录)',
         multi: false,
+        defaultPath: await lastOpenDir(),
         filters: [{ name: 'Spine 图集', extensions: ['atlas'] }],
       });
       const paths = (!pr || pr.canceled) ? [] : (pr.filePaths || []);
       if (!paths.length) return;
+      rememberOpenDir(paths);
       const tr = await window.api.readText(paths[0]);
       if (!tr || !tr.ok) throw new Error('读取图集失败:' + (tr && tr.error));
       const atlas = parseAtlasText(tr.text);
@@ -2019,10 +2331,12 @@ class BoneEditor {
       const pr = await window.api.pickFiles({
         title: '选择要打包的图片(可多选)',
         multi: true,
+        defaultPath: await lastOpenDir(),
         filters: [{ name: '图片', extensions: ['png'] }],
       });
       const paths = (!pr || pr.canceled) ? [] : (pr.filePaths || []);
       if (!paths.length) return;
+      rememberOpenDir(paths);
       const items = [];
       for (const p of paths) {
         const rb = await window.api.readBase64(p);

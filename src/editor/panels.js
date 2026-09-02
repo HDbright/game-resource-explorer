@@ -10,14 +10,258 @@ import {
 import { applyEase } from './animator.js';
 import { resolveRegionDataUrl, spineSkinsOf } from './spineIO.js';
 import icoSkeleton from '../assets/spine-icons/skin_button-setup.png';
+import icoSkinPh from '../assets/spine-icons/skin_icon-skinPlaceholder.png';
+import icoBoneNull from '../assets/spine-icons/skin_icon-null.png';
+import icoBone from '../assets/spine-icons/skin_icon-bone.png';
+import icoBoneCst from '../assets/spine-icons/skin_icon-boneConstrained.png';
+import icoCstIK from '../assets/spine-icons/skin_icon-constraintIK.png';
+import icoCstIKTarget from '../assets/spine-icons/skin_icon-constraintIKTarget.png';
+import icoCstPath from '../assets/spine-icons/skin_icon-constraintPath.png';
+import icoSlotColored from '../assets/spine-icons/skin_icon-slot-colored.png';
+import icoMesh from '../assets/spine-icons/skin_icon-mesh.png';
+import icoEye from '../assets/spine-icons/skin_bone-eye.png';
+
+/** 可见性图标:可见 = eye 位图;隐藏 = #616161 小圆点(骨骼/插槽/附件统一) */
+const EYE_VISIBLE = `<img class="be-tree-eye-img" src="${icoEye}" draggable="false" alt="">`;
+const EYE_HIDDEN = '<span class="be-tree-eye-dot"></span>';
 
 function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+/** 骨骼名 → 色相(与层级树骨骼图标同色系:同名同色,跨面板一致) */
+const boneHue = (name) => { let h = 0; for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) % 360; return h; };
+
+/** css 颜色字符串(rgb()/hsl()/#hex)→ #hex(取色器 input 需要 hex 值) */
+function cssColorToHex(css) {
+  const s = String(css || '').trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(s)) return s.toLowerCase();
+  let m = /rgba?\((\d+)[,\s]+(\d+)[,\s]+(\d+)/.exec(s);
+  if (m) {
+    const h = (n) => Math.max(0, Math.min(255, +n)).toString(16).padStart(2, '0');
+    return '#' + h(m[1]) + h(m[2]) + h(m[3]);
+  }
+  m = /hsl\(\s*([\d.]+)[,\s]+([\d.]+)%[,\s]+([\d.]+)%/.exec(s);
+  if (m) {
+    const h = +m[1] / 360, sa = +m[2] / 100, l = +m[3] / 100;
+    const f = (n) => { const k = (n + h * 12) % 12; const a = sa * Math.min(l, 1 - l); const v = l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)); return Math.round(255 * v).toString(16).padStart(2, '0'); };
+    return '#' + f(0) + f(8) + f(4);
+  }
+  return '#5b5b5b';
+}
+
+// ---------------- 骨骼自定义图标(官方 Spine 图标集 + 着色规则) ----------------
+
+/**
+ * 图标库(官方 Spine 图标集,mask 剪影 + 着色显示)。
+ * 排列顺序按参考图逐格形状匹配(IoU)得出:基本形 → 罗马数字 → 箭头 → 身体部件 → 符号。
+ * foot 与 footLeft 形状重复,保留 footLeft(参考图 #10 低置信格即该重复形,已剔除)。
+ */
+const BONE_ICON_KEYS = ['bone', 'null', 'circle', 'square', 'triangle', 'translate', 'romanI', 'romanVI', 'ik', 'straightLine', 'chevron', 'romanII', 'romanVII', 'gear', 'arrowLeftRight', 'arrowLeft', 'arrowRight', 'romanIII', 'romanVIII', 'arrows', 'arrowUpDown', 'arrowUp', 'arrowDown', 'romanIV', 'footLeft', 'sword', 'handLeft', 'gun', 'muzzleFlash', 'romanV', 'romanX', 'romanIX', 'handRight', 'eye', 'fire', 'particles', 'speechBubble', 'shield', 'footRight', 'mouth', 'warning', 'arrowsB', 'rotate', 'diamondB', 'spiral', 'star', 'asterisk'];
+const boneIconUrl = (k) => `/assets/bone-icons/${k}.png`;
+/** 图标值是否为图片键(命名图标;非空的其它字符串按 emoji 文本兼容) */
+const isImgIconKey = (k) => /^[a-zA-Z][\w-]*$/.test(String(k || '')) && BONE_ICON_KEYS.includes(String(k));
+
+/**
+ * 默认形状规则(Spine 树标准):显式 bone.icon → 骨骼名匹配图标名 → 约束目标骨骼 = circle
+ * (IK/变换/路径约束的 target,如 crosshair)→ 零长度骨骼 = null(如 exhaust1)。
+ * @param raw Spine 原始骨架 JSON(raw.ik/transform/path 的 target 引用)
+ */
+function defaultIconOf(name, bone, raw) {
+  const len = bone && (bone.length || 0);
+  if (name) {
+    const n = String(name).toLowerCase();
+    let hit = BONE_ICON_KEYS.find((k) => k.toLowerCase() === n);
+    if (!hit) hit = BONE_ICON_KEYS.find((k) => k.toLowerCase().startsWith(n) && k !== 'bone');
+    if (hit) return hit;
+  }
+  if (raw) {
+    for (const key of ['ik', 'transform', 'path']) {
+      for (const c of raw[key] || []) if (c.target === name) return 'circle';
+    }
+  }
+  return len === 0 ? 'null' : null;
+}
+
+/** Spine 骨骼颜色(hex RRGGBBAA / RRGGBB)→ css rgb;无效返回 null */
+function boneRawColor(bone) {
+  const s = bone && bone.raw && bone.raw.color;
+  if (typeof s !== 'string' || !/^[0-9a-fA-F]{6,8}$/.test(s)) return null;
+  return `rgb(${parseInt(s.slice(0, 2), 16)}, ${parseInt(s.slice(2, 4), 16)}, ${parseInt(s.slice(4, 6), 16)})`;
+}
+
+/**
+ * 图标着色规则:显式设置(bone.iconColor)→ 工程骨骼数据色(bone.color,导入时从 Spine
+ * color 属性读入,如 muzzle #ffb900 橙)→ 骨骼名色相(自建项目兜底)。
+ */
+function iconColorOf(bone) {
+  if (bone && bone.iconColor) return bone.iconColor;
+  if (bone && bone.color) return bone.color;
+  const raw = boneRawColor(bone);
+  if (raw) return raw;
+  return `hsl(${boneHue(bone.name)}, 70%, 60%)`;
+}
+
+/**
+ * 着色图标(canvas 逐像素乘色):RGB × 骨骼色、alpha 保持 —— 透明背景不着色(纯 CSS
+ * blend 会把整格染色)、深色中心保持深色(null 图标空心感)。结果缓存,未就绪时回退原图,
+ * 就绪后广播 bone-icons-tinted 事件触发重绘。
+ */
+const _tintCache = new Map(); // url|hex → dataUrl
+const _tintPending = new Set();
+let _tintRedrawTimer = 0;
+
+function tintedIconDataUrl(url, colorCss) {
+  let hex = cssColorToHex(colorCss);
+  // 无彩灰色(Spine 默认骨骼色 #9b9b9b 等):笔画渲染白色而非灰 —— 白笔画 × 灰 = 灰会发暗,
+  // 与 Spine 树的白色效果不一致;饱和度 <10% 视为灰,乘色层用纯白(仅彩色骨骼着色)
+  {
+    const r = parseInt(hex.slice(1, 3), 16) / 255, g = parseInt(hex.slice(3, 5), 16) / 255, b = parseInt(hex.slice(5, 7), 16) / 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+    if (mx - mn < 0.1) hex = '#ffffff';
+  }
+  const ck = url + '|' + hex;
+  const hit = _tintCache.get(ck);
+  if (hit) return hit;
+  if (!_tintPending.has(ck)) {
+    _tintPending.add(ck);
+    const im = new Image();
+    im.onload = () => {
+      try {
+        const cv = document.createElement('canvas');
+        cv.width = im.naturalWidth; cv.height = im.naturalHeight;
+        const g = cv.getContext('2d');
+        g.drawImage(im, 0, 0);
+        const d = g.getImageData(0, 0, cv.width, cv.height);
+        const r = parseInt(hex.slice(1, 3), 16), gr = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+        for (let i = 0; i < d.data.length; i += 4) {
+          // 仅亮部笔画乘色着色;暗部像素(null 图标深灰中心等)保留原色 ——
+          // 全像素乘法会把色相带进暗部,中心变成"深蓝/深红"而非中性深灰
+          const lum = 0.3 * d.data[i] + 0.6 * d.data[i + 1] + 0.1 * d.data[i + 2];
+          if (d.data[i + 3] > 0 && lum >= 100) {
+            d.data[i] = (d.data[i] * r) / 255;
+            d.data[i + 1] = (d.data[i + 1] * gr) / 255;
+            d.data[i + 2] = (d.data[i + 2] * b) / 255;
+          }
+        }
+        g.putImageData(d, 0, 0);
+        _tintCache.set(ck, cv.toDataURL('image/png'));
+        clearTimeout(_tintRedrawTimer);
+        _tintRedrawTimer = setTimeout(() => document.dispatchEvent(new CustomEvent('bone-icons-tinted')), 30);
+      } catch (err) { /* ignore */ }
+      _tintPending.delete(ck);
+    };
+    im.onerror = () => _tintPending.delete(ck);
+    im.src = url;
+  }
+  return null; // 未就绪,调用方回退原图
+}
+
+/**
+ * 图标 HTML(着色渲染):k 为图标名(图片)或文本(emoji 兼容)。
+ * 图片图标用 canvas 乘色结果(透明背景/深色层次保留)。
+ */
+function boneIconHtml(k, cls, bone) {
+  if (isImgIconKey(k)) {
+    const url = tintedIconDataUrl(boneIconUrl(k), iconColorOf(bone)) || boneIconUrl(k);
+    return `<span class="${cls}" style="background-image:url('${url}')"></span>`;
+  }
+  return `<span class="${cls}">${esc(k)}</span>`;
+}
+
+let _iconPickerEl = null;
+
+/** 关闭已打开的图标选择面板 */
+export function closeIconPicker() {
+  if (_iconPickerEl) { _iconPickerEl.remove(); _iconPickerEl = null; }
+}
+
+/**
+ * 打开骨骼图标选择面板(锚点下方弹出,点击外部关闭)。
+ * @param {HTMLElement} anchor 定位锚点(图标按钮)
+ * @param {Function} onPick (icon) => void — icon 为 '' 表示移除
+ */
+function openIconPicker(anchor, onPick) {
+  closeIconPicker();
+  const panel = document.createElement('div');
+  panel.className = 'be-icon-picker';
+  panel.addEventListener('mousedown', (e) => e.stopPropagation());
+  const apply = (icon) => { closeIconPicker(); onPick(icon); };
+  const title = document.createElement('div');
+  title.className = 'be-icon-group-label';
+  title.textContent = '骨骼图标';
+  panel.appendChild(title);
+  const grid = document.createElement('div');
+  grid.className = 'be-icon-grid';
+  for (const k of BONE_ICON_KEYS) {
+    const b = document.createElement('button');
+    b.className = 'be-icon-cell';
+    b.innerHTML = `<img src="${boneIconUrl(k)}" draggable="false" alt="">`;
+    b.title = '图标 ' + k;
+    b.addEventListener('click', () => apply(k));
+    grid.appendChild(b);
+  }
+  panel.appendChild(grid);
+  const foot = document.createElement('div');
+  foot.className = 'be-icon-picker-foot';
+  const rm = document.createElement('button');
+  rm.className = 'btn sm';
+  rm.textContent = '✕ 移除图标';
+  rm.title = '恢复默认骨骼图标';
+  rm.addEventListener('click', () => apply(''));
+  foot.appendChild(rm);
+  panel.appendChild(foot);
+  document.body.appendChild(panel);
+  _iconPickerEl = panel;
+  // 定位:锚点下方水平居中,越界翻转/钳制
+  const ar = anchor.getBoundingClientRect();
+  const pr = panel.getBoundingClientRect();
+  let x = ar.left + ar.width / 2 - pr.width / 2;
+  x = Math.max(8, Math.min(x, window.innerWidth - pr.width - 8));
+  let y = ar.bottom + 6;
+  if (y + pr.height > window.innerHeight - 8) y = Math.max(8, ar.top - pr.height - 6);
+  panel.style.left = x + 'px';
+  panel.style.top = y + 'px';
+  // 点击外部关闭:须用冒泡阶段(window)——面板内的 mousedown 已被 stopPropagation 拦截,
+  // 不会到达 window;若用捕获阶段,点选图标单元格的 mousedown 会先关掉面板,click 落空
+  const onDocDown = () => { closeIconPicker(); window.removeEventListener('mousedown', onDocDown); };
+  setTimeout(() => window.addEventListener('mousedown', onDocDown), 0);
+}
+
+/** 附件类型中文名(层级树 title 用);undefined = region(spine JSON 省略型) */
+function attTypeName(t) {
+  return ({ mesh: '网格', linkedmesh: '链接网格', weightedmesh: '加权网格', boundingbox: '边界框', path: '路径', clipping: '裁剪' })[t] || '';
+}
+
+/** 层级树附件节点图标:按附件类型区分(Spine 树惯例 —— 网格/链接网格/边界框/路径/裁剪各有图标)
+ *  region=图片卡片;mesh=官方 mesh 图标;linkedmesh=网格+链接环;boundingbox=虚线框;path=曲线;clipping=红虚线框 */
+function attIconSvg(t) {
+  const base = 'class="be-ico-att" viewBox="0 0 16 16" width="13" height="12"';
+  switch (t) {
+    case 'mesh': case 'weightedmesh':
+      return `<img class="be-ico-att be-ico-att-img" src="${icoMesh}" draggable="false">`;
+    case 'linkedmesh':
+      return `<svg ${base}><rect x="1" y="2" width="14" height="12" rx="1.5" fill="#4527a0" stroke="#b39ddb" stroke-width="1"/>`
+        + `<path d="M3.5 4.5l9 1.6M3.5 4.5l3.4 6.6M12.5 6.1l-5.6 5M3.5 4.5L8 11.1" stroke="#e1bee7" stroke-width="0.9" fill="none"/>`
+        + `<circle cx="3.5" cy="4.5" r="1.15" fill="#fff"/><circle cx="12.5" cy="6.1" r="1.15" fill="#fff"/><circle cx="8" cy="11.1" r="1.15" fill="#fff"/>`
+        + `<path d="M9.2 12.2l2.3-2.3m-2.3 3.4a1.7 1.7 0 0 1 0-2.4l.8-.8m3.2-.2a1.7 1.7 0 0 1 0 2.4l-.8.8" stroke="#ffd54f" stroke-width="1.1" fill="none" stroke-linecap="round"/></svg>`;
+    case 'boundingbox':
+      return `<svg ${base}><rect x="2" y="3.5" width="12" height="9" rx="1" fill="none" stroke="#66bb6a" stroke-width="1.2" stroke-dasharray="2.4 1.6"/><circle cx="2" cy="3.5" r="1.2" fill="#66bb6a"/><circle cx="14" cy="3.5" r="1.2" fill="#66bb6a"/><circle cx="2" cy="12.5" r="1.2" fill="#66bb6a"/><circle cx="14" cy="12.5" r="1.2" fill="#66bb6a"/></svg>`;
+    case 'path':
+      return `<svg ${base}><path d="M3 12.5C5 5.5 11 11 13 4" stroke="#ffb74d" stroke-width="1.4" fill="none" stroke-linecap="round"/><circle cx="3" cy="12.5" r="1.3" fill="#ffb74d"/><circle cx="13" cy="4" r="1.3" fill="#ffb74d"/><path d="M3 12.5l2.2-1.2M13 4l-2.2 1.2" stroke="#ffe0b2" stroke-width="0.9"/></svg>`;
+    case 'clipping':
+      return `<svg ${base}><rect x="2.5" y="4" width="11" height="8.5" rx="1" fill="rgba(229,72,77,0.12)" stroke="#e5484d" stroke-width="1.1" stroke-dasharray="2.2 1.6"/><path d="M2.5 4L13.5 12.5" stroke="#e5484d" stroke-width="0.9"/></svg>`;
+    default: // region:图片卡片
+      return `<svg ${base}><rect x="1" y="2" width="14" height="12" rx="1.5" fill="#546e7a" stroke="#cfd8dc" stroke-width="1.2"/><rect x="2.6" y="3.6" width="10.8" height="8.8" fill="#4db6ac"/><circle cx="5.4" cy="6.2" r="1.3" fill="#fffde7"/><path d="M2.6 12.4l3.4-3.8 2.2 2.4 2.5-2.9 2.7 4.3z" fill="#81c784"/></svg>`;
+  }
+}
 
 export class EditorPanels {
   constructor(ctx) {
     this.ctx = ctx;
     this.treeCollapsed = new Set(); // 层级树折叠:骨骼名 或 '#分区id'
     this._treeFilter = '';          // 层级树搜索关键字
+    // 着色图标(canvas 乘色)就绪后重绘树与属性(首次渲染回退原图,就绪即换着色版)
+    this._tintedH = () => { this.refreshOutline?.(); this.refreshProps?.(); };
+    document.addEventListener('bone-icons-tinted', this._tintedH);
   }
 
   // ============ 左侧:资源库 ============
@@ -129,7 +373,7 @@ export class EditorPanels {
     else {
       const slot = p.armature.slots.find((s) => s.name === name);
       boneName = slot ? slot.parent : null;
-      if (slot) this._treeAttCol.delete(name); // 插槽的附件子项一并展开
+      if (slot) { this._treeAttCol.delete(name); this._treePhCol?.delete(name); } // 插槽的附件/占位符子项一并展开
     }
     // 展开祖先链(节点自身也要可见);骨骼分区标题也要展开,否则骨骼树整段隐藏
     this.treeCollapsed.delete('#bones');
@@ -163,6 +407,8 @@ export class EditorPanels {
     const filter = (this._treeFilter || '').trim().toLowerCase();
     // 附件折叠状态(哪些插槽折叠了附件子项;默认展开——图片是插槽的下级节点,直接可见)
     if (!this._treeAttCol) this._treeAttCol = new Set();
+    // 皮肤占位符折叠状态(多皮肤项目:仅收起占位符的子附件,占位符行保留;独立于插槽附件折叠)
+    if (!this._treePhCol) this._treePhCol = new Set();
     // 重建前记住滚动位置:点击节点触发全量重建,不保留会把视图弹回顶部(视觉抖动)
     const prevScrollTop = el.querySelector('.be-tree-scroll')?.scrollTop ?? 0;
     // 结构:固定头(工具栏+列头行) + 滚动树区 —— 搜索/批量操作不随滚动移出视野
@@ -184,14 +430,32 @@ export class EditorPanels {
       if (s2) { s2.focus(); s2.setSelectionRange(s2.value.length, s2.value.length); }
     });
     toolbar.appendChild(search);
-    const toolBtn = (icon, tip, fn) => {
+    const toolBtn = (icon, tip, fn, cls = '') => {
       const b = document.createElement('button');
-      b.className = 'be-tree-flag';
+      b.className = 'be-tree-flag' + (cls ? ' ' + cls : '');
       b.textContent = icon;
       b.title = tip;
-      b.addEventListener('click', fn);
+      b.addEventListener('click', () => fn(b));
       toolbar.appendChild(b);
     };
+    // 新建(Spine 树 New 菜单):骨骼 / 插槽 / 动画
+    toolBtn('＋ 新建', '新建:骨骼 / 插槽 / 动画(选中骨骼时创建为其子级)', (btn) => {
+      const r = btn.getBoundingClientRect();
+      const selBone = ctx.selection?.type === 'bone' ? ctx.selection.name : null;
+      const slotHost = selBone || (p.armature.bones[0] && p.armature.bones[0].name) || null;
+      showContextMenu(r.left, r.bottom + 4, [
+        {
+          label: `🦴 新建骨骼${selBone ? `(子级:${selBone})` : '(根级)'}`,
+          onClick: () => { if (selBone) ctx.addBoneChild(selBone); else ctx.createBone('', 0, 0, 0, 60); },
+        },
+        {
+          label: `🖼 新建插槽${slotHost ? `(挂到:${slotHost})` : '(需先有骨骼)'}`,
+          disabled: !slotHost,
+          onClick: () => ctx.addSlotTo(slotHost),
+        },
+        { label: '▶ 新建动画', onClick: () => ctx.newAnimation() },
+      ]);
+    }, 'wide');
     // 全部展开:有选中节点→展开其全部子孙;无选中→展开整棵树
     toolBtn('⊕', '全部展开(选中节点时仅展开其子树)', () => {
       const sel = ctx.selection;
@@ -209,10 +473,11 @@ export class EditorPanels {
           while (anc) { this.treeCollapsed.delete(anc); anc = p2.armature.bones.find((b) => b.name === anc)?.parent ?? null; }
           expandBone(rootName);
         }
-        if (slotName) this._treeAttCol.delete(slotName);
+        if (slotName) { this._treeAttCol.delete(slotName); this._treePhCol?.delete(slotName); }
       } else {
         this.treeCollapsed.clear();
         this._treeAttCol.clear();
+        this._treePhCol.clear();
       }
       this.refreshOutline();
     });
@@ -225,7 +490,7 @@ export class EditorPanels {
       this.treeCollapsed.add('#zorder');
       this.treeCollapsed.add('#events');
       this.treeCollapsed.add('#anims');
-      for (const s of p.armature.slots) if (s.displays.length > 0) this._treeAttCol.add(s.name);
+      for (const s of p.armature.slots) if (s.displays.length > 0) { this._treeAttCol.add(s.name); this._treePhCol.add(s.name); }
       this.refreshOutline();
     });
     // 全部显示:恢复所有骨骼与插槽可见性
@@ -238,7 +503,6 @@ export class EditorPanels {
     fixed.appendChild(toolbar);
 
     const match = (name) => !filter || name.toLowerCase().includes(filter);
-    const boneHue = (name) => { let h = 0; for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) % 360; return h; };
     const bones = bonesInTreeOrder(p);
 
     // 过滤时:命中骨骼 + 其全部祖先 + 命中插槽的宿主骨骼
@@ -253,7 +517,7 @@ export class EditorPanels {
     // ---- 列头行:[👁 可见性][🔗 锁定][Hierarchy] ----
     const headRow = document.createElement('div');
     headRow.className = 'be-tree-colshead';
-    headRow.innerHTML = `<span class="be-tc-eye" title="点击:全部显示/全部隐藏">👁</span><span class="be-tc-lock" title="点击:全部解锁/全部锁定">🔗</span><span class="be-cols-title">Hierarchy</span>`;
+    headRow.innerHTML = `<span class="be-tc-eye" title="点击:全部显示/全部隐藏">${EYE_VISIBLE}</span><span class="be-tc-lock" title="点击:全部解锁/全部锁定">🔗</span><span class="be-cols-title">Hierarchy</span>`;
     headRow.querySelector('.be-tc-eye').addEventListener('click', () => {
       ctx.beginEdit('切换全部可见性');
       const anyVisible = p.armature.bones.some((b) => b.visible !== false) || p.armature.slots.some((s) => s.visible !== false);
@@ -273,8 +537,10 @@ export class EditorPanels {
     /**
      * Spine 风格三列网格行:[👁 眼睛列][🔗 锁定列][缩进树内容]
      * eye/lock 为空串时占位保持纵向对齐
+     * guides:祖先延续线位图(下标 k-1 对应层级 k 的 x 位),字符 '1' 表示该层竖线贯穿本行
+     * ——展开的中间节点下方,其非末位祖先层级的竖线必须由后代行补画,同级连线才不中断
      */
-    const gridRow = ({ cls, sel, locked, depth, isLast, eye, lock, eyeTitle, lockTitle, onEye, onLock, content, onClick }) => {
+    const gridRow = ({ cls, sel, locked, depth, isLast, guides, eye, lock, eyeTitle, lockTitle, onEye, onLock, content, onClick }) => {
       const row = document.createElement('div');
       row.className = 'be-tree-row ' + cls
         + (sel ? ' sel' : '') + (locked ? ' locked' : '');
@@ -287,6 +553,16 @@ export class EditorPanels {
       if (onEye) row.querySelector('.be-cell-eye').addEventListener('click', (e) => { e.stopPropagation(); onEye(); });
       if (onLock) row.querySelector('.be-cell-lock').addEventListener('click', (e) => { e.stopPropagation(); onLock(); });
       row.addEventListener('click', onClick);
+      if (guides) {
+        const main = row.querySelector('.be-tree-main');
+        for (let k = 1; k <= guides.length; k++) {
+          if (guides[k - 1] !== '1') continue;
+          const g = document.createElement('i');
+          g.className = 'be-tree-guide';
+          g.style.left = (k * 14 - 3) + 'px'; // 与各层级自身 ::before 同一 x 位
+          main.appendChild(g);
+        }
+      }
       list.appendChild(row);
       return row;
     };
@@ -305,6 +581,48 @@ export class EditorPanels {
       const sibs = b.parent ? boneChildren(p, b.parent) : bones.filter((x) => !x.parent);
       if (sibs.length && sibs[sibs.length - 1].name === b.name) lastBoneNames.add(b.name);
     }
+    // 祖先延续线位图:某行处于展开节点的子树内时,其每个「非末位」祖先层级的竖线
+    // (即该祖先所在同级组的公共连线)需贯穿本行,否则同级连线会在子孙行处中断
+    const boneByName = new Map(bones.map((b) => [b.name, b]));
+    const boneGuides = (bone) => {
+      let g = '';
+      let anc = bone.parent ? boneByName.get(bone.parent) : null;
+      while (anc) {
+        g = (lastBoneNames.has(anc.name) ? '0' : '1') + g;
+        anc = anc.parent ? boneByName.get(anc.parent) : null;
+      }
+      return g;
+    };
+    // 约束映射:骨骼名 → [{type: ik|transform|path, name}](运行时 JSON raw.ik/transform/path;
+    // .spine 解码的约束区段尚未逆向,无数据时不显示徽标)
+    const cstByBone = new Map();
+    {
+      const raw = p.spine && p.spine.raw;
+      if (raw) {
+        const addCst = (bn, type, name) => {
+          if (!bn) return;
+          if (!cstByBone.has(bn)) cstByBone.set(bn, []);
+          cstByBone.get(bn).push({ type, name });
+        };
+        for (const c of raw.ik || []) for (const bn of c.bones || []) addCst(bn, 'ik', c.name);
+        for (const c of raw.transform || []) for (const bn of c.bones || []) addCst(bn, 'transform', c.name);
+        for (const c of raw.path || []) for (const bn of c.bones || []) addCst(bn, 'path', c.name);
+      }
+    }
+    // 皮肤附件视图(Spine 官方树语义):多皮肤时,插槽下除当前显示列表外,
+    // 还列出「其他皮肤」在该插槽的附件,default 皮肤条目用原名,其余用 皮肤名/附件名 前缀
+    const skinsAll = spineSkinsOf(p);
+    const activeSkinName = (p.spine && p.spine.skin) || 'default';
+    const skinAttsBySlot = new Map(); // slotName → [{skin, attName, att}]
+    for (const sk of skinsAll) {
+      if (sk.name === activeSkinName) continue;
+      for (const [slotName, atts] of Object.entries(sk.attachments || {})) {
+        if (!skinAttsBySlot.has(slotName)) skinAttsBySlot.set(slotName, []);
+        for (const [attName, att] of Object.entries(atts || {})) {
+          skinAttsBySlot.get(slotName).push({ skin: sk.name, attName, att });
+        }
+      }
+    }
     const mkBoneRow = (bone, depth) => {
       if (skipDepth >= 0) {
         if (depth > skipDepth) return;
@@ -319,15 +637,29 @@ export class EditorPanels {
       const isLocked = bone.locked === true;
       const isHidden = bone.visible === false;
       const caret = hasChildren ? `<span class="be-caret ${collapsed ? '' : 'open'}">${collapsed ? '▸' : '▾'}</span>` : '<span class="be-caret"></span>';
+      // 骨骼图标(官方素材,按骨骼名色相着色区分):零长度骨骼恒用 null(点形态,约束以行末
+      // 徽标表达);长度>0 时有约束 → boneConstrained,无约束 → bone。
+      // 自定义图标(bone.icon,Spine 4.2 树节点图标)优先,替换默认位图图标
+      const csts = cstByBone.get(bone.name) || [];
+      const boneIcoUrl = (bone.length || 0) > 0 ? (csts.length ? icoBoneCst : icoBone) : icoBoneNull;
+      // 骨骼图标:显式 bone.icon → 默认形状规则(骨骼名匹配图标名,如 muzzle→muzzleFlash)
+      // → 官方位图;着色按 iconColorOf(显式 → 工程数据色 → 骨骼名色相)
+      const effIcon = bone.icon || defaultIconOf(bone.name, bone, p.spine && p.spine.raw) || '';
+      const boneIcoHtml = effIcon
+        ? boneIconHtml(effIcon, (isImgIconKey(effIcon) ? 'be-ico-custom imask' : 'be-ico-custom') + (isHidden ? ' dim' : ''), bone)
+        : `<span class="be-ico-bone2" style="${bone.color ? `background-color:${bone.color};` : `--h:${boneHue(bone.name)};`}--ico:url('${boneIcoUrl}')${isHidden ? ';opacity:.35' : ''}"></span>`;
+      const cstBadges = csts.map((c) => `<img class="be-tree-cst" src="${c.type === 'ik' ? icoCstIK : c.type === 'transform' ? icoCstIKTarget : icoCstPath}" draggable="false" title="${c.type === 'ik' ? 'IK' : c.type === 'transform' ? '变换' : '路径'}约束:${esc(c.name)}">`).join('');
       const boneRow = gridRow({
         cls: 'be-tree-bone', sel, locked: isLocked, depth, isLast: lastBoneNames.has(bone.name),
-        eye: isHidden ? '🚫' : '👁',
+        guides: boneGuides(bone),
+        eye: isHidden ? EYE_HIDDEN : EYE_VISIBLE,
         eyeTitle: isHidden ? '显示骨骼' : '隐藏骨骼',
         onEye: () => { ctx.beginEdit(isHidden ? '显示骨骼' : '隐藏骨骼'); bone.visible = isHidden; ctx.refresh(); },
         lock: isLocked ? '🔒' : '<span class="be-dot-unlock"></span>',
         lockTitle: isLocked ? '解锁骨骼' : '锁定骨骼',
         onLock: () => { bone.locked = !isLocked; this.refreshOutline(); },
-        content: `${caret}<span class="be-ico-bone" style="--h:${boneHue(bone.name)}${isHidden ? ';opacity:.35' : ''}"></span><span class="be-tree-name${isHidden ? ' dim' : ''}">${esc(bone.name)}</span>`,
+        content: `${caret}${boneIcoHtml}<span class="be-tree-name${isHidden ? ' dim' : ''}">${esc(bone.name)}</span>`
+          + (cstBadges ? `<span class="be-tree-csts">${cstBadges}</span>` : ''),
         onClick: () => ctx.select('bone', bone.name),
       });
       // 悬停联动:舞台中该骨骼白色高亮
@@ -340,15 +672,23 @@ export class EditorPanels {
         this.refreshOutline();
       });
       if (collapsed) { skipDepth = depth; return; }
-      // 插槽子项
+      // 插槽的祖先延续线 = 骨骼自身位图 + 骨骼所在层级(骨骼非末位则该层竖线贯穿其插槽行)
+      const slotGuideBase = boneGuides(bone) + (lastBoneNames.has(bone.name) ? '0' : '1');
+      // 插槽子项(先于子骨骼渲染:插槽为末位子节点当且仅当它是最后一个插槽且骨骼无子骨骼)
       for (let si = 0; si < slotList.length; si++) {
         const s = slotList[si];
         if (filter && !match(s.name) && !match(bone.name)) continue;
-        const isSlotLast = si === slotList.length - 1;
+        const isSlotLast = si === slotList.length - 1 && kids === 0;
         const sLocked = s.locked === true;
+        // 插槽可见性 = visible 标志(Spine 标准:无 setup 附件的插槽仍显示 eye;
+        // 「未显示」状态由其附件行的圆点表达)
         const sHidden = s.visible === false;
         // 附件是插槽的子节点:默认折叠(不显示),点击展开显示全部 display;附件可单独显隐
         const attCount = s.displays.length;
+        // 其他皮肤在该插槽的附件(default 条目若已作为回退并入当前显示列表则去重)
+        const skinKids = (skinAttsBySlot.get(s.name) || [])
+          .filter((e) => !(e.skin === 'default' && s.displays.some((d) => d.name === e.attName)));
+        const childCount = attCount + skinKids.length;
         const attExpanded = !this._treeAttCol.has(s.name);
         const slotSel = ctx.selection?.type === 'slot' && ctx.selection.name === s.name;
         const srow = gridRow({
@@ -356,15 +696,16 @@ export class EditorPanels {
           sel: slotSel,
           // 插槽的连线属于父骨骼列:只要插槽是父级最后一个子节点即为 └ 型,与附件是否展开无关
           locked: sLocked, depth: depth + 1, isLast: isSlotLast,
-          eye: sHidden ? '🚫' : '👁',
+          guides: slotGuideBase,
+          eye: sHidden ? EYE_HIDDEN : EYE_VISIBLE,
           eyeTitle: sHidden ? '显示插槽' : '隐藏插槽',
           onEye: () => { ctx.beginEdit(sHidden ? '显示插槽' : '隐藏插槽'); s.visible = sHidden; ctx.refresh(); },
           lock: sLocked ? '🔒' : '<span class="be-dot-unlock"></span>',
           lockTitle: sLocked ? '解锁插槽' : '锁定插槽',
           onLock: () => { s.locked = !sLocked; this.refreshOutline(); },
-          content: `<span class="be-caret ${attExpanded ? 'open' : ''}" data-caret>${attCount > 0 ? (attExpanded ? '▾' : '▸') : ''}</span>`
-            + `<span class="be-ico-slot"></span><span class="be-tree-name">${esc(s.name)}</span>`
-            + (attCount > 1 ? `<span class="be-tree-att-toggle" title="${attExpanded ? '折叠附件' : '展开全部附件'}">${attCount}</span>` : ''),
+          content: `<span class="be-caret ${attExpanded ? 'open' : ''}" data-caret>${childCount > 0 ? (attExpanded ? '▾' : '▸') : ''}</span>`
+            + `<img class="be-tree-ico-img be-ico-slot2" src="${icoSlotColored}" draggable="false"><span class="be-tree-name${sHidden ? ' dim' : ''}">${esc(s.name)}</span>`
+            + (childCount > 1 ? `<span class="be-tree-att-toggle" title="${attExpanded ? '折叠附件' : '展开全部附件'}">${childCount}</span>` : ''),
           onClick: () => ctx.select('slot', s.name),
         });
         // 悬停联动:舞台预览当前图片 + 白线包裹
@@ -372,29 +713,68 @@ export class EditorPanels {
         srow.addEventListener('mouseleave', () => ctx.setTreeHover?.(null, null));
         srow.title = sHidden ? '插槽已隐藏' : '';
         const toggleAtt = () => {
-          if (!attCount) return;
+          if (!childCount) return;
           if (attExpanded) this._treeAttCol.add(s.name); else this._treeAttCol.delete(s.name);
           this.refreshOutline();
         };
         srow.querySelector('[data-caret]').addEventListener('click', (e) => { e.stopPropagation(); toggleAtt(); });
-        if (attCount > 1) {
+        if (childCount > 1) {
           srow.querySelector('.be-tree-att-toggle').addEventListener('click', (e) => { e.stopPropagation(); toggleAtt(); });
         }
-        // 附件子节点(仅展开时渲染),每项带独立眼睛开关
+        // 附件子节点(仅展开时渲染),每项带独立眼睛开关。
+        // 多皮肤项目按官方树加「皮肤占位符」中间层:插槽 > 皮肤占位符(当前激活皮肤,
+        // 官方 skinPlaceholder 图标) > 该皮肤的图片附件(附件名自带 皮肤名/ 前缀)
         if (attExpanded) {
+          const usePh = skinsAll.length > 1;
+          // 占位符折叠(独立状态):仅收起占位符的子附件,占位符行保留 —— 不影响插槽折叠
+          const phExpanded = !usePh || !this._treePhCol.has(s.name);
+          const attDepth = depth + (usePh ? 3 : 2);
+          const attGuides = usePh
+            ? slotGuideBase + (isSlotLast ? '0' : '1') + '0' // 占位符 = 插槽唯一子节点(末位 └),其层级线不贯穿附件行
+            : slotGuideBase + (isSlotLast ? '0' : '1');
+          if (usePh && childCount > 0) {
+            gridRow({
+              cls: 'be-tree-skinph',
+              depth: depth + 2, isLast: true, // 插槽的唯一子节点:└ 型,子附件挂在其折叠符下
+              guides: slotGuideBase + (isSlotLast ? '0' : '1'),
+              content: `<span class="be-caret ${phExpanded ? 'open' : ''}" data-phcaret>${phExpanded ? '▾' : '▸'}</span><img class="be-tree-ico-img" src="${icoSkinPh}" draggable="false">`
+                + `<span class="be-tree-name">${esc(s.name)}</span>`
+                + `<span class="be-tree-badge">${esc(activeSkinName)}</span>`,
+              onClick: () => {},
+            });
+            const phrow = list.lastElementChild;
+            phrow.title = `皮肤占位符:${s.name}\n当前皮肤「${activeSkinName}」,子节点 = 该皮肤在此插槽的图片附件\n点击折叠符号仅收起子附件`;
+            phrow.querySelector('[data-phcaret]').addEventListener('click', (e) => {
+              e.stopPropagation();
+              if (phExpanded) this._treePhCol.add(s.name); else this._treePhCol.delete(s.name);
+              this.refreshOutline();
+            });
+          }
+          if (phExpanded) {
           for (let di = 0; di < attCount; di++) {
             const d = s.displays[di];
             const isCurrent = di === s.displayIndex;
-            const dHidden = d.visible === false;
+            // 有效隐藏:显式 visible=false,或非插槽当前显示(舞台不渲染,如 setup 无附件槽下的附件)
+            const dHidden = d.visible === false || !isCurrent;
+            // 多皮肤时对齐官方命名:非 default 激活皮肤的条目带 皮肤名/ 前缀
+            // (default 回退并入的共享条目 shared 标记,保持原名)
+            const dispLabel = (activeSkinName !== 'default' && skinsAll.length > 1 && !d.shared) ? `${activeSkinName}/${d.name}` : d.name;
             const attSel = ctx.selection?.type === 'att' && ctx.selection.slot === s.name && ctx.selection.index === di;
             gridRow({
               cls: 'be-tree-att-row' + (isCurrent ? ' current' : ''),
               sel: attSel, // 附件独立选择态:不连带插槽行高亮
-              depth: depth + 2, isLast: di === attCount - 1,
-              eye: dHidden ? '🚫' : '👁',
+              // 末位 └ 判定计入皮肤附件行:其后还有皮肤行时本行不收尾
+              depth: attDepth, isLast: skinKids.length === 0 && di === attCount - 1,
+              guides: attGuides,
+              eye: dHidden ? EYE_HIDDEN : EYE_VISIBLE,
               eyeTitle: dHidden ? '显示附件' : '隐藏附件',
-              onEye: () => { ctx.beginEdit(dHidden ? '显示附件' : '隐藏附件'); d.visible = dHidden; ctx.refresh(); },
-              content: `<svg class="be-ico-att" viewBox="0 0 16 16" width="13" height="12"><rect x="1" y="2" width="14" height="12" rx="1.5" fill="#546e7a" stroke="#cfd8dc" stroke-width="1.2"/><rect x="2.6" y="3.6" width="10.8" height="8.8" fill="#4db6ac"/><circle cx="5.4" cy="6.2" r="1.3" fill="#fffde7"/><path d="M2.6 12.4l3.4-3.8 2.2 2.4 2.5-2.9 2.7 4.3z" fill="#81c784"/></svg><span class="be-tree-name${isCurrent || dHidden ? (isCurrent ? '' : ' dim') : ''}">${esc(d.name)}</span>`,
+              onEye: () => {
+                ctx.beginEdit(dHidden ? '显示附件' : '隐藏附件');
+                if (dHidden) { d.visible = true; s.displayIndex = di; } // 显示 = 设为可见并切换为当前显示
+                else d.visible = false;
+                ctx.refresh();
+              },
+              content: attIconSvg(d && d.raw && d.raw.type) + `<span class="be-tree-name${isCurrent || dHidden ? (isCurrent ? '' : ' dim') : ''}">${esc(dispLabel)}</span>`,
               // 点击 = 单独选中该图片附件(同时切换为插槽当前显示,便于舞台可见/可操作)
               onClick: () => { ctx.beginEdit('切换附件'); s.displayIndex = di; ctx.select({ type: 'att', slot: s.name, index: di }); },
             });
@@ -402,7 +782,24 @@ export class EditorPanels {
             // 悬停联动:舞台预览该附件图片(可为非当前项) + 白线包裹
             arow.addEventListener('mouseenter', () => ctx.setTreeHover?.(s.name, di));
             arow.addEventListener('mouseleave', () => ctx.setTreeHover?.(null, null));
-            arow.title = `附件:${d.name}${isCurrent ? ' (当前显示)' : ''}${dHidden ? ' (已隐藏)' : ''}\n点击单独选中该图片`;
+            const tName = attTypeName(d && d.raw && d.raw.type);
+            arow.title = `附件:${dispLabel}${tName ? '(' + tName + ')' : ''}${isCurrent ? ' (当前显示)' : ''}${dHidden ? ' (已隐藏)' : ''}\n点击单独选中该图片`;
+          }
+          // 其他皮肤的附件行(Spine 官方树:default 条目原名,其余 皮肤名/附件名;点击切换皮肤)
+          for (let ki = 0; ki < skinKids.length; ki++) {
+            const e = skinKids[ki];
+            const label = e.skin === 'default' ? e.attName : `${e.skin}/${e.attName}`;
+            gridRow({
+              cls: 'be-tree-att-row skin-alt',
+              depth: attDepth, isLast: ki === skinKids.length - 1,
+              guides: attGuides,
+              content: attIconSvg(e.att && e.att.type) + `<span class="be-tree-name">${esc(label)}</span>`,
+              onClick: () => ctx.switchSpineSkin?.(e.skin),
+            });
+            const krow = list.lastElementChild;
+            const kTypeName = attTypeName(e.att && e.att.type);
+            krow.title = `皮肤「${e.skin}」的附件:${e.attName}${kTypeName ? '(' + kTypeName + ')' : ''}\n点击切换到该皮肤后可查看/编辑`;
+          }
           }
         }
       }
@@ -434,7 +831,6 @@ export class EditorPanels {
     // ---- 「皮肤」分组(骨架子节点,与 root 骨骼同级):子节点只列皮肤名称(不展开具体
     // 内容);点击切换舞台显示的皮肤;当前皮肤橙色高亮。default 为共享附件的基础皮肤,不计入
     // 切换列表;没有多套(非 default)皮肤时不显示子节点 ----
-    const skinsAll = spineSkinsOf(p);
     const skins = skinsAll.filter((s) => s.name !== 'default');
     if (kidsOn && skinsAll.length) {
       const showKids = skins.length >= 2; // 单套/零套可选皮肤:分组节点保留但不列子节点
@@ -580,10 +976,19 @@ export class EditorPanels {
     const el = this.propsEl;
     if (!el) return;
     const ctx = this.ctx;
+    // 属性面板默认隐藏:仅在选中层级树节点(骨骼/插槽/附件)或关键帧时显示;
+    // 无选中时整块收起(含上分界线),层级树占满右列 —— 项目/骨架参数改在「设置」窗口查看
+    const show = !!(ctx.keySel || (ctx.selection && ctx.selection.type));
+    const panel = el.closest('.be-right');
+    if (panel) {
+      const divider = panel.previousElementSibling;
+      panel.hidden = !show;
+      if (divider && divider.classList.contains('be-props-resize')) divider.hidden = !show;
+    }
     el.innerHTML = '';
     // 关键帧缓动(优先展示,和时间轴联动)
     if (ctx.keySel) { this._renderKeyProps(el); return; }
-    if (!ctx.selection || !ctx.selection.type) { this._renderArmatureProps(el); return; }
+    if (!ctx.selection || !ctx.selection.type) return;
     if (ctx.selection.type === 'bone') {
       const all = ctx.allSelectedBones;
       if (all && all.size > 1) this._renderMultiBoneProps(el, all);
@@ -643,9 +1048,28 @@ export class EditorPanels {
   }
 
   /** 数字/文本输入行。live:输入即生效;首次修改压撤销快照;标签可按住左右拖动调值 */
-  _num(parent, label, get, set, { step = 1, min, max, ro } = {}) {
+  _num(parent, label, get, set, opts = {}) {
     const row = document.createElement('label');
     row.className = 'be-prop-row';
+    const ctl = this._numCtl(label, get, set, opts);
+    row.appendChild(ctl.wrap);
+    parent.appendChild(row);
+    return ctl.input;
+  }
+
+  /** 双数值同行(紧凑排列):X/Y、缩放 X/Y 等成对通道共用一行 */
+  _num2(parent, l1, g1, s1, l2, g2, s2, opts = {}) {
+    const row = document.createElement('label');
+    row.className = 'be-prop-row pair';
+    row.appendChild(this._numCtl(l1, g1, s1, opts).wrap);
+    row.appendChild(this._numCtl(l2, g2, s2, opts).wrap);
+    parent.appendChild(row);
+  }
+
+  /** 单个 label+input 控件组(_num 单列行 / _num2 双列行共用) */
+  _numCtl(label, get, set, { step = 1, min, max, ro, placeholder } = {}) {
+    const wrap = document.createElement('span');
+    wrap.className = 'be-prop-ctl';
     const lab = document.createElement('span');
     lab.className = 'be-prop-l';
     lab.textContent = label;
@@ -677,12 +1101,13 @@ export class EditorPanels {
         window.addEventListener('pointerup', up);
       });
     }
-    row.appendChild(lab);
+    wrap.appendChild(lab);
     const input = document.createElement('input');
     input.type = 'number';
     input.step = step;
     if (min !== undefined) input.min = min;
     if (max !== undefined) input.max = max;
+    if (placeholder) input.placeholder = placeholder;
     input.value = get();
     if (ro) input.disabled = true;
     let pushed = false;
@@ -695,9 +1120,8 @@ export class EditorPanels {
       this.ctx.refresh({ skipProps: true });
     });
     input.addEventListener('change', () => this.ctx.refresh());
-    row.appendChild(input);
-    parent.appendChild(row);
-    return input;
+    wrap.appendChild(input);
+    return { wrap, input };
   }
 
   _text(parent, label, get, set) {
@@ -732,6 +1156,25 @@ export class EditorPanels {
     parent.appendChild(row);
   }
 
+  /** 多个勾选项同行横排(紧凑,如「继承」区) */
+  _checkRow(parent, items) {
+    // items: [{label, get, set}]
+    const row = document.createElement('div');
+    row.className = 'be-prop-row chk-inline';
+    for (const it of items) {
+      const lb = document.createElement('label');
+      lb.className = 'be-chk-item';
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = !!it.get();
+      input.addEventListener('change', () => { this.ctx.beginEdit(it.label); it.set(input.checked); this.ctx.refresh(); });
+      lb.appendChild(input);
+      lb.appendChild(Object.assign(document.createElement('span'), { textContent: it.label }));
+      row.appendChild(lb);
+    }
+    parent.appendChild(row);
+  }
+
   _select(parent, label, options, value, onChange) {
     const row = document.createElement('label');
     row.className = 'be-prop-row';
@@ -758,77 +1201,135 @@ export class EditorPanels {
     return b;
   }
 
-  _renderArmatureProps(el) {
-    const ctx = this.ctx;
-    const p = ctx.project;
-    const b = this._section(el, '骨架属性');
-    this._text(b, '骨架名', () => p.armature.name, (v) => { p.armature.name = v; });
-    this._num(b, '帧率 fps', () => p.frameRate, (v) => { p.frameRate = Math.max(1, Math.round(v)); }, { min: 1, max: 120 });
-    const b2 = this._section(el, '项目');
-    this._text(b2, '项目名', () => p.name, (v) => { p.name = v; });
-    this._num(b2, '骨骼数', () => p.armature.bones.length, () => {}, { ro: true });
-    this._num(b2, '插槽数', () => p.armature.slots.length, () => {}, { ro: true });
-    this._num(b2, '动画数', () => p.armature.animations.length, () => {}, { ro: true });
-    if (p.spine) {
-      const b3 = this._section(el, p.spine.project ? 'Spine 工程(.spine)' : 'Spine 项目');
-      const row = document.createElement('div');
-      row.className = 'be-prop-row';
-      row.innerHTML = `<span class="be-prop-l">版本</span><span style="font-family:var(--mono)">${esc(p.spine.version || '')}</span>`;
-      b3.appendChild(row);
-      if (p.spine.project) {
-        const rowS = document.createElement('div');
-        rowS.className = 'be-prop-row';
-        rowS.innerHTML = `<span class="be-prop-l">来源</span><span title="${esc(p.spine.srcPath || '')}">${esc((p.spine.srcPath || '').replace(/^.*[\\/]/, ''))}</span>`;
-        b3.appendChild(rowS);
-      } else {
-        const skinsSwitch = spineSkinsOf(p).filter((s) => s.name !== 'default');
-        if (skinsSwitch.length >= 2) {
-          // 多套可选皮肤:下拉切换(与层级树「皮肤」分组子节点一致;default 为基础皮肤不计入)
-          this._select(b3, '皮肤', skinsSwitch.map((s) => ({ value: s.name, label: s.name })), p.spine.skin || skinsSwitch[0].name, (v) => ctx.switchSpineSkin?.(v));
-        } else {
-          const row2 = document.createElement('div');
-          row2.className = 'be-prop-row';
-          row2.innerHTML = `<span class="be-prop-l">皮肤</span><span>${esc(p.spine.skin || '')}</span>`;
-          b3.appendChild(row2);
-        }
-        const row3 = document.createElement('div');
-        row3.className = 'be-prop-row';
-        row3.innerHTML = `<span class="be-prop-l">atlas 页</span><span>${(p.spine.pages || []).length} 页 / ${(p.spine.regionNames || []).length} 区块</span>`;
-        b3.appendChild(row3);
-      }
-      const hint = document.createElement('div');
-      hint.className = 'be-z-hint';
-      hint.textContent = p.spine.project
-        ? 'Spine 工程文件(.spine)逆向解码打开:骨骼/插槽/region 附件与 rotate/translate 时间线可编辑;附件切换与事件时间线引用未解析,已跳过;结构增删已锁定;「保存项目」存为 .lbone.json。'
-        : 'Spine 导入项目:网格/IK/变换约束/变形时间线等 Pro 数据无损保留并在导出时回写;结构增删已锁定,可自由编辑变换与关键帧动画。';
-      b3.appendChild(hint);
-    }
-  }
+  // 项目/骨架/Spine 工程参数已移至「文件 ▾ → 设置」窗口(boneEditorPage.openSettings),
+  // 属性面板仅在选中节点时显示对应检查器,不再渲染工程级属性
+  _renderArmatureProps(el) { void el; }
 
   _renderBoneProps(el) {
     const ctx = this.ctx;
     const bone = ctx.project.armature.bones.find((x) => x.name === ctx.selection.name);
     if (!bone) { ctx.select(null, null); return; }
-    const b = this._section(el, `骨骼:${bone.name}`);
+    // ---- 头部:图标 + 着色 + 骨骼名(Spine 4.2 属性面板样式) ----
+    // 图标:显式 bone.icon → 默认形状规则(名称匹配)→ 官方默认位图;着色:iconColorOf 规则
+    const head = document.createElement('div');
+    head.className = 'be-bone-head';
+    const icoBtn = document.createElement('button');
+    const effIcon = bone.icon || defaultIconOf(bone.name, bone, ctx.project.spine && ctx.project.spine.raw) || '';
+    icoBtn.className = 'be-icon-btn' + (bone.icon ? ' has' : '');
+    const defBoneIco = (bone.length || 0) > 0 ? icoBone : icoBoneNull; // 与层级树同款位图选择
+    {
+      icoBtn.innerHTML = effIcon
+        ? boneIconHtml(effIcon, isImgIconKey(effIcon) ? 'be-icon-btn-bone' : 'be-icon-btn-emoji', bone)
+        : `<span class="be-icon-btn-bone" style="background-image:url('${tintedIconDataUrl(defBoneIco, iconColorOf(bone)) || defBoneIco}')"></span>`;
+    }
+    icoBtn.title = '设置骨骼图标(层级树节点显示)';
+    icoBtn.addEventListener('click', () => {
+      openIconPicker(icoBtn, (icon) => {
+        ctx.beginEdit('设置骨骼图标');
+        bone.icon = icon;
+        ctx.refresh(); // 全量刷新:属性面板图标按钮 + 层级树节点图标立即同步
+      });
+    });
+    head.appendChild(icoBtn);
+    // 图标着色:取色器 + 恢复规则色(空 iconColor = 显式色 → Spine 数据色 → 骨骼名色相)
+    const colorInp = document.createElement('input');
+    colorInp.type = 'color';
+    colorInp.className = 'be-icon-color';
+    colorInp.value = cssColorToHex(iconColorOf(bone));
+    colorInp.title = '图标着色(空 = 按规则:Spine 数据色 / 骨骼名色相)';
+    colorInp.addEventListener('input', () => {
+      ctx.beginEdit('设置图标着色');
+      bone.iconColor = colorInp.value;
+      ctx.refresh();
+    });
+    head.appendChild(colorInp);
+    const colorReset = document.createElement('button');
+    colorReset.className = 'be-icon-color-reset';
+    colorReset.textContent = '✕';
+    colorReset.title = '恢复规则着色(Spine 数据色 / 骨骼名色相)';
+    colorReset.addEventListener('click', () => {
+      ctx.beginEdit('重置图标着色');
+      bone.iconColor = '';
+      ctx.refresh();
+    });
+    head.appendChild(colorReset);
+    const nameEl = document.createElement('span');
+    nameEl.className = 'be-bone-head-name';
+    nameEl.textContent = bone.name;
+    nameEl.title = bone.name;
+    head.appendChild(nameEl);
+    el.appendChild(head);
+
+    // ---- 变换参数(扁平紧凑表,标签左 / 值右) ----
+    const b = document.createElement('div');
+    b.className = 'be-prop-flat';
+    el.appendChild(b);
     const parentOpts = [{ value: '', label: '(根)' }, ...ctx.project.armature.bones.filter((x) => x.name !== bone.name).map((x) => ({ value: x.name, label: x.name }))];
     this._select(b, '父骨骼', parentOpts, bone.parent, (v) => ctx.reparentBone(bone.name, v));
-    this._num(b, 'X', () => bone.x, (v) => ctx.editBone(bone.name, { x: v }));
-    this._num(b, 'Y', () => bone.y, (v) => ctx.editBone(bone.name, { y: v }));
-    this._num(b, '旋转°', () => bone.rotation, (v) => ctx.editBone(bone.name, { rotation: v }), { step: 0.5 });
-    this._num(b, '长度', () => bone.length, (v) => { bone.length = Math.max(1, v); }, { min: 1 });
-    this._num(b, '缩放 X', () => bone.scaleX, (v) => ctx.editBone(bone.name, { scaleX: v }), { step: 0.05 });
-    this._num(b, '缩放 Y', () => bone.scaleY, (v) => ctx.editBone(bone.name, { scaleY: v }), { step: 0.05 });
-    const b2 = this._section(el, '继承');
-    this._check(b2, '继承平移', () => bone.inheritTranslation !== false, (v) => { bone.inheritTranslation = v; });
-    this._check(b2, '继承旋转', () => bone.inheritRotation !== false, (v) => { bone.inheritRotation = v; });
-    this._check(b2, '继承缩放', () => bone.inheritScale !== false, (v) => { bone.inheritScale = v; });
-    const b3 = this._section(el, '操作');
-    const bar = document.createElement('div');
-    bar.className = 'be-prop-btns';
-    this._btn(bar, '添加子骨骼', '', () => ctx.addBoneChild(bone.name));
-    this._btn(bar, '添加插槽', '', () => ctx.addSlotTo(bone.name));
-    this._btn(bar, '删除骨骼', 'danger', () => ctx.deleteBone(bone.name));
-    b3.appendChild(bar);
+    this._num2(b, '长度', () => bone.length, (v) => { bone.length = Math.max(1, v); }, '旋转°', () => bone.rotation, (v) => ctx.editBone(bone.name, { rotation: v }), { step: 0.5 });
+    this._num2(b, 'X', () => bone.x, (v) => ctx.editBone(bone.name, { x: v }), 'Y', () => bone.y, (v) => ctx.editBone(bone.name, { y: v }));
+    this._num2(b, '缩放 X', () => bone.scaleX, (v) => ctx.editBone(bone.name, { scaleX: v }), '缩放 Y', () => bone.scaleY, (v) => ctx.editBone(bone.name, { scaleY: v }), { step: 0.05 });
+    this._num2(b, '倾斜 X', () => bone.shearX || 0, (v) => ctx.editBone(bone.name, { shearX: v }), '倾斜 Y', () => bone.shearY || 0, (v) => ctx.editBone(bone.name, { shearY: v }), { step: 0.5 });
+    // 继承行(合并进扁平表):勾选项横排
+    const ihRow = document.createElement('div');
+    ihRow.className = 'be-prop-row';
+    const ihLbl = document.createElement('span');
+    ihLbl.className = 'be-prop-l';
+    ihLbl.textContent = '继承';
+    ihRow.appendChild(ihLbl);
+    const ihBox = document.createElement('div');
+    ihBox.className = 'be-chk-inline-wrap';
+    for (const [lbl, key] of [['平移', 'inheritTranslation'], ['旋转', 'inheritRotation'], ['缩放', 'inheritScale']]) {
+      const lb = document.createElement('label');
+      lb.className = 'be-chk-item';
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = bone[key] !== false;
+      input.addEventListener('change', () => { ctx.beginEdit('继承' + lbl); bone[key] = input.checked; ctx.refresh(); });
+      lb.appendChild(input);
+      lb.appendChild(Object.assign(document.createElement('span'), { textContent: lbl }));
+      ihBox.appendChild(lb);
+    }
+    ihRow.appendChild(ihBox);
+    b.appendChild(ihRow);
+    // 操作行(合并进扁平表):新建菜单 + 删除
+    const opRow = document.createElement('div');
+    opRow.className = 'be-prop-row';
+    const opLbl = document.createElement('span');
+    opLbl.className = 'be-prop-l';
+    opLbl.textContent = '操作';
+    opRow.appendChild(opLbl);
+    const opBar = document.createElement('div');
+    opBar.className = 'be-prop-btns be-prop-opbar';
+    const newBtn = document.createElement('button');
+    newBtn.className = 'btn sm';
+    newBtn.textContent = '新建… ▾';
+    newBtn.title = '新建骨骼 / 插槽 / 附件 / 约束(Spine New 菜单)';
+    newBtn.addEventListener('click', () => {
+      const r = newBtn.getBoundingClientRect();
+      // 未支持项置灰:编辑器模型暂不能创建这些对象(可从 Spine 导入并显示/保留)
+      const soon = '当前版本暂不支持创建(可从 Spine 工程导入)';
+      showContextMenu(r.left, r.bottom + 4, [
+        { label: `🦴 骨骼(子级:${bone.name})`, onClick: () => ctx.addBoneChild(bone.name) },
+        { label: `🖼 插槽(挂到:${bone.name})`, onClick: () => ctx.addSlotTo(bone.name) },
+        { label: '⬡ 皮肤占位符', disabled: true, title: soon },
+        { label: '▭ 边界框', disabled: true, title: soon },
+        { label: '✂ 剪裁', disabled: true, title: soon },
+        { label: '〜 路径', disabled: true, title: soon },
+        { label: '● 端点', disabled: true, title: soon },
+        { label: '🔗 IK 约束', disabled: true, title: soon },
+        { label: '〜 路径约束', disabled: true, title: soon },
+        { label: '⇄ 变换约束', disabled: true, title: soon },
+      ]);
+    });
+    opBar.appendChild(newBtn);
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn sm danger';
+    delBtn.textContent = '删除骨骼';
+    delBtn.addEventListener('click', () => ctx.deleteBone(bone.name));
+    opBar.appendChild(delBtn);
+    opRow.appendChild(opBar);
+    b.appendChild(opRow);
   }
 
   _renderMultiBoneProps(el, names) {
@@ -838,8 +1339,7 @@ export class EditorPanels {
     const b = this._section(el, `已选 ${bones.length} 根骨骼`);
     // 批量编辑:所有选中骨骼应用相同值
     this._num(b, '旋转°', () => '', (v) => { for (const bone of bones) ctx.editBone(bone.name, { rotation: v }); }, { step: 0.5, placeholder: '(批量)' });
-    this._num(b, '缩放 X', () => '', (v) => { for (const bone of bones) ctx.editBone(bone.name, { scaleX: v }); }, { step: 0.05, placeholder: '(批量)' });
-    this._num(b, '缩放 Y', () => '', (v) => { for (const bone of bones) ctx.editBone(bone.name, { scaleY: v }); }, { step: 0.05, placeholder: '(批量)' });
+    this._num2(b, '缩放 X', () => '', (v) => { for (const bone of bones) ctx.editBone(bone.name, { scaleX: v }); }, '缩放 Y', () => '', (v) => { for (const bone of bones) ctx.editBone(bone.name, { scaleY: v }); }, { step: 0.05, placeholder: '(批量)' });
     // 列出选中骨骼名
     const list = this._section(el, '选中列表');
     const ul = document.createElement('div');
@@ -854,8 +1354,83 @@ export class EditorPanels {
     list.appendChild(ul);
   }
 
+  /** 裁剪附件属性面板(Spine Clipping attachment 属性):名称 / 结束插槽 / 顶点数 / 状态 */
+  _renderClippingProps(el, disp, slot, idx) {
+    const ctx = this.ctx;
+    const p = ctx.project;
+    // 头部:裁剪图标 + 名称 + 当前显示标记
+    const head = document.createElement('div');
+    head.className = 'be-disp-title be-attach-head';
+    head.innerHTML = `<span class="be-clip-ico" title="裁剪附件">✂</span><span>${esc(disp.name)}</span><span class="be-disp-tag">${idx === slot.displayIndex ? '当前显示' : ''}</span>`;
+    el.appendChild(head);
+    const flat = document.createElement('div');
+    flat.className = 'be-prop-flat';
+    el.appendChild(flat);
+    // 名称(Spine 导入只读)
+    if (!p.spine) this._text(flat, '名称', () => disp.name, (v) => { disp.name = v; });
+    else {
+      const rn = document.createElement('div');
+      rn.className = 'be-prop-row';
+      rn.innerHTML = `<span class="be-prop-l">名称</span><span>${esc(disp.name)}</span>`;
+      flat.appendChild(rn);
+    }
+    // 结束插槽:裁剪作用范围到此插槽为止(raw.end,导出时原样回写)
+    const endOpts = p.armature.slots.map((s) => ({ value: s.name, label: s.name }));
+    this._select(flat, '结束插槽', endOpts, (disp.raw && disp.raw.end) || '', (v) => {
+      ctx.beginEdit('设置结束插槽');
+      if (disp.raw) disp.raw.end = v;
+      ctx.refresh();
+    });
+    // 顶点数(只读;多边形顶点在舞台以线框显示)
+    const vc = disp.raw && disp.raw.vertexCount;
+    if (vc) {
+      const vr = document.createElement('div');
+      vr.className = 'be-prop-row';
+      vr.innerHTML = `<span class="be-prop-l">顶点数</span><span>${vc}</span>`;
+      flat.appendChild(vr);
+    }
+    // 状态行:当前显示 / 可见
+    const stRow = document.createElement('div');
+    stRow.className = 'be-prop-row';
+    const stLbl = document.createElement('span');
+    stLbl.className = 'be-prop-l';
+    stLbl.textContent = '状态';
+    stRow.appendChild(stLbl);
+    const stBox = document.createElement('div');
+    stBox.className = 'be-chk-inline-wrap';
+    for (const [lbl, get, set] of [
+      ['当前显示', () => idx === slot.displayIndex, (v) => { if (v) { slot.displayIndex = idx; } }],
+      ['可见', () => disp.visible !== false, (v) => { disp.visible = v; }],
+    ]) {
+      const lb = document.createElement('label');
+      lb.className = 'be-chk-item';
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = !!get();
+      input.addEventListener('change', () => { ctx.beginEdit(lbl); set(input.checked); ctx.refresh(); });
+      lb.appendChild(input);
+      lb.appendChild(Object.assign(document.createElement('span'), { textContent: lbl }));
+      stBox.appendChild(lb);
+    }
+    stRow.appendChild(stBox);
+    flat.appendChild(stRow);
+    // 所属插槽 + 操作
+    const slotRow = document.createElement('div');
+    slotRow.className = 'be-prop-row';
+    slotRow.innerHTML = `<span class="be-prop-l">所属插槽</span><span>${esc(slot.name)}@${esc(slot.parent)}</span>`;
+    flat.appendChild(slotRow);
+    const btns = document.createElement('div');
+    btns.className = 'be-prop-btns be-prop-opbar';
+    this._btn(btns, '选中插槽', '', () => ctx.select('slot', slot.name));
+    flat.appendChild(btns);
+    const hint = document.createElement('div');
+    hint.className = 'be-z-hint';
+    hint.textContent = '裁剪附件:多边形区域内的插槽内容被裁剪,作用范围到「结束插槽」为止(含)。';
+    flat.appendChild(hint);
+  }
+
   /** 图片附件属性面板(Spine「图片属性」风格):层级树/显示列表点击具体附件节点时显示,
-   *  展示附件自身的 名称/路径/变换/尺寸,而非所属插槽属性 */
+   *  展示附件自身的 名称/路径/变换/尺寸,而非所属插槽属性;裁剪附件走专属面板 */
   _renderAttachmentProps(el) {
     const ctx = this.ctx;
     const p = ctx.project;
@@ -864,19 +1439,23 @@ export class EditorPanels {
     const idx = ctx.selection.index;
     const disp = slot.displays[idx];
     if (!disp) { ctx.select('slot', slot.name); return; }
+    if (disp.raw && disp.raw.type === 'clipping') { this._renderClippingProps(el, disp, slot, idx); return; }
     const im = p.images.find((x) => x.id === disp.imageId);
-    const b = this._section(el, `图片:${disp.name}`);
     // 头部:缩略图 + 名称(Spine 导入项目条目名用于附件查找,只读;自建项目可改名)
     const head = document.createElement('div');
-    head.className = 'be-disp-title';
+    head.className = 'be-disp-title be-attach-head';
     head.innerHTML = `${im && im.dataUrl ? `<img class="be-disp-thumb" src="${im.dataUrl}" alt="">` : ''}<span>${esc(disp.name)}</span><span class="be-disp-tag">${idx === slot.displayIndex ? '当前显示' : ''}</span>`;
-    b.appendChild(head);
-    if (!p.spine) this._text(b, '名称', () => disp.name, (v) => { disp.name = v; });
+    el.appendChild(head);
+    // ---- 扁平紧凑表(骨骼属性同款排版) ----
+    const flat = document.createElement('div');
+    flat.className = 'be-prop-flat';
+    el.appendChild(flat);
+    if (!p.spine) this._text(flat, '名称', () => disp.name, (v) => { disp.name = v; });
     else {
       const rn = document.createElement('div');
       rn.className = 'be-prop-row';
       rn.innerHTML = `<span class="be-prop-l">名称</span><span>${esc(disp.name)}</span>`;
-      b.appendChild(rn);
+      flat.appendChild(rn);
     }
     // Spine 附件 Path 字段:源图/区块相对路径(如 goblin/head,对应工程 images/goblin/head.png)
     if (p.spine && disp.raw && (disp.raw.path || disp.raw.name)) {
@@ -884,35 +1463,53 @@ export class EditorPanels {
       const pr = document.createElement('div');
       pr.className = 'be-prop-row';
       pr.innerHTML = `<span class="be-prop-l">路径</span><span title="Spine 附件 Path(源图相对路径)">${esc(pv)}</span>`;
-      b.appendChild(pr);
+      flat.appendChild(pr);
     }
-    const b2 = this._section(el, '变换');
+    const imgOpts = p.images.map((m) => ({ value: m.id, label: m.name }));
+    this._select(flat, '源图', imgOpts, disp.imageId, (v) => { disp.imageId = v; });
     const t = disp.transform;
-    this._num(b2, 'X', () => t.x, (v) => { t.x = v; }, { step: 0.5 });
-    this._num(b2, 'Y', () => t.y, (v) => { t.y = v; }, { step: 0.5 });
-    this._num(b2, '旋转°', () => t.rotation, (v) => { t.rotation = v; }, { step: 0.5 });
-    this._num(b2, '缩放 X', () => t.scaleX, (v) => { t.scaleX = v; }, { step: 0.05 });
-    this._num(b2, '缩放 Y', () => t.scaleY, (v) => { t.scaleY = v; }, { step: 0.05 });
+    this._num2(flat, 'X', () => t.x, (v) => { t.x = v; }, 'Y', () => t.y, (v) => { t.y = v; }, { step: 0.5 });
+    this._num(flat, '旋转°', () => t.rotation, (v) => { t.rotation = v; }, { step: 0.5 });
+    this._num2(flat, '缩放 X', () => t.scaleX, (v) => { t.scaleX = v; }, '缩放 Y', () => t.scaleY, (v) => { t.scaleY = v; }, { step: 0.05 });
+    const slotRow = document.createElement('div');
+    slotRow.className = 'be-prop-row';
+    slotRow.innerHTML = `<span class="be-prop-l">所属插槽</span><span>${esc(slot.name)}@${esc(slot.parent)}</span>`;
+    flat.appendChild(slotRow);
+    // 状态行:当前显示 / 可见(勾选横排)
+    const stRow = document.createElement('div');
+    stRow.className = 'be-prop-row';
+    const stLbl = document.createElement('span');
+    stLbl.className = 'be-prop-l';
+    stLbl.textContent = '状态';
+    stRow.appendChild(stLbl);
+    const stBox = document.createElement('div');
+    stBox.className = 'be-chk-inline-wrap';
+    for (const [lbl, get, set] of [
+      ['当前显示', () => idx === slot.displayIndex, (v) => { if (v) { slot.displayIndex = idx; } }],
+      ['可见', () => disp.visible !== false, (v) => { disp.visible = v; }],
+    ]) {
+      const lb = document.createElement('label');
+      lb.className = 'be-chk-item';
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = !!get();
+      input.addEventListener('change', () => { ctx.beginEdit(lbl); set(input.checked); ctx.refresh(); });
+      lb.appendChild(input);
+      lb.appendChild(Object.assign(document.createElement('span'), { textContent: lbl }));
+      stBox.appendChild(lb);
+    }
+    stRow.appendChild(stBox);
+    flat.appendChild(stRow);
     if (p.spine) {
       const hint = document.createElement('div');
       hint.className = 'be-z-hint';
       hint.textContent = 'Spine 运行时渲染时附件位置由原始数据驱动,此处变换用于近似渲染与自建项目。';
-      b2.appendChild(hint);
+      flat.appendChild(hint);
     }
-    const b3 = this._section(el, '图片');
-    const imgOpts = p.images.map((m) => ({ value: m.id, label: m.name }));
-    this._select(b3, '源图', imgOpts, disp.imageId, (v) => { disp.imageId = v; });
-    const b4 = this._section(el, '归属');
-    const slotRow = document.createElement('div');
-    slotRow.className = 'be-prop-row';
-    slotRow.innerHTML = `<span class="be-prop-l">所属插槽</span><span>${esc(slot.name)}@${esc(slot.parent)}</span>`;
-    b4.appendChild(slotRow);
-    this._check(b4, '当前显示', () => idx === slot.displayIndex, (v) => { if (v) { slot.displayIndex = idx; } });
-    this._check(b4, '可见', () => disp.visible !== false, (v) => { disp.visible = v; });
     const btns = document.createElement('div');
-    btns.className = 'be-prop-btns';
+    btns.className = 'be-prop-btns be-prop-opbar';
     this._btn(btns, '选中插槽', '', () => ctx.select('slot', slot.name));
-    b4.appendChild(btns);
+    flat.appendChild(btns);
   }
 
   _renderSlotProps(el) {
@@ -920,20 +1517,39 @@ export class EditorPanels {
     const slot = ctx.project.armature.slots.find((s) => s.name === ctx.selection.name);
     if (!slot) { ctx.select(null, null); return; }
     const boneOpts = ctx.project.armature.bones.map((b) => ({ value: b.name, label: b.name }));
-    const b = this._section(el, `插槽:${slot.name}`);
-    this._text(b, '名称', () => slot.name, (v) => ctx.renameSlot(slot.name, v));
-    this._select(b, '所属骨骼', boneOpts, slot.parent, (v) => { slot.parent = v; });
-    this._num(b, '显示索引', () => slot.displayIndex, (v) => { slot.displayIndex = Math.max(0, Math.min(slot.displays.length - 1, Math.round(v))); }, { min: 0 });
-    this._check(b, '可见', () => slot.visible !== false, (v) => { slot.visible = v; });
+    // ---- 扁平紧凑表(骨骼属性同款排版) ----
+    const flat = document.createElement('div');
+    flat.className = 'be-prop-flat';
+    el.appendChild(flat);
+    this._text(flat, '名称', () => slot.name, (v) => ctx.renameSlot(slot.name, v));
+    this._select(flat, '所属骨骼', boneOpts, slot.parent, (v) => { slot.parent = v; });
+    // 显示索引 + 可见 同行
+    const ixRow = document.createElement('div');
+    ixRow.className = 'be-prop-row pair';
+    ixRow.appendChild(this._numCtl('显示索引', () => slot.displayIndex, (v) => { slot.displayIndex = Math.max(0, Math.min(slot.displays.length - 1, Math.round(v))); }, { min: 0 }).wrap);
+    const visWrap = document.createElement('label');
+    visWrap.className = 'be-chk-item';
+    const visInp = document.createElement('input');
+    visInp.type = 'checkbox';
+    visInp.checked = slot.visible !== false;
+    visInp.addEventListener('change', () => { ctx.beginEdit('可见'); slot.visible = visInp.checked; ctx.refresh(); });
+    visWrap.appendChild(visInp);
+    visWrap.appendChild(Object.assign(document.createElement('span'), { textContent: '可见' }));
+    ixRow.appendChild(visWrap);
+    flat.appendChild(ixRow);
+    // 颜色:R|G、B|透明度 + 原生取色器
     const c = slot.color;
-    const b2 = this._section(el, '颜色');
-    this._num(b2, 'R', () => c.r, (v) => { c.r = v; }, { min: 0, max: 255 });
-    this._num(b2, 'G', () => c.g, (v) => { c.g = v; }, { min: 0, max: 255 });
-    this._num(b2, 'B', () => c.b, (v) => { c.b = v; }, { min: 0, max: 255 });
-    this._num(b2, '透明度', () => c.a, (v) => { c.a = Math.max(0, Math.min(1, v)); }, { step: 0.05, min: 0, max: 1 });
-    // 原生取色器
+    this._num2(flat, 'R', () => c.r, (v) => { c.r = v; }, 'G', () => c.g, (v) => { c.g = v; }, { min: 0, max: 255 });
+    this._num2(flat, 'B', () => c.b, (v) => { c.b = v; }, '透明度', () => c.a, (v) => { c.a = Math.max(0, Math.min(1, v)); }, { step: 0.05, min: 0, max: 1 });
+    const pkRow = document.createElement('div');
+    pkRow.className = 'be-prop-row';
+    const pkLbl = document.createElement('span');
+    pkLbl.className = 'be-prop-l';
+    pkLbl.textContent = '取色';
+    pkRow.appendChild(pkLbl);
     const pick = document.createElement('input');
     pick.type = 'color';
+    pick.className = 'be-prop-color';
     pick.value = '#' + [c.r, c.g, c.b].map((x) => Math.round(x).toString(16).padStart(2, '0')).join('');
     pick.addEventListener('input', () => {
       const hex = pick.value.slice(1);
@@ -941,9 +1557,10 @@ export class EditorPanels {
       c.r = parseInt(hex.slice(0, 2), 16); c.g = parseInt(hex.slice(2, 4), 16); c.b = parseInt(hex.slice(4, 6), 16);
       this.ctx.refresh({ skipProps: false });
     });
-    b2.appendChild(pick);
+    pkRow.appendChild(pick);
+    flat.appendChild(pkRow);
 
-    // 显示对象列表
+    // 显示对象列表(卡片列表,保留分组)
     const b3 = this._section(el, `显示对象(${slot.displays.length})`);
     slot.displays.forEach((disp, idx) => {
       const box = document.createElement('div');
@@ -967,13 +1584,10 @@ export class EditorPanels {
         box.appendChild(pr);
       }
       const t = disp.transform;
-      this._num(box, 'X', () => t.x, (v) => { t.x = v; }, { step: 0.5 });
-      this._num(box, 'Y', () => t.y, (v) => { t.y = v; }, { step: 0.5 });
+      this._num2(box, 'X', () => t.x, (v) => { t.x = v; }, 'Y', () => t.y, (v) => { t.y = v; }, { step: 0.5 });
       this._num(box, '旋转°', () => t.rotation, (v) => { t.rotation = v; }, { step: 0.5 });
-      this._num(box, '缩放 X', () => t.scaleX, (v) => { t.scaleX = v; }, { step: 0.05 });
-      this._num(box, '缩放 Y', () => t.scaleY, (v) => { t.scaleY = v; }, { step: 0.05 });
-      this._num(box, '轴心 X', () => disp.pivot.x, (v) => { disp.pivot.x = Math.max(0, Math.min(1, v)); }, { step: 0.05, min: 0, max: 1 });
-      this._num(box, '轴心 Y', () => disp.pivot.y, (v) => { disp.pivot.y = Math.max(0, Math.min(1, v)); }, { step: 0.05, min: 0, max: 1 });
+      this._num2(box, '缩放 X', () => t.scaleX, (v) => { t.scaleX = v; }, '缩放 Y', () => t.scaleY, (v) => { t.scaleY = v; }, { step: 0.05 });
+      this._num2(box, '轴心 X', () => disp.pivot.x, (v) => { disp.pivot.x = Math.max(0, Math.min(1, v)); }, '轴心 Y', () => disp.pivot.y, (v) => { disp.pivot.y = Math.max(0, Math.min(1, v)); }, { step: 0.05, min: 0, max: 1 });
       const del = document.createElement('button');
       del.className = 'btn sm danger';
       del.textContent = '删除显示对象';
