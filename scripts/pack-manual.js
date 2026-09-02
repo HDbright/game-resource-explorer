@@ -2,8 +2,15 @@
 /**
  * 手工打包「游戏资源管理器」便携版(替代 electron-builder,规避 Defender 锁文件 EBUSY)。
  *
- * 关键策略:【不做任何删除】—— safe-delete shim 会拦截 rmSync/rm,导致打包中断。
+ * 关键策略:【核心流程不做任何删除】—— safe-delete shim 会拦截 rmSync/rm,导致打包中断。
  * 全部使用 fs.copyFileSync 覆盖写入(记忆经验:覆盖写成功)。
+ *
+ * 收尾清理:zip 打包成功后调用 cleanupTempArtifacts() 清理本轮及历史遗留的临时产物
+ *   (release/_staging_*、release/_app_*.asar、app/*_tmp.exe、release/_data_backup_*,
+ *    以及除最近 1 份外的 app/游戏资源管理器_old_*.exe)。
+ *   ⚠️ 清理**全程容错**:任一项目失败只告警不中断打包。原因——AI 环境下 safe-delete shim
+ *   必然拦截 rmSync(降级为「不清理」,与旧行为一致);用户本地直接运行本脚本时则正常生效。
+ *   可用环境变量 PACK_KEEP_TEMP=1 完全跳过清理。
  *
  * 步骤:
  *  1. 复制 node_modules/electron/dist → release/app(逐文件覆盖)
@@ -12,6 +19,7 @@
  *  4. 复制 samples → resources/samples(覆盖)
  *  5. rcedit 注入图标(ASCII 临时名)+ 重命名为「游戏资源管理器.exe」
  *  6. python zipfile 打便携版 zip(排除 data 用户数据)
+ *  7. 清理临时产物(容错,失败仅告警)
  */
 const fs = require('fs');
 const path = require('path');
@@ -91,6 +99,113 @@ function copyNodeModules(staging) {
     copyDir(src, path.join(staging, 'node_modules', rel));
   }
   console.log('主进程依赖已复制:', pkgPaths.length, '个包 ->', path.join(staging, 'node_modules'));
+}
+
+/** 删除被「安全护栏/回收站不可用」拦截时的错误特征(此类失败重试无意义,应立即中止整个清理) */
+const BLOCKED_RE = /safe-delete|SAFE_DELETE|trash-failed|fail-closed|EPERM/i;
+
+/**
+ * 删除文件/目录,失败重试(Defender 会瞬时锁定刚写入的大文件 → EBUSY)。
+ * @returns {{ok:boolean, blocked?:boolean, msg?:string}}
+ *   ok      删除成功(不存在也算成功)
+ *   blocked 被安全护栏拦截(不可重试,调用方应立即中止后续清理,避免逐项空等)
+ *   其它     常规失败(如 EBUSY),可重试
+ */
+function removeRetry(target, tries = 3, delay = 1200) {
+  let lastMsg = '';
+  for (let i = 1; ; i++) {
+    try {
+      fs.rmSync(target, { recursive: true, force: true, maxRetries: 2, retryDelay: 400 });
+      return { ok: true };
+    } catch (err) {
+      lastMsg = String((err && err.message) || err || '');
+      if (BLOCKED_RE.test(lastMsg)) return { ok: false, blocked: true, msg: lastMsg };
+      if (i >= tries) return { ok: false, msg: lastMsg };
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, delay);
+    }
+  }
+}
+
+/**
+ * 清理打包临时产物(在 zip 成功之后调用,确保不再需要)。
+ *
+ * 清理范围:
+ *  - release/_staging_*        : asar 组装临时目录(含本轮,~29MB/份,数百文件)
+ *  - release/_app_*.asar       : asar 中间产物(含本轮,~29MB/份,已复制进 resources/app.asar)
+ *  - release/_data_backup_*    : 冒烟测试的用户数据备份(已覆盖写回,可弃)
+ *  - app/*_tmp.exe、*.locked  : rcedit 用的 ASCII 临时 exe(已改名落位为正式 exe)
+ *  - app/游戏资源管理器_old_*.exe: 仅保留最近 1 份作回滚,其余清除(~216MB/份)
+ *
+ * ⚠️ 绝不触碰:release/app/(运行目录)、resources/app.asar、正式 exe、便携版 zip、data/ 用户数据。
+ * ⚠️ 全程容错:失败只告警。AI 环境被 safe-delete shim 拦截属预期降级;本地直接运行则正常清理。
+ */
+function cleanupTempArtifacts(releaseDir, appDir) {
+  if (process.env.PACK_KEEP_TEMP === '1') {
+    console.log('[pack] PACK_KEEP_TEMP=1 → 跳过临时产物清理');
+    return;
+  }
+
+  const targets = [];
+  const listDir = (dir) => {
+    try { return fs.readdirSync(dir, { withFileTypes: true }); } catch (err) { return []; }
+  };
+
+  // release/ 根:staging 目录、中间 asar、冒烟数据备份
+  for (const ent of listDir(releaseDir)) {
+    const n = ent.name;
+    const isStaging = n.startsWith('_staging_');
+    const isTmpAsar = n.startsWith('_app_') && n.endsWith('.asar');
+    const isDataBackup = n.startsWith('_data_backup_');
+    if (isStaging || isTmpAsar || isDataBackup) targets.push(path.join(releaseDir, n));
+  }
+
+  // app/ 目录:rcedit 临时 exe + 旧版 exe(保留最近 1 份回滚)
+  const oldExes = [];
+  for (const ent of listDir(appDir)) {
+    if (!ent.isFile()) continue;
+    const n = ent.name;
+    if (n.endsWith('_tmp.exe') || n.endsWith('.locked')) {
+      targets.push(path.join(appDir, n));
+    } else if (n.startsWith(`${APP_NAME}_old_`) && n.endsWith('.exe')) {
+      oldExes.push(path.join(appDir, n));
+    }
+  }
+  // 按修改时间倒序(最新在前),保留第 1 份,其余清理
+  oldExes.sort((a, b) => {
+    try { return fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs; } catch (err) { return 0; }
+  });
+  targets.push(...oldExes.slice(1));
+
+  if (!targets.length) {
+    console.log('[pack] 临时产物清理:无待清理项');
+    return;
+  }
+
+  let removed = 0;
+  let skipped = 0; // 因拦截而放弃的剩余项
+  const failed = [];
+  for (const t of targets) {
+    const r = removeRetry(t);
+    if (r.ok) { removed++; continue; }
+    if (r.blocked) {
+      // 被安全护栏拦截:后续项必然同样失败,立即中止,避免逐项空等
+      skipped = targets.length - removed;
+      console.warn('[pack] 删除被安全护栏/回收站拦截,跳过剩余清理:', String(r.msg).split('\n')[0]);
+      break;
+    }
+    failed.push(t);
+  }
+
+  console.log(`[pack] 临时产物清理:成功 ${removed}/${targets.length} 项` +
+    (oldExes.length ? `,保留最近 1 份旧 exe 作回滚(${path.basename(oldExes[0])})` : ''));
+  if (failed.length) {
+    console.warn(`[pack] ${failed.length} 项清理失败(不影响打包):`);
+    for (const f of failed.slice(0, 5)) console.warn('  - ' + f);
+    if (failed.length > 5) console.warn(`  ... 其余 ${failed.length - 5} 项`);
+  }
+  if (skipped) {
+    console.warn(`[pack] 共 ${skipped} 项未清理,请在资源管理器中手动删除 release/ 下的 _app_*.asar 与 _staging_*`);
+  }
 }
 
 async function main() {
@@ -236,9 +351,18 @@ async function main() {
   run(`"${py}" -c "import zipfile,os; root=r'${appDir}'.replace('\\\\','/'); out=r'${zipPath}'.replace('\\\\','/'); zf=zipfile.ZipFile(out,'w',zipfile.ZIP_DEFLATED); [zf.write(os.path.join(r,f), os.path.relpath(os.path.join(r,f), os.path.dirname(root))) for r,dirs,files in os.walk(root) if not (os.path.basename(r)=='data') for f in files if not f.endswith('_tmp.exe') and f != 'electron.exe' and '.locked' not in f and not f.endswith('.locked') and not f.startswith('游戏资源管理器_old')]; zf.close(); print('zip done')"`);
 
   console.log('打包完成:', zipPath);
+
+  // 7. 清理临时产物(zip 已成功生成,本轮 staging/asar/tmp exe 均不再需要)。
+  //    容错设计:清理失败只告警,绝不影响已完成的打包产物。
+  cleanupTempArtifacts(releaseDir, appDir);
 }
 
-main().catch((err) => {
-  console.error('打包失败:', err);
-  process.exit(1);
-});
+// 仅直接执行时运行打包;被 require 时只导出函数(便于单元测试清理逻辑,不触发整轮打包)
+if (require.main === module) {
+  main().catch((err) => {
+    console.error('打包失败:', err);
+    process.exit(1);
+  });
+}
+
+module.exports = { cleanupTempArtifacts, removeRetry, copyDir, copyFileRetry };
