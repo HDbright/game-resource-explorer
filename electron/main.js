@@ -798,22 +798,27 @@ function createTray() {
   if (tray && !tray.isDestroyed()) return;
   trayBaseIcon = loadTrayIcon();
   tray = new Tray(trayBaseIcon);
-  tray.setToolTip('游戏资源管理器');
+  tray.setToolTip('游戏资源管理器（单击唤回主窗 / 双击秒表）');
   tray.setContextMenu(buildTrayMenu());
   // 有启用闹钟 → 立即叠加小时钟角标(补丁·99)
   refreshTrayAlarm();
-  // 左键单击(250ms 防抖)→ 打开秒表悬浮窗; 双击 → 唤回主程序窗口。
+  // 左键单击(250ms 防抖)→ 优先还原"正在计时的最小化计时窗"(秒表/倒计时/闹钟),
+  // 没有可还原的才唤回主程序窗口; 双击 → 打开秒表悬浮窗(补丁·187)。
   // Windows 触发顺序: click → click → double-click, 用 250ms 定时器在 click 时延迟动作,
   // 若 250ms 内再来 click 或 double-click 则取消定时器,避免双击时把秒表打开两次再唤主窗。
   tray.on('click', () => {
     clearTimeout(trayClickTimer);
     trayClickTimer = setTimeout(() => {
-      try { timerWindows.openStopwatch(); } catch (e) { console.error('tray click → stopwatch', e); }
+      try {
+        const n = timerWindows.restoreMinimizedTimers();
+        if (n > 0) { trayLog('[tray] 单击 → 还原最小化计时窗 ×' + n); return; }
+        showMainWindow();
+      } catch (e) { console.error('tray click', e); }
     }, 250);
   });
   tray.on('double-click', () => {
     clearTimeout(trayClickTimer);
-    showMainWindow();
+    try { timerWindows.openStopwatch(); } catch (e) { console.error('tray double-click → stopwatch', e); }
   });
   // 右键: 部分 Windows 主题不自动弹 menu(尤其已设置 contextMenu 后), 显式重建并弹出以保一致
   tray.on('right-click', () => {

@@ -128,9 +128,13 @@
   }
   function tick() { render(); if (state.running) state.raf = requestAnimationFrame(tick); }
 
+  // 补丁·187: 上报运行态给主进程(托盘单击据此判断是否还原最小化窗口)
+  function reportRunning() { try { api.reportRunning(state.running); } catch (e) { /* ignore */ } }
+
   function start() {
     if (state.running) return;
     state.running = true;
+    reportRunning();
     state.startedAt = performance.now();
     $btnStart.textContent = '⏸';
     $btnStart.title = '暂停';
@@ -144,6 +148,7 @@
     if (!state.running) return;
     state.elapsed += performance.now() - state.startedAt;
     state.running = false;
+    reportRunning();
     cancelAnimationFrame(state.raf);
     $btnStart.textContent = '▶';
     $btnStart.title = '开始';
@@ -151,6 +156,7 @@
   }
   function reset() {
     state.running = false;
+    reportRunning();
     state.elapsed = 0; state.startedAt = 0; state.laps = [];
     cancelAnimationFrame(state.raf);
     $btnStart.textContent = '▶';

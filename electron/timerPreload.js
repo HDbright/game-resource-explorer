@@ -16,6 +16,9 @@ contextBridge.exposeInMainWorld('timerApi', {
   close: () => ipcRenderer.send('timer:close'),
   toggleMax: () => ipcRenderer.send('timer:toggleMax'),
   setTop: (on) => ipcRenderer.send('timer:setTop', !!on),
+  // 补丁·187: 向主进程上报本窗口"是否正在计时"(秒表/倒计时的运行态)。
+  // 主进程据此判断托盘左键单击该"还原最小化计时窗"还是"唤回主窗口"。
+  reportRunning: (on) => ipcRenderer.send('timer:runningState', !!on),
   onInit: (cb) => ipcRenderer.on('timer:init', (_e, d) => { try { cb(d || {}); } catch (err) { /* ignore */ } }),
   onMaxState: (cb) => ipcRenderer.on('timer:maxState', (_e, d) => { try { cb(d || {}); } catch (err) { /* ignore */ } }),
 

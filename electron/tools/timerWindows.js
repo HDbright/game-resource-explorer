@@ -22,6 +22,70 @@ let alarmChangeCb = null; // 闹钟状态变化回调(托盘图标叠加小时�
 let alarmPopupWin = null; // 右下角循环响铃弹窗(补丁·102)
 let snoozeJobs = [];      // 延迟提醒队列 { id, fireAtSec, payload }(补丁·102)
 
+// ---- 补丁·187: 托盘左键单击 —— 优先还原"正在计时的最小化计时窗" ----
+// win -> { kind, running }。运行态由渲染端通过 timer:runningState 上报,
+// 主进程只暂存镜像, 不参与计时逻辑(单一数据源仍在渲染端, 避免双份状态打架)。
+const runState = new WeakMap();
+
+/** 标记计时窗口类型(stopwatch / countdown / alarm), 供运行态上报与托盘还原识别 */
+function markTimerWindow(win, kind) {
+  try {
+    win._timerKind = kind;
+    runState.set(win, { kind, running: false });
+  } catch (e) { /* ignore */ }
+  return win;
+}
+
+/**
+ * 该计时窗口是否处于"正在计时":
+ *  - 秒表 / 倒计时: 以渲染端上报的 running 为准;
+ *  - 闹钟: 没有运行态概念,存在"已启用"的闹钟即视为在值守(等价于正在等响铃)。
+ */
+function isTimerActive(win) {
+  if (!win || win.isDestroyed()) return false;
+  if (win._timerKind === 'alarm') {
+    try { return dbAlarms().some((a) => a && a.enabled); } catch (e) { return false; }
+  }
+  const st = runState.get(win);
+  return !!(st && st.running);
+}
+
+/** 显示计时窗口并标记为"曾经显示过"(未显示过的窗口不算被最小化, 避免刚创建时误判) */
+function showTimerWindow(win) {
+  if (!win || win.isDestroyed()) return;
+  try { win.show(); win._trayEverShown = true; } catch (e) { /* ignore */ }
+}
+
+/** 收集"正在计时且被最小化/隐藏"的计时窗口, 返回 [{ win, kind }] */
+function collectMinimizedActiveTimers() {
+  const out = [];
+  const check = (win) => {
+    if (!win || win.isDestroyed()) return;
+    let hidden;
+    try { hidden = win.isMinimized() || (win._trayEverShown && !win.isVisible()); } catch (e) { return; }
+    if (!hidden || !isTimerActive(win)) return;
+    out.push({ win, kind: win._timerKind });
+  };
+  for (const w of stopwatchWins) check(w);
+  for (const w of countdownWins) check(w);
+  check(alarmWin);
+  return out;
+}
+
+/** 还原全部被最小化的"正在计时"窗口, 返回还原数量(0 = 没有可还原的) */
+function restoreMinimizedTimers() {
+  const list = collectMinimizedActiveTimers();
+  for (const { win } of list) {
+    try {
+      if (win.isMinimized()) win.restore();
+      if (!win.isVisible()) showTimerWindow(win);
+      win.moveTop();
+      win.focus();
+    } catch (e) { /* ignore */ }
+  }
+  return list.length;
+}
+
 /** 注册闹钟状态变化监听(有启用闹钟时托盘图标叠加小时钟) */
 function setAlarmChangeListener(cb) { alarmChangeCb = cb; }
 function notifyAlarmChanged() {
@@ -125,7 +189,7 @@ function bindMaxState(win) {
 }
 
 function createWindowBase({ width, height, minWidth, minHeight, title, x, y }) {
-  return new BrowserWindow({
+  const win = new BrowserWindow({
     width, height, minWidth, minHeight, x, y,
     title,
     backgroundColor: '#17181d',
@@ -142,6 +206,8 @@ function createWindowBase({ width, height, minWidth, minHeight, title, x, y }) {
       autoplayPolicy: 'no-user-gesture-required', // 补丁·103: 闹钟/倒计时响铃必须能自动播放
     },
   });
+  win._trayEverShown = false; // 补丁·187: 区分"被最小化"与"还没来得及显示"
+  return win;
 }
 
 function clampToDisplay(win, x, y, w, h) {
@@ -161,7 +227,7 @@ function openStopwatch({ force } = {}) {
   if (!force && stopwatchWins.length) {
     const w0 = stopwatchWins.find((w) => w && !w.isDestroyed());
     if (w0) {
-      try { w0.show(); w0.moveTop(); w0.focus(); } catch (e) { /* ignore */ }
+      try { showTimerWindow(w0); w0.moveTop(); w0.focus(); } catch (e) { /* ignore */ }
       return w0;
     }
   }
@@ -178,7 +244,10 @@ function openStopwatch({ force } = {}) {
     x = wa.x + wa.width - w - 24 - cascade * 24;
     y = wa.y + wa.height - h - 24 - cascade * 24;
   }
-  const win = createWindowBase({ width: w, height: h, minWidth: 216, minHeight: 190, title: '秒表', x, y });
+  const win = markTimerWindow(
+    createWindowBase({ width: w, height: h, minWidth: 216, minHeight: 190, title: '秒表', x, y }),
+    'stopwatch'
+  );
   clampToDisplay(win, win.getBounds().x, win.getBounds().y, w, h);
   bindMaxState(win);
   win.setMenuBarVisibility(false);
@@ -187,7 +256,7 @@ function openStopwatch({ force } = {}) {
   win.loadFile(path.join(__dirname, '..', '..', 'dist', 'stopwatch.html'));
   win.once('ready-to-show', () => {
     if (!win || win.isDestroyed()) return;
-    try { win.show(); } catch (e) { /* ignore */ }
+    showTimerWindow(win);
     try { win.webContents.send('timer:init', { mode: 'stopwatch' }); } catch (e) { /* ignore */ }
   });
   let saveT = null;
@@ -217,14 +286,17 @@ function openCountdown({ seconds, title, focusInput } = {}) {
   const offset = (countdownWins.length % 8) * 24;
   const x = wa.x + wa.width - w - 24 - offset;
   const y = wa.y + wa.height - h - 24 - offset;
-  const win = createWindowBase({ width: w, height: h, minWidth: 248, minHeight: 210, title: title || '倒计时', x, y });
+  const win = markTimerWindow(
+    createWindowBase({ width: w, height: h, minWidth: 248, minHeight: 210, title: title || '倒计时', x, y }),
+    'countdown'
+  );
   bindMaxState(win);
   win.setMenuBarVisibility(false);
   countdownWins.push(win);
   win.loadFile(path.join(__dirname, '..', '..', 'dist', 'countdown.html'));
   win.once('ready-to-show', () => {
     if (!win || win.isDestroyed()) return;
-    try { win.show(); } catch (e) { /* ignore */ }
+    showTimerWindow(win);
     try { win.webContents.send('timer:init', { mode: 'countdown', duration: sec, title: title || undefined, focusInput: !!focusInput }); } catch (e) { /* ignore */ }
   });
   win.on('closed', () => {
@@ -256,7 +328,7 @@ function closeAll() {
 /** 创建计时管理窗口(单例: 记录列表 CRUD + 类型管理 + 统计) */
 function openManager() {
   if (managerWin && !managerWin.isDestroyed()) {
-    try { managerWin.show(); managerWin.moveTop(); managerWin.focus(); } catch (e) { /* ignore */ }
+    try { showTimerWindow(managerWin); managerWin.moveTop(); managerWin.focus(); } catch (e) { /* ignore */ }
     return managerWin;
   }
   ensureDefaultTypes();
@@ -264,13 +336,16 @@ function openManager() {
   const wa = screen.getPrimaryDisplay().workArea;
   const x = wa.x + wa.width - w - 24;
   const y = wa.y + wa.height - h - 24;
-  managerWin = createWindowBase({ width: w, height: h, minWidth: 620, minHeight: 420, title: '计时管理', x, y });
+  managerWin = markTimerWindow(
+    createWindowBase({ width: w, height: h, minWidth: 620, minHeight: 420, title: '计时管理', x, y }),
+    'manager'
+  );
   bindMaxState(managerWin);
   managerWin.setMenuBarVisibility(false);
   managerWin.loadFile(path.join(__dirname, '..', '..', 'dist', 'time-manager.html'));
   managerWin.once('ready-to-show', () => {
     if (!managerWin || managerWin.isDestroyed()) return;
-    try { managerWin.show(); } catch (e) { /* ignore */ }
+    showTimerWindow(managerWin);
   });
   managerWin.on('closed', () => { managerWin = null; });
   return managerWin;
@@ -279,20 +354,23 @@ function openManager() {
 /** 创建闹钟窗口(单例, 补丁·98) */
 function openAlarm() {
   if (alarmWin && !alarmWin.isDestroyed()) {
-    try { alarmWin.show(); alarmWin.moveTop(); alarmWin.focus(); } catch (e) { /* ignore */ }
+    try { showTimerWindow(alarmWin); alarmWin.moveTop(); alarmWin.focus(); } catch (e) { /* ignore */ }
     return alarmWin;
   }
   const w = 340, h = 420;
   const wa = screen.getPrimaryDisplay().workArea;
   const x = wa.x + wa.width - w - 24;
   const y = wa.y + wa.height - h - 24;
-  alarmWin = createWindowBase({ width: w, height: h, minWidth: 300, minHeight: 320, title: '闹钟', x, y });
+  alarmWin = markTimerWindow(
+    createWindowBase({ width: w, height: h, minWidth: 300, minHeight: 320, title: '闹钟', x, y }),
+    'alarm'
+  );
   bindMaxState(alarmWin);
   alarmWin.setMenuBarVisibility(false);
   alarmWin.loadFile(path.join(__dirname, '..', '..', 'dist', 'alarm.html'));
   alarmWin.once('ready-to-show', () => {
     if (!alarmWin || alarmWin.isDestroyed()) return;
-    try { alarmWin.show(); } catch (e) { /* ignore */ }
+    showTimerWindow(alarmWin);
   });
   alarmWin.on('closed', () => { alarmWin = null; });
   return alarmWin;
@@ -489,6 +567,16 @@ function initIpc() {
   ipcMain.on('timer:setTop', (e, on) => {
     try { const w = BrowserWindow.fromWebContents(e.sender); if (w) w.setAlwaysOnTop(!!on); } catch (err) { /* ignore */ }
   });
+  // 补丁·187: 渲染端上报"是否正在计时"(秒表/倒计时的 start/pause/reset/结束各调用一次)
+  ipcMain.on('timer:runningState', (e, on) => {
+    try {
+      const w = BrowserWindow.fromWebContents(e.sender);
+      if (!w) return;
+      const st = runState.get(w) || { kind: w._timerKind, running: false };
+      st.running = !!on;
+      runState.set(w, st);
+    } catch (err) { /* ignore */ }
+  });
   ipcMain.on('timer:openManager', () => {
     try { openManager(); } catch (e) { console.error('openManager', e); }
   });
@@ -591,4 +679,8 @@ function initIpc() {
   startAlarmScheduler();
 }
 
-module.exports = { openStopwatch, openCountdown, openManager, openAlarm, closeAll, initIpc, setAlarmChangeListener };
+module.exports = {
+  openStopwatch, openCountdown, openManager, openAlarm, closeAll, initIpc, setAlarmChangeListener,
+  // 补丁·187: 托盘左键单击 —— 有正在计时的最小化计时窗时优先还原, 否则唤回主窗口
+  restoreMinimizedTimers, collectMinimizedActiveTimers,
+};

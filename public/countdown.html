@@ -316,10 +316,14 @@
     renderTitle(); renderTime();
   }
 
+  // 补丁·187: 上报运行态给主进程(托盘单击据此判断是否还原最小化窗口)
+  function reportRunning() { try { api.reportRunning(st.running); } catch (e) { /* ignore */ } }
+
   function start() {
     if (st.finished) reset(false);
     if (st.remain <= 0) return;
     st.running = true;
+    reportRunning();
     st.endAt = Date.now() + st.remain * 1000;
     if (!st.startWallAt) st.startWallAt = Math.floor(Date.now() / 1000);
     $btnStart.textContent = '⏸';
@@ -333,6 +337,7 @@
     if (!st.running) return;
     st.remain = Math.max(0, Math.round((st.endAt - Date.now()) / 1000));
     st.running = false;
+    reportRunning();
     clearInterval(st.timer);
     $btnStart.textContent = '▶';
     $btnStart.title = '开始';
@@ -341,6 +346,7 @@
   function reset(clearRunning) {
     if (clearRunning !== false) {
       st.running = false;
+      reportRunning();
       clearInterval(st.timer);
     }
     st.remain = st.total;
@@ -363,6 +369,7 @@
       if (left <= 0) {
         clearInterval(st.timer);
         st.running = false;
+        reportRunning(); // 补丁·187: 走完就不再算"正在计时"
         st.finished = true;
         $btnStart.textContent = '▶';
         $time.classList.add('done');
