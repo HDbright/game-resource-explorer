@@ -12,7 +12,7 @@ import {
 } from '../state.js';
 import { openModal, footButtons, confirmDialog, promptDialog, toast } from '../dialogs.js';
 
-// 实时运行状态缓存(不落库):projectId -> {all, frontend, backend, procs}
+// 实时运行状态缓存(不落库):projectId -> {all, frontend, backend, adminweb, procs}
 const liveStatus = {};
 // 最近一次启停操作错误:projectId -> string(展示为「异常」状态)
 const lastOpError = {};
@@ -34,11 +34,11 @@ function statusMeta(status) {
   return { text: '已停止', cls: 'stopped', dot: '⚪' };
 }
 
-/** 项目整体状态:优先异常 → 运行中 → 已停止 */
+/** 项目整体状态:优先异常 → 已探测过则以实时结果为准(全停即已停止,不回退落库旧值) → 未探测时回退落库最近已知状态 */
 function overallStatus(p) {
   if (lastOpError[p.id]) return 'error';
   const ls = liveStatus[p.id];
-  if (ls && (ls.all || ls.frontend || ls.backend)) return 'running';
+  if (ls) return (ls.all || ls.frontend || ls.backend || ls.adminweb) ? 'running' : 'stopped';
   return p.status === 'running' || p.status === 'error' ? p.status : 'stopped';
 }
 
@@ -50,6 +50,7 @@ async function probeProjects(ids) {
     accessUrl: p.accessUrl,
     frontendUrl: p.frontendUrl,
     backendUrl: p.backendUrl,
+    adminWebUrl: p.adminWebUrl,
   }));
   if (!specs.length) return;
   let res = {};
@@ -70,18 +71,26 @@ async function probeProjects(ids) {
 
 // ---------------- 服务启停 ----------------
 
+/** 服务类型显示名 */
+function kindLabel(kind) {
+  return kind === 'all' ? '全部服务' : kind === 'frontend' ? '前端服务' : kind === 'adminweb' ? '管理后台' : '后端服务';
+}
+
+/** 按 kind 取启动命令(空串 = 未配置) */
+function cmdForKind(p, kind) {
+  if (kind === 'all') return (p.launchMethod || '').trim();
+  if (kind === 'frontend') return (p.frontendCmd || '').trim();
+  if (kind === 'adminweb') return (p.adminWebCmd || '').trim();
+  return (p.backendCmd || '').trim();
+}
+
 /** 执行一次服务操作(启动/停止),返回结果对象 */
 async function runServiceOp(p, kind, op) {
   const key = p.id;
   try {
     if (op === 'start') {
-      if (kind === 'all') {
-        const cmd = (p.launchMethod || '').trim();
-        if (!cmd) return { ok: false, error: '未配置「启动方法」' };
-        return await window.api.projectStart({ projectId: p.id, kind: 'all', cmd, cwd: p.rootPath });
-      }
-      const cmd = kind === 'frontend' ? (p.frontendCmd || '').trim() : (p.backendCmd || '').trim();
-      if (!cmd) return { ok: false, error: kind === 'frontend' ? '未配置「前端服务命令」' : '未配置「后端服务命令」' };
+      const cmd = cmdForKind(p, kind);
+      if (!cmd) return { ok: false, error: `未配置「${kindLabel(kind) === '全部服务' ? '启动方法' : kindLabel(kind) + '命令'}」` };
       return await window.api.projectStart({ projectId: p.id, kind, cmd, cwd: p.rootPath });
     }
     return await window.api.projectStop({ projectId: p.id, kind });
@@ -99,12 +108,12 @@ async function handleServiceOp(p, kind, op, btn) {
     const r = await runServiceOp(p, kind, op);
     if (r && r.ok) {
       if (op === 'start') {
-        toast(`已启动${kind === 'all' ? '全部服务' : kind === 'frontend' ? '前端服务' : '后端服务'}`, 'ok');
-        // 稍等片刻让进程真正起来,再探测状态
+        toast(`已启动${kindLabel(kind)}`, 'ok');
+        // 稍等片刻让进程真正起来,再探测状态(后续由轮询持续跟进服务陆续就绪)
         await probeProjects([p.id]);
       } else {
         toast('已停止', 'ok');
-        liveStatus[p.id] = { all: false, frontend: false, backend: false, procs: {} };
+        liveStatus[p.id] = { all: false, frontend: false, backend: false, adminweb: false, procs: {} };
         updateProject(p.id, { status: 'stopped' });
       }
     } else {
@@ -138,11 +147,9 @@ async function handleRestartOp(p, kind, btn) {
       return;
     }
     await new Promise((r) => setTimeout(r, 500)); // 等待进程树退出
-    const cmd = kind === 'all'
-      ? (p.launchMethod || '').trim()
-      : (kind === 'frontend' ? (p.frontendCmd || '').trim() : (p.backendCmd || '').trim());
+    const cmd = cmdForKind(p, kind);
     if (!cmd) {
-      const msg = kind === 'all' ? '未配置「启动方法」' : kind === 'frontend' ? '未配置「前端服务命令」' : '未配置「后端服务命令」';
+      const msg = kind === 'all' ? '未配置「启动方法」' : `未配置「${kindLabel(kind)}命令」`;
       lastOpError[p.id] = msg;
       updateProject(p.id, { status: 'error' });
       toast(msg, 'error');
@@ -151,7 +158,7 @@ async function handleRestartOp(p, kind, btn) {
     const r = await window.api.projectStart({ projectId: p.id, kind, cmd, cwd: p.rootPath });
     if (r && r.ok) {
       delete lastOpError[p.id];
-      toast(`已重启${kind === 'all' ? '全部服务' : kind === 'frontend' ? '前端服务' : '后端服务'}`, 'ok');
+      toast(`已重启${kindLabel(kind)}`, 'ok');
       await probeProjects([p.id]);
     } else {
       const msg = (r && r.error) || '重启失败';
@@ -175,6 +182,34 @@ function openExternalUrl(url) {
   if (!u) return;
   if (/^https?:\/\//i.test(u)) window.api.openExternal(u);
   else window.api.openPath(u);
+}
+
+// ---------------- 实时状态轮询 ----------------
+// 页面可见期间周期性探测:一键启动/单独启动后,服务(vite/jar)需要数十秒才陆续监听端口,
+// 仅启动后探测一次会让状态长期停留在「未运行」。轮询只在状态签名变化时重绘,
+// 弹窗打开期间跳过(避免重置弹窗背后的表单/树状态),离开项目管理页自动停止。
+
+let statusPollTimer = null;
+
+function stopStatusPolling() {
+  if (statusPollTimer) { clearInterval(statusPollTimer); statusPollTimer = null; }
+}
+
+function ensureStatusPolling(container, ctx) {
+  stopStatusPolling();
+  statusPollTimer = setInterval(async () => {
+    const page = document.getElementById('page-projects');
+    if (!container.isConnected || !page || page.hidden) { stopStatusPolling(); return; }
+    if (document.querySelector('.modal-mask')) return; // 弹窗打开:本轮跳过,不重绘
+    const projects = getProjects();
+    if (!projects.length) return;
+    const seq = container._projSeq;
+    const before = JSON.stringify(projects.map((p) => p.id + ':' + overallStatus(p)));
+    try { await probeProjects(); } catch (e) { return; }
+    if (container._projSeq !== seq) return; // 探测期间已切换视图,由新视图的轮询接管
+    const after = JSON.stringify(projects.map((p) => p.id + ':' + overallStatus(p)));
+    if (after !== before) renderProjectsPage(container, ctx);
+  }, 8000);
 }
 
 // ---------------- 主页(汇总视图) ----------------
@@ -204,8 +239,10 @@ function renderHome(container, actions) {
   head.appendChild(addBtn);
   wrap.appendChild(head);
 
-  // 状态探测(后台刷新卡片状态)
+  // 状态探测(后台刷新卡片状态);期间用户已切换视图时放弃重绘,防止把详情页覆盖回主页
+  const seq = container._projSeq;
   probeProjects(projects.map((p) => p.id)).then(() => {
+    if (container._projSeq !== seq || !container.isConnected) return;
     // 状态有变化 → 重绘(避免状态卡片显示过期)
     if (container._lastProbe !== JSON.stringify(projects.map((p) => overallStatus(p)))) {
       container._lastProbe = JSON.stringify(projects.map((p) => overallStatus(p)));
@@ -340,15 +377,28 @@ function renderDetail(container, ctx) {
   else renderOverviewTab(body, p, actions);
   wrap.appendChild(body);
   container.appendChild(wrap);
+  // 进入详情页(综述页签)即探测实时状态,与主页一致:侧栏直达此前不探测,
+  // 顶部徽标用落库旧值而运行状况行用空缓存,会出现「运行中 vs 未运行」矛盾。
+  // 状态有变化才整页重绘,探测稳定后不再触发,不会循环。
+  if ((docTab || 'overview') !== 'docs') {
+    const seq = container._projSeq;
+    const sig = () => JSON.stringify(liveStatus[p.id] || null);
+    const before = sig();
+    probeProjects([p.id]).then(() => {
+      if (container._projSeq !== seq || !container.isConnected) return;
+      if (sig() !== before) actions.onRefresh();
+    }).catch(() => {});
+  }
 }
 
-/** 综述详情页签:运行状况 + 部署信息 + 服务配置 */
+/** 综述详情页签:运行状况 + 服务配置 + 综述详情 + 部署信息 */
 function renderOverviewTab(body, p, actions) {
   // ---- 运行状况 ----
   const runCard = document.createElement('div');
   runCard.className = 'proj-card proj-card-block';
   runCard.innerHTML = `<h3 class="proj-block-title">⚡ 运行状况</h3>`;
-  const ls = liveStatus[p.id] || {};
+  // liveStatus 未探测时为 undefined:行状态先显示「探测中」,避免与顶部徽标(落库最近已知状态)矛盾
+  const ls = liveStatus[p.id];
   const refresh = () => { if (actions && actions.onRefresh) actions.onRefresh(); };
   const mkOpBtn = (label, kind, op, cls, title) => {
     const b = document.createElement('button');
@@ -361,7 +411,16 @@ function renderOverviewTab(body, p, actions) {
     });
     return b;
   };
+  const linkBtn = (label, onClick, title) => {
+    const b = document.createElement('button');
+    b.className = 'btn xs';
+    b.textContent = label;
+    b.title = title || '';
+    b.addEventListener('click', onClick);
+    return b;
+  };
   // 运行状态行:名称 + 状态 + (弹性留白) + 行内操作按钮(启动/停止/重启)
+  // state: true 运行中 | false 未运行 | undefined 尚未探测(显示「探测中」)
   const runRow = (label, state, url, buttons) => {
     const r = document.createElement('div');
     r.className = 'proj-run-row';
@@ -369,8 +428,9 @@ function renderOverviewTab(body, p, actions) {
     nm.className = 'proj-run-name';
     nm.textContent = label;
     const stt = document.createElement('span');
-    stt.className = 'proj-run-state ' + (state ? 'on' : 'off');
-    stt.textContent = state ? '● 运行中' : '○ 未运行';
+    if (state === true) { stt.className = 'proj-run-state on'; stt.textContent = '● 运行中'; }
+    else if (state === false) { stt.className = 'proj-run-state off'; stt.textContent = '○ 未运行'; }
+    else { stt.className = 'proj-run-state probe'; stt.textContent = '◌ 探测中…'; }
     if (url) stt.title = url;
     const spacer = document.createElement('span');
     spacer.className = 'proj-run-spacer';
@@ -384,22 +444,28 @@ function renderOverviewTab(body, p, actions) {
     return r;
   };
   // 一键启动(全部服务)行
-  runCard.appendChild(runRow('一键启动(全部服务)', ls.all, p.accessUrl, [
+  runCard.appendChild(runRow('一键启动(全部服务)', ls ? ls.all : undefined, p.accessUrl, [
     mkOpBtn('▶ 一键启动', 'all', 'start', 'primary', '按「启动方法」执行一键启动'),
     mkOpBtn('■ 全部停止', 'all', 'stop', '', '停止全部服务进程'),
     mkOpBtn('↻ 重启', 'all', 'restart', '', '停止后重新一键启动'),
   ]));
   // 前端服务行
-  runCard.appendChild(runRow('前端服务', ls.frontend, p.frontendUrl, [
+  runCard.appendChild(runRow('前端服务', ls ? ls.frontend : undefined, p.frontendUrl, [
     mkOpBtn('▶ 启动', 'frontend', 'start', '', '启动前端服务'),
     mkOpBtn('■ 停止', 'frontend', 'stop', '', '停止前端服务'),
     mkOpBtn('↻ 重启', 'frontend', 'restart', '', '停止后重新启动前端服务'),
   ]));
   // 后端服务行
-  runCard.appendChild(runRow('后端服务', ls.backend, p.backendUrl, [
+  runCard.appendChild(runRow('后端服务', ls ? ls.backend : undefined, p.backendUrl, [
     mkOpBtn('▶ 启动', 'backend', 'start', '', '启动后端服务'),
     mkOpBtn('■ 停止', 'backend', 'stop', '', '停止后端服务'),
     mkOpBtn('↻ 重启', 'backend', 'restart', '', '停止后重新启动后端服务'),
+  ]));
+  // 管理后台行(admin-web,独立于前端/后端的第三个可启停服务)
+  runCard.appendChild(runRow('管理后台', ls ? ls.adminweb : undefined, p.adminWebUrl, [
+    mkOpBtn('▶ 启动', 'adminweb', 'start', '', '启动管理后台服务'),
+    mkOpBtn('■ 停止', 'adminweb', 'stop', '', '停止管理后台服务'),
+    mkOpBtn('↻ 重启', 'adminweb', 'restart', '', '停止后重新启动管理后台服务'),
   ]));
   if (lastOpError[p.id]) {
     const err = document.createElement('div');
@@ -409,61 +475,7 @@ function renderOverviewTab(body, p, actions) {
   }
   body.appendChild(runCard);
 
-  // ---- 综述详情 ----
-  const infoCard = document.createElement('div');
-  infoCard.className = 'proj-card proj-card-block';
-  infoCard.innerHTML = `<h3 class="proj-block-title">📋 综述详情</h3>`;
-  const kv = (label, value, extra) => {
-    const rowEl = document.createElement('div');
-    rowEl.className = 'proj-kv';
-    const lb = document.createElement('span');
-    lb.className = 'proj-kv-label';
-    lb.textContent = label;
-    const vl = document.createElement('span');
-    vl.className = 'proj-kv-value';
-    if (extra) vl.appendChild(extra);
-    else vl.textContent = value || '—';
-    rowEl.appendChild(lb);
-    rowEl.appendChild(vl);
-    return rowEl;
-  };
-  infoCard.appendChild(kv('项目名称', p.name));
-  infoCard.appendChild(kv('项目描述', p.description));
-  infoCard.appendChild(kv('部署方式', p.deployMethod));
-  infoCard.appendChild(kv('启动方法', p.launchMethod));
-  infoCard.appendChild(kv('备注', p.remark));
-  body.appendChild(infoCard);
-
-  // ---- 部署信息 ----
-  const depCard = document.createElement('div');
-  depCard.className = 'proj-card proj-card-block';
-  depCard.innerHTML = `<h3 class="proj-block-title">📡 部署信息</h3>`;
-  const linkBtn = (label, onClick, title) => {
-    const b = document.createElement('button');
-    b.className = 'btn xs';
-    b.textContent = label;
-    b.title = title || '';
-    b.addEventListener('click', onClick);
-    return b;
-  };
-  depCard.appendChild(kv('项目根路径', p.rootPath, p.rootPath ? linkBtn('打开目录', () => window.api.openPath(p.rootPath), '打开项目根目录') : null));
-  depCard.appendChild(kv('访问地址', p.accessUrl, p.accessUrl ? linkBtn('打开', () => openExternalUrl(p.accessUrl)) : null));
-  depCard.appendChild(kv('网址', p.website, p.website ? linkBtn('打开', () => openExternalUrl(p.website)) : null));
-  depCard.appendChild(kv('外部应用启动路径', p.launchPath, p.launchPath ? (() => {
-    const g = document.createElement('span');
-    g.className = 'proj-link-group';
-    g.appendChild(linkBtn('启动应用', () => {
-      window.api.openExternal(p.launchPath).then((r) => {
-        if (r && r.error) toast('启动失败:' + r.error, 'error');
-        else toast('外部应用已启动', 'ok');
-      });
-    }));
-    g.appendChild(linkBtn('打开位置', () => window.api.showItem(p.launchPath)));
-    return g;
-  })() : null));
-  body.appendChild(depCard);
-
-  // ---- 前端/后端服务配置 ----
+  // ---- 服务配置(紧随运行状况,便于对照启停) ----
   const svcCard = document.createElement('div');
   svcCard.className = 'proj-card proj-card-block';
   svcCard.innerHTML = `<h3 class="proj-block-title">🔧 服务配置</h3>`;
@@ -504,6 +516,64 @@ function renderOverviewTab(body, p, actions) {
   svcCard.appendChild(svcRow('前端服务', p.frontendCmd, p.frontendUrl));
   svcCard.appendChild(svcRow('后端服务', p.backendCmd, p.backendUrl));
   body.appendChild(svcCard);
+
+  // ---- 综述详情 ----
+  const infoCard = document.createElement('div');
+  infoCard.className = 'proj-card proj-card-block';
+  infoCard.innerHTML = `<h3 class="proj-block-title">📋 综述详情</h3>`;
+  const kv = (label, value, extra) => {
+    const rowEl = document.createElement('div');
+    rowEl.className = 'proj-kv';
+    const lb = document.createElement('span');
+    lb.className = 'proj-kv-label';
+    lb.textContent = label;
+    const vl = document.createElement('span');
+    vl.className = 'proj-kv-value';
+    if (extra) vl.appendChild(extra);
+    else vl.textContent = value || '—';
+    rowEl.appendChild(lb);
+    rowEl.appendChild(vl);
+    return rowEl;
+  };
+  infoCard.appendChild(kv('项目名称', p.name));
+  infoCard.appendChild(kv('项目描述', p.description));
+  infoCard.appendChild(kv('部署方式', p.deployMethod));
+  infoCard.appendChild(kv('启动方法', p.launchMethod));
+  infoCard.appendChild(kv('管理后台启动', p.adminWebCmd));
+  // 管理后台地址:http(s) → URL 本身即可点击链接(外部浏览器打开);其它 → 纯文本
+  const adminUrl = String(p.adminWebUrl || '').trim();
+  infoCard.appendChild(kv('管理后台地址', adminUrl, (adminUrl && /^https?:\/\//i.test(adminUrl)) ? (() => {
+    const link = document.createElement('button');
+    link.type = 'button';
+    link.className = 'btn xs proj-svc-link';
+    link.textContent = adminUrl;
+    link.title = '用外部浏览器打开: ' + adminUrl;
+    link.addEventListener('click', () => openExternalUrl(adminUrl));
+    return link;
+  })() : null));
+  infoCard.appendChild(kv('备注', p.remark));
+  body.appendChild(infoCard);
+
+  // ---- 部署信息 ----
+  const depCard = document.createElement('div');
+  depCard.className = 'proj-card proj-card-block';
+  depCard.innerHTML = `<h3 class="proj-block-title">📡 部署信息</h3>`;
+  depCard.appendChild(kv('项目根路径', p.rootPath, p.rootPath ? linkBtn('打开目录', () => window.api.openPath(p.rootPath), '打开项目根目录') : null));
+  depCard.appendChild(kv('访问地址', p.accessUrl, p.accessUrl ? linkBtn('打开', () => openExternalUrl(p.accessUrl)) : null));
+  depCard.appendChild(kv('网址', p.website, p.website ? linkBtn('打开', () => openExternalUrl(p.website)) : null));
+  depCard.appendChild(kv('外部应用启动路径', p.launchPath, p.launchPath ? (() => {
+    const g = document.createElement('span');
+    g.className = 'proj-link-group';
+    g.appendChild(linkBtn('启动应用', () => {
+      window.api.openExternal(p.launchPath).then((r) => {
+        if (r && r.error) toast('启动失败:' + r.error, 'error');
+        else toast('外部应用已启动', 'ok');
+      });
+    }));
+    g.appendChild(linkBtn('打开位置', () => window.api.showItem(p.launchPath)));
+    return g;
+  })() : null));
+  body.appendChild(depCard);
 }
 
 /** 资源文档页签:项目目录树(递归)+ 当前目录条目列表 */
@@ -691,6 +761,8 @@ function projectFormFields(values = {}) {
     { key: 'frontendUrl', label: '前端服务配置(访问地址)', type: 'text', value: v('frontendUrl'), hint: '用于探测前端是否运行,如 http://localhost:5173/' },
     { key: 'backendCmd', label: '后端服务配置(启动命令)', type: 'text', value: v('backendCmd'), hint: '如 java -jar admin-server/target/app.jar' },
     { key: 'backendUrl', label: '后端服务配置(访问地址)', type: 'text', value: v('backendUrl'), hint: '用于探测后端是否运行,如 http://localhost:8080/health' },
+    { key: 'adminWebCmd', label: '管理后台服务配置(启动命令)', type: 'text', value: v('adminWebCmd'), hint: '如 npm run dev --prefix admin-web' },
+    { key: 'adminWebUrl', label: '管理后台服务配置(访问地址)', type: 'text', value: v('adminWebUrl'), hint: '如 http://localhost:5174/,综述页可点击打开' },
     { key: 'remark', label: '备注', type: 'textarea', value: v('remark'), hint: '账号信息 / 注意事项等' },
   ];
   return rows.map((f) => ({ ...f, required: false }));
@@ -772,6 +844,8 @@ export function newProjectDialog(opts = {}) {
             frontendUrl: inputs.frontendUrl.value.trim(),
             backendCmd: inputs.backendCmd.value.trim(),
             backendUrl: inputs.backendUrl.value.trim(),
+            adminWebCmd: inputs.adminWebCmd.value.trim(),
+            adminWebUrl: inputs.adminWebUrl.value.trim(),
             remark: inputs.remark.value,
           };
           const p = addProject(data);
@@ -861,6 +935,8 @@ export function editProjectDialog(projectId, opts = {}) {
             frontendUrl: inputs.frontendUrl.value.trim(),
             backendCmd: inputs.backendCmd.value.trim(),
             backendUrl: inputs.backendUrl.value.trim(),
+            adminWebCmd: inputs.adminWebCmd.value.trim(),
+            adminWebUrl: inputs.adminWebUrl.value.trim(),
             remark: inputs.remark.value,
           });
           if (!patched) return toast('保存失败', 'error');
@@ -1004,6 +1080,7 @@ function dispatchNav(detail) {
  */
 export function renderProjectsPage(container, ctx = {}) {
   if (!container) return;
+  container._projSeq = (container._projSeq || 0) + 1; // 视图序号:异步探测回调据此放弃过期重绘
   const actions = ctx.actions || {};
   const safeActions = {
     onOpenProject: actions.onOpenProject || ((pid) => dispatchNav({ action: 'open', projectId: pid })),
@@ -1015,14 +1092,18 @@ export function renderProjectsPage(container, ctx = {}) {
   container.innerHTML = '';
   if (ctx.mode !== 'detail' || !ctx.projectId || !projectById(ctx.projectId)) {
     renderHome(container, safeActions);
+    ensureStatusPolling(container, { mode: 'home', actions: safeActions });
     return;
   }
-  renderDetail(container, {
+  const detailCtx = {
+    mode: 'detail',
     projectId: ctx.projectId,
     folderId: ctx.folderId || '',
     docTab: ctx.docTab || 'overview',
     actions: safeActions,
-  });
+  };
+  renderDetail(container, detailCtx);
+  ensureStatusPolling(container, detailCtx);
 }
 
 /** 打开项目详情(供侧栏右键菜单等调用) */

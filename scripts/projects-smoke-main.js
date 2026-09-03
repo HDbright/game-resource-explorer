@@ -73,7 +73,7 @@ ipcMain.handle('projects:probeUrl', async () => ({ ok: true, reachable: false })
 ipcMain.handle('projects:stopAll', async () => ({ ok: true }));
 ipcMain.handle('projects:status', async (_e, specs = []) => {
   const out = {};
-  for (const s of specs) out[s.projectId] = { all: false, frontend: false, backend: false, procs: {} };
+  for (const s of specs) out[s.projectId] = { all: false, frontend: false, backend: false, adminweb: false, procs: {} };
   return out;
 });
 
@@ -119,7 +119,7 @@ app.whenReady().then(async () => {
         const page = document.getElementById('page-projects');
         out.pageVisible = !!(page && !page.hidden);
         out.pageText = page ? page.textContent : '';
-        out.hasHedaoCard = !!(page && (page.textContent || '').includes('hedaoedu 禾道学堂'));
+        out.hasHedaoCard = !!(page && (page.textContent || '').includes('hedaoedu')); // 项目名可被用户改名,按前缀匹配
         out.hasAddBtn = !!(page && (page.textContent || '').includes('新增项目'));
         out.cardCount = page ? page.querySelectorAll('.proj-card').length : 0;
         out.hasStatusBadge = !!(page && page.querySelector('.proj-status'));
@@ -149,10 +149,11 @@ app.whenReady().then(async () => {
         out.hasLaunchBtn = !!(page && (page.textContent || '').includes('一键启动'));
         out.hasBackendUrl = !!(page && (page.textContent || '').includes(':8080'));
         out.hasLaunchPath = !!(page && (page.textContent || '').includes('start-dev.sh'));
-        // 修复项③:运行状况每行状态后面内联 启动/停止/重启 按钮(共 3 行 × 3 按钮)
+        // 修复项③:运行状况每行状态后面内联 启动/停止/重启 按钮(共 4 行 × 3 按钮:一键/前端/后端/管理后台)
         const runRows = page ? page.querySelectorAll('.proj-run-row') : [];
         out.runRowCount = runRows.length;
         out.restartBtnCount = page ? page.querySelectorAll('.proj-run-btns .btn').length : 0;
+        out.hasAdminRunRow = !!(page && [...page.querySelectorAll('.proj-run-name')].some((n) => (n.textContent || '').includes('管理后台')));
         const firstBtns = runRows[0] ? [...runRows[0].querySelectorAll('.proj-run-btns .btn')].map((b) => b.textContent) : [];
         out.firstRowBtns = firstBtns.join('|');
         out.hasRestartBtn = firstBtns.some((t) => t.includes('↻ 重启'));
@@ -171,6 +172,21 @@ app.whenReady().then(async () => {
         if (startFe) { startFe.click(); await sleep(600); }
         out.toastShown = !!(document.querySelector('.toast'));
         out.toastText = (document.querySelector('.toast') || {}).textContent || '';
+        // 修复项④:顶部徽标与运行状况行状态一致(探测后不允许「运行中 + 全部未运行」矛盾)
+        const badge = page.querySelector('.proj-detail-head .proj-status');
+        out.badgeText = badge ? badge.textContent.trim() : '';
+        const runStates = [...page.querySelectorAll('.proj-run-state')].map((n) => n.textContent.trim());
+        out.runStates = runStates.join('|');
+        out.statusConsistent = !(out.badgeText.includes('运行中') && runStates.length > 0 && runStates.every((t) => t.includes('未运行')));
+        // 修复项⑤:服务配置卡片位于综述详情卡片之前
+        const titles = [...page.querySelectorAll('.proj-block-title')].map((n) => n.textContent.trim());
+        out.blockTitles = titles.join('|');
+        out.svcBeforeInfo = titles.some((t) => t.includes('服务配置')) && titles.findIndex((t) => t.includes('服务配置')) < titles.findIndex((t) => t.includes('综述详情'));
+        // 修复项⑥:综述详情卡片含管理后台启动命令与可点击访问地址
+        out.hasAdminCmd = !!(page.textContent || '').includes('管理后台启动');
+        out.hasAdminCmdVal = !!(page.textContent || '').includes('npm run dev --prefix admin-web');
+        const kvLinks = [...page.querySelectorAll('.proj-kv .proj-svc-link')];
+        out.adminLinkText = kvLinks.length ? kvLinks[kvLinks.length - 1].textContent : '';
         return out;
       })()`);
       await shot('proj-detail.png');
@@ -305,6 +321,8 @@ app.whenReady().then(async () => {
         hedaoLaunchPath: !!(hedao && hedao.launchPath.includes('start-dev.sh')),
         hedaoFrontendCmd: !!(hedao && hedao.frontendCmd === 'npm run dev'),
         hedaoBackendCmd: !!(hedao && hedao.backendCmd.includes('admin-server')),
+        hedaoAdminCmd: !!(hedao && hedao.adminWebCmd === 'npm run dev --prefix admin-web'),
+        hedaoAdminUrl: !!(hedao && hedao.adminWebUrl === 'http://localhost:5174/'),
         hedaoDeploy: !!(hedao && hedao.deployMethod.includes('MySQL')),
         projectsRootInDb: !!rootNode,
         hedaoNodeLinked: !!(hedao && hedaoNode && hedaoNode.action === 'project:' + hedao.id),
@@ -322,12 +340,13 @@ app.whenReady().then(async () => {
       const ok = r1.rootNodeFound && r1.pageVisible && r1.hasHedaoCard && r1.cardCount >= 1 && r1.hasAddBtn &&
                  r1.hedaoNodeCount === 1 && r1.pageOverflowY === 'auto' &&
                  r2.openBtnFound && r2.detailVisible && r2.hasOverviewTab && r2.hasDocsTab && r2.hasStartBtns && r2.hasLaunchBtn &&
-                 r2.runRowCount === 3 && r2.restartBtnCount === 9 && r2.hasRestartBtn && r2.btnsInRow &&
+                 r2.runRowCount === 4 && r2.restartBtnCount === 12 && r2.hasAdminRunRow && r2.hasRestartBtn && r2.btnsInRow &&
                  r2.pageUserSelect === 'text' && r2.svcLinkCount >= 2 && r2.svcLinkClickable && r2.svcLinkClickOk &&
+                 r2.statusConsistent && r2.svcBeforeInfo && r2.hasAdminCmd && r2.hasAdminCmdVal && r2.adminLinkText === 'http://localhost:5174/' &&
                  r3.docsTabFound && r3.docsVisible && r3.newDirBtn && r3.dirCreated && r3.newEntryBtn && r3.entryCreated &&
                  r4.ctxNewProj && r4.projForm && r4.detailForNew && r4.nodeInTree && r4.editBtn && r4.renamedInTree && r4.renamedInDetail && r4.delBtn && r4.delConfirm && r4.backHome && !r4.deletedFromTree &&
                  dbCheck.hedaoSeeded && dbCheck.hedaoRootPath && dbCheck.hedaoAccessUrl && dbCheck.hedaoLaunchPath &&
-                 dbCheck.hedaoFrontendCmd && dbCheck.hedaoBackendCmd && dbCheck.hedaoDeploy && dbCheck.projectsRootInDb &&
+                 dbCheck.hedaoFrontendCmd && dbCheck.hedaoBackendCmd && dbCheck.hedaoAdminCmd && dbCheck.hedaoAdminUrl && dbCheck.hedaoDeploy && dbCheck.projectsRootInDb &&
                  dbCheck.hedaoNodeLinked && dbCheck.smokeDeleted && dbCheck.smokeEntriesDeleted;
       console.log('PROJECTS-SMOKE ' + (ok ? 'PASS' : 'FAIL'));
       clearTimeout(watchdog);

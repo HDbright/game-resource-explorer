@@ -1,7 +1,7 @@
 'use strict';
 // ================= 项目管理中心:服务进程启停 + 运行状态探测(补丁·113) =================
-// 由主进程持有各项目的服务子进程(前端/后端/一键启动),渲染端通过 IPC 触发启停与状态查询。
-// - 进程表:key = `${projectId}:${kind}`(kind: 'all' | 'frontend' | 'backend')
+// 由主进程持有各项目的服务子进程(前端/后端/管理后台/一键启动),渲染端通过 IPC 触发启停与状态查询。
+// - 进程表:key = `${projectId}:${kind}`(kind: 'all' | 'frontend' | 'backend' | 'adminweb')
 // - 停止:Windows 用 taskkill /T /F 杀整棵进程树;非 Windows SIGTERM → SIGKILL 兜底
 // - 状态:进程存活优先;进程表无记录时回退 HTTP(S) 健康探测(端口可达即视为运行中,
 //   支持应用重启后自动识别仍在运行的旧服务)
@@ -56,7 +56,7 @@ function killProc(rec) {
 /**
  * 启动一个服务进程。
  * @param {string} projectId 项目 id
- * @param {'all'|'frontend'|'backend'} kind 服务类型
+ * @param {'all'|'frontend'|'backend'|'adminweb'} kind 服务类型
  * @param {string} cmd 启动命令(经 shell 执行:npm/java/bash 均可)
  * @param {string} cwd 工作目录(项目根路径)
  */
@@ -108,10 +108,10 @@ function stopProc(projectId, kind) {
   return { ok: true, stopped: false };
 }
 
-/** 停止某项目全部服务(all + frontend + backend) */
+/** 停止某项目全部服务(all + frontend + backend + adminweb) */
 function stopAllProcs(projectId) {
   const res = [];
-  for (const kind of ['all', 'frontend', 'backend']) res.push(stopProc(projectId, kind));
+  for (const kind of ['all', 'frontend', 'backend', 'adminweb']) res.push(stopProc(projectId, kind));
   return { ok: true, stopped: res.some((r) => r.stopped) };
 }
 
@@ -126,8 +126,8 @@ function stopEveryProc() {
 
 /**
  * 查询一组项目的运行状态(并发探测,缩短总耗时)。
- * specs: [{ projectId, accessUrl, frontendUrl, backendUrl }]
- * 返回: { [projectId]: { all, frontend, backend, procs: {all,frontend,backend} } }
+ * specs: [{ projectId, accessUrl, frontendUrl, backendUrl, adminWebUrl }]
+ * 返回: { [projectId]: { all, frontend, backend, adminweb, procs: {all,frontend,backend,adminweb} } }
  */
 async function queryStatus(specs) {
   const out = {};
@@ -141,17 +141,20 @@ async function queryStatus(specs) {
     const allPid = alive('all');
     const fePid = alive('frontend');
     const bePid = alive('backend');
+    const awPid = alive('adminweb');
     // 进程表没有时用 URL 兜底探测
-    const [allUrl, feUrl, beUrl] = await Promise.all([
+    const [allUrl, feUrl, beUrl, awUrl] = await Promise.all([
       allPid ? null : (s.accessUrl ? probeUrl(s.accessUrl) : false),
       fePid ? null : (s.frontendUrl ? probeUrl(s.frontendUrl) : false),
       bePid ? null : (s.backendUrl ? probeUrl(s.backendUrl) : false),
+      awPid ? null : (s.adminWebUrl ? probeUrl(s.adminWebUrl) : false),
     ]);
     out[p] = {
       all: !!allPid || !!allUrl,
       frontend: !!fePid || !!feUrl,
       backend: !!bePid || !!beUrl,
-      procs: { all: allPid, frontend: fePid, backend: bePid },
+      adminweb: !!awPid || !!awUrl,
+      procs: { all: allPid, frontend: fePid, backend: bePid, adminweb: awPid },
     };
   });
   await Promise.all(tasks);

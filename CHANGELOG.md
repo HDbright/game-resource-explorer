@@ -3,7 +3,21 @@
 > **游戏资源管理器**（原骨骼动画预览器）变更记录。
 >
 > **约定**：每次新增功能（标记 `[新增]`）或修复问题（标记 `[修复]`）后，均在此文件追加一条**带日期**的记录，新记录置顶（最新的在最上面）。
-> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.4.20`）。
+> 旧记录仅作归档，不再修改内容。版本号以 `package.json` 中 `version` 为准（当前 `v2.4.21`）。
+
+---
+
+## 2026-09-03（补丁·186）
+
+### [修复+新增] 项目管理中心:状态矛盾修复 + 管理后台(admin-web)独立纳管 + 实时状态轮询
+
+- **徽标与运行状况状态矛盾修复**(`src/pages/projectsPage.js`):`overallStatus` 原逻辑在「已探测且全部服务停止」时穿透回退到落库旧状态,导致顶部徽标钉死「运行中」且落库无法自愈;现改为探测过即以实时结果为准,落库值仅作未探测时的展示回退。详情页(综述页签)进入时补一次探测(原仅主页/手动刷新/启停后触发,侧栏直达时两路数据源分叉);异步探测回调增加视图序号守卫(`container._projSeq`),防止过期重绘覆盖已切换的页面。
+- **管理后台独立启停**(`electron/projectRunner.js` / `src/pages/projectsPage.js` / `electron/db.js` / `src/state.js`):服务类型在 all/frontend/backend 外新增 `adminweb`;运行状况卡片新增「管理后台」行(启动/停止/重启,与前端/后端一致);`projects` 表新增 `admin_web_cmd`/`admin_web_url` 列(建表 DDL + 旧库 ALTER 迁移 + hedaoedu 存量幂等回填 `npm run dev --prefix admin-web` / `http://localhost:5174/`);`projects:status` 返回与 `stopAllProcs` 覆盖 adminweb;项目表单新增两个配置项。
+- **实时状态轮询**(`src/pages/projectsPage.js`):页面可见期间每 8s 周期探测,状态签名变化才重绘;弹窗打开期间跳过、离开项目管理页自动停止。解决「一键启动后 all 行立即运行中(进程表 pid),而前端/后端/管理后台行长期显示未运行」——服务需数十秒陆续监听端口,单次探测必然过期。
+- **运行状况行三态化**:探测未返回前显示「◌ 探测中…」(`.proj-run-state.probe` 新样式),不再先显示误导性「未运行」。
+- **卡片顺序调整**:综述详情页签改为 运行状况 → **服务配置** → 综述详情 → 部署信息;综述详情卡片新增「管理后台启动」「管理后台地址」(http(s) 地址可点击外部浏览器打开)。
+- **冒烟断言扩展**(`scripts/projects-smoke-main.js`):徽标与行状态一致性、卡片顺序、管理后台行/命令/链接/DB 字段往返、4 行 × 3 按钮;修正旧断言硬编码项目名「hedaoedu 禾道学堂」(用户已改名)为前缀匹配。
+- **端到端实测**:以 projectRunner 同款 spawn 方式拉起 `npm run dev --prefix admin-web`,5174 返回 HTTP 200,`taskkill /T /F` 完整清理进程树。
 
 ---
 

@@ -350,6 +350,8 @@ function open() {
       frontend_url TEXT DEFAULT '',
       backend_cmd TEXT DEFAULT '',
       backend_url TEXT DEFAULT '',
+      admin_web_cmd TEXT DEFAULT '',
+      admin_web_url TEXT DEFAULT '',
       remark TEXT DEFAULT '',
       menu_node_id TEXT DEFAULT '',
       sort INTEGER DEFAULT 0,
@@ -468,6 +470,16 @@ function open() {
     if (!ttCols.includes('parent_task_id')) db.exec("ALTER TABLE todo_tasks ADD COLUMN parent_task_id TEXT DEFAULT ''");
   } catch (err) {
     console.error('[db] migrate todo_tasks start_at/complete_at/events + todo_subtasks notes/done_at + 项目/任务父子层级 error:', err);
+  }
+  // 旧库迁移:projects 缺管理后台列时补上(admin-web 纳管)
+  try {
+    const pjCols = db.prepare('PRAGMA table_info(projects)').all().map((r) => r.name);
+    if (!pjCols.includes('admin_web_cmd')) db.exec("ALTER TABLE projects ADD COLUMN admin_web_cmd TEXT DEFAULT ''");
+    if (!pjCols.includes('admin_web_url')) db.exec("ALTER TABLE projects ADD COLUMN admin_web_url TEXT DEFAULT ''");
+    // 存量 hedaoedu 项目回填管理后台默认配置(仅全空时写入,幂等)
+    db.exec("UPDATE projects SET admin_web_cmd = 'npm run dev --prefix admin-web', admin_web_url = 'http://localhost:5174/' WHERE admin_web_cmd = '' AND admin_web_url = '' AND root_path LIKE '%hedaoedu%'");
+  } catch (err) {
+    console.error('[db] migrate projects admin_web_* error:', err);
   }
   // 旧库迁移:items 缺 size / mtime 列时补上(游戏资源管理器排序/统计用)
   try {
@@ -597,7 +609,7 @@ function readDb() {
       'SELECT id, name, color, sort, parent_id AS parentId, notes, deadline, complete_at AS completeAt, created_at AS createdAt, updated_at AS updatedAt FROM todo_projects ORDER BY sort'
     ).all();
     d.projects = conn.prepare(
-      'SELECT id, name, status, description, root_path AS rootPath, access_url AS accessUrl, website, launch_path AS launchPath, deploy_method AS deployMethod, launch_method AS launchMethod, frontend_cmd AS frontendCmd, frontend_url AS frontendUrl, backend_cmd AS backendCmd, backend_url AS backendUrl, remark, menu_node_id AS menuNodeId, sort, created_at AS createdAt, updated_at AS updatedAt FROM projects ORDER BY sort, created_at'
+      'SELECT id, name, status, description, root_path AS rootPath, access_url AS accessUrl, website, launch_path AS launchPath, deploy_method AS deployMethod, launch_method AS launchMethod, frontend_cmd AS frontendCmd, frontend_url AS frontendUrl, backend_cmd AS backendCmd, backend_url AS backendUrl, admin_web_cmd AS adminWebCmd, admin_web_url AS adminWebUrl, remark, menu_node_id AS menuNodeId, sort, created_at AS createdAt, updated_at AS updatedAt FROM projects ORDER BY sort, created_at'
     ).all();
     for (const p of (d.projects || [])) {
       if (!p.description) p.description = '';
@@ -876,15 +888,16 @@ function writeDb(state) {
     }
     // ---- 项目管理中心:项目主配置 + 项目资源/文档条目 ----
     const insProject = conn.prepare(
-      'INSERT INTO projects(id, name, status, description, root_path, access_url, website, launch_path, deploy_method, launch_method, frontend_cmd, frontend_url, backend_cmd, backend_url, remark, menu_node_id, sort, created_at, updated_at) ' +
-      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO projects(id, name, status, description, root_path, access_url, website, launch_path, deploy_method, launch_method, frontend_cmd, frontend_url, backend_cmd, backend_url, admin_web_cmd, admin_web_url, remark, menu_node_id, sort, created_at, updated_at) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     for (const p of state.projects || []) {
       insProject.run(
         p.id, p.name || '', p.status || 'stopped', p.description || '', p.rootPath || '',
         p.accessUrl || '', p.website || '', p.launchPath || '', p.deployMethod || '',
         p.launchMethod || '', p.frontendCmd || '', p.frontendUrl || '',
-        p.backendCmd || '', p.backendUrl || '', p.remark || '', p.menuNodeId || '',
+        p.backendCmd || '', p.backendUrl || '', p.adminWebCmd || '', p.adminWebUrl || '',
+        p.remark || '', p.menuNodeId || '',
         typeof p.sort === 'number' && isFinite(p.sort) ? p.sort : 0,
         p.createdAt || 0, p.updatedAt || 0
       );

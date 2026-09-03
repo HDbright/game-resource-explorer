@@ -3897,6 +3897,8 @@ export function defaultHedaoeduProject() {
     frontendUrl: 'http://localhost:5173/',
     backendCmd: 'java -jar admin-server/target/hedao-admin-server-1.0.0.jar',
     backendUrl: 'http://localhost:8080/health',
+    adminWebCmd: 'npm run dev --prefix admin-web',
+    adminWebUrl: 'http://localhost:5174/',
     remark: '管理后台账号 admin/admin123;学生端 student/123456;家长端 parent/123456(绑定码 8888)。后端健康检查 GET http://localhost:8080/health。',
     createdAt: now(),
     updatedAt: now(),
@@ -3922,7 +3924,7 @@ export function projectMenuNode(projectId) {
  * 新增项目:写入 projects + 自动在「项目管理中心」根下创建同名侧栏节点。
  * 返回新项目对象;失败返回 null。
  */
-export function addProject({ name, description = '', rootPath = '', accessUrl = '', website = '', launchPath = '', deployMethod = '', launchMethod = '', frontendCmd = '', frontendUrl = '', backendCmd = '', backendUrl = '', remark = '', status = 'stopped' }) {
+export function addProject({ name, description = '', rootPath = '', accessUrl = '', website = '', launchPath = '', deployMethod = '', launchMethod = '', frontendCmd = '', frontendUrl = '', backendCmd = '', backendUrl = '', adminWebCmd = '', adminWebUrl = '', remark = '', status = 'stopped' }) {
   const nm = String(name || '').trim();
   if (!nm) return null;
   const root = ensureProjectsMenuRoot();
@@ -3941,6 +3943,8 @@ export function addProject({ name, description = '', rootPath = '', accessUrl = 
     frontendUrl: String(frontendUrl || ''),
     backendCmd: String(backendCmd || ''),
     backendUrl: String(backendUrl || ''),
+    adminWebCmd: String(adminWebCmd || ''),
+    adminWebUrl: String(adminWebUrl || ''),
     remark: String(remark || ''),
     menuNodeId: '',
     sort: state.projects.length,
