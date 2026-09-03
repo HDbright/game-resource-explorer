@@ -285,6 +285,58 @@ app.whenReady().then(async () => {
       check('补丁·82:点击子任务标题打开编辑弹窗', o.modalOpened === true, 'modalOpened=' + o.modalOpened);
       check('补丁·82:点击子任务标题不切换状态(与状态图标区分)', o.iconBeforeTitle === o.iconAfterTitle, o.iconBeforeTitle + '→' + o.iconAfterTitle);
 
+      // 补丁·188:子任务「进行中」必须真正落库(旧版 todo_subtasks 无 status 列 → 重启后被 migrateSubs 退化成待办)
+      o = await js('sub-inprogress', `(async () => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const cardSel = '.todo-card[data-task-id="${TASK_A}"]';
+        const blk = document.querySelector(cardSel + ' .todo-sub-block');
+        const subId = blk ? blk.getAttribute('data-sub') : null;
+        const iconOf = () => {
+          const b = document.querySelector(cardSel + ' .todo-sub-block[data-sub="' + subId + '"] .todo-sub-block-status');
+          return b ? b.textContent.trim() : '';
+        };
+        const iconOrigin = iconOf();
+        let icon = iconOrigin;
+        for (let i = 0; i < 4 && icon !== '◑'; i++) {
+          const b = document.querySelector(cardSel + ' .todo-sub-block[data-sub="' + subId + '"] .todo-sub-block-status');
+          if (!b) break;
+          b.click(); await sleep(150);
+          icon = iconOf();
+        }
+        return { subId, icon, iconOrigin };
+      })()`);
+      check('补丁·188:子任务可切到「进行中」(图标 ◑)', o.icon === '◑', 'subId=' + o.subId + ' icon=' + JSON.stringify(o.icon));
+      await sleep(400);
+      {
+        const chk = dbm.readDb(); // 等价于"重启后从 SQLite 重新加载"
+        const all = [];
+        const walk = (arr) => { for (const s of (arr || [])) { all.push(s); walk(s.subtasks); } };
+        for (const tt of chk.todoTasks) walk(tt.subtasks);
+        const sub117 = all.find((s) => s.id === o.subId);
+        check('补丁·188:「进行中」已写入 SQLite(重启不丢)', !!sub117 && sub117.status === 'in_progress',
+          'sub=' + JSON.stringify(sub117 && { id: sub117.id, status: sub117.status, done: sub117.done }));
+        check('补丁·188:status 与 done 一致(进行中 → done=false)', !!sub117 && sub117.done === false, 'done=' + (sub117 && sub117.done));
+      }
+      // 还原,避免影响后续断言
+      await js('sub-restore', `(async () => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const cardSel = '.todo-card[data-task-id="${TASK_A}"]';
+        const sid = ${JSON.stringify(o.subId)};
+        const target = ${JSON.stringify(o.iconOrigin)};
+        const iconOf = () => {
+          const b = document.querySelector(cardSel + ' .todo-sub-block[data-sub="' + sid + '"] .todo-sub-block-status');
+          return b ? b.textContent.trim() : '';
+        };
+        let icon = iconOf();
+        for (let i = 0; i < 4 && icon !== target; i++) {
+          const b = document.querySelector(cardSel + ' .todo-sub-block[data-sub="' + sid + '"] .todo-sub-block-status');
+          if (!b) break;
+          b.click(); await sleep(150);
+          icon = iconOf();
+        }
+        return { icon, target };
+      })()`);
+
       // 补丁·62 数据 2:折叠后字符(独立 js 调用,避免单 IIFE 内 click+sleep 触发 reply 超时)
       o = await js('card-fold', `(async () => {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

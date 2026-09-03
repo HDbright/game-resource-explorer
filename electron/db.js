@@ -270,6 +270,9 @@ function open() {
       done_at INTEGER,
       sort INTEGER DEFAULT 0,
       created_at INTEGER DEFAULT 0,
+      -- 补丁·188:子任务三级状态(todo/in_progress/done)持久化。此前只落 done 布尔,
+      -- 导致「进行中」重启后被 migrateSubs 退化成 todo(进行中状态丢失)。
+      status TEXT DEFAULT 'todo',
       -- 补丁·60:子任务独立字段(优先级/项目/父级/截止日期/开始时间/完成时间/标签/更新时间)
       priority TEXT DEFAULT 'medium',
       project_id TEXT DEFAULT '',
@@ -460,6 +463,12 @@ function open() {
     if (!stCols.includes('updated_at')) db.exec('ALTER TABLE todo_subtasks ADD COLUMN updated_at INTEGER DEFAULT 0');
     // 补丁·79:todo_subtasks 缺 collapsed 列时补上(嵌套子任务块折叠状态持久化)
     if (!stCols.includes('collapsed')) db.exec('ALTER TABLE todo_subtasks ADD COLUMN collapsed INTEGER DEFAULT 0');
+    // 补丁·188:todo_subtasks 缺 status 列时补上(子任务三级状态持久化)
+    if (!stCols.includes('status')) {
+      db.exec("ALTER TABLE todo_subtasks ADD COLUMN status TEXT DEFAULT 'todo'");
+      // 回填:已有 done=1 的旧行补成 done,其余保持 todo(进行中数据在旧库中本就不可恢复)
+      db.exec("UPDATE todo_subtasks SET status = 'done' WHERE done = 1 AND (status IS NULL OR status = '')");
+    }
     // 旧库迁移:todo_projects 缺 parent_id 列时补上(项目树父子层级)
     const tpCols = db.prepare('PRAGMA table_info(todo_projects)').all().map((r) => r.name);
     if (!tpCols.includes('parent_id')) db.exec("ALTER TABLE todo_projects ADD COLUMN parent_id TEXT DEFAULT ''");
@@ -640,7 +649,7 @@ function readDb() {
       'tags, project_id AS projectId, parent_task_id AS parentTaskId, recur_rule AS recurRule, archived, created_at AS createdAt, updated_at AS updatedAt, subs_collapsed AS subsCollapsed FROM todo_tasks ORDER BY sort'
     ).all();
     // tags / events 列是 JSON 数组字符串 → 解析为数组;附挂子任务
-    const subStmt = conn.prepare('SELECT id, task_id AS taskId, parent_sub_id AS parentSubId, title, notes, done, done_at AS doneAt, sort, created_at AS createdAt, priority, project_id AS projectId, parent_task_id AS parentTaskId, deadline, start_at AS startAt, complete_at AS completeAt, tags, updated_at AS updatedAt, collapsed FROM todo_subtasks WHERE task_id = ? ORDER BY parent_sub_id, sort');
+    const subStmt = conn.prepare('SELECT id, task_id AS taskId, parent_sub_id AS parentSubId, title, notes, done, done_at AS doneAt, sort, created_at AS createdAt, status, priority, project_id AS projectId, parent_task_id AS parentTaskId, deadline, start_at AS startAt, complete_at AS completeAt, tags, updated_at AS updatedAt, collapsed FROM todo_subtasks WHERE task_id = ? ORDER BY parent_sub_id, sort');
     for (const t of (d.todoTasks || [])) {
       if (typeof t.tags === 'string') {
         try { t.tags = JSON.parse(t.tags || '[]'); } catch (err) { t.tags = []; }
@@ -661,6 +670,11 @@ function readDb() {
         s.done = !!s.done;
         s.collapsed = !!s.collapsed; // 补丁·79:嵌套子任务块折叠状态
         if (!s.notes) s.notes = '';
+        // 补丁·188:status 归一化(非法/缺失 → 由 done 推导);再以 status 为准回写 done,保证两者一致
+        if (s.status !== 'todo' && s.status !== 'in_progress' && s.status !== 'done') {
+          s.status = s.done ? 'done' : 'todo';
+        }
+        s.done = s.status === 'done';
         // 补丁·60:子任务独立字段缺省值 + tags JSON 解析
         if (!s.priority) s.priority = 'medium';
         if (!s.projectId) s.projectId = '';
@@ -842,19 +856,23 @@ function writeDb(state) {
       'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     const insTodoSub = conn.prepare(
-      'INSERT INTO todo_subtasks(id, task_id, parent_sub_id, title, notes, done, done_at, sort, created_at, priority, project_id, parent_task_id, deadline, start_at, complete_at, tags, updated_at, collapsed) ' +
-      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO todo_subtasks(id, task_id, parent_sub_id, title, notes, done, done_at, sort, created_at, status, priority, project_id, parent_task_id, deadline, start_at, complete_at, tags, updated_at, collapsed) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     // 递归写入子任务(补丁·57:支持子任务下再建子任务;补丁·60:每个子任务独立归属任务 — 由 saveTask 在前端完成跨任务迁移,这里仍用 taskId 即可)
     const writeSubs = (subs, taskId, parentSubId) => {
       for (const s of (subs || [])) {
         // 补丁·60:parentTaskId 优先于 taskId(顶层子任务 parentTaskId 必须等于 taskId 才能正确归属)
+        // 补丁·188:status 是子任务状态的主字段(三级),done 由它派生,两者必须一致
+        const st = (s.status === 'todo' || s.status === 'in_progress' || s.status === 'done') ? s.status : (s.done ? 'done' : 'todo');
+        const subDone = st === 'done';
         const realTaskId = s.parentTaskId || taskId;
         insTodoSub.run(
           s.id, realTaskId, parentSubId || null, s.title || '', s.notes || '',
-          s.done ? 1 : 0, s.doneAt ?? null,
+          subDone ? 1 : 0, s.doneAt ?? null,
           typeof s.sort === 'number' && isFinite(s.sort) ? s.sort : 0,
           s.createdAt || 0,
+          st,
           s.priority || 'medium', s.projectId || '', s.parentTaskId || taskId,
           s.deadline || 0, s.startAt ?? null, s.completeAt ?? null,
           JSON.stringify(Array.isArray(s.tags) ? s.tags : []),
