@@ -70,7 +70,7 @@ const LANGS = {
     subDoneAt: '完成于', eventsSection: '任务事件',
     editSubtask: '编辑子任务', subDoneAtLabel: '完成日期', subDoneAtDisabledTip: '子任务未完成,勾选后才能填完成日期', subCreatedOn: '创建于 {0}',
     subEdit: '编辑此子任务', backToTask: '← 返回上级', breadcrumbTask: '任务', noSubtasks: '暂无子任务',
-    subEditDetail: '编辑详情…',
+    subEditDetail: '编辑详情…', pinToTop: '置顶(移到同级最前)',
     parentTaskLabel: '父任务', noParent: '无父任务', publishAtLabel: '发布时间', parentProjectLabel: '父项目', noParentProject: '无（顶级项目）', noParentTask: '无（顶级任务）',
     // 详情
     copy: '复制', copyTitle: '复制任务摘要', copied: '已复制到剪贴板', copyFailed: '复制失败',
@@ -162,7 +162,7 @@ const LANGS = {
     subDoneAt: 'Done on', eventsSection: 'Task Events',
     editSubtask: 'Edit subtask', subDoneAtLabel: 'Done at', subDoneAtDisabledTip: 'Subtask not done yet — check it first to set a completion date', subCreatedOn: 'Created {0}',
     subEdit: 'Edit this subtask', backToTask: '← Back', breadcrumbTask: 'Task', noSubtasks: 'No subtasks',
-    subEditDetail: 'Edit details…',
+    subEditDetail: 'Edit details…', pinToTop: 'Pin to top of siblings',
     parentTaskLabel: 'Parent task', noParent: 'No parent', publishAtLabel: 'Publish time', parentProjectLabel: 'Parent project', noParentProject: 'None (top-level)', noParentTask: 'None (top-level)',
     copy: 'Copy', copyTitle: 'Copy task summary', copied: 'Copied to clipboard', copyFailed: 'Copy failed',
     overduePrefix: 'Overdue · ', descLabel: 'Description', createdOn: 'Created {0}', updatedOn: 'Updated {0}',
@@ -2452,6 +2452,18 @@ function renderTaskCard(task, compact = false, colStatus = null) {
       modalHighlightSub = b.dataset.sub;
       taskModalOpen = true; modalTaskId = real.id; render();
     }
+    else if (t === 'subtop') {
+      // 补丁·127:置顶 —— 该子任务在其同级列表中移到最前(任意层级;已在顶部则不动作)
+      const f = findSub(real.subtasks || [], b.dataset.sub);
+      if (f && f.index > 0) {
+        const [moved] = f.list.splice(f.index, 1);
+        f.list.unshift(moved);
+        f.list.forEach((x, i) => { x.sort = i; }); // 同级重编号,手工顺序字段保持一致
+        real.updatedAt = now();
+        saveState();
+        render();
+      }
+    }
     else if (t === 'substatus') { toggleSubtask(real, b.dataset.sub); } // 补丁·61/125:状态图标 → 循环切换状态(手工顺序模式不重排);空白处不再触发
     else if (t === 'subtitle') {
       // 补丁·124:点击子任务标题 → 直达该子任务的详情编辑界面(详情 tab + 钻取栈直达该层)
@@ -2540,6 +2552,7 @@ function renderSubBlocks(subs, depth, dateAfterTitle = false, anc, statusSort) {
         <div class="todo-sub-block-actions">
           <button class="todo-icon-btn" data-t="subaddchild" data-sub="${s.id}" title="${T('newSubtaskUnderTask')}">＋</button>
           <button class="todo-icon-btn" data-t="subedit" data-sub="${s.id}" title="${T('editSubtask')}">✎</button>
+          ${dateAfterTitle ? `<button class="todo-icon-btn" data-t="subtop" data-sub="${s.id}" title="${T('pinToTop')}">📌</button>` : ''}
         </div>
       </div>
       ${(tagsHTML || metaDateHTML) ? `<div class="todo-sub-block-meta">${tagsHTML}${metaDateHTML}</div>` : ''}
