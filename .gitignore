@@ -50,3 +50,6 @@ _pack_quarantine/
 .zcode/
 release2/
 release3/
+
+# 临时测试 PDF
+test-smoke.pdf
