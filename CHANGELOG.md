@@ -7,6 +7,22 @@
 
 ---
 
+## 2026-09-03（补丁·193）
+
+### [修复] PDF 预览空白:iframe 需启用 Chromium PDF 查看器(plugins)且不能加 sandbox
+
+- **问题**:拖入 .pdf 入库后点击打开一片空白。
+- **根因**(两个叠加):
+  1. `#pv-pdf-view` 的 iframe 加了 `sandbox="allow-same-origin allow-scripts"` —— sandboxed iframe 禁用 Chromium 内置 PDF 查看器,PDF 无法渲染。
+  2. 主窗口未开启 `webPreferences.plugins`(Electron 默认 false,禁用 PDF 查看器/插件),iframe 加载 .pdf 时 Chromium 不调起 PDF viewer。
+- **修复**:
+  - `electron/main.js` 主窗口 `webPreferences` 加 `plugins: true`(启用 Chromium 内置 PDF 查看器)。
+  - `index.html` `#pdf-frame` 移除 `sandbox` 属性。
+- **验证**(无头 Electron 实测):iframe 加载 `http://…/a.pdf` 后返回文档包含 Chromium PDF viewer 扩展 `chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/pdf_embedder.css`,确认 PDF 查看器已接管渲染(`plugins:true` 生效)。UIROOT-SMOKE 通过。
+- **说明**:PDF 标题列此前误显示图标 URL 的问题由用户通过设置页改图标解决(那是 `isImageIcon` 对 Vite 构建资源 URL 的识别,已在补丁·191 兼容);本条专注预览空白修复。
+
+---
+
 ## 2026-09-03（补丁·191）
 
 ### [新增] 内置 PDF 文档类型 + Chromium 原生 PDF 预览

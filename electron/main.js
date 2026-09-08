@@ -467,6 +467,7 @@ async function createWindow() {
       sandbox: false,
       backgroundThrottling: false,
       spellcheck: false,
+      plugins: true, // 启用 Chromium 内置 PDF 查看器(iframe 加载 .pdf 需 plugins,否则空白)
     },
   });
   // 内容就绪(至少骨架屏可绘制)再显示窗口; 兜底 5 秒强制显示, 防止异常时窗口永不出现
