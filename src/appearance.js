@@ -87,6 +87,13 @@ export function applyAppearance() {
   const app = document.getElementById('app');
   if (app) app.style.zoom = (Number.isFinite(scale) && scale > 0) ? String(scale) : '1';
 
+  // 字重 / 字体族
+  const fw = parseInt(s.fontWeight, 10);
+  root.style.setProperty('--fw', (Number.isFinite(fw) && fw >= 400 && fw <= 700) ? fw : 400);
+  const ff = String(s.fontFamily || '').trim();
+  if (ff) root.style.setProperty('--font', ff);
+  else root.style.removeProperty('--font');
+
   // 强调色 / 背景色 / 前景色(始终按该主题配置生效;空则回退主题默认)
   root.style.setProperty('--accent', t.accent);
   root.style.setProperty('--accent2', t.accent);

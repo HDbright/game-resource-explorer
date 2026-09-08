@@ -51,6 +51,8 @@ export const DEFAULT_SETTINGS = {
   // 外观:主题 / 字体字号 / 背景
   theme: 'dark', // 'dark' | 'light' | 'custom' | 'system'(跟随系统)
   fontScale: 1, // 全局字体/界面缩放(作用于 #app 的 zoom,1 = 100%)
+  fontWeight: 0, // 全局字重(0=默认 400;可选 400/500/600/700)
+  fontFamily: '', // 全局字体(''=系统默认;可选预设字体族)
   // 各主题独立配置(强调色 / 背景色 / 前景色 / 背景图),互不共享
   themes: {
     dark:   { accent: '', bgColor: '', fgColor: '', bgImage: '', bgImageOn: false, panelBg: '', menuBg: '', btnBg: '', hoverBg: '', borderColor: '', inputBg: '' },
@@ -1204,9 +1206,10 @@ export function customTypeById(id) {
   return customTypes().find((t) => t.id === id) || null;
 }
 /** 新增自定义资源类型;exts 形如 ['.png','.ico'] */
-/** 自定义类型合法归属分组:内置分组 或 现有自定义分组 id(其余回退 image) */
+/** 自定义类型合法归属分组:内置核心分组 + BUILTIN_GROUP_ROOTS 扩展分组 + 现有自定义分组 id(其余回退 image) */
 function normalizeTypeGroup(group) {
-  if (['anim', 'image', 'audio', '3d'].includes(group)) return group;
+  if (['anim', 'image', 'audio', '3d', 'fgui'].includes(group)) return group;
+  if (BUILTIN_GROUP_ROOTS.some((r) => r.group === group)) return group;
   if (customTypeGroups().some((g) => g.id === group)) return group;
   return 'image';
 }

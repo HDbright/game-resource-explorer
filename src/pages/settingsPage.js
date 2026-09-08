@@ -362,6 +362,26 @@ export function renderSettingsPage(container, opts = {}) {
             <input id="fs-scale" type="range" min="0.8" max="1.6" step="0.05" value="${s.fontScale || 1}" />
             <span class="speed-val" id="fs-scale-val">${Math.round((s.fontScale || 1) * 100)}%</span>
           </div>
+          <div class="form-row">
+            <label class="f-label">字重</label>
+            <div class="seg" id="fw-presets">
+              <button class="seg-btn" data-fw="400">标准</button>
+              <button class="seg-btn" data-fw="500">中等</button>
+              <button class="seg-btn" data-fw="600">偏粗</button>
+              <button class="seg-btn" data-fw="700">粗体</button>
+            </div>
+          </div>
+          <div class="form-row">
+            <label class="f-label">字体</label>
+            <select id="ff-select" class="input" style="width:200px">
+              <option value="">系统默认</option>
+              <option value="&quot;Microsoft YaHei&quot;, sans-serif">微软雅黑</option>
+              <option value="&quot;PingFang SC&quot;, sans-serif">苹方</option>
+              <option value="&quot;SimHei&quot;, sans-serif">黑体</option>
+              <option value="&quot;SimSun&quot;, serif">宋体</option>
+              <option value="&quot;Segoe UI&quot;, sans-serif">Segoe UI</option>
+            </select>
+          </div>
           <div class="settings-actions">
             <button class="btn sm ghost" id="fs-reset">恢复默认(100%)</button>
             <span class="spacer"></span>
@@ -805,6 +825,28 @@ export function renderSettingsPage(container, opts = {}) {
     saveState();
     applyAppearance();
     toast('字体字号设置已保存');
+  });
+
+  // ---- 字重 ----
+  const fwPresets = container.querySelector('#fw-presets');
+  const currentFw = parseInt(s.fontWeight, 10) || 0;
+  fwPresets.querySelectorAll('.seg-btn').forEach((b) => {
+    b.classList.toggle('active', parseInt(b.dataset.fw, 10) === currentFw || (currentFw === 0 && b.dataset.fw === '400'));
+    b.addEventListener('click', () => {
+      fwPresets.querySelectorAll('.seg-btn').forEach((x) => x.classList.remove('active'));
+      b.classList.add('active');
+      const fw = parseInt(b.dataset.fw, 10);
+      setSetting('fontWeight', fw);
+      applyAppearance();
+    });
+  });
+
+  // ---- 字体族 ----
+  const ffSelect = container.querySelector('#ff-select');
+  ffSelect.value = s.fontFamily || '';
+  ffSelect.addEventListener('change', () => {
+    setSetting('fontFamily', ffSelect.value);
+    applyAppearance();
   });
 
   // ---- 主题背景(深色 / 浅色 / 自定义 各主题独立配置) ----
