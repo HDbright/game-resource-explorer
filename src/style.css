@@ -1,5 +1,6 @@
 :root {
   --bg: #2e3038;
+  --bg1: #1b1d23;
   --bg2: #383b44;
   --bg3: #42464f;
   --bg4: #4d515b;
@@ -27,6 +28,7 @@
 /* ---------- 浅色主题(系统设置「主题背景」切换) ---------- */
 :root[data-theme="light"] {
   --bg: #f3f4f7;
+  --bg1: #f0f2f5;
   --bg2: #ffffff;
   --bg3: #e8eaef;
   --bg4: #e8e8e8;
@@ -436,7 +438,7 @@ body {
   flex: 1; min-height: 0; width: 100%; resize: none; outline: none;
   background: var(--bg1, #1b1d23); color: var(--text, #eee);
   border: none; padding: 12px 14px; font-family: var(--mono, Consolas, 'Courier New', monospace);
-  font-size: 13px; line-height: 1.6; tab-size: 2;
+  font-size: 13px; line-height: 1.6; tab-size: 2; font-weight: 500;
 }
 /* 编辑区标题着色背板:textarea 文字透明(仅保留光标/选区),背后 pre 同字体度量渲染,
    ATX 标题行按生效标题色整行着色;宽度由 JS 按 textarea clientWidth 同步(扣滚动条后换行一致) */
@@ -446,7 +448,7 @@ body {
   margin: 0; overflow: hidden; pointer-events: none; z-index: 0;
   background: var(--bg1, #1b1d23); color: var(--text, #eee); border: none;
   padding: 12px 14px; font-family: var(--mono, Consolas, 'Courier New', monospace);
-  font-size: 13px; line-height: 1.6; tab-size: 2;
+  font-size: 13px; line-height: 1.6; tab-size: 2; font-weight: 500;
   white-space: pre-wrap; overflow-wrap: break-word;
 }
 .md-edit-hl code { font: inherit; background: transparent; }

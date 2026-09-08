@@ -1173,11 +1173,11 @@ function renderResTypeChildren(wrap, group) {
   if (rootShow) {
     const uncat = itemsForGroupCat(group, '');
     if (uncat.length > 0) {
-      renderPseudoNode(wrap, { id: '', icon: '○', name: '未分类' }, group, 'uncat:' + group);
+      renderPseudoNode(wrap, { id: '', icon: '○', name: '未分类' }, group, 'uncat:' + group, 22);
     }
   }
   for (const c of treeCategoryChildren('')) {
-    if (catVisibleInGroup(c, group)) renderCatNode(wrap, c, 0, group);
+    if (catVisibleInGroup(c, group)) renderCatNode(wrap, c, 1, group);
   }
 }
 
@@ -3428,7 +3428,7 @@ function categoryScenePath(id) {
 }
 
 /** 伪节点(类型根节点「XX资源」/ 未分类):均可展开/折叠;类型根节点展开后显示该类型的分类目录 */
-function renderPseudoNode(parent, n, group = currentGroup(), expandKey = n.id) {
+function renderPseudoNode(parent, n, group = currentGroup(), expandKey = n.id, paddingLeft) {
   const items = itemsForGroupCat(group, n.id);
   const isOpen = expandedCats.has(expandKey);
   const hasItems = items.length > 0;
@@ -3437,6 +3437,7 @@ function renderPseudoNode(parent, n, group = currentGroup(), expandKey = n.id) {
   const node = document.createElement('div');
   node.className = 'cat-node' + (n.id === currentCategoryId ? ' active' : '');
   node.dataset.id = n.id;
+  if (paddingLeft != null) node.style.paddingLeft = paddingLeft + 'px';
 
   const arrow = document.createElement('span');
   arrow.className = 'cat-arrow';
@@ -3558,13 +3559,13 @@ function renderPseudoNode(parent, n, group = currentGroup(), expandKey = n.id) {
   if (isOpen && hasItems) {
     const wrap = document.createElement('div');
     wrap.className = 'tree-items';
-    wrap.style.setProperty('--item-depth', 0); // 未分类文件与顶级分类(depth 0)的图标对齐
+    wrap.style.setProperty('--item-depth', 1); // 未分类文件与顶级分类(depth 1)的图标对齐
     if (isAll) {
       // 该类型的分类目录:未分类在前(若有),顶级分类在后
       // 目录按资源类型标签过滤:无标签 → 所有类型显示;有标签 → 仅标签命中当前类型的目录显示
       const uncatItems = items.filter((i) => !i.categoryId);
       if (uncatItems.length > 0) {
-        renderPseudoNode(wrap, { id: '', icon: '○', name: '未分类' }, group);
+        renderPseudoNode(wrap, { id: '', icon: '○', name: '未分类' }, group, '', 22);
       }
       for (const c of treeCategoryChildren('')) {
         if (catVisibleInGroup(c, group)) renderCatNode(wrap, c, 0, group);

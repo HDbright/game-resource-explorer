@@ -93,6 +93,7 @@ export function applyAppearance() {
   root.style.setProperty('--bg', t.bgColor);
   root.style.setProperty('--text', t.fgColor);
   // 模块/面板背景(--bg2)、菜单/卡片背景(--bg3)、悬停高亮(--bg4)、边框(--border)、按钮背景(--btn-bg)
+  root.style.setProperty('--bg1', t.bgColor);
   root.style.setProperty('--bg2', t.panelBg);
   root.style.setProperty('--bg3', t.menuBg);
   root.style.setProperty('--bg4', t.hoverBg);
