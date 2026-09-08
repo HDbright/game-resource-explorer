@@ -9,31 +9,20 @@ export class PdfViewerController {
   constructor() {
     this.wrap = null;
     this.frame = null;
-    this.pathEl = null;
     this.previewToken = null;
     this.currentFilePath = null;
   }
 
-  /** 初始化:绑定 DOM 元素与事件(仅需一次,initUI 时调用) */
+  /** 初始化:仅绑定 iframe 引用(路径/打开目录由预览页顶栏统一处理,避免功能重复) */
   init(wrap) {
     this.wrap = wrap;
     this.frame = wrap.querySelector('#pdf-frame');
-    this.pathEl = wrap.querySelector('#pdf-path');
-    const openDirBtn = wrap.querySelector('#pdf-open-dir');
-    if (openDirBtn) {
-      openDirBtn.addEventListener('click', () => {
-        if (this.currentFilePath && window.api && window.api.showItem) {
-          window.api.showItem(this.currentFilePath);
-        }
-      });
-    }
   }
 
   /** 加载并预览 PDF 文件 */
   async load(filePath) {
     if (!this.wrap || !this.frame) return;
     this.currentFilePath = filePath;
-    if (this.pathEl) this.pathEl.textContent = filePath;
     // 注销旧的预览目录
     await this._unregister();
     const dir = dirOf(filePath);

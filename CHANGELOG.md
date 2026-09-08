@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-09-03（补丁·194）
+
+### [优化] 移除 PDF 预览页重复的工具条(路径/打开目录与预览顶栏重复)
+
+- **问题**:PDF 预览页底部我额外加的 `.pdf-toolbar`(路径 + 📂打开目录)与预览页顶部工具栏(路径 `#pv-path` + 打开目录 + 重新加载)功能重复,浪费显示区域。
+- **修复**:`index.html` 移除 `.pdf-toolbar` 行;`pdfViewer.js` 删除 `#pdf-path`/`#pdf-open-dir` 绑定与 `pathEl` 引用;`style.css` 删除 `.pdf-toolbar`/`.pdf-path` 样式,仅保留 iframe 主体。
+- **验证**:UIROOT-SMOKE 通过。(路径/打开目录/重新加载由预览顶栏 `#pv-path`/`#pv-open-dir`/`#pv-reload` 统一提供)
+
+---
+
 ## 2026-09-03（补丁·193）
 
 ### [修复] PDF 预览空白:iframe 需启用 Chromium PDF 查看器(plugins)且不能加 sandbox
