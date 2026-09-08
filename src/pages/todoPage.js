@@ -4,9 +4,11 @@
 // 导入(兼容 Taskwingo 导出)、中英文界面切换。
 // 数据直接挂在全局 state.todoProjects / state.todoTasks(与库中 todo_* 表同步,saveState 落盘)。
 
-import { state, saveState, uid, now } from '../state.js';
-import { toast, confirmDialog, showContextMenu } from '../dialogs.js';
+import { state, saveState, uid, now, setSetting } from '../state.js';
+import { toast, confirmDialog, showContextMenu, pickEmojiModal, promptDialog } from '../dialogs.js';
 import { getLunarInfo, lunarMonthDayToSolar, formatLunarMonth, formatLunarDay } from '../calendarLunar.js';
+import MarkdownIt from 'markdown-it'; // 补丁·189:备注大窗口 Markdown 渲染(与 MD 查看器同配置)
+import { effectiveHeadingColors } from '../viewers/markdownEditor.js'; // 补丁·190:标题分级着色同口径
 
 // ---------------- 国际化 ----------------
 let lang = 'zh'; // 'zh' | 'en'
@@ -71,6 +73,12 @@ const LANGS = {
     editSubtask: '编辑子任务', subDoneAtLabel: '完成日期', subDoneAtDisabledTip: '子任务未完成,勾选后才能填完成日期', subCreatedOn: '创建于 {0}',
     subEdit: '编辑此子任务', backToTask: '← 返回上级', breadcrumbTask: '任务', noSubtasks: '暂无子任务',
     subEditDetail: '编辑详情…', pinToTop: '置顶(移到同级最前)',
+    notesWinTitle: '备注编辑', notesExpandTip: '大窗口查看/编辑(支持 Markdown,可导出 .md)',
+    mdViewSplit: '分栏', mdViewEdit: '编辑', mdViewPreview: '预览', exportMd: '导出 MD', notesDone: '完成',
+    mdEmoji: '插入 Emoji', mdTable: '插入表格', mdFindRep: '查找/替换 (Ctrl+F)', mdFmtHint: '支持 Markdown · 标题分级着色',
+    mdFindPh: '查找', mdReplacePh: '替换为', mdReplaceOne: '替换', mdReplaceAll: '全部', mdCase: '区分大小写', mdWord: '全词',
+    mdRows: '行数(数据行)', mdCols: '列数', mdTableTitle: '插入表格',
+    mdColor: '标题颜色', mdColorEnable: '启用标题分级着色',
     parentTaskLabel: '父任务', noParent: '无父任务', publishAtLabel: '发布时间', parentProjectLabel: '父项目', noParentProject: '无（顶级项目）', noParentTask: '无（顶级任务）',
     // 详情
     copy: '复制', copyTitle: '复制任务摘要', copied: '已复制到剪贴板', copyFailed: '复制失败',
@@ -163,6 +171,12 @@ const LANGS = {
     editSubtask: 'Edit subtask', subDoneAtLabel: 'Done at', subDoneAtDisabledTip: 'Subtask not done yet — check it first to set a completion date', subCreatedOn: 'Created {0}',
     subEdit: 'Edit this subtask', backToTask: '← Back', breadcrumbTask: 'Task', noSubtasks: 'No subtasks',
     subEditDetail: 'Edit details…', pinToTop: 'Pin to top of siblings',
+    notesWinTitle: 'Edit Notes', notesExpandTip: 'Open in large window (Markdown, exportable as .md)',
+    mdViewSplit: 'Split', mdViewEdit: 'Edit', mdViewPreview: 'Preview', exportMd: 'Export MD', notesDone: 'Done',
+    mdEmoji: 'Insert Emoji', mdTable: 'Insert Table', mdFindRep: 'Find/Replace (Ctrl+F)', mdFmtHint: 'Markdown · colored headings',
+    mdFindPh: 'Find', mdReplacePh: 'Replace with', mdReplaceOne: 'Replace', mdReplaceAll: 'All', mdCase: 'Match case', mdWord: 'Whole words',
+    mdRows: 'Rows', mdCols: 'Columns', mdTableTitle: 'Insert Table',
+    mdColor: 'Heading Colors', mdColorEnable: 'Colored headings',
     parentTaskLabel: 'Parent task', noParent: 'No parent', publishAtLabel: 'Publish time', parentProjectLabel: 'Parent project', noParentProject: 'None (top-level)', noParentTask: 'None (top-level)',
     copy: 'Copy', copyTitle: 'Copy task summary', copied: 'Copied to clipboard', copyFailed: 'Copy failed',
     overduePrefix: 'Overdue · ', descLabel: 'Description', createdOn: 'Created {0}', updatedOn: 'Updated {0}',
@@ -2822,7 +2836,7 @@ function renderTaskModal() {
       <div class="todo-crumbs">${crumbs}</div>
       <div class="todo-field"><label class="todo-label">${T('titleLabel')}</label>
         <input class="todo-input" data-sub-d="title" value="${escHtml(sub.title)}"></div>
-      <div class="todo-field"><label class="todo-label">${T('notesLabel')}</label>
+      <div class="todo-field"><label class="todo-label">${T('notesLabel')}<button type="button" class="todo-notes-expand" data-sub-d-notes-win title="${T('notesExpandTip')}">⤢</button></label>
         <textarea class="todo-input todo-textarea" data-sub-d="notes" rows="3">${escHtml(sub.notes || '')}</textarea></div>
       <div class="todo-field"><label class="todo-label">${T('priorityLabel')}</label>
         <div class="todo-pri-row">${priOpts}</div></div>
@@ -2862,6 +2876,18 @@ function renderTaskModal() {
     // 字段事件绑定
     bodyEl.querySelector('[data-sub-d="title"]').addEventListener('input', (e) => { sub.title = e.target.value; });
     bodyEl.querySelector('[data-sub-d="notes"]').addEventListener('input', (e) => { sub.notes = e.target.value; });
+    // 补丁·189:备注大窗口 ⤢ —— 实时回写 sub.notes 并同步详情页 textarea
+    bodyEl.querySelector('[data-sub-d-notes-win]').addEventListener('click', () => {
+      openNotesEditor({
+        title: sub.title,
+        getText: () => sub.notes || '',
+        setText: (v) => {
+          sub.notes = v;
+          const t = bodyEl.querySelector('[data-sub-d="notes"]');
+          if (t && t.value !== v) t.value = v;
+        },
+      });
+    });
     bodyEl.querySelector('[data-sub-d="status"]').addEventListener('change', (e) => {
       const ns = e.target.value; sub.status = ns; sub.done = ns === 'done';
       if (ns === 'done' && !sub.completeAt) sub.completeAt = now();
@@ -2911,7 +2937,7 @@ function renderTaskModal() {
       bodyEl.innerHTML = `
         <div class="todo-field"><label class="todo-label">${T('titleLabel')}</label>
           <input class="todo-input" data-d="title" value="${escHtml(draft.title)}" placeholder="${T('titlePh')}" autofocus></div>
-        <div class="todo-field"><label class="todo-label">${T('notesLabel')}</label>
+        <div class="todo-field"><label class="todo-label">${T('notesLabel')}<button type="button" class="todo-notes-expand" data-d-notes-win title="${T('notesExpandTip')}">⤢</button></label>
           <textarea class="todo-input todo-textarea" data-d="notes" rows="3" placeholder="${T('notesPh')}">${escHtml(draft.notes)}</textarea></div>
         <div class="todo-field"><label class="todo-label">${T('priorityLabel')}</label>
           <div class="todo-pri-row">
@@ -2954,6 +2980,18 @@ function renderTaskModal() {
       // 详情 tab 事件
       bodyEl.querySelector('[data-d="title"]').addEventListener('input', (e) => { draft.title = e.target.value; });
       bodyEl.querySelector('[data-d="notes"]').addEventListener('input', (e) => { draft.notes = e.target.value; });
+      // 补丁·189:备注大窗口 ⤢ —— 实时回写 draft.notes 并同步详情页 textarea
+      bodyEl.querySelector('[data-d-notes-win]').addEventListener('click', () => {
+        openNotesEditor({
+          title: draft.title,
+          getText: () => draft.notes || '',
+          setText: (v) => {
+            draft.notes = v;
+            const t = bodyEl.querySelector('[data-d="notes"]');
+            if (t && t.value !== v) t.value = v;
+          },
+        });
+      });
       bodyEl.querySelector('[data-d="status"]').addEventListener('change', (e) => { draft.status = e.target.value; });
       bodyEl.querySelector('[data-d="projectId"]').addEventListener('change', (e) => { draft.projectId = e.target.value; draft.parentTaskId = ''; renderBody(); });
       bodyEl.querySelector('[data-d="parentTaskId"]').addEventListener('change', (e) => { draft.parentTaskId = e.target.value; });
@@ -3620,6 +3658,349 @@ function renderArchiveModal() {
   ov.appendChild(box);
   return ov;
 }
+
+// ---------------- 备注 Markdown 大窗口编辑(补丁·189/190) ----------------
+// 任务/子任务详情备注栏的 ⤢ 按钮弹出独立大窗口:分栏(编辑|预览)/仅编辑/仅预览三种视图,
+// markdown-it 渲染(与 MD 查看器同配置),输入实时回写底层草稿,可单独导出 .md 文件。
+// 补丁·190:对齐 MD 查看器体验——预览/编辑区标题分级着色(复用 effectiveHeadingColors,
+// 跟随「标题色」设置)、emoji 选择插入(复用 pickEmojiModal)、行列对话框插入表格(复用
+// promptDialog,模板与 MD 查看器一致)、查找/替换(区分大小写/全词,编辑区选中定位 +
+// 预览全量高亮,当前匹配醒目并滚动聚焦,Ctrl+F 唤起)。
+let _notesMd = null;
+let _notesWinClose = null;
+function notesMd() {
+  if (!_notesMd) {
+    _notesMd = new MarkdownIt({ html: true, linkify: true, breaks: true, typographer: false });
+  }
+  return _notesMd;
+}
+/** 备注导出为 .md(Electron 保存对话框;标题做安全文件名,复用全局导出提示词条) */
+async function exportNotesMd(title, content) {
+  const safe = String(title || '').replace(/[\\/:*?"<>|]/g, '_').trim().slice(0, 60) || 'notes';
+  try {
+    const r = await window.api.saveText({ defaultName: safe + '.md', content: String(content || ''), filters: [{ name: 'Markdown', extensions: ['md'] }] });
+    if (r && r.ok) toast(T('exportedTo', r.path), 'ok');
+    else if (r && r.error) toast(T('exportFailed', r.error), 'warn');
+  } catch (e) { toast(T('exportFailed', (e && e.message) || e), 'warn'); }
+}
+/** 表格模板(与 MD 查看器 openTableDialog 同款:标题行 + 分隔行 + 空数据行) */
+function notesBuildTable(rows, cols) {
+  const cells = (fn) => Array.from({ length: cols }, (_, i) => fn(i)).join(' | ');
+  const header = '| ' + cells((i) => '标题' + (i + 1)) + ' |';
+  const sep = '| ' + cells(() => '---') + ' |';
+  const emptyRow = '| ' + cells(() => '   ') + ' |';
+  return header + '\n' + sep + '\n' + Array.from({ length: rows }, () => emptyRow).join('\n');
+}
+/** 打开备注大窗口;getText/setText 桥接底层草稿(任务 draft.notes 或子任务 sub.notes) */
+function openNotesEditor({ title, getText, setText }) {
+  closeNotesEditor();
+  const ov = document.createElement('div');
+  ov.className = 'todo-notes-win';
+  ov.innerHTML = `
+    <div class="todo-notes-box">
+      <div class="todo-notes-head">
+        <span class="todo-notes-title">📝 ${escHtml(T('notesWinTitle'))} · ${escHtml(title || '')}</span>
+        <div class="todo-seg">
+          <button class="todo-seg-btn on" data-nv="split">${T('mdViewSplit')}</button>
+          <button class="todo-seg-btn" data-nv="edit">${T('mdViewEdit')}</button>
+          <button class="todo-seg-btn" data-nv="preview">${T('mdViewPreview')}</button>
+        </div>
+        <button class="todo-icon-btn" data-fmt-emoji title="${T('mdEmoji')}">😀</button>
+        <button class="todo-icon-btn" data-fmt-table title="${T('mdTable')}">▦</button>
+        <button class="todo-icon-btn" data-fmt-color title="${T('mdColor')}">🎨</button>
+        <button class="todo-icon-btn" data-fmt-find title="${T('mdFindRep')}">🔍</button>
+        <button class="btn" data-notes-export title="${T('exportMd')}">⬇ ${T('exportMd')}</button>
+        <button class="btn primary" data-notes-close>${T('notesDone')}</button>
+      </div>
+      <div class="todo-notes-findbar" hidden>
+        <input type="text" data-find-q placeholder="${T('mdFindPh')}">
+        <span class="todo-notes-count" data-find-count></span>
+        <label title="${T('mdCase')}"><input type="checkbox" data-find-case>Aa</label>
+        <label title="${T('mdWord')}"><input type="checkbox" data-find-word>${T('mdWord')}</label>
+        <button class="todo-icon-btn" data-find-prev title="↑">↑</button>
+        <button class="todo-icon-btn" data-find-next title="↓">↓</button>
+        <input type="text" data-replace-q placeholder="${T('mdReplacePh')}">
+        <button class="btn" data-replace-one>${T('mdReplaceOne')}</button>
+        <button class="btn" data-replace-all>${T('mdReplaceAll')}</button>
+        <button class="todo-icon-btn" data-find-close title="✕">✕</button>
+      </div>
+      <div class="todo-notes-body">
+        <div class="todo-notes-editwrap">
+          <pre class="todo-notes-hl" aria-hidden="true"><code></code></pre>
+          <textarea class="todo-notes-src" spellcheck="false" placeholder="${T('notesPh')}"></textarea>
+        </div>
+        <div class="todo-notes-preview md-preview"></div>
+      </div>
+    </div>`;
+  // 挂到 #modal-root(与全局 modal-mask 同容器),避免被 notes 窗口遮挡;
+  // CSS #modal-root .todo-notes-win ~ .modal-mask 自动提升后续对话框到 notes 窗口之上。
+  document.getElementById('modal-root').appendChild(ov);
+  const box = ov.querySelector('.todo-notes-box');
+  const ta = ov.querySelector('.todo-notes-src');
+  const hl = ov.querySelector('.todo-notes-hl');
+  const hlCode = hl.querySelector('code');
+  const pv = ov.querySelector('.todo-notes-preview');
+  const fb = ov.querySelector('.todo-notes-findbar');
+  const fq = ov.querySelector('[data-find-q]');
+  ta.value = getText() || '';
+
+  // ---- 编辑应用(输入/插入/替换 共用):回写草稿 + 刷新预览/标题背板 ----
+  const applyEdit = () => {
+    setText(ta.value);
+    renderPv();
+    updateHl();
+    syncHl();
+  };
+  // ---- 预览渲染:markdown-it + 标题分级着色(与 MD 查看器同口径,含设置覆盖) ----
+  function renderPv() {
+    const eff = effectiveHeadingColors();
+    let st = '';
+    for (let i = 1; i <= 6; i++) {
+      const c = eff['h' + i];
+      if (c) st += '.todo-notes-preview h' + i + '{color:' + c + '!important}';
+    }
+    pv.innerHTML = (st ? '<style>' + st + '</style>' : '') + notesMd().render(ta.value);
+    pv.querySelectorAll('a').forEach((a) => a.addEventListener('click', (e) => e.preventDefault()));
+    if (!fb.hidden) applyPvMarks();
+  }
+  // ---- 编辑区标题着色背板:textarea 文字透明,背后 pre 逐行着色 ATX 标题(代码围栏内不着色) ----
+  function updateHl() {
+    const colors = effectiveHeadingColors();
+    const lines = ta.value.split('\n');
+    let inFence = false;
+    let html = '';
+    for (const line of lines) {
+      if (/^\s*(```|~~~)/.test(line)) inFence = !inFence;
+      const hm = inFence ? null : /^(#{1,6})(?:\s|$)/.exec(line);
+      const c = hm ? colors['h' + hm[1].length] : null;
+      html += c ? '<span style="color:' + c + '">' + escHtml(line) + '</span>\n' : (escHtml(line) + '\n');
+    }
+    hlCode.innerHTML = html + '\n'; // 补一个换行,保证末行可见、行高对齐
+  }
+  // 背板宽度按 textarea clientWidth 同步(扣滚动条,换行位置才一致);滚动同步
+  function syncHl() { hl.style.width = ta.clientWidth + 'px'; }
+  ta.addEventListener('scroll', () => { hl.scrollTop = ta.scrollTop; });
+  ta.addEventListener('input', applyEdit);
+  ov.addEventListener('resize', syncHl);
+  // ---- 光标处插入(emoji / 表格) ----
+  function insertAtCursor(text) {
+    const s = ta.selectionStart, e = ta.selectionEnd;
+    const v = ta.value;
+    ta.value = v.slice(0, s) + text + v.slice(e);
+    const caret = s + text.length;
+    ta.setSelectionRange(caret, caret);
+    ta.focus();
+    applyEdit();
+  }
+  ov.querySelector('[data-fmt-emoji]').addEventListener('click', () => {
+    pickEmojiModal((arr) => { if (arr && arr.length) insertAtCursor(arr.join(' ')); });
+  });
+  ov.querySelector('[data-fmt-table]').addEventListener('click', () => {
+    promptDialog({
+      title: T('mdTableTitle'),
+      fields: [
+        { key: 'rows', label: T('mdRows'), value: '3' },
+        { key: 'cols', label: T('mdCols'), value: '3' },
+      ],
+      onOk: (vals) => {
+        const clamp = (raw, min, max, dft) => { let n = parseInt(raw, 10); if (!Number.isFinite(n)) n = dft; return Math.max(min, Math.min(max, n)); };
+        insertAtCursor(notesBuildTable(clamp(vals.rows, 1, 50, 3), clamp(vals.cols, 1, 20, 3)));
+      },
+    });
+  });
+
+  // ---- 查找/替换(与 MD 查看器同交互:区分大小写/全词、上下循环、编辑区选中定位 + 预览全量高亮) ----
+  let fMatches = [], fCur = -1, pvMarks = [];
+  const caseCb = ov.querySelector('[data-find-case]');
+  const wordCb = ov.querySelector('[data-find-word]');
+  const countEl = ov.querySelector('[data-find-count]');
+  const rq = ov.querySelector('[data-replace-q]');
+  function findCompute() {
+    const q = fq.value;
+    if (!q) return [];
+    const esc = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    let re;
+    try { re = new RegExp(wordCb.checked ? '(?<![\\w])' + esc + '(?![\\w])' : esc, caseCb.checked ? 'g' : 'gi'); } catch (e) { return []; }
+    const src = ta.value;
+    const out = [];
+    let m;
+    while ((m = re.exec(src)) !== null) {
+      out.push({ start: m.index, end: m.index + m[0].length });
+      if (!m[0].length) re.lastIndex++;
+    }
+    return out;
+  }
+  function findCount() {
+    countEl.textContent = !fq.value ? '' : (fMatches.length ? (fCur >= 0 ? fCur + 1 : 1) + '/' + fMatches.length : '0/0');
+  }
+  function clearPvMarks() {
+    pvMarks.forEach((mk) => { const p = mk.parentNode; if (p) { p.replaceChild(document.createTextNode(mk.textContent), mk); p.normalize(); } });
+    pvMarks = [];
+  }
+  function applyPvMarks(hit) {
+    clearPvMarks();
+    const q = fq.value;
+    if (!q) return;
+    const escQ = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    let re;
+    try { re = new RegExp(escQ, caseCb.checked ? 'g' : 'gi'); } catch (e) { return; }
+    const walker = document.createTreeWalker(pv, NodeFilter.SHOW_TEXT, {
+      acceptNode: (n) => (n.parentNode && n.parentNode.tagName === 'STYLE') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
+    });
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    for (const node of nodes) {
+      const text = node.nodeValue;
+      re.lastIndex = 0;
+      if (!re.test(text)) continue;
+      re.lastIndex = 0;
+      const frag = document.createDocumentFragment();
+      let last = 0, m;
+      while ((m = re.exec(text)) !== null) {
+        if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+        const mk = document.createElement('mark');
+        mk.className = 'md-find-hl';
+        mk.textContent = m[0];
+        frag.appendChild(mk);
+        pvMarks.push(mk);
+        last = m.index + m[0].length;
+        if (!m[0].length) re.lastIndex++;
+      }
+      if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+      node.parentNode.replaceChild(frag, node);
+    }
+    // 当前匹配:源码同文本出现序 ↔ 预览同文本第 j 个高亮,滚动聚焦
+    if (hit && pvMarks.length) {
+      const hitText = ta.value.slice(hit.start, hit.end);
+      let j = 0;
+      for (let i = 0; i < fCur; i++) {
+        if (ta.value.slice(fMatches[i].start, fMatches[i].end) === hitText) j++;
+      }
+      const same = pvMarks.filter((mk) => mk.textContent === hitText);
+      const target = same[Math.min(j, same.length - 1)];
+      if (target) { target.classList.add('md-find-hl-cur'); target.scrollIntoView({ block: 'center' }); }
+    }
+  }
+  function findJump(direction, fromStart) {
+    fMatches = findCompute();
+    if (!fMatches.length) { fCur = -1; findCount(); clearPvMarks(); return; }
+    const n = fMatches.length;
+    fCur = (fromStart || fCur < 0) ? (direction > 0 ? 0 : n - 1) : (fCur + direction + n) % n;
+    const hit = fMatches[fCur];
+    ta.focus();
+    ta.setSelectionRange(hit.start, hit.end);
+    const line = ta.value.slice(0, hit.start).split('\n').length;
+    const lh = parseFloat(getComputedStyle(ta).lineHeight) || 22.1;
+    ta.scrollTop = Math.max(0, (line - 1) * lh - ta.clientHeight / 2 + lh);
+    findCount();
+    if (box.classList.contains('mode-edit')) clearPvMarks(); else applyPvMarks(hit);
+  }
+  function replaceCurrent() {
+    if (!fMatches.length || fCur < 0) { findJump(1, true); return; }
+    const hit = fMatches[fCur];
+    ta.value = ta.value.slice(0, hit.start) + rq.value + ta.value.slice(hit.end);
+    const caret = hit.start + rq.value.length;
+    applyEdit();
+    ta.setSelectionRange(caret, caret);
+    fMatches = findCompute();
+    fCur = fMatches.findIndex((m) => m.start >= caret);
+    if (fCur < 0) fCur = fMatches.length ? 0 : -1;
+    findCount();
+    if (fCur >= 0) findJump(0, false); else clearPvMarks();
+  }
+  function replaceAll() {
+    const q = fq.value;
+    if (!q) return;
+    const escQ = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    let re;
+    try { re = new RegExp(escQ, caseCb.checked ? 'g' : 'gi'); } catch (e) { return; }
+    ta.value = ta.value.replace(re, () => rq.value); // 函数替换,避免 $ 序列被解释
+    applyEdit();
+    fMatches = findCompute();
+    fCur = -1;
+    findCount();
+    if (!box.classList.contains('mode-edit')) applyPvMarks();
+  }
+  function openFind() {
+    fb.hidden = false;
+    const sel = ta.value.substring(ta.selectionStart, ta.selectionEnd);
+    if (sel && !fMatches.length) fq.value = sel.slice(0, 200);
+    fq.focus();
+    fq.select();
+    findJump(1, true);
+  }
+  function closeFind() {
+    fb.hidden = true;
+    fMatches = [];
+    fCur = -1;
+    findCount();
+    clearPvMarks();
+    ta.focus();
+  }
+  ov.querySelector('[data-fmt-find]').addEventListener('click', openFind);
+  // 标题颜色对话框(读写 state.settings,与 MD 查看器「标题色」同口径)
+  ov.querySelector('[data-fmt-color]').addEventListener('click', () => {
+    const off = !!(state.settings && state.settings.mdHeadingColorsOff);
+    const cur = effectiveHeadingColors();
+    const fields = [
+      { key: 'enable', label: T('mdColorEnable'), type: 'checkbox', value: !off },
+    ];
+    for (let i = 1; i <= 6; i++) {
+      fields.push({ key: 'h' + i, label: 'H' + i, type: 'text', value: cur['h' + i] || '' });
+    }
+    promptDialog({
+      title: T('mdColor'),
+      fields,
+      onOk: (vals) => {
+        setSetting('mdHeadingColorsOff', !(vals.enable === true || vals.enable === 'true'));
+        const hc = {};
+        for (let i = 1; i <= 6; i++) {
+          const v = String(vals['h' + i] || '').trim();
+          if (/^#[0-9a-fA-F]{6}$/.test(v)) hc['h' + i] = v.toLowerCase();
+        }
+        setSetting('mdHeadingColors', hc);
+        renderPv();
+        updateHl();
+      },
+    });
+  });
+  ov.querySelector('[data-find-prev]').addEventListener('click', () => findJump(-1));
+  ov.querySelector('[data-find-next]').addEventListener('click', () => findJump(1));
+  ov.querySelector('[data-find-close]').addEventListener('click', closeFind);
+  ov.querySelector('[data-replace-one]').addEventListener('click', replaceCurrent);
+  ov.querySelector('[data-replace-all]').addEventListener('click', replaceAll);
+  fq.addEventListener('input', () => { fCur = -1; findJump(1, true); });
+  fq.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); findJump(e.shiftKey ? -1 : 1); }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeFind(); }
+  });
+  rq.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); replaceCurrent(); }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeFind(); }
+  });
+  [caseCb, wordCb].forEach((cb) => cb.addEventListener('change', () => { fCur = -1; findJump(1, true); }));
+  ov.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) { e.preventDefault(); e.stopPropagation(); openFind(); }
+  });
+
+  // ---- 视图切换(分栏/编辑/预览) ----
+  ov.querySelectorAll('[data-nv]').forEach((b) => b.addEventListener('click', () => {
+    ov.querySelectorAll('[data-nv]').forEach((x) => x.classList.toggle('on', x === b));
+    box.className = 'todo-notes-box mode-' + b.dataset.nv;
+    syncHl();
+  }));
+  ov.querySelector('[data-notes-export]').addEventListener('click', () => exportNotesMd(title, ta.value));
+  const close = () => { document.removeEventListener('keydown', onKey, true); window.removeEventListener('resize', syncHl); ov.remove(); if (_notesWinClose === close) _notesWinClose = null; };
+  function onKey(e) {
+    if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); if (!fb.hidden) closeFind(); else close(); }
+  }
+  ov.querySelector('[data-notes-close]').addEventListener('click', close);
+  document.addEventListener('keydown', onKey, true);
+  _notesWinClose = close;
+  applyEdit();
+  setTimeout(() => ta.focus(), 0);
+}
+function closeNotesEditor() { if (_notesWinClose) _notesWinClose(); }
 
 // ---------------- 导出 CSV / JSON ----------------
 async function exportTasks(type) {

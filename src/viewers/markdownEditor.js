@@ -23,8 +23,9 @@ const TEXT_COLOR_PRESETS = ['#e0573c', '#ffb300', '#ffd54f', '#66bb6a', '#42a5f5
  * 计算各级标题的生效颜色(预览与编辑区标题行共用同一口径):
  * - settings.mdHeadingColorsOff = true → 一键不加颜色:返回 {},各级用默认文字色
  * - 否则逐级取 settings.mdHeadingColors 的合法 #rrggbb;未设置/非法 → 该级默认分级彩色
+ * 补丁·190:导出供 Todo 备注大窗口复用(同一套标题色口径)。
  */
-function effectiveHeadingColors() {
+export function effectiveHeadingColors() {
   const s = state.settings || {};
   if (s.mdHeadingColorsOff) return {};
   const hc = s.mdHeadingColors || {};

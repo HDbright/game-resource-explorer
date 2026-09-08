@@ -3189,6 +3189,40 @@ textarea.apm-inp { font-family: Consolas, "Cascadia Code", monospace; resize: ve
 .todo-sub-block.dragging { opacity: .45; }
 .todo-sub-block.sub-drop-before { box-shadow: inset 0 2px 0 0 var(--accent); }
 .todo-sub-block.sub-drop-after { box-shadow: inset 0 -2px 0 0 var(--accent); }
+/* 补丁·189:备注 Markdown 大窗口(分栏编辑/预览 + 导出 MD;预览复用全局 .md-preview 渲染样式) */
+.todo-notes-expand { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; margin-left: 6px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg3); color: var(--text2); font-size: 11px; line-height: 1; cursor: pointer; padding: 0; vertical-align: middle; transition: all .15s; }
+.todo-notes-expand:hover { border-color: var(--accent); color: var(--accent); }
+.todo-notes-win { position: fixed; inset: 0; z-index: 10001; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.55); }
+.todo-notes-box { width: 86vw; max-width: 1400px; height: 82vh; display: flex; flex-direction: column; background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,.5); overflow: hidden; }
+.todo-notes-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; flex-wrap: wrap; }
+.todo-notes-title { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 补丁·190:notes 窗口(挂 #modal-root)存在时,后续全局 .modal-mask 自动提升到 notes 窗口之上 */
+#modal-root .todo-notes-win ~ .modal-mask { z-index: 10003; }
+.todo-notes-body { flex: 1; min-height: 0; display: flex; }
+.todo-notes-src { flex: 1 1 auto; width: 100%; min-width: 0; resize: none; border: none; outline: none; padding: 14px 16px; background: var(--bg); color: var(--text); font-family: var(--mono); font-size: 13px; line-height: 1.7; user-select: text; }
+.todo-notes-preview { flex: 1 1 50%; min-width: 0; overflow: auto; border-left: 1px solid var(--border); background: var(--bg2); }
+/* 视图切换:edit 仅编辑 / preview 仅预览 */
+.todo-notes-box.mode-edit .todo-notes-preview { display: none; }
+.todo-notes-box.mode-edit .todo-notes-editwrap { flex: 1 1 100%; }
+.todo-notes-box.mode-preview .todo-notes-editwrap { display: none; }
+.todo-notes-box.mode-preview .todo-notes-preview { border-left: none; }
+/* 补丁·190:格式工具栏(emoji / 表格 / 查找替换)+ 查找替换条 */
+.todo-notes-fmt { display: flex; align-items: center; gap: 4px; padding: 6px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.todo-notes-fmt .todo-icon-btn { width: 24px; height: 24px; font-size: 12px; }
+.todo-notes-hint { margin-left: auto; font-size: 11px; color: var(--text3); }
+.todo-notes-findbar { display: flex; align-items: center; gap: 6px; padding: 6px 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; background: var(--bg3); flex-shrink: 0; }
+.todo-notes-findbar input[type="text"] { width: 170px; height: 24px; padding: 2px 8px; font-size: 12px; }
+.todo-notes-findbar label { display: inline-flex; gap: 3px; align-items: center; font-size: 11px; color: var(--text2); cursor: pointer; white-space: nowrap; }
+.todo-notes-findbar label input { accent-color: var(--accent); margin: 0; }
+.todo-notes-count { font-size: 11px; color: var(--text2); min-width: 40px; text-align: center; }
+.todo-notes-findbar .btn { padding: 3px 10px; font-size: 12px; }
+/* 补丁·190:编辑区标题分级着色背板(textarea 文字透明,背后 pre 逐行着色,复用 MD 查看器同款机制) */
+.todo-notes-editwrap { position: relative; flex: 1 1 50%; min-width: 0; display: flex; }
+.todo-notes-hl { position: absolute; top: 0; left: 0; height: 100%; margin: 0; overflow: hidden; pointer-events: none; z-index: 0; padding: 14px 16px; font-family: var(--mono); font-size: 13px; line-height: 1.7; tab-size: 2; white-space: pre-wrap; overflow-wrap: break-word; color: var(--text); background: var(--bg); border: none; }
+.todo-notes-hl code { font: inherit; background: transparent; padding: 0; border: none; }
+.todo-notes-box .todo-notes-src { position: relative; z-index: 1; background: transparent; color: transparent; caret-color: var(--text); }
+.todo-notes-box .todo-notes-src::selection { background: rgba(79,140,255,.45); }
+.todo-notes-box .todo-notes-src::placeholder { color: var(--text3); }
 .todo-sub-block-title { flex: 1; min-width: 100px; font-size: 12.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .todo-sub-block-pri { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 /* 子任务块底部 meta:tags + 截止日期 */
