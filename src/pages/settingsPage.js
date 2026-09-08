@@ -476,6 +476,30 @@ export function renderSettingsPage(container, opts = {}) {
             </span>
           </div>
           <div class="form-row">
+            <label class="f-label">菜单选中文字色</label>
+            <span class="path-edit">
+              <input id="tb-menuactivetext" class="text-input color-pick" type="color" value="#ffffff" />
+              <input id="tb-menuactivetext-hex" class="color-hex" type="text" value="#ffffff" spellcheck="false" />
+              <button class="btn sm ghost" id="tb-menuactivetext-reset">恢复默认</button>
+            </span>
+          </div>
+          <div class="form-row">
+            <label class="f-label">次要文字色</label>
+            <span class="path-edit">
+              <input id="tb-text2" class="text-input color-pick" type="color" value="#9aa1b2" />
+              <input id="tb-text2-hex" class="color-hex" type="text" value="#9aa1b2" spellcheck="false" />
+              <button class="btn sm ghost" id="tb-text2-reset">恢复默认</button>
+            </span>
+          </div>
+          <div class="form-row">
+            <label class="f-label">辅助文字色</label>
+            <span class="path-edit">
+              <input id="tb-text3" class="text-input color-pick" type="color" value="#6f7686" />
+              <input id="tb-text3-hex" class="color-hex" type="text" value="#6f7686" spellcheck="false" />
+              <button class="btn sm ghost" id="tb-text3-reset">恢复默认</button>
+            </span>
+          </div>
+          <div class="form-row">
             <label class="f-label">背景图</label>
             <span class="path-edit">
               <input id="tb-bgimage" class="text-input flex-1" type="text" placeholder="未设置(点击选择图片)" value="" readonly />
@@ -862,11 +886,14 @@ export function renderSettingsPage(container, opts = {}) {
   const tbHoverBg = container.querySelector('#tb-hoverbg');
   const tbBorder = container.querySelector('#tb-border');
   const tbInputBg = container.querySelector('#tb-inputbg');
+  const tbMenuActiveText = container.querySelector('#tb-menuactivetext');
+  const tbText2 = container.querySelector('#tb-text2');
+  const tbText3 = container.querySelector('#tb-text3');
 
   const THEME_DEFAULTS = {
-    dark:   { accent: '#4f8cff', bgColor: '#1b1d23', fgColor: '#e6e8ee', panelBg: '#22242b', menuBg: '#2a2d36', btnBg: '#2a2d36', hoverBg: '#333642', borderColor: '#343845', inputBg: '#2a2d36' },
-    light:  { accent: '#2f6fe0', bgColor: '#f3f4f7', fgColor: '#1f2329', panelBg: '#ffffff', menuBg: '#e8eaef', btnBg: '#e8eaef', hoverBg: '#e8e8e8', borderColor: '#d2d6df', inputBg: '#f0f1f4' },
-    custom: { accent: '#4f8cff', bgColor: '#1b1d23', fgColor: '#e6e8ee', panelBg: '#22242b', menuBg: '#2a2d36', btnBg: '#2a2d36', hoverBg: '#333642', borderColor: '#343845', inputBg: '#2a2d36' },
+    dark:   { accent: '#4f8cff', bgColor: '#1b1d23', fgColor: '#e6e8ee', panelBg: '#22242b', menuBg: '#2a2d36', btnBg: '#2a2d36', hoverBg: '#333642', borderColor: '#343845', inputBg: '#2a2d36', menuActiveText: '#ffffff', text2: '#9aa1b2', text3: '#6f7686' },
+    light:  { accent: '#2f6fe0', bgColor: '#f3f4f7', fgColor: '#1f2329', panelBg: '#ffffff', menuBg: '#e8eaef', btnBg: '#e8eaef', hoverBg: '#e8e8e8', borderColor: '#d2d6df', inputBg: '#f0f1f4', menuActiveText: '#1a1a2e', text2: '#6b7280', text3: '#9aa1ad' },
+    custom: { accent: '#4f8cff', bgColor: '#1b1d23', fgColor: '#e6e8ee', panelBg: '#22242b', menuBg: '#2a2d36', btnBg: '#2a2d36', hoverBg: '#333642', borderColor: '#343845', inputBg: '#2a2d36', menuActiveText: '#ffffff', text2: '#9aa1b2', text3: '#6f7686' },
   };
   // 当前编辑所针对的主题名(跟随系统 -> 解析为 dark/light)
   const editThemeName = () => {
@@ -888,6 +915,9 @@ export function renderSettingsPage(container, opts = {}) {
     container.querySelector('#tb-hoverbg-hex').value = tbHoverBg.value;
     container.querySelector('#tb-border-hex').value = tbBorder.value;
     container.querySelector('#tb-inputbg-hex').value = tbInputBg.value;
+    container.querySelector('#tb-menuactivetext-hex').value = tbMenuActiveText.value;
+    container.querySelector('#tb-text2-hex').value = tbText2.value;
+    container.querySelector('#tb-text3-hex').value = tbText3.value;
   };
   // 校验并规范化 hex 颜色值(#RGB → #RRGGBB),无效返回 null
   const normalizeHex = (v) => {
@@ -916,6 +946,9 @@ export function renderSettingsPage(container, opts = {}) {
   bindHexInput(container.querySelector('#tb-hoverbg-hex'), tbHoverBg, 'hoverBg');
   bindHexInput(container.querySelector('#tb-border-hex'), tbBorder, 'borderColor');
   bindHexInput(container.querySelector('#tb-inputbg-hex'), tbInputBg, 'inputBg');
+  bindHexInput(container.querySelector('#tb-menuactivetext-hex'), tbMenuActiveText, 'menuActiveText');
+  bindHexInput(container.querySelector('#tb-text2-hex'), tbText2, 'text2');
+  bindHexInput(container.querySelector('#tb-text3-hex'), tbText3, 'text3');
   // 把某主题的配置载入控件
   const loadThemeControls = () => {
     const name = editThemeName();
@@ -930,12 +963,15 @@ export function renderSettingsPage(container, opts = {}) {
     tbHoverBg.value = cfg.hoverBg || def.hoverBg;
     tbBorder.value = cfg.borderColor || def.borderColor;
     tbInputBg.value = cfg.inputBg || def.inputBg;
+    tbMenuActiveText.value = cfg.menuActiveText || def.menuActiveText;
+    tbText2.value = cfg.text2 || def.text2;
+    tbText3.value = cfg.text3 || def.text3;
     tbBgImage.value = cfg.bgImage || '';
     tbBgOn.checked = !!cfg.bgImageOn;
     syncHexLabels();
   };
   // 主题字段 → CSS 变量键映射(清除 colorOverrides 冲突用)
-  const FIELD_TO_CSS_KEY = { accent: 'accent', bgColor: 'bg', fgColor: 'text', panelBg: 'bg2', menuBg: 'bg3', btnBg: 'btn-bg', hoverBg: 'bg4', borderColor: 'border', inputBg: 'input-bg' };
+  const FIELD_TO_CSS_KEY = { accent: 'accent', bgColor: 'bg', fgColor: 'text', panelBg: 'bg2', menuBg: 'bg3', btnBg: 'btn-bg', hoverBg: 'bg4', borderColor: 'border', inputBg: 'input-bg', menuActiveText: 'menu-active-text', text2: 'text2', text3: 'text3' };
   // 写入当前编辑主题的配置 + 实时预览(立即落盘)
   const writeThemeField = (field, value) => {
     const name = editThemeName();
@@ -977,6 +1013,9 @@ export function renderSettingsPage(container, opts = {}) {
   tbHoverBg.addEventListener('input', () => { writeThemeField('hoverBg', tbHoverBg.value); syncHexLabels(); });
   tbBorder.addEventListener('input', () => { writeThemeField('borderColor', tbBorder.value); syncHexLabels(); });
   tbInputBg.addEventListener('input', () => { writeThemeField('inputBg', tbInputBg.value); syncHexLabels(); });
+  tbMenuActiveText.addEventListener('input', () => { writeThemeField('menuActiveText', tbMenuActiveText.value); syncHexLabels(); });
+  tbText2.addEventListener('input', () => { writeThemeField('text2', tbText2.value); syncHexLabels(); });
+  tbText3.addEventListener('input', () => { writeThemeField('text3', tbText3.value); syncHexLabels(); });
   tbBgOn.addEventListener('change', () => writeThemeField('bgImageOn', tbBgOn.checked));
   container.querySelector('#tb-accent-reset').addEventListener('click', () => {
     const def = (THEME_DEFAULTS[editThemeName()] || THEME_DEFAULTS.dark).accent;
@@ -1030,6 +1069,24 @@ export function renderSettingsPage(container, opts = {}) {
     const def = (THEME_DEFAULTS[editThemeName()] || THEME_DEFAULTS.dark).inputBg;
     tbInputBg.value = def;
     writeThemeField('inputBg', def);
+    syncHexLabels();
+  });
+  container.querySelector('#tb-menuactivetext-reset').addEventListener('click', () => {
+    const def = (THEME_DEFAULTS[editThemeName()] || THEME_DEFAULTS.dark).menuActiveText;
+    tbMenuActiveText.value = def;
+    writeThemeField('menuActiveText', def);
+    syncHexLabels();
+  });
+  container.querySelector('#tb-text2-reset').addEventListener('click', () => {
+    const def = (THEME_DEFAULTS[editThemeName()] || THEME_DEFAULTS.dark).text2;
+    tbText2.value = def;
+    writeThemeField('text2', def);
+    syncHexLabels();
+  });
+  container.querySelector('#tb-text3-reset').addEventListener('click', () => {
+    const def = (THEME_DEFAULTS[editThemeName()] || THEME_DEFAULTS.dark).text3;
+    tbText3.value = def;
+    writeThemeField('text3', def);
     syncHexLabels();
   });
   container.querySelector('#tb-bgimage-pick').addEventListener('click', async () => {

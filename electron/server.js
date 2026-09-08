@@ -47,6 +47,8 @@ const MIME = {
   '.wmv': 'video/x-ms-wmv',
   '.ts': 'video/mp2t',
   '.3gp': 'video/3gpp',
+  // 文档
+  '.pdf': 'application/pdf',
 };
 
 const AUDIO_EXTS = ['.mp3', '.wav', '.ogg', '.flac', '.wma', '.m4a', '.aac', '.opus'];
@@ -57,9 +59,10 @@ const AUDIO_EXTS = ['.mp3', '.wav', '.ogg', '.flac', '.wma', '.m4a', '.aac', '.o
  * - `/a/<itemId>/<相对路径>` → 某个动画条目根目录下的资源(用于加载骨骼/贴图)
  * - `/spine-pv/<token>/<相对路径>` → Spine 转换工具预览目录(spine-converter 注册)
  * - `/html-pv/<token>/<相对路径>` → HTML 文档预览目录(渲染端打开 html 时注册;相对 CSS/JS/图片 经同源 http 加载,避免 file:// 被 webSecurity 拦截)
+ * - `/pdf-pv/<token>/<相对路径>` → PDF 文档预览目录(渲染端打开 pdf 时注册;Chromium 内置 PDF 渲染器经 iframe 嵌入)
  * - `/afile?p=<绝对路径>` → 任意音频文件(播放列表/后台播放,仅音频扩展名)
  */
-function createServer({ dist, roots, previewRoots, htmlRoots }) {
+function createServer({ dist, roots, previewRoots, htmlRoots, pdfRoots }) {
   const server = http.createServer(async (req, res) => {
     try {
       const u = new URL(req.url, 'http://localhost');
@@ -124,6 +127,24 @@ function createServer({ dist, roots, previewRoots, htmlRoots }) {
         const rel = rest.slice(slash + 1);
         if (!token || !rel) return send(res, 404, 'Not Found');
         const root = htmlRoots && htmlRoots().get(token);
+        if (!root) return send(res, 404, 'Preview Not Found');
+        const rootNorm = path.resolve(root);
+        const full = path.resolve(rootNorm, rel);
+        if (full !== rootNorm && !full.startsWith(rootNorm + path.sep)) {
+          return send(res, 403, 'Forbidden');
+        }
+        return serveFile(req, res, full);
+      }
+
+      // PDF 文档预览
+      if (pathname.startsWith('/pdf-pv/')) {
+        const rest = pathname.slice(8); // "<token>/<rel>"
+        const slash = rest.indexOf('/');
+        if (slash < 0) return send(res, 404, 'Not Found');
+        const token = rest.slice(0, slash);
+        const rel = rest.slice(slash + 1);
+        if (!token || !rel) return send(res, 404, 'Not Found');
+        const root = pdfRoots && pdfRoots().get(token);
         if (!root) return send(res, 404, 'Preview Not Found');
         const rootNorm = path.resolve(root);
         const full = path.resolve(rootNorm, rel);

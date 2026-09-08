@@ -76,6 +76,8 @@ contextBridge.exposeInMainWorld('api', {
   spinePreviewRegister: (args) => ipcRenderer.invoke('tool:spinePreviewRegister', args),
   htmlPreviewRegister: (args) => ipcRenderer.invoke('html:previewRegister', args),
   htmlPreviewUnregister: (args) => ipcRenderer.invoke('html:previewUnregister', args),
+  pdfPreviewRegister: (args) => ipcRenderer.invoke('pdf:previewRegister', args),
+  pdfPreviewUnregister: (args) => ipcRenderer.invoke('pdf:previewUnregister', args),
 
   // ---- FGUI 逆向:探测 / 单包解析 / 目录批量导出 / 源工程还原 ----
   fguiProbe: (args) => ipcRenderer.invoke('fgui:probe', args),

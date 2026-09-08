@@ -22,6 +22,7 @@
   --font: "Microsoft YaHei", "PingFang SC", "Segoe UI", system-ui, sans-serif;
   --mono: Consolas, "Courier New", monospace;
   --fw: 400;
+  --menu-active-text: #ffffff;
   --btn-bg: var(--bg3);
   --input-bg: var(--bg3);
 }
@@ -43,6 +44,7 @@
   --danger: #d9363e;
   --ok: #2e9e4b;
     --input-bg: #f0f1f4;
+  --menu-active-text: #1a1a2e;
   /* 浅色下饱和度略降、明度略深,保证白底上的文字对比度(WCAG ≥ 4:1) */
   --st-todo: #4f46e5;
   --st-prog: #d97706;
@@ -247,7 +249,7 @@ body {
   cursor: pointer; color: var(--text); user-select: none;
 }
 .cat-node:hover { background: var(--bg3); }
-.cat-node.active { background: var(--bg4); color: var(--bg); }
+.cat-node.active { background: var(--bg4); color: var(--menu-active-text); }
 .cat-node .cat-arrow {
   position: relative;
   width: 18px; height: 24px;
@@ -337,7 +339,7 @@ body {
   cursor: pointer; color: var(--text); font-size: 13px;
 }
 .item-node:hover { background: var(--bg3); }
-.item-node.active { background: var(--bg4); color: var(--bg); }
+.item-node.active { background: var(--bg4); color: var(--menu-active-text); }
 .item-node .ic-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 /* 优化(v1.7.1→v1.7.2):同 cat-ops,条目操作按钮改为右侧绝对定位浮层,
    名称(.ic-name)可显区恢复占满行宽;hover 仅 opacity/transform 合成,零 reflow(卡顿修复保持)。 */
@@ -537,12 +539,22 @@ body {
 /* 沉浸查看热区(pv-chrome-zone)的相对定位容器 */
 #page-preview { position: relative; }
 /* 预览子视图必须撑满 flex 容器,否则 #preview-body 的 flex:1 塌陷、canvas 高度为 0(FGUI 查看器同样依赖) */
-#pv-anim-view, #pv-image-view, #pv-audio-view, #pv-fgui-view, #pv-video-view, #pv-markdown-view, #pv-html-view {
+#pv-anim-view, #pv-image-view, #pv-audio-view, #pv-fgui-view, #pv-video-view, #pv-markdown-view, #pv-html-view, #pv-pdf-view {
   flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden;
 }
 #pv-fgui-view .fgui-viewer { flex: 1; min-height: 0; }
 #pv-markdown-view .md-editor { flex: 1; min-height: 0; }
 #pv-html-view .html-editor { flex: 1; min-height: 0; }
+#pv-pdf-view .pdf-body { flex: 1; min-height: 0; }
+
+/* ============ PDF 文档预览(Chromium 内置 PDF 渲染器经 iframe 嵌入) ============ */
+.pdf-toolbar {
+  display: flex; align-items: center; gap: 8px; padding: 6px 12px;
+  border-bottom: 1px solid var(--border, #333); flex-shrink: 0;
+}
+.pdf-path { font-size: 12px; color: var(--text2, #888); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pdf-body { display: flex; flex-direction: column; }
+.pdf-frame { flex: 1; border: none; background: #fff; width: 100%; height: 100%; }
 
 /* ============ HTML 查看/编辑器(参考 Markdown 分栏体验,预览用 iframe 渲染真实网页) ============ */
 .html-editor { display: flex; flex-direction: column; flex: 1; min-height: 0; }
@@ -1110,7 +1122,7 @@ input[type="color"] { width: 30px; height: 26px; border: 1px solid var(--border)
 }
 .resource-tabs .tab:hover { background: var(--bg3); color: var(--text); }
 .resource-tabs .tab.active {
-  background: var(--accent2); border-color: var(--accent2); color: #fff; font-weight: 600;
+  background: var(--accent2); border-color: var(--accent2); color: var(--menu-active-text); font-weight: 600;
 }
 .resource-tabs .tab.active:hover { background: var(--accent); }
 

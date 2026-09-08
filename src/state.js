@@ -1,4 +1,5 @@
 // ============ 数据状态层(分类 / 动画条目 / 场景 CRUD) ============
+import pdfIconUrl from './assets/pdf-icon.png';
 
 /** 设置默认值(合并到已保存设置,保证旧库缺字段时也能补齐) */
 export const DEFAULT_SETTINGS = {
@@ -55,9 +56,9 @@ export const DEFAULT_SETTINGS = {
   fontFamily: '', // 全局字体(''=系统默认;可选预设字体族)
   // 各主题独立配置(强调色 / 背景色 / 前景色 / 背景图),互不共享
   themes: {
-    dark:   { accent: '', bgColor: '', fgColor: '', bgImage: '', bgImageOn: false, panelBg: '', menuBg: '', btnBg: '', hoverBg: '', borderColor: '', inputBg: '' },
-    light:  { accent: '', bgColor: '', fgColor: '', bgImage: '', bgImageOn: false, panelBg: '', menuBg: '', btnBg: '', hoverBg: '', borderColor: '', inputBg: '' },
-    custom: { accent: '', bgColor: '', fgColor: '', bgImage: '', bgImageOn: false, panelBg: '', menuBg: '', btnBg: '', hoverBg: '', borderColor: '', inputBg: '' },
+    dark:   { accent: '', bgColor: '', fgColor: '', bgImage: '', bgImageOn: false, panelBg: '', menuBg: '', btnBg: '', hoverBg: '', borderColor: '', inputBg: '', menuActiveText: '', text2: '', text3: '' },
+    light:  { accent: '', bgColor: '', fgColor: '', bgImage: '', bgImageOn: false, panelBg: '', menuBg: '', btnBg: '', hoverBg: '', borderColor: '', inputBg: '', menuActiveText: '', text2: '', text3: '' },
+    custom: { accent: '', bgColor: '', fgColor: '', bgImage: '', bgImageOn: false, panelBg: '', menuBg: '', btnBg: '', hoverBg: '', borderColor: '', inputBg: '', menuActiveText: '', text2: '', text3: '' },
   },
   // 图标库(节点图标选择面板):自定义分组 + 图标(emoji 或 PNG dataURL)
   iconGroups: [], // [{ id, name, sort }]
@@ -1162,6 +1163,8 @@ export const BUILTIN_TYPE_DEFS = {
   icon: { name: '图标', exts: ['.ico', '.icns', '.svg', '.webp', '.png'], group: 'icon' },
   // 内置视频类型
   video: { name: '视频', exts: ['.mp4', '.mkv', '.flv', '.webm', '.avi', '.mov', '.wmv', '.ts', '.3gp', '.m4v', '.ogv', '.mpg', '.mpeg'], group: 'video' },
+  // 内置 PDF 文档类型
+  pdf: { name: 'PDF', exts: ['.pdf'], group: 'article' },
   // 内置项目管理类型
   project: { name: '项目管理', exts: ['.prom'], group: 'image' },
 };
@@ -1588,7 +1591,7 @@ export function typeColor(type) {
   return `hsl(${h % 360}, 72%, 64%)`;
 }
 
-/** 扩展名 → 类型:自定义类型 > 自定义分组 > 内置 */
+/** 扩展名 → 类型:自定义类型 > 自定义分组 > 内置(BUILTIN_TYPE_DEFS 优先,多类型共用扩展名按定义序) */
 export function extToType(ext) {
   const e = String(ext || '').toLowerCase();
   for (const ct of customTypes()) {
@@ -1600,6 +1603,9 @@ export function extToType(ext) {
   if (TYPE_EXTENSIONS.image.includes(e)) return 'image';
   if (TYPE_EXTENSIONS.audio.includes(e)) return 'audio';
   if (TYPE_EXTENSIONS.model.includes(e)) return 'model';
+  for (const [tid, def] of Object.entries(BUILTIN_TYPE_DEFS)) {
+    if (def.exts.includes(e)) return tid;
+  }
   return null;
 }
 
@@ -2389,7 +2395,7 @@ export const DEFAULT_RESOURCE_GROUP_ICONS = { anim: '🎬', image: '🖼', audio
 /** 内置资源类型默认图标(具体资源文件条目徽标;可在设置页「资源类型管理」修改) */
 export const DEFAULT_RESOURCE_TYPE_ICONS = {
   spine: '🎬', dragonbones: '🦕', image: '🖼', audio: '♪', model: '🧊', fgui: '🧩', video: '🎞',
-  markdown: '📄', text: '📄', config: '⚙️', database: '🗄', web: '🌐',
+  markdown: '📄', text: '📄', config: '⚙️', database: '🗄', web: '🌐', pdf: pdfIconUrl,
 };
 
 /** 资源分组(内置 anim/image/audio/3d)图标:settings.resourceGroupIcons → 默认 */
@@ -3545,9 +3551,9 @@ export function removeApiEndpoint(id) {
 
 // ================= 图标库(节点图标:emoji 或 PNG dataURL) =================
 
-/** icon 是否为图片(dataURL)图标 */
+/** icon 是否为图片图标(dataURL 或 Vite 构建的资源 URL,均可作为 <img src>) */
 export function isImageIcon(icon) {
-  return typeof icon === 'string' && icon.startsWith('data:image');
+  return typeof icon === 'string' && (icon.startsWith('data:image') || icon.startsWith('/assets/') || icon.startsWith('./assets/'));
 }
 
 /** 是否为 URL(网址):协议名 + :// 开头 */

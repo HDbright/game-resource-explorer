@@ -62,6 +62,7 @@ import { AudioPlayerController } from './viewers/audioViewer.js';
 import { FguiViewerController } from './viewers/fguiViewer.js';
 import { MarkdownEditorController } from './viewers/markdownEditor.js';
 import { HtmlEditorController } from './viewers/htmlEditor.js';
+import { PdfViewerController } from './viewers/pdfViewer.js';
 import { thumbnailService } from './thumbnails.js';
 import { makeCopyablePath, setCopyablePath } from './clipboard.js';
 import { loadSearchHistory, saveSearchHistory, addSearchHistory, removeSearchHistory } from './searchHistory.js';
@@ -75,6 +76,7 @@ let audioPlayer = null;
 let fguiViewer = null;
 let markdownEditor = null;
 let htmlEditor = null;
+let pdfViewer = null;
 let fguiPvTab = 'editor'; // pv-fgui-view 当前标签: 'editor'(FGUI编辑器) | 'list'(资源清单)
 let fguiPvListItem = null; // 资源清单待加载的 item(切到该标签时懒加载)
 let lastFolderTab = 'anim'; // 进入预览前所在 tab,返回时恢复
@@ -438,6 +440,10 @@ export function initUI(pv) {
   htmlEditor = new HtmlEditorController();
   const htmlWrap = document.getElementById('pv-html-view');
   if (htmlWrap) htmlEditor.init(htmlWrap);
+  // PDF 文档预览(预览页 pv-pdf-view,Chromium 内置 PDF 渲染器经 iframe 嵌入)
+  pdfViewer = new PdfViewerController();
+  const pdfWrap = document.getElementById('pv-pdf-view');
+  if (pdfWrap) pdfViewer.init(pdfWrap);
   // 编辑器工具栏:新建空白文档(由 ui.js 的 newDocument 流程处理:建文件+入库+打开)
   // ⚠️ 「另存为」按钮已在各自编辑器的 init() 内绑定,此处不要重复绑定(否则点一次弹两个保存对话框)
   const mdNew = document.getElementById('md-new');
@@ -6470,6 +6476,8 @@ function showPreviewPage(item) {
   if (videoView) videoView.hidden = !isVideoItem(item);
   if (markdownView) markdownView.hidden = !isMarkdownFile(item);
   if (htmlView) htmlView.hidden = !isHtmlFile(item);
+  const pdfView = document.getElementById('pv-pdf-view');
+  if (pdfView) pdfView.hidden = !isPdfFile(item);
   // 顶部工具栏的「⇕ 隐藏工具栏」「⛶ 全屏」仅图片预览显示
   const isImage = isImageType(item.type);
   const chromeBtn = document.getElementById('img-chrome');
@@ -6568,6 +6576,8 @@ export async function selectItem(id, opts = {}) {
       await showMarkdownViewer(item);
     } else if (isHtmlFile(item)) {
       await showHtmlViewer(item);
+    } else if (isPdfFile(item)) {
+      await showPdfViewer(item);
     } else if (isTextType(item)) {
       await showTextPreview(item);
     } else if (item.type === 'database') {
@@ -6667,6 +6677,12 @@ function isHtmlFile(item) {
   if (!item || !item.filePath) return false;
   const s = String(item.filePath).toLowerCase();
   return s.endsWith('.html') || s.endsWith('.htm') || s.endsWith('.xhtml');
+}
+
+/** 是否为 PDF 文件(.pdf,按扩展名判定) */
+function isPdfFile(item) {
+  if (!item || !item.filePath) return false;
+  return String(item.filePath).toLowerCase().endsWith('.pdf');
 }
 
 /** 取文件路径的目录(去掉最后一段) */
@@ -6801,6 +6817,20 @@ async function showHtmlViewer(item) {
   } catch (e) {
     const er = document.getElementById('pv-error');
     if (er) { er.hidden = false; er.textContent = 'HTML 加载失败: ' + (e.message || e); }
+  }
+}
+
+/** PDF 文档预览:注册预览目录,构造同源 URL,Chromium 内置 PDF 渲染器经 iframe 嵌入 */
+async function showPdfViewer(item) {
+  showPreviewPage(item);
+  const errEl = document.getElementById('pv-error');
+  if (errEl) errEl.hidden = true;
+  if (!pdfViewer) return;
+  try {
+    await pdfViewer.load(item.filePath);
+  } catch (e) {
+    const er = document.getElementById('pv-error');
+    if (er) { er.hidden = false; er.textContent = 'PDF 加载失败: ' + (e.message || e); }
   }
 }
 

@@ -128,6 +128,8 @@ let roots = new Map();
 const previewRoots = new Map();
 // HTML 文档预览目录注册表(渲染端打开 html 时注册,供 /html-pv/<token>/ 同源加载相对资源)
 const htmlRoots = new Map();
+// PDF 文档预览目录注册表(渲染端打开 pdf 时注册,供 /pdf-pv/<token>/ 同源加载)
+const pdfRoots = new Map();
 
 /** 文件名安全化(itemId 用于缩略图缓存文件名) */
 function safeId(id) {
@@ -1022,7 +1024,7 @@ app.whenReady().then(async () => {
   // 闹钟启用状态变化 → 刷新托盘图标(叠加小时钟角标, 补丁·99)
   try { timerWindows.setAlarmChangeListener(refreshTrayAlarm); } catch (e) { /* ignore */ }
 
-  server = createServer({ dist: DIST_DIR, roots: () => roots, previewRoots: () => previewRoots, htmlRoots: () => htmlRoots });
+  server = createServer({ dist: DIST_DIR, roots: () => roots, previewRoots: () => previewRoots, htmlRoots: () => htmlRoots, pdfRoots: () => pdfRoots });
   await server.ready;
   _T('server ready');
 
@@ -1800,6 +1802,28 @@ app.whenReady().then(async () => {
   ipcMain.handle('html:previewUnregister', async (_e, { token }) => {
     try {
       if (token) htmlRoots.delete(token);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // 注册 PDF 文档所在目录到静态服务 pdfRoots,返回 token,供预览用 /pdf-pv/<token>/ 同源加载
+  ipcMain.handle('pdf:previewRegister', async (_e, { dir }) => {
+    try {
+      if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
+        return { ok: false, error: '目录不存在或无效:' + dir };
+      }
+      const token = 'pdf_' + crypto.randomBytes(8).toString('hex');
+      pdfRoots.set(token, dir);
+      return { ok: true, token };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+  ipcMain.handle('pdf:previewUnregister', async (_e, { token }) => {
+    try {
+      if (token) pdfRoots.delete(token);
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message };

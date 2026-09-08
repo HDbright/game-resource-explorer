@@ -7,6 +7,25 @@
 
 ---
 
+## 2026-09-03（补丁·191）
+
+### [新增] 内置 PDF 文档类型 + Chromium 原生 PDF 预览
+
+- **内置类型注册**(`src/state.js`):`BUILTIN_TYPE_DEFS` 新增 `pdf` 类型(`.pdf`,归属 `article` 文档资源分组);`DEFAULT_RESOURCE_TYPE_ICONS` 添加 PDF 专用图标(`src/assets/pdf-icon.png` → Vite 构建时自动打入 dist)。
+- **扩展名解析**(`extToType`):补充 `BUILTIN_TYPE_DEFS` 兜底扫描,`.pdf` 等此前未覆盖的扩展名现在正确识别。
+- **图标系统**(`isImageIcon`):扩展为同时支持 `data:image` dataURL 和 Vite 构建资源 URL(`/assets/...`),PDF 图标以 `<img>` 渲染而非 emoji。
+- **PDF 预览**:Chromium 内置 PDF 渲染器经 iframe 嵌入,原生翻页/缩放/打印/下载/搜索全功能,无需外部库。
+  - `electron/server.js`:MIME 表添加 `.pdf: 'application/pdf'`;新增 `/pdf-pv/<token>/<rel>` 路由(与 `/html-pv/` 同模式,traversal 保护)。
+  - `electron/main.js`:新增 `pdfRoots` Map + `pdf:previewRegister`/`pdf:previewUnregister` IPC handler。
+  - `electron/preload.js`:暴露 `pdfPreviewRegister`/`pdfPreviewUnregister`。
+  - `index.html`:新增 `#pv-pdf-view` 容器(toolbar + iframe)。
+  - `src/viewers/pdfViewer.js`:新文件,`PdfViewerController` 管理预览生命周期(注册/注销预览目录,构造同源 URL)。
+  - `src/ui.js`:导入 + 初始化 + `isPdfFile()` 辅助函数 + `selectItem()` 路由链插入 + `showPreviewPage()` 切换 + `showPdfViewer()`。
+  - `src/style.css`:`#pv-pdf-view` 加入共享子视图规则 + PDF 专属样式。
+- **兼容**:旧库中已有的 `.pdf` 自定义类型不冲突(`extToType` 中自定义类型优先于内置);`normalizeTypeGroup` 已支持 `'article'` 分组(补丁·190)。
+
+---
+
 ## 2026-09-03（补丁·190）
 
 ### [修复] 自定义资源类型归属分组:选「文档资源」等内置扩展分组后回退成图片资源
