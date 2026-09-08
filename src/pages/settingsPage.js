@@ -1480,7 +1480,7 @@ export function renderSettingsPage(container, opts = {}) {
       const refreshIcon = () => {
         icEl.innerHTML = '';
         const ic = resourceGroupIcon(v) || '📁';
-        if (ic.startsWith('data:image')) {
+        if (ic.startsWith('data:image') || ic.startsWith('/assets/')) {
           const img = document.createElement('img'); img.src = ic; img.alt = '';
           icEl.appendChild(img);
         } else {
@@ -1643,7 +1643,7 @@ export function renderSettingsPage(container, opts = {}) {
     const builtins = [
       'spine', 'dragonbones', 'image', 'audio', 'model', 'fgui',
       'markdown', 'text', 'config', 'database', 'web',
-      'icon', 'video', 'project',
+      'icon', 'video', 'pdf', 'project',
     ];
     // 编辑内置类型:名称 + 扩展名 + 图标(名称/扩展名存 builtinTypeOverrides,图标存 resourceTypeIcons)
     const editBuiltinTypeDialog = (id) => {
@@ -1716,7 +1716,7 @@ export function renderSettingsPage(container, opts = {}) {
       const refreshIcon = () => {
         icEl.innerHTML = '';
         const ic = resourceTypeIcon(id) || '🗂';
-        if (ic.startsWith('data:image')) {
+        if (ic.startsWith('data:image') || ic.startsWith('/assets/')) {
           const img = document.createElement('img'); img.src = ic; img.alt = '';
           icEl.appendChild(img);
         } else {

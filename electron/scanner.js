@@ -39,6 +39,7 @@ const DOC_EXTS = {
   config: ['.ini', '.json', '.xml', '.yaml', '.yml', '.toml'],
   database: ['.db', '.sql', '.mdd', '.mdx'],
   web: ['.htm', '.html', '.xhtml'],
+  pdf: ['.pdf'],
 };
 
 /** 探测 .bin 文件是否为 Spine 二进制骨架(.skel)。只读头部 256 字节,避免整文件读取。 */
